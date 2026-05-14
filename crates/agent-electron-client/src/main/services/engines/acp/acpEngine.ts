@@ -86,11 +86,15 @@ import { APP_DATA_DIR_NAME } from "../../constants";
 import { perfEmitter } from "../perf/perfEmitter";
 import { firstTokenTrace } from "../perf/firstTokenTrace";
 import { resolveEffectiveMode, type AcpMode } from "@shared/types/acpMode";
-import { approvalInterventionService } from "../../intervention";
+import {
+  approvalInterventionService,
+  isRcoderNotifyResolvedRequest,
+  toRcoderPermissionProgressData,
+} from "../../intervention";
 import type {
-  PendingAcpPermission,
   NotifyResolvedRequest,
   NotifyResolvedResponse,
+  RcoderNotifyResolvedRequest,
 } from "@shared/types/intervention";
 
 /** Safe JSON.stringify that handles circular references */
@@ -2603,12 +2607,18 @@ User question: ${request.prompt}`;
       `${this.logTag} 📋 Permission pending (ask mode): id=${interventionRequest.id} tool=${params.toolCall.title}`,
     );
 
+    const permissionProgressData = toRcoderPermissionProgressData({
+      acpRequest: params,
+      interventionId: interventionRequest.id,
+      revision: interventionRequest.revision,
+    });
+
     this.emit("computer:progress", {
       sessionId: appSessionId,
       acpSessionId,
       messageType: "acpRequestPermission",
-      subType: "session/request_permission",
-      data: interventionRequest,
+      subType: "request_permission",
+      data: permissionProgressData,
       timestamp: new Date().toISOString(),
     });
 
@@ -2616,8 +2626,11 @@ User question: ${request.prompt}`;
   }
 
   resolvePermissionIntervention(
-    payload: NotifyResolvedRequest,
+    payload: NotifyResolvedRequest | RcoderNotifyResolvedRequest,
   ): NotifyResolvedResponse {
+    if (isRcoderNotifyResolvedRequest(payload)) {
+      return approvalInterventionService.resolveFromRcoderCallback(payload);
+    }
     return approvalInterventionService.resolveFromCallback(payload);
   }
 }

@@ -43,6 +43,15 @@ vi.mock("electron-log", () => ({
     debug: vi.fn(),
   },
 }));
+vi.mock("electron", () => ({
+  app: {
+    getPath: vi.fn((name: string) =>
+      name === "home" ? "/mock/home" : "/mock/appdata",
+    ),
+    getVersion: vi.fn(() => "0.0.0-test"),
+    isPackaged: false,
+  },
+}));
 vi.mock("./constants", () => ({
   LOCALHOST_HOSTNAME: "127.0.0.1",
   APP_DATA_DIR_NAME: ".nuwaclaw",

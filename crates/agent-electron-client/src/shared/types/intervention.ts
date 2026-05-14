@@ -126,6 +126,70 @@ export interface NotifyResolvedRequest {
   resolvedAt: number;
 }
 
+// === RCoder Permission Request Contract ===
+
+export interface RcoderPermissionToolCall {
+  tool_call_id: string;
+  kind: string;
+  status: "pending" | "in_progress" | "completed" | "failed";
+  title: string;
+  content: unknown[];
+  raw_input: unknown;
+  _meta?: Record<string, unknown>;
+}
+
+export interface RcoderPermissionOption {
+  option_id: string;
+  name: string;
+  kind: AcpPermissionOptionKind;
+  _meta?: Record<string, unknown>;
+}
+
+export interface RcoderRequestPermissionRequest {
+  session_id: string;
+  tool_call: RcoderPermissionToolCall;
+  options: RcoderPermissionOption[];
+  _meta?: Record<string, unknown>;
+}
+
+export interface RcoderPermissionSaveRule {
+  suggested_pattern: string;
+  rule_type: "allow" | "deny";
+  tool_name: string;
+}
+
+export interface RcoderPermissionProgressData {
+  request_permission_request: RcoderRequestPermissionRequest;
+  tool_call_id: string;
+  save_rule?: RcoderPermissionSaveRule;
+  _meta?: Record<string, unknown>;
+}
+
+export type RcoderRequestPermissionOutcome =
+  | { Selected: { option_id: string } }
+  | { Cancelled: Record<string, never> | null };
+
+export interface RcoderRequestPermissionResponse {
+  outcome: RcoderRequestPermissionOutcome;
+}
+
+export interface RcoderPermissionResolveRequest {
+  request_permission_response: RcoderRequestPermissionResponse;
+  session_id: string;
+  tool_call_id: string;
+  save_rule?: boolean;
+}
+
+export interface RcoderNotifyResolvedRequest {
+  permission_resolve_request: RcoderPermissionResolveRequest;
+  user_id?: string;
+  project_id?: string;
+  pod_id?: string;
+  tenant_id?: string;
+  space_id?: string;
+  isolation_type?: string;
+}
+
 export type NotifyResolvedHostStatus =
   | "resolved"
   | "already_resolved"
@@ -139,7 +203,13 @@ export type NotifyResolvedErrorCode =
   | "revision_mismatch"
   | "invalid_acp_response"
   | "already_resolved_conflict"
-  | "internal_error";
+  | "internal_error"
+  | "ERR_VALIDATION"
+  | "ERR_SESSION_NOT_FOUND"
+  | "ERR_PERMISSION_NOT_FOUND"
+  | "ERR_PERMISSION_RESOLVE_FAILED"
+  | "ERR_PERMISSION_EXPIRED"
+  | "ERR_CONTAINER_ERROR";
 
 export interface NotifyResolvedResponse {
   ok: boolean;
@@ -156,8 +226,8 @@ export interface AcpRequestPermissionProgressMessage {
   sessionId: string;
   acpSessionId?: string;
   messageType: "acpRequestPermission";
-  subType: "session/request_permission";
-  data: AcpPermissionInterventionRequest;
+  subType: "session/request_permission" | "request_permission";
+  data: AcpPermissionInterventionRequest | RcoderPermissionProgressData;
   timestamp: string;
 }
 
@@ -168,6 +238,7 @@ export interface PendingAcpPermission {
   revision: number;
   acpSessionId: string;
   appSessionId: string;
+  toolCallId: string;
   request: AcpPermissionRequest;
   options: AcpPermissionOption[];
   status: "pending" | "resolved" | "cancelled" | "expired";

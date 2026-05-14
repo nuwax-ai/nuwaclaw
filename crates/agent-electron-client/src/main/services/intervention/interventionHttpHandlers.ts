@@ -10,6 +10,7 @@ import type {
   NotifyResolvedResponse,
   AcpPermissionResponse,
 } from "@shared/types/intervention";
+import { validateRcoderNotifyResolvedRequest } from "./rcoderPermissionProtocol";
 
 // === Internal Secret 校验 ===
 
@@ -105,6 +106,8 @@ export function validateNotifyResolvedRequest(
   return { ok: true };
 }
 
+export { validateRcoderNotifyResolvedRequest };
+
 /**
  * 根据 NotifyResolvedResponse 确定 HTTP status code
  */
@@ -114,6 +117,16 @@ export function statusFromNotifyResolvedResult(
   if (result.ok) return 200;
   if (!result.error) return 500;
   switch (result.error.code) {
+    case "ERR_VALIDATION":
+      return 400;
+    case "ERR_SESSION_NOT_FOUND":
+    case "ERR_PERMISSION_NOT_FOUND":
+      return 404;
+    case "ERR_PERMISSION_EXPIRED":
+      return 410;
+    case "ERR_PERMISSION_RESOLVE_FAILED":
+    case "ERR_CONTAINER_ERROR":
+      return 500;
     case "unauthorized":
       return 401;
     case "forbidden_target":

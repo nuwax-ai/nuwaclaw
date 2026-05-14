@@ -45,12 +45,15 @@ import { DEFAULT_SSE_HEARTBEAT_INTERVAL } from "@shared/constants";
 import type {
   NotifyResolvedRequest,
   NotifyResolvedResponse,
+  RcoderNotifyResolvedRequest,
 } from "@shared/types/intervention";
 import {
   verifyInternalCallback,
   validateNotifyResolvedRequest,
+  validateRcoderNotifyResolvedRequest,
   statusFromNotifyResolvedResult,
   getOrCreateInternalSecret,
+  isRcoderNotifyResolvedRequest,
 } from "./intervention";
 
 let server: http.Server | null = null;
@@ -351,7 +354,7 @@ function sendJson(res: http.ServerResponse, statusCode: number, data: unknown) {
     "Content-Type": "application/json",
     "Access-Control-Allow-Origin": "*",
     "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
-    "Access-Control-Allow-Headers": "Content-Type",
+    "Access-Control-Allow-Headers": "Content-Type, X-Nuwax-Internal-Secret",
   });
   res.end(json);
 }
@@ -925,7 +928,14 @@ async function handleRequest(
 
     // POST /computer/notify-resolved — Backend → Host callback for approval intervention
     if (pathname === "/computer/notify-resolved" && method === "POST") {
-      if (!interventionSecret) {
+      const body = (await parseBody(req)) as
+        | NotifyResolvedRequest
+        | RcoderNotifyResolvedRequest;
+      const isRcoderPermissionResolve = isRcoderNotifyResolvedRequest(body);
+      const hasInternalSecretHeader =
+        typeof req.headers["x-nuwax-internal-secret"] === "string";
+
+      if (!interventionSecret && !isRcoderPermissionResolve) {
         sendJson(res, 500, {
           ok: false,
           error: {
@@ -936,41 +946,87 @@ async function handleRequest(
         return;
       }
 
-      const auth = verifyInternalCallback(req, interventionSecret);
+      const auth = interventionSecret
+        ? verifyInternalCallback(req, interventionSecret)
+        : { ok: false };
       if (!auth.ok) {
-        sendJson(res, 401, {
-          ok: false,
-          error: { code: "unauthorized", message: "invalid internal secret" },
-        });
-        return;
+        if (!isRcoderPermissionResolve || hasInternalSecretHeader) {
+          const payload = isRcoderPermissionResolve
+            ? httpError("ERR_VALIDATION", "invalid internal secret")
+            : {
+                ok: false,
+                error: {
+                  code: "unauthorized",
+                  message: "invalid internal secret",
+                },
+              };
+          sendJson(res, 401, payload);
+          return;
+        }
+        log.warn(
+          "[HTTP] Accepting RCoder permission resolve without internal secret; enable X-Nuwax-Internal-Secret once RCoder supports it",
+        );
       }
 
-      const body = (await parseBody(req)) as NotifyResolvedRequest;
-      const validation = validateNotifyResolvedRequest(body);
+      const validation = isRcoderPermissionResolve
+        ? validateRcoderNotifyResolvedRequest(body)
+        : validateNotifyResolvedRequest(body);
       if (!validation.ok) {
-        sendJson(res, 400, {
-          ok: false,
-          error: { code: "invalid_acp_response", message: validation.message },
-        });
+        if (isRcoderPermissionResolve) {
+          sendJson(res, 400, httpError("ERR_VALIDATION", validation.message));
+        } else {
+          sendJson(res, 400, {
+            ok: false,
+            error: {
+              code: "invalid_acp_response",
+              message: validation.message,
+            },
+          });
+        }
         return;
       }
 
-      const acpEngine = agentService.getAcpEngine();
+      const projectId = isRcoderPermissionResolve ? body.project_id : undefined;
+      const acpEngine =
+        (projectId ? agentService.getEngineForProject(projectId) : null) ||
+        agentService.getAcpEngine();
       if (!acpEngine) {
-        sendJson(res, 404, {
-          ok: false,
-          hostStatus: "gone",
-          error: { code: "not_found", message: "ACP engine not running" },
-        });
+        if (isRcoderPermissionResolve) {
+          sendJson(
+            res,
+            404,
+            httpError("ERR_SESSION_NOT_FOUND", "ACP engine not running"),
+          );
+        } else {
+          sendJson(res, 404, {
+            ok: false,
+            hostStatus: "gone",
+            error: { code: "not_found", message: "ACP engine not running" },
+          });
+        }
         return;
       }
 
-      // TODO: 需要在 acpEngine 中添加 resolvePermissionIntervention 方法
       const result: NotifyResolvedResponse = (
         acpEngine as any
       ).resolvePermissionIntervention(body);
       const status = statusFromNotifyResolvedResult(result);
-      sendJson(res, status, result);
+      if (isRcoderPermissionResolve) {
+        if (result.ok) {
+          sendJson(res, status, httpResult(result));
+        } else {
+          sendJson(
+            res,
+            status,
+            httpError(
+              result.error?.code ?? "ERR_PERMISSION_RESOLVE_FAILED",
+              result.error?.message ?? "permission resolve failed",
+            ),
+          );
+        }
+      } else {
+        sendJson(res, status, result);
+      }
       return;
     }
 

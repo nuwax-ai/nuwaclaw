@@ -16,12 +16,15 @@ import type {
   NotifyResolvedResponse,
   AcpPermissionResponse,
   AcpPermissionOption,
+  RcoderNotifyResolvedRequest,
 } from "@shared/types/intervention";
 import type { AcpPermissionRequest } from "../engines/acp/acpClient";
 import { buildAcpPermissionInterventionRequest } from "./buildAcpPermissionInterventionRequest";
+import { parseRcoderNotifyResolvedRequest } from "./rcoderPermissionProtocol";
 
 export class ApprovalInterventionService extends EventEmitter {
   private pending = new Map<string, PendingAcpPermission>();
+  private pendingByAcpPermissionKey = new Map<string, string>();
 
   private static readonly DEFAULT_TIMEOUT_MS = 120_000;
 
@@ -42,6 +45,20 @@ export class ApprovalInterventionService extends EventEmitter {
     acpResponsePromise: Promise<AcpPermissionResponse>;
   } {
     const { engine, appSessionId, acpSessionId, acpRequest, timeoutMs } = args;
+    const toolCallId = acpRequest.toolCall.toolCallId;
+    const permissionKey = this.buildAcpPermissionKey(acpSessionId, toolCallId);
+    const existingInterventionId =
+      this.pendingByAcpPermissionKey.get(permissionKey);
+    if (existingInterventionId) {
+      log.warn(
+        `[Intervention] Duplicate pending permission key; cancelling previous pending: acpSession=${acpSessionId} toolCall=${toolCallId}`,
+      );
+      this.resolvePendingInternal(
+        existingInterventionId,
+        { outcome: { outcome: "cancelled" } },
+        "superseded",
+      );
+    }
 
     const interventionRequest = buildAcpPermissionInterventionRequest({
       engine,
@@ -64,6 +81,7 @@ export class ApprovalInterventionService extends EventEmitter {
         revision: interventionRequest.revision,
         acpSessionId,
         appSessionId,
+        toolCallId,
         request: acpRequest,
         options: acpRequest.options,
         status: "pending",
@@ -71,9 +89,10 @@ export class ApprovalInterventionService extends EventEmitter {
         timer,
         createdAt: Date.now(),
       });
+      this.pendingByAcpPermissionKey.set(permissionKey, interventionRequest.id);
 
       log.info(
-        `[Intervention] Pending created: id=${interventionRequest.id} session=${appSessionId} acpSession=${acpSessionId}`,
+        `[Intervention] Pending created: id=${interventionRequest.id} session=${appSessionId} acpSession=${acpSessionId} toolCall=${toolCallId}`,
       );
     });
 
@@ -136,6 +155,71 @@ export class ApprovalInterventionService extends EventEmitter {
   }
 
   /**
+   * 通过 RCoder permission_resolve_request 回调 resolve pending
+   */
+  resolveFromRcoderCallback(
+    payload: RcoderNotifyResolvedRequest,
+  ): NotifyResolvedResponse {
+    const parsed = parseRcoderNotifyResolvedRequest(payload);
+    if (!parsed.ok) {
+      return parsed.response;
+    }
+
+    const { acpSessionId, toolCallId, acpResponse } = parsed.command;
+    const permissionKey = this.buildAcpPermissionKey(acpSessionId, toolCallId);
+    const interventionId = this.pendingByAcpPermissionKey.get(permissionKey);
+    if (!interventionId) {
+      return {
+        ok: false,
+        hostStatus: "gone",
+        error: {
+          code: "ERR_PERMISSION_NOT_FOUND",
+          message: "pending permission not found",
+        },
+      };
+    }
+
+    const pending = this.pending.get(interventionId);
+    if (!pending) {
+      this.pendingByAcpPermissionKey.delete(permissionKey);
+      return {
+        ok: false,
+        hostStatus: "gone",
+        error: {
+          code: "ERR_PERMISSION_NOT_FOUND",
+          message: "pending permission not found",
+        },
+      };
+    }
+
+    if (pending.status !== "pending") {
+      if (this.sameAcpResponse(pending.resolvedResponse, acpResponse)) {
+        return { ok: true, hostStatus: "already_resolved" };
+      }
+      return {
+        ok: false,
+        error: {
+          code: "ERR_PERMISSION_RESOLVE_FAILED",
+          message: "permission already resolved with different response",
+        },
+      };
+    }
+
+    if (!this.isValidAcpPermissionResponse(acpResponse, pending.options)) {
+      return {
+        ok: false,
+        error: {
+          code: "ERR_VALIDATION",
+          message: "invalid ACP permission response",
+        },
+      };
+    }
+
+    this.resolvePendingInternal(interventionId, acpResponse, "rcoder_callback");
+    return { ok: true, hostStatus: "resolved" };
+  }
+
+  /**
    * 按 acpSessionId 取消所有 pending（session cancel 时调用）
    */
   cancelByAcpSession(acpSessionId: string): void {
@@ -174,6 +258,7 @@ export class ApprovalInterventionService extends EventEmitter {
       pending.resolve({ outcome: { outcome: "cancelled" } });
     }
     this.pending.clear();
+    this.pendingByAcpPermissionKey.clear();
   }
 
   get pendingCount(): number {
@@ -201,6 +286,9 @@ export class ApprovalInterventionService extends EventEmitter {
 
     // 同步删除，再 resolve Promise
     this.pending.delete(interventionId);
+    this.pendingByAcpPermissionKey.delete(
+      this.buildAcpPermissionKey(pending.acpSessionId, pending.toolCallId),
+    );
     pending.resolve(response);
 
     this.emit("resolved", { interventionId, reason, response });
@@ -226,6 +314,10 @@ export class ApprovalInterventionService extends EventEmitter {
   ): boolean {
     if (!a || !b) return false;
     return JSON.stringify(a) === JSON.stringify(b);
+  }
+
+  private buildAcpPermissionKey(acpSessionId: string, toolCallId: string) {
+    return `${acpSessionId}\u0000${toolCallId}`;
   }
 }
 

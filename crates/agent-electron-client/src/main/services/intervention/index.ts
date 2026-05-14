@@ -13,3 +13,9 @@ export {
   validateNotifyResolvedRequest,
   statusFromNotifyResolvedResult,
 } from "./interventionHttpHandlers";
+export {
+  isRcoderNotifyResolvedRequest,
+  parseRcoderNotifyResolvedRequest,
+  toRcoderPermissionProgressData,
+  validateRcoderNotifyResolvedRequest,
+} from "./rcoderPermissionProtocol";
