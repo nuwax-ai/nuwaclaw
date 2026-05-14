@@ -1,6 +1,6 @@
 # 仅同步：将指定 tag 的 GitHub Release 资产同步到 MinIO S3 与阿里云 OSS。
-# OSS 与 S3 使用相同的版本化路径（yml、安装包、latest.json），大陆用户自动更新以 OSS 上
-# latest.json 的 yml 字段指向的 OSS URL 为准。
+# MinIO：完整资产（安装包 + 派生 yml + latest.json）。OSS：仅元数据（*.yml + latest.json），不上传安装包。
+# latest.json 内 platforms / yml 使用 MinIO 公网前缀（S3_CDN_BASE），与 release-electron.yml 一致。
 # 供手动 workflow_dispatch 触发。
 #
 # 所需 Secrets：GH_PAT（或 repo token）、MINIO_ACCESS_KEY_ID、MINIO_SECRET_ACCESS_KEY、OSS_ACCESS_KEY_ID、OSS_ACCESS_KEY_SECRET
@@ -93,12 +93,10 @@ jobs:
           TAG="${RELEASE_TAG}"
           VERSION="${TAG#electron-v}"
           CHANNEL="${RELEASE_CHANNEL}"
+          # 与下方 aws s3 cp / ossutil 的对象键一致；写入 latest.json 的 URL 使用 MinIO 公网前缀
           S3_URL_PREFIX="${S3_CDN_BASE}/nuwaclaw-electron/${TAG}"
-          # 与 S3 路径一致；latest.json 的 platforms / yml 指向 OSS，与自动更新 generic 源一致
-          OSS_URL_PREFIX="${OSS_CDN_BASE}/nuwaclaw-electron/${TAG}"
           if [ "$CHANNEL" = "beta" ]; then
             S3_URL_PREFIX="${S3_CDN_BASE}/nuwaclaw-electron/beta-build/${TAG}"
-            OSS_URL_PREFIX="${OSS_CDN_BASE}/nuwaclaw-electron/beta-build/${TAG}"
           fi
           ASSETS_DIR="/tmp/release-assets"
 
@@ -135,7 +133,7 @@ jobs:
               size=$(stat -c%s "$filepath" 2>/dev/null || stat -f%z "$filepath")
               PLATFORMS=$(echo "$PLATFORMS" | jq \
                 --arg k "$key" \
-                --arg u "${OSS_URL_PREFIX}/${file}" \
+                --arg u "${S3_URL_PREFIX}/${file}" \
                 --arg s "$sig" \
                 --argjson sz "$size" \
                 '. + {($k): {"url": $u, "signature": $s, "size": $sz}}')
@@ -219,11 +217,11 @@ jobs:
           gen_yml "latest" "$WIN_KEYS"
           echo "==> Platform yml written to ${ASSETS_DIR}"
 
-          # latest.json 中 yml 字段指向 OSS（与下方上传到 OSS 的路径一致）
+          # latest.json 中 yml 字段指向 MinIO（与 electron-updater feed 及 platforms.url 同源）
           YML_URLS=$(jq -n \
-            --arg darwin "${OSS_URL_PREFIX}/latest-mac.yml" \
-            --arg linux "${OSS_URL_PREFIX}/latest-linux.yml" \
-            --arg win "${OSS_URL_PREFIX}/latest.yml" \
+            --arg darwin "${S3_URL_PREFIX}/latest-mac.yml" \
+            --arg linux "${S3_URL_PREFIX}/latest-linux.yml" \
+            --arg win "${S3_URL_PREFIX}/latest.yml" \
             '{darwin: $darwin, linux: $linux, win: $win}')
 
           LATEST_JSON=$(jq -n \
@@ -237,7 +235,8 @@ jobs:
           echo "==> Generated latest.json"
           echo "$LATEST_JSON" | jq .
 
-      - name: Upload all assets to MinIO S3
+      # MinIO：完整发布镜像（安装包 + CI 派生的 latest-*.yml + latest.json）。OSS 仅同步 yml+json，见后续 step。
+      - name: Upload full release to MinIO S3 (installers, yml, latest.json)
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.MINIO_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.MINIO_SECRET_ACCESS_KEY }}
@@ -250,15 +249,27 @@ jobs:
             S3_PREFIX="nuwaclaw-electron/${TAG}"
           fi
 
+          echo "==> MinIO: (1/3) installers and other non-yml release assets"
           for file in /tmp/release-assets/*; do
+            [ -f "$file" ] || continue
+            case "$(basename "$file")" in *.yml) continue ;; esac
             filename=$(basename "$file")
             echo "Uploading to S3: ${filename}"
             aws s3 cp "$file" "s3://${S3_BUCKET}/${S3_PREFIX}/${filename}" \
               --endpoint-url "$S3_ENDPOINT"
           done
 
-          # 同步 latest.json 到 S3（版本化路径 + 通道滚动指针）
-          echo "Uploading latest.json to S3..."
+          echo "==> MinIO: (2/3) platform yml (electron-updater feed fragments)"
+          shopt -s nullglob
+          for file in /tmp/release-assets/*.yml; do
+            filename=$(basename "$file")
+            echo "Uploading to S3: ${filename}"
+            aws s3 cp "$file" "s3://${S3_BUCKET}/${S3_PREFIX}/${filename}" \
+              --endpoint-url "$S3_ENDPOINT"
+          done
+          shopt -u nullglob
+
+          echo "==> MinIO: (3/3) latest.json (versioned path + channel rolling pointer)"
           aws s3 cp /tmp/latest.json "s3://${S3_BUCKET}/${S3_PREFIX}/latest.json" \
             --endpoint-url "$S3_ENDPOINT"
           if [ "$CHANNEL" = "stable" ]; then
@@ -286,22 +297,23 @@ jobs:
             exit 1
           fi
 
-      # 先上传安装包与 yml，再上传 latest.json，避免客户端先拉到 json 时资源尚未就绪
-      - name: Upload release assets and latest.json to Alibaba OSS
+      # OSS 仅保留 electron-updater 元数据：先上传各 latest-*.yml，再上传 latest.json，避免先拉到 json 时 yml 未就绪
+      - name: Upload platform yml and latest.json to Alibaba OSS
         env:
           OSS_ACCESS_KEY_ID: ${{ secrets.OSS_ACCESS_KEY_ID }}
           OSS_ACCESS_KEY_SECRET: ${{ secrets.OSS_ACCESS_KEY_SECRET }}
         run: |
           TAG="${RELEASE_TAG}"
           CHANNEL="${RELEASE_CHANNEL}"
-          echo "==> Publishing assets + latest.json to OSS for channel: ${CHANNEL}"
+          echo "==> Publishing yml + latest.json to OSS (no installers) for channel: ${CHANNEL}"
           if [ "$CHANNEL" = "beta" ]; then
             OSS_VERSION_PREFIX="${OSS_BUCKET}/nuwaclaw-electron/beta-build/${TAG}"
           else
             OSS_VERSION_PREFIX="${OSS_BUCKET}/nuwaclaw-electron/${TAG}"
           fi
 
-          for file in /tmp/release-assets/*; do
+          shopt -s nullglob
+          for file in /tmp/release-assets/*.yml; do
             filename=$(basename "$file")
             echo "Uploading to OSS: ${filename}"
             ossutil cp --force "$file" "${OSS_VERSION_PREFIX}/${filename}" \
@@ -310,6 +322,7 @@ jobs:
               --access-key-id "$OSS_ACCESS_KEY_ID" \
               --access-key-secret "$OSS_ACCESS_KEY_SECRET"
           done
+          shopt -u nullglob
 
           ossutil cp --force /tmp/latest.json "${OSS_VERSION_PREFIX}/latest.json" \
             --endpoint "$OSS_ENDPOINT" \

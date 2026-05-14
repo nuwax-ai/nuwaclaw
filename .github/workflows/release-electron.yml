@@ -495,26 +495,43 @@ jobs:
           echo "==> Generated latest.json"
           echo "$LATEST_JSON" | jq .
 
-      - name: Upload all assets to MinIO S3
+      # MinIO：完整镜像（安装包 + 派生 yml + latest.json）。OSS 仅上传 yml + latest.json，见后续 step。
+      - name: Upload full release to MinIO S3 (installers, yml, latest.json)
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.MINIO_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.MINIO_SECRET_ACCESS_KEY }}
         run: |
           TAG="${RELEASE_TAG}"
-          S3_PREFIX="nuwaclaw-electron/${TAG}"
+          CHANNEL="${RELEASE_CHANNEL}"
+          if [ "$CHANNEL" = "beta" ]; then
+            S3_PREFIX="nuwaclaw-electron/beta-build/${TAG}"
+          else
+            S3_PREFIX="nuwaclaw-electron/${TAG}"
+          fi
 
+          echo "==> MinIO: (1/3) installers and other non-yml release assets"
           for file in /tmp/release-assets/*; do
+            [ -f "$file" ] || continue
+            case "$(basename "$file")" in *.yml) continue ;; esac
             filename=$(basename "$file")
             echo "Uploading to S3: ${filename}"
             aws s3 cp "$file" "s3://${S3_BUCKET}/${S3_PREFIX}/${filename}" \
               --endpoint-url "$S3_ENDPOINT"
           done
 
-          # 同步 latest.json 到 S3（版本化路径 + 通道滚动指针）
-          echo "Uploading latest.json to S3..."
+          echo "==> MinIO: (2/3) platform yml"
+          shopt -s nullglob
+          for file in /tmp/release-assets/*.yml; do
+            filename=$(basename "$file")
+            echo "Uploading to S3: ${filename}"
+            aws s3 cp "$file" "s3://${S3_BUCKET}/${S3_PREFIX}/${filename}" \
+              --endpoint-url "$S3_ENDPOINT"
+          done
+          shopt -u nullglob
+
+          echo "==> MinIO: (3/3) latest.json (versioned + channel pointer)"
           aws s3 cp /tmp/latest.json "s3://${S3_BUCKET}/${S3_PREFIX}/latest.json" \
             --endpoint-url "$S3_ENDPOINT"
-          CHANNEL="${RELEASE_CHANNEL}"
           if [ "$CHANNEL" = "stable" ]; then
             aws s3 cp /tmp/latest.json "s3://${S3_BUCKET}/nuwaclaw-electron/latest/latest.json" \
               --endpoint-url "$S3_ENDPOINT"
@@ -526,7 +543,12 @@ jobs:
       - name: Verify S3 upload
         run: |
           TAG="${RELEASE_TAG}"
-          VERIFY_URL="${S3_CDN_BASE}/nuwaclaw-electron/${TAG}/latest-mac.yml"
+          CHANNEL="${RELEASE_CHANNEL}"
+          if [ "$CHANNEL" = "beta" ]; then
+            VERIFY_URL="${S3_CDN_BASE}/nuwaclaw-electron/beta-build/${TAG}/latest-mac.yml"
+          else
+            VERIFY_URL="${S3_CDN_BASE}/nuwaclaw-electron/${TAG}/latest-mac.yml"
+          fi
           HTTP_STATUS=$(curl -sS -o /dev/null -w "%{http_code}" "$VERIFY_URL")
           if [ "$HTTP_STATUS" = "200" ]; then
             echo "==> S3 upload verified: latest-mac.yml (HTTP ${HTTP_STATUS})"
@@ -535,15 +557,33 @@ jobs:
             exit 1
           fi
 
-      - name: Upload latest.json to Alibaba OSS
+      - name: Upload platform yml and latest.json to Alibaba OSS
         env:
           OSS_ACCESS_KEY_ID: ${{ secrets.OSS_ACCESS_KEY_ID }}
           OSS_ACCESS_KEY_SECRET: ${{ secrets.OSS_ACCESS_KEY_SECRET }}
         run: |
           TAG="${RELEASE_TAG}"
           CHANNEL="${RELEASE_CHANNEL}"
-          echo "==> Publishing latest.json to OSS for channel: ${CHANNEL}"
-          ossutil cp --force /tmp/latest.json "${OSS_BUCKET}/nuwaclaw-electron/${TAG}/latest.json" \
+          if [ "$CHANNEL" = "beta" ]; then
+            OSS_VERSION_PREFIX="${OSS_BUCKET}/nuwaclaw-electron/beta-build/${TAG}"
+          else
+            OSS_VERSION_PREFIX="${OSS_BUCKET}/nuwaclaw-electron/${TAG}"
+          fi
+          echo "==> Publishing yml + latest.json to OSS (no installers) for channel: ${CHANNEL}"
+
+          shopt -s nullglob
+          for file in /tmp/release-assets/*.yml; do
+            filename=$(basename "$file")
+            echo "Uploading to OSS: ${filename}"
+            ossutil cp --force "$file" "${OSS_VERSION_PREFIX}/${filename}" \
+              --endpoint "$OSS_ENDPOINT" \
+              --region "$OSS_REGION" \
+              --access-key-id "$OSS_ACCESS_KEY_ID" \
+              --access-key-secret "$OSS_ACCESS_KEY_SECRET"
+          done
+          shopt -u nullglob
+
+          ossutil cp --force /tmp/latest.json "${OSS_VERSION_PREFIX}/latest.json" \
             --endpoint "$OSS_ENDPOINT" \
             --region "$OSS_REGION" \
             --access-key-id "$OSS_ACCESS_KEY_ID" \
@@ -567,17 +607,27 @@ jobs:
 
       - name: Verify OSS upload
         run: |
+          TAG="${RELEASE_TAG}"
           CHANNEL="${RELEASE_CHANNEL}"
           if [ "$CHANNEL" = "stable" ]; then
-            VERIFY_URL="${OSS_CDN_BASE}/nuwaclaw-electron/latest/latest.json"
+            VERIFY_JSON_URL="${OSS_CDN_BASE}/nuwaclaw-electron/latest/latest.json"
+            VERIFY_YML_URL="${OSS_CDN_BASE}/nuwaclaw-electron/${TAG}/latest-mac.yml"
           else
-            VERIFY_URL="${OSS_CDN_BASE}/nuwaclaw-electron/beta/latest.json"
+            VERIFY_JSON_URL="${OSS_CDN_BASE}/nuwaclaw-electron/beta/latest.json"
+            VERIFY_YML_URL="${OSS_CDN_BASE}/nuwaclaw-electron/beta-build/${TAG}/latest-mac.yml"
           fi
-          HTTP_STATUS=$(curl -sS -o /tmp/oss-latest.json -w "%{http_code}" "$VERIFY_URL")
-          if [ "$HTTP_STATUS" = "200" ]; then
-            echo "==> latest.json (${CHANNEL}): OK (HTTP ${HTTP_STATUS})"
+          HTTP_JSON=$(curl -sS -o /tmp/oss-latest.json -w "%{http_code}" "$VERIFY_JSON_URL")
+          if [ "$HTTP_JSON" = "200" ]; then
+            echo "==> latest.json (${CHANNEL} pointer): OK (HTTP ${HTTP_JSON})"
             cat /tmp/oss-latest.json | jq .
           else
-            echo "::error::latest.json for channel '${CHANNEL}' not found on OSS (HTTP ${HTTP_STATUS})"
+            echo "::error::latest.json for channel '${CHANNEL}' not found on OSS (HTTP ${HTTP_JSON})"
+            exit 1
+          fi
+          HTTP_YML=$(curl -sS -o /dev/null -w "%{http_code}" "$VERIFY_YML_URL")
+          if [ "$HTTP_YML" = "200" ]; then
+            echo "==> Versioned OSS latest-mac.yml: OK (HTTP ${HTTP_YML}) [$VERIFY_YML_URL]"
+          else
+            echo "::error::OSS versioned latest-mac.yml verification failed (HTTP ${HTTP_YML}) [$VERIFY_YML_URL]"
             exit 1
           fi
