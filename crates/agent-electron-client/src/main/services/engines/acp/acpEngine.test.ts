@@ -693,6 +693,53 @@ describe("AcpEngine.chat", () => {
     );
   });
 
+  it("codex-cli: config.workspaceDir 已是项目目录时不重复拼接 cwd", async () => {
+    const engine = new AcpEngine("codex-cli");
+    const projectDir = path.join(
+      "/tmp/workspace",
+      "computer-project-workspace",
+      "user-1",
+      "project-codex",
+    );
+    (engine as any).config = {
+      engine: "codex-cli",
+      workspaceDir: projectDir,
+      mcpServers: {},
+    };
+    (engine as any).acpConnection = {} as any;
+
+    const createSessionSpy = vi
+      .spyOn(engine, "createSession")
+      .mockImplementation(async () => {
+        (engine as any).sessions.set("new-session-codex", {
+          id: "new-session-codex",
+          acpSessionId: "new-session-codex",
+          createdAt: Date.now(),
+          status: "idle",
+          mcpServerCount: 0,
+        });
+        return {
+          id: "new-session-codex",
+          title: "project-codex",
+          time: { created: Date.now() },
+        } as any;
+      });
+
+    vi.spyOn(engine, "promptAsync").mockResolvedValue(undefined);
+
+    const result = await engine.chat({
+      user_id: "user-1",
+      project_id: "project-codex",
+      request_id: "rid-chat-codex-001",
+      prompt: "hello codex",
+    } as any);
+
+    expect(result.success).toBe(true);
+    expect(createSessionSpy).toHaveBeenCalledWith(
+      expect.objectContaining({ cwd: projectDir }),
+    );
+  });
+
   it("claude-code: compat + 新会话 + context_servers 时等待 MCP warmup 后再发首条 prompt", async () => {
     const engine = new AcpEngine("claude-code");
     (engine as any).config = {

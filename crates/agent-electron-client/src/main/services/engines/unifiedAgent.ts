@@ -59,6 +59,7 @@ import {
   rawMcpServersEqual,
 } from "../packages/mcpHelpers";
 import { getCachedSandboxPolicy } from "../sandbox/policyCache";
+import { resolveComputerProjectWorkspaceDir } from "../workspacePaths";
 
 /** 环境变量记录类型 */
 type EnvRecord = Record<string, string | undefined>;
@@ -1166,9 +1167,8 @@ export class UnifiedAgentService extends EventEmitter {
       request.project_id &&
       request.user_id
     ) {
-      effectiveConfig.workspaceDir = path.join(
+      effectiveConfig.workspaceDir = resolveComputerProjectWorkspaceDir(
         effectiveConfig.workspaceDir,
-        "computer-project-workspace",
         request.user_id,
         request.project_id,
       );

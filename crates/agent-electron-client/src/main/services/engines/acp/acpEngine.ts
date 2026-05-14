@@ -78,6 +78,7 @@ import {
 } from "../../utils/processTree";
 import { processRegistry } from "../../system/processRegistry";
 import { t } from "../../i18n";
+import { resolveComputerProjectWorkspaceDir } from "../../workspacePaths";
 import type { AgentEngineType } from "../types";
 import type { DetailedSession } from "@shared/types/sessions";
 import { ACP_ABORT_TIMEOUT } from "@shared/constants";
@@ -1954,9 +1955,8 @@ export class AcpEngine extends EventEmitter {
       if (!session) {
         isNewSession = true;
         const projectId = request.project_id || `proj-${Date.now()}`;
-        const projectDir = path.join(
+        const projectDir = resolveComputerProjectWorkspaceDir(
           this.config.workspaceDir,
-          "computer-project-workspace",
           request.user_id,
           projectId,
         );
