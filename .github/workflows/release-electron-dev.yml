@@ -468,7 +468,8 @@ jobs:
           echo "==> Generated latest.json"
           echo "$LATEST_JSON" | jq .
 
-      - name: Upload all assets to MinIO S3
+      # MinIO：完整 beta 镜像（安装包 + 派生 yml + latest.json）。OSS 仅 latest.json，见后续 step。
+      - name: Upload full release to MinIO S3 (installers, yml, latest.json)
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.MINIO_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.MINIO_SECRET_ACCESS_KEY }}
@@ -476,15 +477,27 @@ jobs:
           TAG="${RELEASE_TAG}"
           S3_PREFIX="nuwaclaw-electron/beta-build/${TAG}"
 
+          echo "==> MinIO: (1/3) installers and other non-yml release assets"
           for file in /tmp/release-assets/*; do
+            [ -f "$file" ] || continue
+            case "$(basename "$file")" in *.yml) continue ;; esac
             filename=$(basename "$file")
             echo "Uploading to S3: ${filename}"
             aws s3 cp "$file" "s3://${S3_BUCKET}/${S3_PREFIX}/${filename}" \
               --endpoint-url "$S3_ENDPOINT"
           done
 
-          # 同步 latest.json 到 S3（版本化路径 + beta 滚动指针）
-          echo "Uploading latest.json to S3..."
+          echo "==> MinIO: (2/3) platform yml"
+          shopt -s nullglob
+          for file in /tmp/release-assets/*.yml; do
+            filename=$(basename "$file")
+            echo "Uploading to S3: ${filename}"
+            aws s3 cp "$file" "s3://${S3_BUCKET}/${S3_PREFIX}/${filename}" \
+              --endpoint-url "$S3_ENDPOINT"
+          done
+          shopt -u nullglob
+
+          echo "==> MinIO: (3/3) latest.json (versioned + beta/latest.json pointer)"
           aws s3 cp /tmp/latest.json "s3://${S3_BUCKET}/${S3_PREFIX}/latest.json" \
             --endpoint-url "$S3_ENDPOINT"
           aws s3 cp /tmp/latest.json "s3://${S3_BUCKET}/nuwaclaw-electron/beta/latest.json" \
