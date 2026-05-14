@@ -9,7 +9,7 @@
  *   node scripts/prepare/prepare-codex-acp.js --all        # 全平台
  *
  * 环境变量：
- *   CODEX_ACP_VERSION    — 版本号（默认 0.4.2）
+ *   CODEX_ACP_VERSION    — 版本号（默认 0.4.5）
  *   CODEX_ACP_REPO       — GitHub 仓库（默认 dongdada29/codex-acp）
  *   GITHUB_TOKEN         — GitHub token（提高速率限制）
  */
@@ -21,7 +21,7 @@ const { URL } = require('url');
 const { execFileSync } = require('child_process');
 const { getProjectRoot } = require('../utils/project-paths');
 
-const CODEX_ACP_VERSION = process.env.CODEX_ACP_VERSION || '0.4.2';
+const CODEX_ACP_VERSION = process.env.CODEX_ACP_VERSION || '0.4.5';
 const CODEX_ACP_REPO = process.env.CODEX_ACP_REPO || 'dongdada29/codex-acp';
 
 const projectRoot = getProjectRoot();

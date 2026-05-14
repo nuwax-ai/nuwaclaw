@@ -149,8 +149,10 @@ git diff --check
 开发启动命令：
 
 ```bash
-CODEX_ACP_BIN=/Users/apple/workspace/codex-acp/target/release/codex-acp make electron-dev
+make electron-dev
 ```
+
+`make electron-dev` 会通过 `electron-prepare-codex-acp` 调用 `prepare:codex-acp`，默认从 `dongdada29/codex-acp` 的 `v0.4.5` release 下载已集成 NuwaClaw env override 的 `codex-acp` 二进制。`CODEX_ACP_BIN` / `NUWACLAW_CODEX_ACP_BIN` 仅保留为本地临时调试入口，正常开发和打包不依赖该覆盖变量。
 
 ## 已知非阻塞日志
 
