@@ -12,7 +12,11 @@ import * as os from "os";
 import * as fs from "fs";
 import { spawn } from "child_process";
 import log from "electron-log";
-import { getAppEnv, getNuwaxcodeBundledBinPath } from "../system/dependencies";
+import {
+  getAppEnv,
+  getCodexAcpBundledDir,
+  getNuwaxcodeBundledBinPath,
+} from "../system/dependencies";
 import { mcpProxyManager } from "../packages/mcp";
 import { spawnJsFile, resolveNpmPackageEntry } from "../utils/spawnNoWindow";
 import { APP_DATA_DIR_NAME } from "../constants";
@@ -154,6 +158,23 @@ export async function isEngineInstalledGlobally(
 export async function getEngineVersion(
   engine: AgentEngine,
 ): Promise<string | null> {
+  if (engine === "codex-cli") {
+    const bundledDir = getCodexAcpBundledDir();
+    if (bundledDir) {
+      try {
+        const version = fs
+          .readFileSync(path.join(bundledDir, ".version"), "utf-8")
+          .trim();
+        if (version) return version;
+      } catch (error) {
+        log.warn(
+          "[Engine] Failed to read bundled nuwax-codex-acp version",
+          error,
+        );
+      }
+    }
+  }
+
   // 先尝试本地
   const localEngine = findEngineBinary(engine);
 

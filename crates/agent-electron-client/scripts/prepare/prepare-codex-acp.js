@@ -42,6 +42,7 @@ const PLATFORM_MAP = {
 // 资源目录名需与运行时 getCodexAcpBundledBinPath() 一致
 const RESOURCE_PLATFORM_KEY_MAP = {
   'win32-x64': 'windows-x64',
+  'win32-arm64': 'windows-arm64',
 };
 
 function getPlatformKey() {
