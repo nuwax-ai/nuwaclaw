@@ -177,7 +177,7 @@ function AgentSettings({ isOpen, onClose }: AgentSettingsProps) {
                 const defaultBinPaths: Record<string, string> = {
                   "claude-code": "claude-code",
                   nuwaxcode: "nuwaxcode",
-                  codex: "codex-acp",
+                  codex: "nuwax-codex-acp",
                 };
                 setBinPath(defaultBinPaths[v] || v);
               }}

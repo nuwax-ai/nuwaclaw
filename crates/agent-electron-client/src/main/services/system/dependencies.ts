@@ -501,7 +501,7 @@ export function getNuwaxcodeBundledBinPath(): string | null {
 }
 
 /**
- * 获取 codex-acp bundled binary 路径
+ * 获取 nuwax-codex-acp bundled binary 路径
  */
 export function getCodexAcpBundledBinPath(): string | null {
   const platformMap: Record<string, string> = {
@@ -516,10 +516,8 @@ export function getCodexAcpBundledBinPath(): string | null {
   };
   const platform = platformMap[os.platform()] || os.platform();
   const arch = archMap[os.arch()] || os.arch();
-  // Only darwin-arm64, linux-x64, win32-x64 are supported
-  if (platform === "darwin" && arch !== "arm64") return null;
-
-  const binary = platform === "windows" ? "codex-acp.exe" : "codex-acp";
+  const binary =
+    platform === "windows" ? "nuwax-codex-acp.exe" : "nuwax-codex-acp";
   const bundledPath = path.join(
     getResourcesPath(),
     "codex-acp",
@@ -534,7 +532,7 @@ export function getCodexAcpBundledBinPath(): string | null {
 }
 
 /**
- * 获取应用内集成的 codex-acp 目录
+ * 获取应用内集成的 nuwax-codex-acp 目录
  *
  * 打包后: process.resourcesPath/codex-acp/
  * 开发时: resources/codex-acp/
@@ -1226,8 +1224,8 @@ export function getSetupRequiredDependencies(): LocalDependencyConfig[] {
       type: "bundled",
       description: t(I18N_KEYS.Pages.Dependencies.DESC_CODEX_ACP),
       required: true,
-      binName: "codex-acp",
-      installVersion: "0.4.2",
+      binName: "nuwax-codex-acp",
+      installVersion: "0.15.0",
     },
   ];
 }
@@ -1522,7 +1520,7 @@ export async function checkClaudeCodeAcpBundled(): Promise<{
 }
 
 /**
- * 检测应用包内集成的 codex-acp 是否可用
+ * 检测应用包内集成的 nuwax-codex-acp 是否可用
  */
 export async function checkCodexAcpBundled(): Promise<{
   available: boolean;

@@ -1159,7 +1159,7 @@ export class UnifiedAgentService extends EventEmitter {
       mcpServers: freshMcpServers,
     };
 
-    // codex-acp ignores ACP session cwd, so we must spawn the process
+    // nuwax-codex-acp ignores ACP session cwd, so we must spawn the process
     // directly in the project workspace to ensure correct working directory
     if (
       requiredEngine === "codex-cli" &&

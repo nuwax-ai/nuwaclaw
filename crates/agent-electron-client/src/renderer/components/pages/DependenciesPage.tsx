@@ -209,7 +209,7 @@ export default function DependenciesPage() {
           : { available: false },
       );
 
-      // 应用包内集成的 codex-acp
+      // 应用包内集成的 nuwax-codex-acp
       if (window.electronAPI?.dependencies.checkCodexAcpBundled) {
         const codexAcpRes =
           await window.electronAPI.dependencies.checkCodexAcpBundled();
@@ -855,7 +855,7 @@ export default function DependenciesPage() {
             </span>
           </div>
 
-          {/* codex-acp：应用包内集成 */}
+          {/* nuwax-codex-acp：应用包内集成 */}
           <div className={styles.serviceRow}>
             <div className={styles.serviceInfo}>
               {codexAcpBundled?.available ? (

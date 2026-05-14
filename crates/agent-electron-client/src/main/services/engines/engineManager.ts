@@ -108,7 +108,7 @@ export function isEngineInstalledLocally(engine: AgentEngine): boolean {
 
   if (engine === "codex-cli") {
     const binPaths = [
-      path.join(getAppDataDir(), "node_modules", ".bin", "codex-acp"),
+      path.join(getAppDataDir(), "node_modules", ".bin", "nuwax-codex-acp"),
     ];
     for (const p of binPaths) {
       if (fs.existsSync(p)) return true;
@@ -131,7 +131,7 @@ export async function isEngineInstalledGlobally(
       ? "claude-code"
       : engine === "nuwaxcode"
         ? "nuwaxcode"
-        : "codex-acp";
+        : "nuwax-codex-acp";
 
   return new Promise((resolve) => {
     const checkCmd = isWindows() ? "where" : "which";
@@ -164,7 +164,7 @@ export async function getEngineVersion(
         ? "claude-code"
         : engine === "nuwaxcode"
           ? "nuwaxcode"
-          : "codex-acp");
+          : "nuwax-codex-acp");
     const args = ["--version"];
 
     const proc = spawn(cmd, args, {
@@ -196,7 +196,7 @@ function getEnginePackageDir(engine: AgentEngine): string | null {
       ? "claude-code"
       : engine === "nuwaxcode"
         ? "nuwaxcode"
-        : "codex-acp";
+        : "nuwax-codex-acp";
   const packageDir = path.join(nodeModules, packageName);
   return fs.existsSync(packageDir) ? packageDir : null;
 }
@@ -224,7 +224,7 @@ export function findEngineBinary(engine: AgentEngine): string | null {
       ? "claude-code"
       : engine === "nuwaxcode"
         ? "nuwaxcode"
-        : "codex-acp";
+        : "nuwax-codex-acp";
   return resolveNpmPackageEntry(packageDir, packageName);
 }
 
@@ -249,7 +249,7 @@ export async function installEngine(
       ? "claude-code"
       : engine === "nuwaxcode"
         ? "nuwaxcode"
-        : "codex-acp";
+        : "nuwax-codex-acp";
 
   return new Promise((resolve) => {
     const npmCmd = isWindows() ? "npm.cmd" : "npm";

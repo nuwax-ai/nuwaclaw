@@ -80,7 +80,7 @@ export function registerDependencyHandlers(): void {
     }
   });
 
-  /** 检测应用包内集成的 codex-acp */
+  /** 检测应用包内集成的 nuwax-codex-acp */
   ipcMain.handle("dependencies:checkCodexAcpBundled", async () => {
     const { checkCodexAcpBundled } =
       await import("../services/system/dependencies");

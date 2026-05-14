@@ -8,13 +8,14 @@
 /** ACP agent mode（本期只实现 ask / yolo） */
 export type AcpMode = "ask" | "yolo";
 
-/** ACP engine ID（v3 收敛：codex 统一使用，codex-cli/codex-acp 兼容映射） */
+/** ACP engine ID（v3 收敛：codex 统一使用，codex-cli/codex-acp/nuwax-codex-acp 兼容映射） */
 export type AgentEngineId = "claude-code" | "nuwaxcode" | "codex";
 
 /** 旧 engine ID → 新 AgentEngineId 兼容映射 */
 export const ENGINE_ID_ALIASES: Record<string, AgentEngineId> = {
   "codex-cli": "codex",
   "codex-acp": "codex",
+  "nuwax-codex-acp": "codex",
 };
 
 /** 将任意 engine 标识规范化为 AgentEngineId，未知值返回 null */

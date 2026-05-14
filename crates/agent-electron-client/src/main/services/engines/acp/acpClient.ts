@@ -582,7 +582,7 @@ export function resolveAcpBinary(
       return { binPath: bundledPath, binArgs: [], isNative: true };
     }
     // 回退：npm 全局安装
-    const binName = isWindows() ? "codex-acp.cmd" : "codex-acp";
+    const binName = isWindows() ? "nuwax-codex-acp.cmd" : "nuwax-codex-acp";
     const localPath = path.join(
       app.getPath("home"),
       APP_DATA_DIR_NAME,
@@ -594,7 +594,7 @@ export function resolveAcpBinary(
       log.info(`[AcpClient] codex: using npm binary: ${localPath}`);
       return { binPath: localPath, binArgs: [], isNative: true };
     }
-    return { binPath: "codex-acp", binArgs: [], isNative: true };
+    return { binPath: "nuwax-codex-acp", binArgs: [], isNative: true };
   }
 
   // Should not reach here — all engine types handled above
@@ -748,8 +748,8 @@ export async function createAcpConnection(
     }
   }
 
-  // codex-cli: inject CODEX_* env vars for codex-acp binary
-  // codex-acp reads these to override config.toml (CODEX_BASE_URL, CODEX_API_KEY, CODEX_MODEL)
+  // codex-cli: inject CODEX_* env vars for nuwax-codex-acp binary
+  // nuwax-codex-acp reads these to override config.toml (CODEX_BASE_URL, CODEX_API_KEY, CODEX_MODEL)
   const codexResolvedModel = resolveOpenAICompatModel({
     model: config.model,
     envModel: env.OPENCODE_MODEL || env.ANTHROPIC_MODEL || env.CODEX_MODEL,

@@ -4,10 +4,10 @@ Last updated: 2026-05-14
 
 ## 背景
 
-NuwaClaw 的 `codex-cli` 引擎实际通过 `codex-acp` 运行。国内 OpenAI 协议模型需要走本地 gateway 的 `chat2response` 兼容层：
+NuwaClaw 的 `codex-cli` 引擎实际通过自维护的 `nuwax-codex-acp` 运行。国内 OpenAI 协议模型需要走本地 gateway 的 `chat2response` 兼容层：
 
 ```text
-NuwaClaw Electron -> codex-acp -> local gateway /chat2response/v1 -> upstream OpenAI-compatible /chat/completions
+NuwaClaw Electron -> nuwax-codex-acp -> local gateway /chat2response/v1 -> upstream OpenAI-compatible /chat/completions
 ```
 
 本次修复的直接问题是 `glm-5` 被 codex-acp 内部默认模型覆盖，最终向上游发送了 `gpt-5.1-codex-max`，触发：
@@ -23,15 +23,15 @@ NuwaClaw Electron -> codex-acp -> local gateway /chat2response/v1 -> upstream Op
 
 ## 最终约定
 
-NuwaClaw 和 codex-acp 之间只通过环境变量传递运行时模型配置，不写入 `config.toml`，不落盘保存密钥。
+NuwaClaw 和 `nuwax-codex-acp` 之间只通过环境变量传递运行时模型配置，不写入 `config.toml`，不落盘保存密钥。
 
 | 变量 | 生产者 | 消费者 | 含义 |
 | --- | --- | --- | --- |
-| `CODEX_MODEL` | NuwaClaw | codex-acp, gateway | provider 原始模型名，例如 `glm-5` |
-| `CODEX_BASE_URL` | NuwaClaw | codex-acp | 本地 Responses 兼容地址，例如 `http://127.0.0.1:60009/chat2response/v1` |
-| `CODEX_API_KEY` | NuwaClaw | codex-acp | 上游模型 provider key |
+| `CODEX_MODEL` | NuwaClaw | nuwax-codex-acp, gateway | provider 原始模型名，例如 `glm-5` |
+| `CODEX_BASE_URL` | NuwaClaw | nuwax-codex-acp | 本地 Responses 兼容地址，例如 `http://127.0.0.1:60009/chat2response/v1` |
+| `CODEX_API_KEY` | NuwaClaw | nuwax-codex-acp | 上游模型 provider key |
 | `OPENAI_BASE_URL` | NuwaClaw | gateway chat2response | 上游 OpenAI-compatible base URL |
-| `OPENAI_API_KEY` | NuwaClaw | gateway chat2response, codex-acp auth | 上游模型 provider key |
+| `OPENAI_API_KEY` | NuwaClaw | gateway chat2response, nuwax-codex-acp auth | 上游模型 provider key |
 | `OPENAI_MODEL` | NuwaClaw | gateway chat2response | provider 原始模型名 |
 
 模型解析优先级为：
@@ -76,7 +76,11 @@ openai-compatible/glm-5 -> glm-5
   - `CODEX_MODEL`
   - `CODEX_BASE_URL`
 - `CODEX_BASE_URL` 使用 `applyOpenAICompatibleEnv` 后的最终地址，OpenAI-compatible 模型走本地 gateway。
-- 支持 `NUWACLAW_CODEX_ACP_BIN` / `CODEX_ACP_BIN` 覆盖 codex-acp 二进制，便于本地验证 fork。
+- 支持 `NUWACLAW_CODEX_ACP_BIN` / `CODEX_ACP_BIN` 覆盖 `nuwax-codex-acp` 二进制，便于本地验证 fork。
+- `agent_server.env` 支持 `{MODEL_PROVIDER_DEFAULT_MODEL}`，可直接配置：
+  - `"CODEX_API_KEY": "{MODEL_PROVIDER_API_KEY}"`
+  - `"CODEX_MODEL": "{MODEL_PROVIDER_DEFAULT_MODEL}"`
+  - `"CODEX_BASE_URL": "{MODEL_PROVIDER_BASE_URL}"`
 
 ### gateway 启动
 
@@ -99,9 +103,17 @@ openai-compatible/glm-5 -> glm-5
 
 `crates/agent-electron-client/resources/gateway/` 是 prepare 后的运行时资源目录，仓库提交以 `crates/gateway-server` 为源。全新 prepare 或打包时会从 gateway-server 源目录生成 runtime 资源。
 
-## codex-acp fork 实现
+## nuwax-codex-acp fork 实现
 
-仓库：`/Users/apple/workspace/codex-acp`
+仓库：`https://github.com/nuwax-ai/codex-acp`
+
+维护分支：`dev`
+
+当前集成版本：`v0.15.0`
+
+Release：`https://github.com/nuwax-ai/codex-acp/releases/tag/v0.15.0`
+
+命令名：`nuwax-codex-acp`
 
 `src/lib.rs`
 
@@ -152,7 +164,7 @@ git diff --check
 make electron-dev
 ```
 
-`make electron-dev` 会通过 `electron-prepare-codex-acp` 调用 `prepare:codex-acp`，默认从 `dongdada29/codex-acp` 的 `v0.4.5` release 下载已集成 NuwaClaw env override 的 `codex-acp` 二进制。`CODEX_ACP_BIN` / `NUWACLAW_CODEX_ACP_BIN` 仅保留为本地临时调试入口，正常开发和打包不依赖该覆盖变量。
+`make electron-dev` 会通过 `electron-prepare-codex-acp` 调用 `prepare:codex-acp`，默认从 `nuwax-ai/codex-acp` 的 `v0.15.0` release 下载已集成 NuwaClaw env override 的 `nuwax-codex-acp` 二进制。`CODEX_ACP_BIN` / `NUWACLAW_CODEX_ACP_BIN` 仅保留为本地临时调试入口，正常开发和打包不依赖该覆盖变量。
 
 ## 已知非阻塞日志
 

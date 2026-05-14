@@ -145,7 +145,7 @@ electron-prepare-nuwaxcode:
 
 .PHONY: electron-prepare-codex-acp
 electron-prepare-codex-acp:
-	@echo ">>> Preparing bundled codex-acp for Electron..."
+	@echo ">>> Preparing bundled nuwax-codex-acp for Electron..."
 	cd crates/$(ELECTRON_CLIENT) && npm run prepare:codex-acp
 
 .PHONY: electron-prepare-gui-server

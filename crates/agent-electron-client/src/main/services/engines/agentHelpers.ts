@@ -6,7 +6,13 @@ export function mapAgentCommand(command: string): AgentEngineType | null {
   if (command === "nuwaxcode") return "nuwaxcode";
   if (command === "claude-code" || command === "claude-code-acp-ts")
     return "claude-code";
-  if (command === "codex-cli" || command === "codex-acp") return "codex-cli";
+  if (
+    command === "codex-cli" ||
+    command === "codex-acp" ||
+    command === "nuwax-codex-acp"
+  ) {
+    return "codex-cli";
+  }
   return null;
 }
 
@@ -14,7 +20,7 @@ export function mapAgentCommand(command: string): AgentEngineType | null {
  * Resolve template placeholders in agent_server.env using model_provider.
  * rcoder does this internally in handle_chat_core; Electron needs to do it here.
  *
- * Templates: {MODEL_PROVIDER_BASE_URL}, {MODEL_PROVIDER_API_KEY}, {MODEL_PROVIDER_MODEL}
+ * Templates: {MODEL_PROVIDER_BASE_URL}, {MODEL_PROVIDER_API_KEY}, {MODEL_PROVIDER_MODEL}, {MODEL_PROVIDER_DEFAULT_MODEL}
  */
 export function resolveAgentEnv(
   env: Record<string, string>,
@@ -29,6 +35,10 @@ export function resolveAgentEnv(
         modelProvider.base_url || "",
       );
       v = v.replace(/\{MODEL_PROVIDER_API_KEY\}/g, modelProvider.api_key || "");
+      v = v.replace(
+        /\{MODEL_PROVIDER_DEFAULT_MODEL\}/g,
+        modelProvider.default_model || modelProvider.model || "",
+      );
       v = v.replace(/\{MODEL_PROVIDER_MODEL\}/g, modelProvider.model || "");
     }
     // Skip entries with unresolved placeholders (missing model_provider fields)

@@ -2,15 +2,15 @@
 /**
  * codex-acp 多平台集成：准备 resources/codex-acp/{platform}/bin/
  *
- * 从 GitHub Release 下载预编译的 codex-acp Rust 二进制。
+ * 从 GitHub Release 下载预编译的 nuwax-codex-acp Rust 二进制。
  *
  * 用法：
  *   node scripts/prepare/prepare-codex-acp.js              # 当前平台
  *   node scripts/prepare/prepare-codex-acp.js --all        # 全平台
  *
  * 环境变量：
- *   CODEX_ACP_VERSION    — 版本号（默认 0.4.5）
- *   CODEX_ACP_REPO       — GitHub 仓库（默认 dongdada29/codex-acp）
+ *   CODEX_ACP_VERSION    — 版本号（默认 0.15.0）
+ *   CODEX_ACP_REPO       — GitHub 仓库（默认 nuwax-ai/codex-acp）
  *   GITHUB_TOKEN         — GitHub token（提高速率限制）
  */
 
@@ -21,8 +21,9 @@ const { URL } = require('url');
 const { execFileSync } = require('child_process');
 const { getProjectRoot } = require('../utils/project-paths');
 
-const CODEX_ACP_VERSION = process.env.CODEX_ACP_VERSION || '0.4.5';
-const CODEX_ACP_REPO = process.env.CODEX_ACP_REPO || 'dongdada29/codex-acp';
+const CODEX_ACP_VERSION = process.env.CODEX_ACP_VERSION || '0.15.0';
+const CODEX_ACP_REPO = process.env.CODEX_ACP_REPO || 'nuwax-ai/codex-acp';
+const CODEX_ACP_ASSET_PREFIX = process.env.CODEX_ACP_ASSET_PREFIX || 'nuwax-codex-acp';
 
 const projectRoot = getProjectRoot();
 const resDir = path.join(projectRoot, 'resources', 'codex-acp');
@@ -31,8 +32,11 @@ const cacheDir = path.join(projectRoot, 'scripts', 'resources', 'codex-acp-cache
 // Node platform-arch → Rust target triple → asset suffix
 const PLATFORM_MAP = {
   'darwin-arm64': { target: 'aarch64-apple-darwin', ext: 'tar.gz' },
+  'darwin-x64':   { target: 'x86_64-apple-darwin', ext: 'tar.gz' },
   'linux-x64':    { target: 'x86_64-unknown-linux-gnu', ext: 'tar.gz' },
+  'linux-arm64':  { target: 'aarch64-unknown-linux-gnu', ext: 'tar.gz' },
   'win32-x64':    { target: 'x86_64-pc-windows-msvc', ext: 'zip' },
+  'win32-arm64':  { target: 'aarch64-pc-windows-msvc', ext: 'zip' },
 };
 
 // 资源目录名需与运行时 getCodexAcpBundledBinPath() 一致
@@ -54,7 +58,15 @@ function isWindows(key) {
 }
 
 function getBinaryName(key) {
-  return isWindows(key) ? 'codex-acp.exe' : 'codex-acp';
+  return isWindows(key) ? 'nuwax-codex-acp.exe' : 'nuwax-codex-acp';
+}
+
+function cleanupLegacyBinary(destDir, key, destPath) {
+  const legacyBinary = isWindows(key) ? 'codex-acp.exe' : 'codex-acp';
+  const legacyPath = path.join(destDir, legacyBinary);
+  if (legacyPath !== destPath && fs.existsSync(legacyPath)) {
+    try { fs.rmSync(legacyPath); } catch (_) {}
+  }
 }
 
 // ==================== 下载 & 解压 ====================
@@ -170,6 +182,7 @@ async function downloadFromRelease(key) {
         const expectedHash = fs.readFileSync(shaFile, 'utf-8').trim();
         const currentHash = sha256File(destPath);
         if (currentHash === expectedHash) {
+          cleanupLegacyBinary(destDir, key, destPath);
           const sizeMB = (fs.statSync(destPath).size / 1024 / 1024).toFixed(1);
           console.log(`[prepare-codex-acp] ${key} ✓ (已是最新 ${sizeMB} MB)`);
           return true;
@@ -178,7 +191,7 @@ async function downloadFromRelease(key) {
     }
   }
 
-  const assetName = `codex-acp-v${CODEX_ACP_VERSION}-${info.target}.${info.ext}`;
+  const assetName = `${CODEX_ACP_ASSET_PREFIX}-${CODEX_ACP_VERSION}-${info.target}.${info.ext}`;
   const downloadUrl = `https://github.com/${CODEX_ACP_REPO}/releases/download/v${CODEX_ACP_VERSION}/${assetName}`;
 
   console.log(`[prepare-codex-acp] ${key}: 下载 ${assetName} ...`);
@@ -210,6 +223,7 @@ async function downloadFromRelease(key) {
     fs.mkdirSync(destDir, { recursive: true });
     fs.copyFileSync(binaryPath, destPath);
     fs.chmodSync(destPath, 0o755);
+    cleanupLegacyBinary(destDir, key, destPath);
 
     // macOS ad-hoc 签名
     if (process.platform === 'darwin') {
