@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import {
   applyOpenAICompatibleEnv,
+  resolveOpenAICompatModel,
   type OpenAICompatInput,
 } from "./openAICompatRouting";
 
@@ -11,6 +12,50 @@ function createBaseConfig(
     ...overrides,
   };
 }
+
+describe("resolveOpenAICompatModel", () => {
+  it("strips openai-compatible prefix for provider model env vars", () => {
+    expect(
+      resolveOpenAICompatModel({ model: "openai-compatible/glm-5" }),
+    ).toEqual({
+      rawModel: "openai-compatible/glm-5",
+      providerModel: "glm-5",
+      isOpenAICompatibleModel: true,
+    });
+  });
+
+  it("uses default_model when model is not present", () => {
+    expect(
+      resolveOpenAICompatModel({ defaultModel: "openai-compatible/qwen-max" }),
+    ).toEqual({
+      rawModel: "openai-compatible/qwen-max",
+      providerModel: "qwen-max",
+      isOpenAICompatibleModel: true,
+    });
+  });
+
+  it("prefers request env model over fallback model fields", () => {
+    expect(
+      resolveOpenAICompatModel({
+        model: "openai-compatible/qwen-max",
+        defaultModel: "openai-compatible/deepseek-chat",
+        envModel: "openai-compatible/glm-5",
+      }),
+    ).toEqual({
+      rawModel: "openai-compatible/glm-5",
+      providerModel: "glm-5",
+      isOpenAICompatibleModel: true,
+    });
+  });
+
+  it("keeps provider-native model names unchanged", () => {
+    expect(resolveOpenAICompatModel({ model: "glm-5" })).toEqual({
+      rawModel: "glm-5",
+      providerModel: "glm-5",
+      isOpenAICompatibleModel: false,
+    });
+  });
+});
 
 describe("applyOpenAICompatibleEnv", () => {
   it("codex + domestic baseUrl routes to chat2response proxy", () => {

@@ -22,6 +22,7 @@ export { mapAgentCommand, resolveAgentEnv } from "./agentHelpers";
 
 import { AcpEngine } from "./acp/acpEngine";
 import { loadAcpSdk } from "./acp/acpClient";
+import { resolveOpenAICompatModel } from "./acp/openAICompatRouting";
 import { mapAgentCommand, resolveAgentEnv } from "./agentHelpers";
 import { EngineWarmup } from "./engineWarmup";
 import { buildSandboxPolicyFingerprint } from "./sandboxPolicyFingerprint";
@@ -879,6 +880,25 @@ export class UnifiedAgentService extends EventEmitter {
 
     const agentServer = request.agent_config?.agent_server;
     const mp = request.model_provider;
+    const resolvedEnv = agentServer?.env
+      ? resolveAgentEnv(agentServer.env, mp)
+      : undefined;
+    const resolvedOpenAICompatModel = resolveOpenAICompatModel({
+      model: mp?.model,
+      defaultModel: mp?.default_model,
+      envModel:
+        resolvedEnv?.OPENCODE_MODEL ||
+        resolvedEnv?.ANTHROPIC_MODEL ||
+        resolvedEnv?.CODEX_MODEL,
+    });
+    const requestedModel =
+      resolvedOpenAICompatModel?.rawModel ||
+      mp?.model ||
+      mp?.default_model ||
+      resolvedEnv?.OPENCODE_MODEL ||
+      resolvedEnv?.ANTHROPIC_MODEL ||
+      resolvedEnv?.CODEX_MODEL ||
+      this.baseConfig?.model;
 
     // 性能优化：快速路径检测
     const existingEngine = this.getEngineForProject(engineKey);
@@ -895,6 +915,10 @@ export class UnifiedAgentService extends EventEmitter {
     await ensureGatewayForEngine(requiredEngine, {
       apiKey: mp?.api_key || (this.baseConfig?.apiKey ?? undefined),
       baseUrl: mp?.base_url || (this.baseConfig?.baseUrl ?? undefined),
+      model:
+        resolvedOpenAICompatModel?.providerModel ||
+        requestedModel ||
+        (this.baseConfig?.model ?? undefined),
     });
     const requestMcpServersRuntime = requestMcpServersEarly;
 
@@ -976,17 +1000,8 @@ export class UnifiedAgentService extends EventEmitter {
     }
     t2 = t2 || t1;
 
-    // Resolve env template variables
-    const resolvedEnv = agentServer?.env
-      ? resolveAgentEnv(agentServer.env, mp)
-      : undefined;
-
     // Extract final model
-    let model = mp?.model;
-    if (!model && resolvedEnv) {
-      model = resolvedEnv.OPENCODE_MODEL || resolvedEnv.ANTHROPIC_MODEL;
-    }
-    model = model || this.baseConfig?.model;
+    let model = requestedModel;
 
     // Check if existing engine needs to be replaced (config changed)
     if (existingEngine && existingEngine.isReady) {

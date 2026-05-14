@@ -15,6 +15,18 @@ export interface OpenAICompatInput {
   chat2responseLocalBaseUrl?: string;
 }
 
+export interface OpenAICompatModelInput {
+  model?: string;
+  defaultModel?: string;
+  envModel?: string;
+}
+
+export interface ResolvedOpenAICompatModel {
+  rawModel: string;
+  providerModel: string;
+  isOpenAICompatibleModel: boolean;
+}
+
 export type OpenAICompatRoutingResult = {
   isOpenAICompatible: boolean;
   chat2responseEnabled: boolean;
@@ -55,6 +67,31 @@ function isOfficialOpenAIBaseUrl(url: string): boolean {
   }
 }
 
+export function resolveOpenAICompatModel(
+  input: OpenAICompatModelInput,
+): ResolvedOpenAICompatModel | null {
+  const rawModel = (
+    input.envModel ||
+    input.model ||
+    input.defaultModel ||
+    ""
+  ).trim();
+  if (!rawModel) return null;
+
+  const prefix = "openai-compatible/";
+  const isOpenAICompatibleModel = rawModel.startsWith(prefix);
+  const providerModel = isOpenAICompatibleModel
+    ? rawModel.slice(prefix.length).trim()
+    : rawModel;
+  if (!providerModel) return null;
+
+  return {
+    rawModel,
+    providerModel,
+    isOpenAICompatibleModel,
+  };
+}
+
 /**
  * Inject OpenAI-compatible credentials and optional chat2response routing.
  *
@@ -71,9 +108,12 @@ export function applyOpenAICompatibleEnv(
   env: Record<string, string>,
 ): OpenAICompatRoutingResult {
   const apiProtocol = (config.apiProtocol || "").toLowerCase();
-  const effectiveModel = env.OPENCODE_MODEL || config.model || "";
+  const resolvedModel = resolveOpenAICompatModel({
+    model: config.model,
+    envModel: env.OPENCODE_MODEL || env.ANTHROPIC_MODEL || env.CODEX_MODEL,
+  });
   const isOpenAICompatible =
-    apiProtocol === "openai" || effectiveModel.startsWith("openai-compatible/");
+    apiProtocol === "openai" || resolvedModel?.isOpenAICompatibleModel === true;
 
   if (!isOpenAICompatible) {
     return {

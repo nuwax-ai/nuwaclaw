@@ -1798,7 +1798,7 @@ export class AcpEngine extends EventEmitter {
 
     const apiKey = mp.api_key || "";
     const baseUrl = mp.base_url || "";
-    const model = mp.model || "";
+    const model = mp.model || mp.default_model || "";
 
     if (!apiKey && !baseUrl && !model) return false;
 
@@ -1882,7 +1882,10 @@ export class AcpEngine extends EventEmitter {
             ...this.config,
             apiKey: request.model_provider.api_key || this.config.apiKey,
             baseUrl: request.model_provider.base_url || this.config.baseUrl,
-            model: request.model_provider.model || this.config.model,
+            model:
+              request.model_provider.model ||
+              request.model_provider.default_model ||
+              this.config.model,
             apiProtocol:
               request.model_provider.api_protocol || this.config.apiProtocol,
           };

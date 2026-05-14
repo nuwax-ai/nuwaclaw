@@ -39,7 +39,10 @@ import { perfEmitter } from "../perf/perfEmitter";
 import { firstTokenTrace } from "../perf/firstTokenTrace";
 import { buildSandboxedSpawnArgs } from "../../sandbox/sandboxProcessWrapper";
 import type { SandboxProcessConfig } from "@shared/types/sandbox";
-import { applyOpenAICompatibleEnv } from "./openAICompatRouting";
+import {
+  applyOpenAICompatibleEnv,
+  resolveOpenAICompatModel,
+} from "./openAICompatRouting";
 import { getGatewayStatus } from "../../packages/gatewayServer";
 
 function extractSessionIdFromLine(line: string): string | undefined {
@@ -562,6 +565,16 @@ export function resolveAcpBinary(
   // -- codex / codex-cli (backward compat) --
 
   if (engine === "codex" || engine === "codex-cli") {
+    const overridePath = (
+      process.env.NUWACLAW_CODEX_ACP_BIN ||
+      process.env.CODEX_ACP_BIN ||
+      ""
+    ).trim();
+    if (overridePath && fs.existsSync(overridePath)) {
+      log.info(`[AcpClient] codex: using env override binary: ${overridePath}`);
+      return { binPath: overridePath, binArgs: [], isNative: true };
+    }
+
     // 优先使用应用内打包的二进制
     const bundledPath = getCodexAcpBundledBinPath();
     if (bundledPath) {
@@ -737,19 +750,19 @@ export async function createAcpConnection(
 
   // codex-cli: inject CODEX_* env vars for codex-acp binary
   // codex-acp reads these to override config.toml (CODEX_BASE_URL, CODEX_API_KEY, CODEX_MODEL)
+  const codexResolvedModel = resolveOpenAICompatModel({
+    model: config.model,
+    envModel: env.OPENCODE_MODEL || env.ANTHROPIC_MODEL || env.CODEX_MODEL,
+  });
   if (config.engineType === "codex" || config.engineType === "codex-cli") {
     if (config.apiKey) {
       env.CODEX_API_KEY = config.apiKey;
+      env.OPENAI_API_KEY = config.apiKey;
     } else if (env.OPENAI_API_KEY) {
       env.CODEX_API_KEY = env.OPENAI_API_KEY;
     }
-    if (config.baseUrl) {
-      env.CODEX_BASE_URL = config.baseUrl;
-    } else if (env.OPENAI_BASE_URL) {
-      env.CODEX_BASE_URL = env.OPENAI_BASE_URL;
-    }
-    if (config.model) {
-      env.CODEX_MODEL = config.model;
+    if (codexResolvedModel?.providerModel) {
+      env.CODEX_MODEL = codexResolvedModel.providerModel;
     }
   }
 
@@ -766,6 +779,19 @@ export async function createAcpConnection(
     },
     env,
   );
+
+  if (config.engineType === "codex" || config.engineType === "codex-cli") {
+    const finalBaseUrl =
+      openAICompatRouting.finalOpenAIBaseUrl ||
+      env.OPENAI_BASE_URL ||
+      config.baseUrl;
+    if (finalBaseUrl) {
+      env.CODEX_BASE_URL = finalBaseUrl;
+    }
+    if (!env.CODEX_API_KEY && env.OPENAI_API_KEY) {
+      env.CODEX_API_KEY = env.OPENAI_API_KEY;
+    }
+  }
 
   if (
     (config.engineType === "codex" || config.engineType === "codex-cli") &&

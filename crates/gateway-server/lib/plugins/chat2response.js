@@ -7,8 +7,11 @@
  * 3. 捕获 handler 并恢复 http.createServer
  * 4. 将 handler 挂载为 Gateway 的 /chat2response/* 路由处理器
  *
- * 这样 chat2response 的 handler 运行在 Gateway 的 HTTP server 内，
- * 不需要额外的端口或子进程。
+ *
+ * 适配层（不修改 node_modules）：
+ * - 动态注入 "openai" provider，让 chat2response 能用 OPENAI_API_KEY/OPENAI_BASE_URL
+ * - 拦截 /v1/responses POST 请求，用 CODEX_MODEL 环境变量覆盖 model 字段
+ *   （codex-acp 可能发送上游不认识的默认模型名）
  */
 
 import http from "http";
@@ -18,6 +21,16 @@ import path from "path";
 import fs from "fs";
 
 const require = createRequire(import.meta.url);
+
+const OPENAI_PROVIDER = {
+  name: "OpenAI Compatible",
+  baseUrl: process.env.OPENAI_BASE_URL || "https://api.openai.com/v1",
+  defaultModel: "gpt-4o",
+  models: [],
+  supportsTools: true,
+  supportsStreaming: true,
+  transformRequest: (req) => req,
+};
 
 /**
  * @returns {import('../plugin.js').GatewayPlugin}
@@ -86,6 +99,7 @@ export function createChat2responsePlugin() {
       for (const key of envKeysToRestore) {
         savedEnv[key] = process.env[key];
       }
+      let modelOverride = "";
       try {
         if (context.env) {
           for (const [k, v] of Object.entries(context.env)) {
@@ -96,8 +110,29 @@ export function createChat2responsePlugin() {
         }
         process.env.PORT = "0";
         process.env.CHAT2RESPONSE_PORT = "0";
+        if (process.env.OPENAI_BASE_URL && !process.env.DEFAULT_PROVIDER) {
+          process.env.DEFAULT_PROVIDER = "openai";
+        }
+
+        const modelOverrideRaw = process.env.CODEX_MODEL || process.env.OPENAI_MODEL || "";
+        modelOverride = modelOverrideRaw.replace(/^openai-compatible\//, "");
 
         await import(pathToFileURL(entryPath).href);
+
+        // 动态注入 openai provider 到 chat2response 的 PROVIDERS 注册表
+        if (process.env.OPENAI_BASE_URL) {
+          try {
+            const providersPath = path.join(path.dirname(entryPath), "providers", "index.js");
+            const providers = await import(pathToFileURL(providersPath).href);
+            if (providers.PROVIDERS && !providers.PROVIDERS.openai) {
+              OPENAI_PROVIDER.baseUrl = process.env.OPENAI_BASE_URL;
+              providers.PROVIDERS.openai = OPENAI_PROVIDER;
+              console.log("[chat2response plugin] injected openai provider");
+            }
+          } catch (err) {
+            console.warn("[chat2response plugin] failed to inject openai provider:", err.message);
+          }
+        }
       } finally {
         http.createServer = origCreateServer;
         for (const key of envKeysToRestore) {
@@ -113,8 +148,36 @@ export function createChat2responsePlugin() {
         throw new Error("[chat2response plugin] failed to capture upstream handler from http.createServer");
       }
 
+      if (modelOverride) {
+        const origHandler = capturedHandler;
+        capturedHandler = (req, res) => {
+          const pathname = new URL(req.url, "http://127.0.0.1").pathname;
+          if (req.method === "POST" && (pathname === "/v1/responses" || pathname === "/responses")) {
+            const chunks = [];
+            req.on("data", (chunk) => chunks.push(chunk));
+            req.on("end", () => {
+              try {
+                const body = JSON.parse(Buffer.concat(chunks).toString());
+                body.model = modelOverride;
+                origHandler(createParsedBodyRequest(req, body), res);
+              } catch (err) {
+                res.writeHead(400, { "Content-Type": "application/json" });
+                res.end(JSON.stringify({
+                  error: {
+                    message: err instanceof Error ? err.message : String(err),
+                    type: "invalid_request_error",
+                  },
+                }));
+              }
+            });
+            return;
+          }
+          origHandler(req, res);
+        };
+      }
+
       this.handler = capturedHandler;
-      console.log(`[chat2response plugin] upstream handler captured from: ${entryPath}`);
+      console.log(`[chat2response plugin] upstream handler captured from: ${entryPath}, model override: ${modelOverride || "(none)"}`);
     },
 
     async stop() {
@@ -149,4 +212,39 @@ function resolveEntryFromPkg(pkgJsonPath) {
     relEntry = "index.js";
   }
   return path.join(pkgDir, relEntry);
+}
+
+/**
+ * Create a proxy of the original req with body-parser-compatible parsed body.
+ * @param {http.IncomingMessage} origReq
+ * @param {object} body
+ * @returns {http.IncomingMessage}
+ */
+function createParsedBodyRequest(origReq, body) {
+  return new Proxy(origReq, {
+    get(target, prop) {
+      if (prop === "body") {
+        return body;
+      }
+      if (prop === "_body") {
+        return true;
+      }
+      if (prop === "headers") {
+        const { "content-length": _contentLength, ...headers } = target.headers;
+        if (process.env.OPENAI_BASE_URL) {
+          headers["x-provider"] = "openai";
+        }
+        return headers;
+      }
+      const val = target[prop];
+      return typeof val === "function" ? val.bind(target) : val;
+    },
+    set(target, prop, value) {
+      if (prop === "body" || prop === "_body") {
+        return true;
+      }
+      target[prop] = value;
+      return true;
+    },
+  });
 }

@@ -122,7 +122,7 @@ export function getGatewayBaseUrl(port = currentPort): string {
 
 export async function startGateway(
   port?: number,
-  credentials?: { apiKey?: string; baseUrl?: string },
+  credentials?: { apiKey?: string; baseUrl?: string; model?: string },
 ): Promise<{ success: boolean; error?: string }> {
   const startup = resolveStartCommand();
   if (!startup) {
@@ -137,12 +137,16 @@ export async function startGateway(
   const resolvedPort = resolveStartupPort(port);
   currentPort = resolvedPort;
   const status = gatewayProcess.status();
-  const hasCredentials = !!credentials?.apiKey;
+  const hasRuntimeConfig = !!(
+    credentials?.apiKey ||
+    credentials?.baseUrl ||
+    credentials?.model
+  );
   if (status.running) {
-    if (!hasCredentials) {
+    if (!hasRuntimeConfig) {
       return { success: true };
     }
-    log.info("[Gateway] restarting to apply new credentials");
+    log.info("[Gateway] restarting to apply new runtime config");
     await gatewayProcess.stopAsync(3000);
   }
 
@@ -162,10 +166,14 @@ export async function startGateway(
       ...(credentials?.apiKey
         ? {
             DEEPSEEK_API_KEY: credentials.apiKey,
+            CODEX_API_KEY: credentials.apiKey,
             OPENAI_API_KEY: credentials.apiKey,
           }
         : {}),
       ...(credentials?.baseUrl ? { OPENAI_BASE_URL: credentials.baseUrl } : {}),
+      ...(credentials?.model
+        ? { CODEX_MODEL: credentials.model, OPENAI_MODEL: credentials.model }
+        : {}),
     },
     startupDelayMs: 1500,
   });
@@ -224,7 +232,7 @@ export function getGatewayStatus(): {
 
 export async function ensureGatewayForEngine(
   engineType: string | null | undefined,
-  credentials?: { apiKey?: string; baseUrl?: string },
+  credentials?: { apiKey?: string; baseUrl?: string; model?: string },
 ): Promise<void> {
   if (engineType === "codex-cli") {
     const result = await startGateway(undefined, credentials);
