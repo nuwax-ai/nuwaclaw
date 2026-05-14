@@ -31,6 +31,10 @@ import { processRegistry } from "../system/processRegistry";
 import { ensureGatewayForEngine } from "../packages/gatewayServer";
 import type { DetailedSession } from "@shared/types/sessions";
 import { ENGINE_DESTROY_TIMEOUT } from "@shared/constants";
+import type {
+  NotifyResolvedRequest,
+  NotifyResolvedResponse,
+} from "@shared/types/intervention";
 
 // Re-export computer types
 export type {
@@ -1573,6 +1577,54 @@ export class UnifiedAgentService extends EventEmitter {
     for (const [, engine] of this.engines) {
       engine.respondPermission(permissionId, response);
     }
+  }
+
+  async resolvePermissionIntervention(
+    payload: NotifyResolvedRequest,
+  ): Promise<NotifyResolvedResponse> {
+    let lastNotFound: NotifyResolvedResponse | null = null;
+
+    for (const [projectId, engine] of this.engines) {
+      if (!engine.isReady) continue;
+
+      try {
+        const result = await engine.resolvePermissionIntervention(payload);
+        if (
+          result.error?.code === "not_found" ||
+          result.hostStatus === "gone"
+        ) {
+          lastNotFound = result;
+          log.debug(
+            `[UnifiedAgent] Permission intervention not in engine ${projectId}: ${payload.interventionId}`,
+          );
+          continue;
+        }
+        return result;
+      } catch (error: any) {
+        log.error(
+          `[UnifiedAgent] resolvePermissionIntervention failed in engine ${projectId}:`,
+          error,
+        );
+        return {
+          ok: false,
+          error: {
+            code: "internal_error",
+            message: error?.message || "failed to resolve permission",
+          },
+        };
+      }
+    }
+
+    return (
+      lastNotFound ?? {
+        ok: false,
+        hostStatus: "gone",
+        error: {
+          code: "not_found",
+          message: "pending permission not found",
+        },
+      }
+    );
   }
 
   // === ACP engine specific ===

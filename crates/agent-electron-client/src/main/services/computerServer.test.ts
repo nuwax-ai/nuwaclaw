@@ -7,7 +7,7 @@
  * - getSseEventBufferSize 查询
  */
 
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import {
   pushSseEvent,
   getSseEventBufferSize,
@@ -15,6 +15,9 @@ import {
   clearAllSseEventBuffers,
   setSessionFirstTokenContextForTest,
   hasSessionFirstTokenContext,
+  startComputerServer,
+  stopComputerServer,
+  getComputerServerStatus,
 } from "./computerServer";
 
 const mockPerfLogger = vi.hoisted(() => ({
@@ -23,17 +26,23 @@ const mockPerfLogger = vi.hoisted(() => ({
 const mockFirstTokenTrace = vi.hoisted(() => ({
   trace: vi.fn(),
 }));
+const mockAgentService = vi.hoisted(() => ({
+  isReady: true,
+  getEngineType: vi.fn(() => "nuwaxcode"),
+  getAgentConfig: vi.fn(() => ({ workspaceDir: "/tmp" })),
+  getAcpEngine: vi.fn(() => null),
+  hasRunningEngines: false,
+  getEngineForProject: vi.fn(() => null),
+  resolvePermissionIntervention: vi.fn(),
+}));
+const mockDb = vi.hoisted(() => ({
+  readSetting: vi.fn(() => "secret-1"),
+  writeSetting: vi.fn(() => true),
+}));
 
 // 避免拉起 unifiedAgent 与 Electron 等重模块
 vi.mock("./engines/unifiedAgent", () => ({
-  agentService: {
-    isReady: true,
-    getEngineType: () => "nuwaxcode",
-    getAgentConfig: () => ({ workspaceDir: "/tmp" }),
-    getAcpEngine: () => null,
-    hasRunningEngines: false,
-    getEngineForProject: () => null,
-  },
+  agentService: mockAgentService,
 }));
 vi.mock("electron-log", () => ({
   default: {
@@ -61,16 +70,30 @@ vi.mock("../bootstrap/logConfig", () => ({
 vi.mock("./engines/perf/firstTokenTrace", () => ({
   firstTokenTrace: mockFirstTokenTrace,
 }));
+vi.mock("../db", () => mockDb);
+vi.mock("./system/deviceId", () => ({
+  getDeviceId: vi.fn(() => "device-1"),
+}));
 
 describe("ComputerServer — SSE 事件缓冲", () => {
   const sessionId = "ses-test-buffer-001";
 
   beforeEach(() => {
     vi.clearAllMocks();
+    mockDb.readSetting.mockReturnValue("secret-1");
+    mockAgentService.resolvePermissionIntervention.mockResolvedValue({
+      ok: true,
+      hostStatus: "resolved",
+    });
     clearAllSseEventBuffers();
     // 清空该 session 的缓冲（通过多次 push 触发内部逻辑会累积，这里依赖模块状态）
     // 注意：pushSseEvent 依赖 computerServer 模块内的 sseClients/sseEventBuffers
     // 无客户端时会写入 buffer；测试间若复用 sessionId 会累积，故用唯一 sessionId 或单测内只测一次
+  });
+
+  afterEach(async () => {
+    await stopComputerServer();
+    vi.useRealTimers();
   });
 
   it("getSseEventBufferSize 在无缓冲时返回 0", () => {
@@ -242,5 +265,73 @@ describe("ComputerServer — SSE 事件缓冲", () => {
     expect(hasSessionFirstTokenContext(session)).toBe(true);
     clearSseEventBuffer(session);
     expect(hasSessionFirstTokenContext(session)).toBe(false);
+  });
+
+  async function postNotifyResolved(
+    body: unknown,
+    headers?: Record<string, string>,
+  ): Promise<Response> {
+    const started = await startComputerServer(0);
+    expect(started.success).toBe(true);
+    const port = getComputerServerStatus().port;
+    expect(port).toBeTypeOf("number");
+
+    return fetch(`http://127.0.0.1:${port}/computer/notify-resolved`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-Nuwax-Device-Id": "device-1",
+        "X-Nuwax-Internal-Secret": "secret-1",
+        ...headers,
+      },
+      body: JSON.stringify(body),
+    });
+  }
+
+  const notifyPayload = {
+    interventionId: "acp_test_001",
+    revision: 1,
+    source: "acp_permission",
+    protocol: "acp",
+    action: "submit",
+    acpResponse: { outcome: { outcome: "selected", optionId: "allow-once" } },
+    resolvedBy: { kind: "web", userId: "u1" },
+    resolvedAt: 1760000000000,
+  };
+
+  it("POST /computer/notify-resolved 校验后转交 agentService resolver", async () => {
+    mockAgentService.resolvePermissionIntervention.mockResolvedValueOnce({
+      ok: true,
+      hostStatus: "resolved",
+    });
+
+    const res = await postNotifyResolved(notifyPayload);
+    const data = await res.json();
+
+    expect(res.status).toBe(200);
+    expect(data).toEqual({ ok: true, hostStatus: "resolved" });
+    expect(mockAgentService.resolvePermissionIntervention).toHaveBeenCalledWith(
+      notifyPayload,
+    );
+  });
+
+  it("POST /computer/notify-resolved 拒绝错误 deviceId", async () => {
+    const res = await postNotifyResolved(notifyPayload, {
+      "X-Nuwax-Device-Id": "other-device",
+    });
+    const data = await res.json();
+
+    expect(res.status).toBe(403);
+    expect(data.error.code).toBe("forbidden_target");
+    expect(mockAgentService.resolvePermissionIntervention).not.toHaveBeenCalled();
+  });
+
+  it("POST /computer/notify-resolved 拒绝非法 body", async () => {
+    const res = await postNotifyResolved({ interventionId: "missing-fields" });
+    const data = await res.json();
+
+    expect(res.status).toBe(400);
+    expect(data.error.code).toBe("invalid_acp_response");
+    expect(mockAgentService.resolvePermissionIntervention).not.toHaveBeenCalled();
   });
 });

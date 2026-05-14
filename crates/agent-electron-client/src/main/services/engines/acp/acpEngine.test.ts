@@ -21,6 +21,14 @@ vi.mock("electron-log", () => ({
   },
 }));
 
+vi.mock("electron", () => ({
+  app: {
+    getPath: vi.fn(() => "/mock/home"),
+    getAppPath: vi.fn(() => "/mock/app"),
+    isPackaged: false,
+  },
+}));
+
 vi.mock("../../memory", () => ({
   memoryService: {
     isInitialized: vi.fn(() => false),
@@ -53,6 +61,10 @@ vi.mock("@main/services/system/dependencies", () => ({
   getResourcesPath: vi.fn(() => "/mock/resources"),
   getAppEnv: vi.fn(() => ({ PATH: "/mock/path" })),
   getBundledGitBashPath: vi.fn(() => null),
+}));
+
+vi.mock("../../packages/gatewayServer", () => ({
+  getGatewayStatus: vi.fn(() => ({ running: false })),
 }));
 
 vi.mock("@main/services/sandbox/policy", () => ({
@@ -104,6 +116,7 @@ function setupEngine(engineType: "claude-code" | "nuwaxcode" = "nuwaxcode") {
   (engine as any).acpConnection = {
     cancel: vi.fn(),
     prompt: vi.fn(),
+    setSessionMode: vi.fn().mockResolvedValue(undefined),
   } as any;
   (engine as any).sessions.set(sessionId, session);
 
@@ -114,6 +127,7 @@ function setupEngine(engineType: "claude-code" | "nuwaxcode" = "nuwaxcode") {
     acpConnection: (engine as any).acpConnection as {
       cancel: any;
       prompt: any;
+      setSessionMode: any;
     },
   };
 }
@@ -443,8 +457,10 @@ describe("AcpEngine.createSession", () => {
 });
 
 describe("AcpEngine.handlePermissionRequest(strict)", () => {
-  it("strict 下 workspace 内写入仅放行 allow_once", async () => {
+  it("strict 下 workspace 内写入进入 approval pending 并通过 notify resolve", async () => {
     const { engine, sessionId } = setupEngine("nuwaxcode");
+    const progress = vi.fn();
+    engine.on("computer:progress", progress);
     (engine as any).config = { engine: "nuwaxcode", workspaceDir: "/tmp/ws" };
     (engine as any).storedSandboxConfig = {
       enabled: true,
@@ -453,7 +469,7 @@ describe("AcpEngine.handlePermissionRequest(strict)", () => {
     };
     (engine as any).isolatedHome = "/tmp/iso-home";
 
-    const result = await (engine as any).handlePermissionRequest({
+    const resultPromise = (engine as any).handlePermissionRequest({
       sessionId,
       toolCall: {
         toolCallId: "tc-strict-1",
@@ -475,7 +491,28 @@ describe("AcpEngine.handlePermissionRequest(strict)", () => {
       ],
     });
 
-    expect(result).toEqual({
+    expect(progress).toHaveBeenCalledTimes(1);
+    const event = progress.mock.calls[0][0];
+    expect(event).toMatchObject({
+      sessionId,
+      acpSessionId: sessionId,
+      messageType: "acpRequestPermission",
+      subType: "session/request_permission",
+    });
+    expect(event.data.acp.request.toolCall.toolCallId).toBe("tc-strict-1");
+
+    const resolveResult = (engine as any).resolvePermissionIntervention({
+      interventionId: event.data.id,
+      revision: event.data.revision,
+      source: "acp_permission",
+      protocol: "acp",
+      action: "submit",
+      acpResponse: { outcome: { outcome: "selected", optionId: "allow-once" } },
+      resolvedBy: { kind: "web", userId: "u1" },
+      resolvedAt: Date.now(),
+    });
+    expect(resolveResult).toEqual({ ok: true, hostStatus: "resolved" });
+    await expect(resultPromise).resolves.toEqual({
       outcome: { outcome: "selected", optionId: "allow-once" },
     });
   });
@@ -513,6 +550,94 @@ describe("AcpEngine.handlePermissionRequest(strict)", () => {
     });
 
     expect(result).toEqual({ outcome: { outcome: "cancelled" } });
+  });
+
+  it("ask 模式下普通 permission 通过 acpRequestPermission 等待用户响应", async () => {
+    const { engine, sessionId } = setupEngine("claude-code");
+    const progress = vi.fn();
+    engine.on("computer:progress", progress);
+    (engine as any).effectiveAgentModes.set(sessionId, "ask");
+
+    const resultPromise = (engine as any).handlePermissionRequest({
+      sessionId,
+      toolCall: {
+        toolCallId: "tc-ask-1",
+        kind: "execute",
+        title: "Bash",
+        rawInput: { command: "npm test" },
+      },
+      options: [
+        {
+          optionId: "allow-once",
+          kind: "allow_once",
+          name: "allow once",
+        },
+        {
+          optionId: "reject-once",
+          kind: "reject_once",
+          name: "reject once",
+        },
+      ],
+    });
+
+    expect(progress).toHaveBeenCalledTimes(1);
+    const event = progress.mock.calls[0][0];
+    expect(event).toMatchObject({
+      messageType: "acpRequestPermission",
+      subType: "session/request_permission",
+      data: {
+        kind: "approval",
+        source: "acp_permission",
+        protocol: "acp",
+        status: "pending",
+        acp: { method: "session/request_permission" },
+      },
+    });
+
+    (engine as any).resolvePermissionIntervention({
+      interventionId: event.data.id,
+      revision: 1,
+      source: "acp_permission",
+      protocol: "acp",
+      action: "submit",
+      acpResponse: { outcome: { outcome: "selected", optionId: "allow-once" } },
+      resolvedBy: { kind: "web" },
+      resolvedAt: Date.now(),
+    });
+
+    await expect(resultPromise).resolves.toEqual({
+      outcome: { outcome: "selected", optionId: "allow-once" },
+    });
+  });
+
+  it("yolo 默认按 allow_always > allow_once > options[0] 自动选择", async () => {
+    const { engine, sessionId } = setupEngine("claude-code");
+
+    const result = await (engine as any).handlePermissionRequest({
+      sessionId,
+      toolCall: {
+        toolCallId: "tc-yolo-1",
+        kind: "read",
+        title: "Read",
+        rawInput: { file_path: "/tmp/a.txt" },
+      },
+      options: [
+        {
+          optionId: "allow-once",
+          kind: "allow_once",
+          name: "allow once",
+        },
+        {
+          optionId: "allow-always",
+          kind: "allow_always",
+          name: "allow always",
+        },
+      ],
+    });
+
+    expect(result).toEqual({
+      outcome: { outcome: "selected", optionId: "allow-always" },
+    });
   });
 });
 
@@ -611,6 +736,34 @@ describe("AcpEngine.chat", () => {
         mcpInitTimeoutMs: 500,
       },
     );
+  });
+
+  it("chat 每次 prompt 前应用 agent_config.agent_server.agent_mode", async () => {
+    const { engine, sessionId, session, acpConnection } =
+      setupEngine("claude-code");
+    session.projectId = "project-mode-001";
+
+    vi.spyOn(engine, "promptAsync").mockResolvedValue(undefined);
+
+    const result = await engine.chat({
+      user_id: "user-1",
+      project_id: "project-mode-001",
+      session_id: sessionId,
+      request_id: "rid-mode-001",
+      prompt: "hello mode",
+      agent_config: {
+        agent_server: {
+          agent_mode: "ask",
+        },
+      },
+    } as any);
+
+    expect(result.success).toBe(true);
+    expect(acpConnection.setSessionMode).toHaveBeenCalledWith({
+      sessionId,
+      modeId: "ask",
+    });
+    expect((engine as any).effectiveAgentModes.get(sessionId)).toBe("ask");
   });
 
   it("claude-code: chat 保持原逻辑仅透传 messageID", async () => {

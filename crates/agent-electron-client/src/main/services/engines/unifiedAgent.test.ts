@@ -75,6 +75,7 @@ vi.mock("./acp/acpClient", () => ({
 
 vi.mock("../sandbox/policyCache", () => ({
   getCachedSandboxPolicy: vi.fn(() => sandboxPolicyState.current),
+  setCachedSandboxPolicy: vi.fn(),
 }));
 
 vi.mock("./acp/acpEngine", () => {
@@ -87,7 +88,13 @@ vi.mock("./acp/acpEngine", () => {
     removeAllListeners: vi.fn(),
     destroy: vi.fn().mockResolvedValue(undefined),
     isReady: true,
+    sandboxMode: "compat",
     getActivePromptCount: vi.fn(() => 0),
+    resolvePermissionIntervention: vi.fn(() => ({
+      ok: false,
+      hostStatus: "gone",
+      error: { code: "not_found", message: "not found" },
+    })),
     engineName: "nuwaxcode" as const,
     on: vi.fn(),
   });

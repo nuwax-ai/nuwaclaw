@@ -11,6 +11,7 @@ import { EventEmitter } from "events";
 import * as os from "os";
 import * as path from "path";
 import * as fs from "fs";
+import { randomUUID } from "crypto";
 import log from "electron-log";
 import type { ChildProcess } from "child_process";
 import { FEATURES } from "@shared/featureFlags";
@@ -84,6 +85,18 @@ import { ACP_ABORT_TIMEOUT } from "@shared/constants";
 import { APP_DATA_DIR_NAME } from "../../constants";
 import { perfEmitter } from "../perf/perfEmitter";
 import { firstTokenTrace } from "../perf/firstTokenTrace";
+import {
+  isValidAcpPermissionResponse,
+  normalizeAgentMode,
+  sameAcpPermissionResponse,
+  type AcpPermissionInterventionRequest,
+  type AgentEngineId,
+  type AgentMode,
+  type NotifyResolvedRequest,
+  type NotifyResolvedResponse,
+  type RequestPermissionRequest,
+  type RequestPermissionResponse,
+} from "@shared/types/intervention";
 
 /** Safe JSON.stringify that handles circular references */
 function safeStringify(obj: unknown): string {
@@ -111,6 +124,30 @@ const NUWAX_MCP_INIT_POLICY_DEFAULT: NonNullable<
   PromptOptions["mcpInitPolicy"]
 > = "non_blocking";
 const NUWAX_MCP_INIT_TIMEOUT_MS_DEFAULT = 500;
+const ACP_PERMISSION_INTERVENTION_TIMEOUT_MS = 30 * 60 * 1000;
+
+interface AcpModeConfigOptionState {
+  optionId: string;
+  currentValue?: unknown;
+}
+
+interface AcpSessionModeState {
+  configOption?: AcpModeConfigOptionState;
+  availableModeIds: Set<string>;
+}
+
+interface PendingAcpPermission {
+  resolve: (r: AcpPermissionResponse) => void;
+  options: AcpPermissionOption[];
+  request: RequestPermissionRequest;
+  intervention: AcpPermissionInterventionRequest;
+  timer?: ReturnType<typeof setTimeout>;
+}
+
+interface ResolvedAcpPermission {
+  revision: number;
+  response: RequestPermissionResponse;
+}
 
 interface AcpSession {
   id: string;
@@ -142,18 +179,16 @@ export class AcpEngine extends EventEmitter {
   /** Stored sandbox config for use in createSession (MCP Bash injection) */
   private storedSandboxConfig: SandboxProcessConfig | null = null;
   private sessions = new Map<string, AcpSession>();
-  private pendingPermissions = new Map<
-    string,
-    {
-      resolve: (r: AcpPermissionResponse) => void;
-      options: AcpPermissionOption[];
-    }
-  >();
+  private sessionModeState = new Map<string, AcpSessionModeState>();
+  private effectiveAgentModes = new Map<string, AgentMode>();
+  private pendingPermissions = new Map<string, PendingAcpPermission>();
+  private resolvedPermissions = new Map<string, ResolvedAcpPermission>();
   private activePromptSessions = new Set<string>();
   private activePromptRejects = new Map<string, (reason: Error) => void>();
   private strictPermissionSnapshotLoggedSessions = new Set<string>();
   private static readonly MAX_SNAPSHOT_LOGGED_SESSIONS = 500;
   private logTag: string;
+  private readonly callbackTargetId: string;
 
   private readonly _engineName: AgentEngineType;
 
@@ -161,6 +196,7 @@ export class AcpEngine extends EventEmitter {
     super();
     this._engineName = engineName;
     this.logTag = `[AcpEngine:${engineName}]`;
+    this.callbackTargetId = `${os.hostname()}:${process.pid}`;
   }
 
   get isReady(): boolean {
@@ -297,6 +333,221 @@ export class AcpEngine extends EventEmitter {
   private async sleep(ms: number): Promise<void> {
     await new Promise<void>((resolve) => {
       setTimeout(resolve, ms);
+    });
+  }
+
+  private normalizeAgentModeForRequest(rawMode: unknown, context: {
+    sessionId?: string;
+    requestId?: string;
+  }): AgentMode {
+    const mode = normalizeAgentMode(rawMode);
+    if (
+      rawMode !== undefined &&
+      rawMode !== null &&
+      rawMode !== "" &&
+      mode === "ask" &&
+      rawMode !== "ask" &&
+      rawMode !== "yolo"
+    ) {
+      log.warn(`${this.logTag} Invalid agent_mode, fallback to ask`, {
+        rawMode,
+        sessionId: context.sessionId,
+        requestId: context.requestId,
+      });
+    }
+    return mode;
+  }
+
+  private toAgentEngineId(): AgentEngineId {
+    return this.engineName === "codex-cli" ? "codex" : this.engineName;
+  }
+
+  private extractModeId(mode: { id?: string; modeId?: string }): string | null {
+    return mode.modeId || mode.id || null;
+  }
+
+  private optionContainsModeValue(option: {
+    currentValue?: unknown;
+    value?: unknown;
+    values?: unknown[];
+    options?: unknown[];
+  }): boolean {
+    const values = [option.currentValue, option.value, ...(option.values ?? [])];
+    for (const value of values) {
+      if (value === "ask" || value === "yolo") return true;
+      if (
+        value &&
+        typeof value === "object" &&
+        ("value" in value || "id" in value || "optionId" in value)
+      ) {
+        const record = value as Record<string, unknown>;
+        if (
+          record.value === "ask" ||
+          record.value === "yolo" ||
+          record.id === "ask" ||
+          record.id === "yolo" ||
+          record.optionId === "ask" ||
+          record.optionId === "yolo"
+        ) {
+          return true;
+        }
+      }
+    }
+    for (const optionValue of option.options ?? []) {
+      if (optionValue === "ask" || optionValue === "yolo") return true;
+      if (optionValue && typeof optionValue === "object") {
+        const record = optionValue as Record<string, unknown>;
+        if (
+          record.value === "ask" ||
+          record.value === "yolo" ||
+          record.id === "ask" ||
+          record.id === "yolo" ||
+          record.optionId === "ask" ||
+          record.optionId === "yolo"
+        ) {
+          return true;
+        }
+      }
+    }
+    return false;
+  }
+
+  private findModeConfigOption(
+    configOptions:
+      | Array<{
+          id?: string;
+          optionId?: string;
+          name?: string;
+          type?: string;
+          currentValue?: unknown;
+          value?: unknown;
+          values?: unknown[];
+          options?: unknown[];
+        }>
+      | undefined,
+  ): AcpModeConfigOptionState | undefined {
+    if (!configOptions) return undefined;
+    for (const option of configOptions) {
+      const optionId = option.optionId || option.id;
+      if (!optionId) continue;
+      const label = `${optionId} ${option.name ?? ""} ${option.type ?? ""}`
+        .trim()
+        .toLowerCase();
+      if (
+        label.includes("mode") ||
+        label.includes("permission") ||
+        this.optionContainsModeValue(option)
+      ) {
+        return {
+          optionId,
+          currentValue: option.currentValue ?? option.value,
+        };
+      }
+    }
+    return undefined;
+  }
+
+  private buildSessionModeState(newSessionResult: {
+    availableModes?: Array<{ id?: string; modeId?: string; name?: string }>;
+    modes?: Array<{ id?: string; modeId?: string; name?: string }>;
+    configOptions?: Array<{
+      id?: string;
+      optionId?: string;
+      name?: string;
+      type?: string;
+      currentValue?: unknown;
+      value?: unknown;
+      values?: unknown[];
+      options?: unknown[];
+    }>;
+  }): AcpSessionModeState {
+    const modes = new Set<string>();
+    for (const mode of [
+      ...(newSessionResult.availableModes ?? []),
+      ...(newSessionResult.modes ?? []),
+    ]) {
+      const modeId = this.extractModeId(mode);
+      if (modeId) modes.add(modeId);
+    }
+    return {
+      configOption: this.findModeConfigOption(newSessionResult.configOptions),
+      availableModeIds: modes,
+    };
+  }
+
+  private async applyAgentModeForPrompt(params: {
+    session: AcpSession;
+    requestedMode: AgentMode;
+    requestId?: string;
+  }): Promise<void> {
+    const { session, requestedMode, requestId } = params;
+    this.effectiveAgentModes.set(session.id, requestedMode);
+    const modeState = this.sessionModeState.get(session.id);
+    const acpSessionId = session.acpSessionId ?? session.id;
+
+    if (
+      modeState?.configOption &&
+      this.acpConnection?.setSessionConfigOption
+    ) {
+      try {
+        await this.acpConnection.setSessionConfigOption({
+          sessionId: acpSessionId,
+          optionId: modeState.configOption.optionId,
+          value: requestedMode,
+        });
+        modeState.configOption.currentValue = requestedMode;
+        log.info(`${this.logTag} ACP session config mode applied`, {
+          sessionId: session.id,
+          requestId,
+          mode: requestedMode,
+          optionId: modeState.configOption.optionId,
+        });
+        return;
+      } catch (err) {
+        log.warn(`${this.logTag} setSessionConfigOption failed`, {
+          sessionId: session.id,
+          requestId,
+          mode: requestedMode,
+          optionId: modeState.configOption.optionId,
+          error: this.toErrorMessage(err),
+        });
+      }
+    }
+
+    const canTrySetSessionMode =
+      !modeState ||
+      modeState.availableModeIds.size === 0 ||
+      modeState.availableModeIds.has(requestedMode);
+    if (canTrySetSessionMode && this.acpConnection?.setSessionMode) {
+      try {
+        await this.acpConnection.setSessionMode({
+          sessionId: acpSessionId,
+          modeId: requestedMode,
+        });
+        log.info(`${this.logTag} ACP session mode applied`, {
+          sessionId: session.id,
+          requestId,
+          mode: requestedMode,
+        });
+        return;
+      } catch (err) {
+        log.warn(`${this.logTag} setSessionMode failed`, {
+          sessionId: session.id,
+          requestId,
+          mode: requestedMode,
+          error: this.toErrorMessage(err),
+        });
+      }
+    }
+
+    log.debug(`${this.logTag} Using host effective agent_mode`, {
+      sessionId: session.id,
+      requestId,
+      mode: requestedMode,
+      hasConfigOption: !!modeState?.configOption,
+      availableModes: modeState
+        ? Array.from(modeState.availableModeIds.values())
+        : [],
     });
   }
 
@@ -794,6 +1045,7 @@ export class AcpEngine extends EventEmitter {
 
     // Reject all pending permissions
     for (const [id, pending] of this.pendingPermissions) {
+      if (pending.timer) clearTimeout(pending.timer);
       pending.resolve({ outcome: { outcome: "cancelled" } });
       this.pendingPermissions.delete(id);
     }
@@ -876,6 +1128,9 @@ export class AcpEngine extends EventEmitter {
 
     this.acpConnection = null;
     this.sessions.clear();
+    this.sessionModeState.clear();
+    this.effectiveAgentModes.clear();
+    this.resolvedPermissions.clear();
     this.activePromptSessions.clear();
     this.activePromptRejects.clear();
     this.strictPermissionSnapshotLoggedSessions.clear();
@@ -1232,7 +1487,22 @@ export class AcpEngine extends EventEmitter {
       mcpServersJson: JSON.stringify(mcpServers, null, 2),
     });
     const timer = perfEmitter.start();
-    let acpResult: { sessionId: string };
+    let acpResult: {
+      sessionId: string;
+      availableModes?: Array<{ id?: string; modeId?: string; name?: string }>;
+      modes?: Array<{ id?: string; modeId?: string; name?: string }>;
+      configOptions?: Array<{
+        id?: string;
+        optionId?: string;
+        name?: string;
+        type?: string;
+        currentValue?: unknown;
+        value?: unknown;
+        values?: unknown[];
+        options?: unknown[];
+      }>;
+      _meta?: Record<string, unknown>;
+    };
     try {
       acpResult = await this.acpConnection.newSession(newSessionParams);
     } catch (err) {
@@ -1246,25 +1516,6 @@ export class AcpEngine extends EventEmitter {
     log.info(
       `${this.logTag} ✅ ACP newSession completed (${createMs}ms), acpSessionId=${acpResult.sessionId}`,
     );
-
-    // Set full-access mode for engines that support session/setMode
-    // (codex-cli defaults to "auto" which prompts for permissions)
-    if (this.acpConnection.setSessionMode) {
-      try {
-        await this.acpConnection.setSessionMode({
-          sessionId: acpResult.sessionId,
-          modeId: "full-access",
-        });
-        log.info(
-          `${this.logTag} 🔓 Session mode set to full-access for ${acpResult.sessionId}`,
-        );
-      } catch (err) {
-        log.warn(
-          `${this.logTag} ⚠️ setSessionMode failed (engine may not support it):`,
-          (err as Error).message,
-        );
-      }
-    }
 
     firstTokenTrace.trace(
       "acp.new_session.done",
@@ -1287,6 +1538,10 @@ export class AcpEngine extends EventEmitter {
       lastActivity: Date.now(),
     };
     this.sessions.set(sessionId, session);
+    this.sessionModeState.set(
+      sessionId,
+      this.buildSessionModeState(acpResult),
+    );
 
     log.info(`${this.logTag} Session created`, {
       sessionId,
@@ -1329,6 +1584,8 @@ export class AcpEngine extends EventEmitter {
   }
 
   async deleteSession(id: string): Promise<boolean> {
+    this.sessionModeState.delete(id);
+    this.effectiveAgentModes.delete(id);
     return this.sessions.delete(id);
   }
 
@@ -1720,33 +1977,163 @@ export class AcpEngine extends EventEmitter {
 
   // === Permission Response ===
 
+  private findPendingPermissionById(
+    permissionId: string,
+  ): [string, PendingAcpPermission] | null {
+    const direct = this.pendingPermissions.get(permissionId);
+    if (direct) return [permissionId, direct];
+    for (const entry of this.pendingPermissions.entries()) {
+      const [, pending] = entry;
+      if (pending.request.toolCall.toolCallId === permissionId) return entry;
+    }
+    return null;
+  }
+
+  private settlePendingPermission(
+    interventionId: string,
+    pending: PendingAcpPermission,
+    response: AcpPermissionResponse,
+  ): void {
+    if (pending.timer) clearTimeout(pending.timer);
+    this.pendingPermissions.delete(interventionId);
+    this.resolvedPermissions.set(interventionId, {
+      revision: pending.intervention.revision,
+      response: response as RequestPermissionResponse,
+    });
+    pending.resolve(response);
+  }
+
+  public resolvePermissionIntervention(
+    payload: NotifyResolvedRequest,
+  ): NotifyResolvedResponse {
+    if (
+      payload.source !== "acp_permission" ||
+      payload.protocol !== "acp" ||
+      !payload.interventionId
+    ) {
+      return {
+        ok: false,
+        error: {
+          code: "invalid_acp_response",
+          message: "Invalid ACP permission resolve payload",
+        },
+      };
+    }
+
+    const pending = this.pendingPermissions.get(payload.interventionId);
+    if (!pending) {
+      const resolved = this.resolvedPermissions.get(payload.interventionId);
+      if (!resolved) {
+        return {
+          ok: false,
+          hostStatus: "gone",
+          error: {
+            code: "not_found",
+            message: "Permission intervention not found",
+          },
+        };
+      }
+      if (resolved.revision !== payload.revision) {
+        return {
+          ok: false,
+          hostStatus: "superseded",
+          error: {
+            code: "revision_mismatch",
+            message: "Permission intervention revision mismatch",
+          },
+        };
+      }
+      if (sameAcpPermissionResponse(resolved.response, payload.acpResponse)) {
+        return { ok: true, hostStatus: "already_resolved" };
+      }
+      return {
+        ok: false,
+        hostStatus: "already_resolved",
+        error: {
+          code: "already_resolved_conflict",
+          message: "Permission intervention was already resolved differently",
+        },
+      };
+    }
+
+    if (pending.intervention.revision !== payload.revision) {
+      return {
+        ok: false,
+        hostStatus: "superseded",
+        error: {
+          code: "revision_mismatch",
+          message: "Permission intervention revision mismatch",
+        },
+      };
+    }
+
+    if (
+      !isValidAcpPermissionResponse(
+        payload.acpResponse,
+        pending.request.options,
+      )
+    ) {
+      return {
+        ok: false,
+        error: {
+          code: "invalid_acp_response",
+          message: "ACP permission response optionId is not valid",
+        },
+      };
+    }
+
+    this.settlePendingPermission(
+      payload.interventionId,
+      pending,
+      payload.acpResponse as AcpPermissionResponse,
+    );
+    log.info(`${this.logTag} ACP permission intervention resolved`, {
+      interventionId: payload.interventionId,
+      sessionId: pending.intervention.sessionId,
+      action: payload.action,
+      outcome: payload.acpResponse.outcome.outcome,
+      optionId:
+        payload.acpResponse.outcome.outcome === "selected"
+          ? payload.acpResponse.outcome.optionId
+          : undefined,
+      resolvedBy: payload.resolvedBy.kind,
+    });
+
+    return { ok: true, hostStatus: "resolved" };
+  }
+
   respondPermission(
     permissionId: string,
     response: "once" | "always" | "reject",
   ): void {
-    const pending = this.pendingPermissions.get(permissionId);
-    if (!pending) {
+    const pendingEntry = this.findPendingPermissionById(permissionId);
+    if (!pendingEntry) {
       log.warn(`${this.logTag} No pending permission for:`, permissionId);
       return;
     }
+    const [interventionId, pending] = pendingEntry;
 
-    if (response === "reject") {
-      pending.resolve({ outcome: { outcome: "cancelled" } });
+    const optionId =
+      response === "reject"
+        ? (pending.options.find((o) => o.kind === "reject_once")?.optionId ??
+          pending.options.find((o) => o.kind === "reject_always")?.optionId)
+        : (pending.options.find((o) =>
+            response === "always"
+              ? o.kind === "allow_always"
+              : o.kind === "allow_once",
+          )?.optionId ?? pending.options[0]?.optionId);
+
+    if (!optionId) {
+      log.warn(
+        `${this.logTag} No valid option for permission response, cancelling`,
+      );
+      this.settlePendingPermission(interventionId, pending, {
+        outcome: { outcome: "cancelled" },
+      });
     } else {
-      const targetKind = response === "always" ? "allow_always" : "allow_once";
-      const optionId =
-        pending.options.find((o) => o.kind === targetKind)?.optionId ??
-        pending.options[0]?.optionId;
-      if (!optionId) {
-        log.warn(
-          `${this.logTag} No valid option for permission response, cancelling`,
-        );
-        pending.resolve({ outcome: { outcome: "cancelled" } });
-      } else {
-        pending.resolve({
-          outcome: { outcome: "selected", optionId },
-        });
-      }
+      this.settlePendingPermission(interventionId, pending, {
+        outcome: { outcome: "selected", optionId },
+      });
     }
   }
 
@@ -2072,6 +2459,19 @@ User question: ${request.prompt}`;
         contextServerNames,
       });
 
+      const requestedAgentMode = this.normalizeAgentModeForRequest(
+        request.agent_config?.agent_server?.agent_mode,
+        {
+          sessionId: session.id,
+          requestId: request.request_id,
+        },
+      );
+      await this.applyAgentModeForPrompt({
+        session,
+        requestedMode: requestedAgentMode,
+        requestId: request.request_id,
+      });
+
       // 4. Async prompt
       const promptOptions: PromptOptions = {
         messageID: request.request_id,
@@ -2208,6 +2608,43 @@ User question: ${request.prompt}`;
     log.info(
       `${this.logTag} 📩 ACP sessionUpdate: type=${update.sessionUpdate}, sessionId=${acpSessionId}`,
     );
+
+    if (update.sessionUpdate === "config_option_update") {
+      const optionUpdate = update as {
+        optionId?: unknown;
+        id?: unknown;
+        currentValue?: unknown;
+        value?: unknown;
+      };
+      const optionId =
+        typeof optionUpdate.optionId === "string"
+          ? optionUpdate.optionId
+          : typeof optionUpdate.id === "string"
+            ? optionUpdate.id
+            : undefined;
+      const modeState = this.sessionModeState.get(acpSessionId);
+      if (
+        optionId &&
+        modeState?.configOption?.optionId === optionId
+      ) {
+        modeState.configOption.currentValue =
+          optionUpdate.currentValue ?? optionUpdate.value;
+      }
+    } else if (update.sessionUpdate === "current_mode_update") {
+      const modeUpdate = update as {
+        modeId?: unknown;
+        currentModeId?: unknown;
+      };
+      const modeId =
+        typeof modeUpdate.modeId === "string"
+          ? modeUpdate.modeId
+          : typeof modeUpdate.currentModeId === "string"
+            ? modeUpdate.currentModeId
+            : undefined;
+      if (modeId === "ask" || modeId === "yolo") {
+        this.effectiveAgentModes.set(acpSessionId, modeId);
+      }
+    }
 
     // sessionId and acpSessionId are the same UUID
     this.emit("computer:progress", {
@@ -2396,6 +2833,96 @@ User question: ${request.prompt}`;
 
   // === Internal: Permission Handling ===
 
+  private toRequestPermissionRequest(
+    params: AcpPermissionRequest,
+  ): RequestPermissionRequest {
+    const request = params as unknown as RequestPermissionRequest;
+    return {
+      ...request,
+      sessionId: request.sessionId,
+      toolCall: request.toolCall,
+      options: request.options,
+    };
+  }
+
+  private buildAcpPermissionInterventionRequest(args: {
+    appSessionId: string;
+    acpRequest: RequestPermissionRequest;
+    timeoutMs?: number;
+  }): AcpPermissionInterventionRequest {
+    return {
+      id: `acp_${randomUUID()}`,
+      revision: 1,
+      kind: "approval",
+      status: "pending",
+      sessionId: args.appSessionId,
+      source: "acp_permission",
+      engine: this.toAgentEngineId(),
+      protocol: "acp",
+      callbackTarget: {
+        kind: "electron",
+        targetId: this.callbackTargetId,
+      },
+      schemaRef:
+        "https://github.com/agentclientprotocol/agent-client-protocol/blob/main/schema/schema.json",
+      acp: {
+        method: "session/request_permission",
+        request: args.acpRequest,
+      },
+      timeoutMs: args.timeoutMs,
+      createdAt: Date.now(),
+    };
+  }
+
+  private requestPermissionIntervention(
+    acpSessionId: string,
+    acpRequest: RequestPermissionRequest,
+  ): Promise<AcpPermissionResponse> {
+    const intervention = this.buildAcpPermissionInterventionRequest({
+      appSessionId: acpSessionId,
+      acpRequest,
+      timeoutMs: ACP_PERMISSION_INTERVENTION_TIMEOUT_MS,
+    });
+
+    return new Promise<AcpPermissionResponse>((resolve) => {
+      const pending: PendingAcpPermission = {
+        resolve,
+        options: acpRequest.options,
+        request: acpRequest,
+        intervention,
+      };
+      pending.timer = setTimeout(() => {
+        if (!this.pendingPermissions.has(intervention.id)) return;
+        log.warn(`${this.logTag} ACP permission intervention timed out`, {
+          interventionId: intervention.id,
+          sessionId: acpSessionId,
+          timeoutMs: ACP_PERMISSION_INTERVENTION_TIMEOUT_MS,
+        });
+        this.settlePendingPermission(intervention.id, pending, {
+          outcome: { outcome: "cancelled" },
+        });
+      }, ACP_PERMISSION_INTERVENTION_TIMEOUT_MS);
+      this.pendingPermissions.set(intervention.id, pending);
+
+      this.emit("computer:progress", {
+        sessionId: acpSessionId,
+        acpSessionId,
+        messageType: "acpRequestPermission",
+        subType: "session/request_permission",
+        data: intervention,
+        timestamp: new Date().toISOString(),
+      } satisfies UnifiedSessionMessage);
+
+      log.info(`${this.logTag} ACP permission intervention pending`, {
+        interventionId: intervention.id,
+        sessionId: acpSessionId,
+        toolCallId: acpRequest.toolCall.toolCallId,
+        toolKind: acpRequest.toolCall.kind,
+        optionCount: acpRequest.options.length,
+      });
+    });
+  }
+
   private async handlePermissionRequest(
     params: AcpPermissionRequest,
   ): Promise<AcpPermissionResponse> {
@@ -2480,37 +3007,44 @@ User question: ${request.prompt}`;
     }
 
     const strictWriteMode = strictEnabled && strictCheck.isWriteRequest;
-    const selected = strictWriteMode
-      ? params.options.find((o) => o.kind === "allow_once")
-      : params.options.find((o) => o.kind === "allow_always") ||
-        params.options.find((o) => o.kind === "allow_once") ||
-        params.options[0];
+    const effectiveMode = this.effectiveAgentModes.get(acpSessionId) ?? "yolo";
+    const acpRequest = this.toRequestPermissionRequest(params);
 
-    if (strictWriteMode && !selected) {
-      log.debug(
-        `${this.logTag} strict write permission blocked (allow_once option missing)`,
-        {
-          toolKind: params.toolCall.kind,
-          toolTitle: params.toolCall.title,
-        },
-      );
-      return { outcome: { outcome: "cancelled" } };
+    if (strictWriteMode || effectiveMode === "ask") {
+      log.info(`${this.logTag} ACP permission requires approval`, {
+        sessionId: acpSessionId,
+        toolKind: params.toolCall.kind,
+        toolTitle: params.toolCall.title,
+        effectiveMode,
+        strictWriteMode,
+      });
+      return this.requestPermissionIntervention(acpSessionId, acpRequest);
     }
 
+    const selected =
+      params.options.find((o) => o.kind === "allow_always") ||
+      params.options.find((o) => o.kind === "allow_once") ||
+      params.options[0];
+
     if (selected) {
-      if (strictWriteMode) {
-        log.debug(`${this.logTag} strict write permission allowed_once`, {
-          toolKind: params.toolCall.kind,
-          toolTitle: params.toolCall.title,
-          optionId: selected.optionId,
-          candidatePaths: strictCheck.candidatePaths,
-          resolvedPaths: strictCheck.resolvedPaths,
-        });
-      } else {
-        log.info(
-          `${this.logTag} 🔓 Permission auto-approved: tool=${params.toolCall.title}, kind=${selected.kind}, optionId=${selected.optionId}`,
+      if (
+        selected.kind !== "allow_always" &&
+        selected.kind !== "allow_once"
+      ) {
+        log.warn(
+          `${this.logTag} yolo permission selected non-allow option`,
+          {
+            sessionId: acpSessionId,
+            toolKind: params.toolCall.kind,
+            toolTitle: params.toolCall.title,
+            optionId: selected.optionId,
+            optionKind: selected.kind,
+          },
         );
       }
+      log.info(
+        `${this.logTag} 🔓 Permission auto-approved: tool=${params.toolCall.title}, kind=${selected.kind}, optionId=${selected.optionId}`,
+      );
       return {
         outcome: { outcome: "selected", optionId: selected.optionId },
       };

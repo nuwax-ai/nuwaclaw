@@ -1,3 +1,5 @@
+import type { AgentMode } from "./intervention";
+
 /**
  * Computer API 共享类型（对齐 rcoder /computer/* API）
  *
@@ -27,6 +29,7 @@ export interface ChatContextServerConfig {
 export interface ChatAgentConfig {
   agent_server?: {
     agent_id?: string;
+    agent_mode?: AgentMode;
     command?: string;
     args?: string[];
     env?: Record<string, string>;
@@ -92,6 +95,7 @@ export interface UnifiedSessionMessage {
     | "sessionPromptStart"
     | "sessionPromptEnd"
     | "agentSessionUpdate"
+    | "acpRequestPermission"
     | "heartbeat";
   subType: string;
   data: unknown;

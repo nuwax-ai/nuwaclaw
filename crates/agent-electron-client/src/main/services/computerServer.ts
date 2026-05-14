@@ -22,6 +22,7 @@
 import * as http from "http";
 import * as fs from "fs";
 import * as path from "path";
+import { randomBytes, timingSafeEqual } from "crypto";
 import { EventEmitter } from "events";
 import log from "electron-log";
 import { t } from "./i18n";
@@ -31,6 +32,8 @@ import { firstTokenTrace } from "./engines/perf/firstTokenTrace";
 import { checkFileServerHealth } from "./packages/fileServerHealth";
 import { LOCALHOST_HOSTNAME } from "./constants";
 import { getConfiguredPorts } from "./startupPorts";
+import { readSetting, writeSetting } from "../db";
+import { getDeviceId } from "./system/deviceId";
 import type {
   ComputerChatRequest,
   HttpResult,
@@ -42,10 +45,17 @@ import type {
 } from "@shared/types/computerTypes";
 import { redactForLog, redactStringForLog } from "./utils/logRedact";
 import { DEFAULT_SSE_HEARTBEAT_INTERVAL } from "@shared/constants";
+import {
+  isValidNotifyResolvedRequest,
+  type NotifyResolvedErrorCode,
+  type NotifyResolvedRequest,
+  type NotifyResolvedResponse,
+} from "@shared/types/intervention";
 
 let server: http.Server | null = null;
 let sseClients: Map<string, http.ServerResponse[]> = new Map();
 let lastError: string | null = null;
+let cachedInterventionInternalSecret: string | null = null;
 
 /** 每个 sessionId 最多缓冲的早期 SSE 事件条数，防止内存泄漏 */
 const SSE_EVENT_BUFFER_MAX = 50;
@@ -56,6 +66,8 @@ const sseEventBuffers = new Map<
   string,
   { events: string[]; createdAt: number }
 >();
+
+const INTERVENTION_INTERNAL_SECRET_SETTING_KEY = "intervention.internalSecret";
 
 interface SessionFirstTokenContext {
   requestId?: string;
@@ -331,6 +343,76 @@ function httpError(code: string, message: string): HttpResult<null> {
   return { code, message, data: null, tid: null, success: false };
 }
 
+function notifyResolvedError(
+  code: NotifyResolvedErrorCode,
+  message: string,
+): NotifyResolvedResponse {
+  return { ok: false, error: { code, message } };
+}
+
+function getHeader(req: http.IncomingMessage, name: string): string | null {
+  const value = req.headers[name.toLowerCase()];
+  if (Array.isArray(value)) return value[0] ?? null;
+  return typeof value === "string" ? value : null;
+}
+
+function constantTimeStringEqual(a: string, b: string): boolean {
+  const left = Buffer.from(a);
+  const right = Buffer.from(b);
+  if (left.length !== right.length) return false;
+  return timingSafeEqual(left, right);
+}
+
+function getOrCreateInterventionInternalSecret(): string {
+  if (cachedInterventionInternalSecret) return cachedInterventionInternalSecret;
+
+  const saved = readSetting(INTERVENTION_INTERNAL_SECRET_SETTING_KEY);
+  if (typeof saved === "string" && saved.length > 0) {
+    cachedInterventionInternalSecret = saved;
+    return saved;
+  }
+
+  const generated = randomBytes(32).toString("base64url");
+  writeSetting(INTERVENTION_INTERNAL_SECRET_SETTING_KEY, generated);
+  cachedInterventionInternalSecret = generated;
+  log.info("[HTTP] Generated intervention internal secret");
+  return generated;
+}
+
+function statusFromNotifyResolvedResult(
+  result: NotifyResolvedResponse,
+): number {
+  if (result.ok) return 200;
+
+  switch (result.error?.code) {
+    case "unauthorized":
+      return 401;
+    case "forbidden_target":
+      return 403;
+    case "not_found":
+      return 404;
+    case "revision_mismatch":
+    case "already_resolved_conflict":
+      return 409;
+    case "invalid_acp_response":
+      return 400;
+    case "internal_error":
+      return 500;
+  }
+
+  switch (result.hostStatus) {
+    case "resolved":
+    case "already_resolved":
+      return 200;
+    case "gone":
+      return 404;
+    case "superseded":
+      return 409;
+  }
+
+  return 500;
+}
+
 /**
  * 发送 JSON 响应
  */
@@ -340,7 +422,8 @@ function sendJson(res: http.ServerResponse, statusCode: number, data: unknown) {
     "Content-Type": "application/json",
     "Access-Control-Allow-Origin": "*",
     "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
-    "Access-Control-Allow-Headers": "Content-Type",
+    "Access-Control-Allow-Headers":
+      "Content-Type, X-Nuwax-Device-Id, X-Nuwax-Internal-Secret",
   });
   res.end(json);
 }
@@ -363,7 +446,8 @@ async function handleRequest(
     res.writeHead(204, {
       "Access-Control-Allow-Origin": "*",
       "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
-      "Access-Control-Allow-Headers": "Content-Type",
+      "Access-Control-Allow-Headers":
+        "Content-Type, X-Nuwax-Device-Id, X-Nuwax-Internal-Secret",
     });
     res.end();
     return;
@@ -377,7 +461,11 @@ async function handleRequest(
   // 竞态条件防护：Computer HTTP Server 在 startup.ts 中异步启动，
   // 但 agentService.init() 要等到 Setup Wizard 完成后才调用。
   // 如果请求在 agent 未就绪时到达，返回 503 让客户端重试。
-  if (pathname.startsWith("/computer/") && !agentService.isReady) {
+  if (
+    pathname.startsWith("/computer/") &&
+    pathname !== "/computer/notify-resolved" &&
+    !agentService.isReady
+  ) {
     log.warn(
       `[HTTP] Agent not ready, rejecting request: ${method} ${pathname}`,
     );
@@ -597,6 +685,59 @@ async function handleRequest(
         `[PERF] /chat: ${t4 - t0}ms  rid=${body.request_id?.slice(0, 8)}  (parseBody=${t1 - t0}ms validate=${t2 - t1}ms workspace=${t2_5 - t2}ms engine=${t3 - t2_5}ms chat=${t4 - t3}ms)`,
       );
       sendJson(res, 200, result);
+      return;
+    }
+
+    // POST /computer/notify-resolved — Backend internal callback for ACP permission approval
+    if (pathname === "/computer/notify-resolved" && method === "POST") {
+      const deviceIdHeader = getHeader(req, "X-Nuwax-Device-Id");
+      if (!deviceIdHeader || deviceIdHeader !== getDeviceId()) {
+        log.warn("[HTTP] notify-resolved rejected: device id mismatch");
+        sendJson(
+          res,
+          403,
+          notifyResolvedError(
+            "forbidden_target",
+            "device id does not match this host",
+          ),
+        );
+        return;
+      }
+
+      const expectedSecret = getOrCreateInterventionInternalSecret();
+      const secretHeader = getHeader(req, "X-Nuwax-Internal-Secret");
+      if (
+        !secretHeader ||
+        !constantTimeStringEqual(secretHeader, expectedSecret)
+      ) {
+        log.warn("[HTTP] notify-resolved rejected: invalid internal secret");
+        sendJson(
+          res,
+          401,
+          notifyResolvedError(
+            "unauthorized",
+            "invalid intervention internal secret",
+          ),
+        );
+        return;
+      }
+
+      const body = (await parseBody(req).catch((error) => {
+        log.warn("[HTTP] notify-resolved invalid JSON body:", error);
+        return null;
+      })) as NotifyResolvedRequest | null;
+
+      if (!isValidNotifyResolvedRequest(body)) {
+        sendJson(
+          res,
+          400,
+          notifyResolvedError("invalid_acp_response", "invalid request body"),
+        );
+        return;
+      }
+
+      const result = await agentService.resolvePermissionIntervention(body);
+      sendJson(res, statusFromNotifyResolvedResult(result), result);
       return;
     }
 

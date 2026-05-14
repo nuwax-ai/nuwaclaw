@@ -214,7 +214,22 @@ export interface AcpClientSideConnection {
     cwd: string;
     mcpServers: Array<AcpMcpServer>;
     _meta?: { [key: string]: unknown } | null;
-  }): Promise<{ sessionId: string }>;
+  }): Promise<{
+    sessionId: string;
+    availableModes?: Array<{ id?: string; modeId?: string; name?: string }>;
+    modes?: Array<{ id?: string; modeId?: string; name?: string }>;
+    configOptions?: Array<{
+      id?: string;
+      optionId?: string;
+      name?: string;
+      type?: string;
+      currentValue?: unknown;
+      value?: unknown;
+      values?: unknown[];
+      options?: unknown[];
+    }>;
+    _meta?: Record<string, unknown>;
+  }>;
 
   prompt(params: {
     sessionId: string;
@@ -232,6 +247,12 @@ export interface AcpClientSideConnection {
   setSessionMode?(params: {
     sessionId: string;
     modeId: string;
+  }): Promise<{ _meta?: Record<string, unknown> } | void>;
+
+  setSessionConfigOption?(params: {
+    sessionId: string;
+    optionId: string;
+    value: unknown;
   }): Promise<{ _meta?: Record<string, unknown> } | void>;
 
   closed: Promise<void>;
