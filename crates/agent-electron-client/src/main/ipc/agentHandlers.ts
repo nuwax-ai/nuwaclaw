@@ -10,7 +10,7 @@ import {
 
 const agentConfigSchema = z
   .object({
-    engine: z.enum(["nuwaxcode", "claude-code", "codex"]),
+    engine: z.enum(["nuwaxcode", "claude-code", "codex", "codex-cli"]),
     workspaceDir: z.string(),
     apiKey: z.string().optional(),
     baseUrl: z.string().optional(),
@@ -59,6 +59,11 @@ export function registerAgentHandlers(): void {
       return invalidArgs("agent:init", parsedConfig.error.issues);
     }
     const typedConfig = parsedConfig.data as AgentConfig;
+
+    // Normalize "codex" → "codex-cli" for backward compat with AgentEngineType
+    if ((parsedConfig.data as { engine: string }).engine === "codex") {
+      typedConfig.engine = "codex-cli";
+    }
 
     log.info("[IPC] Initializing unified agent:", config.engine);
     try {

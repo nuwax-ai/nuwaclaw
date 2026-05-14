@@ -740,9 +740,13 @@ export async function createAcpConnection(
   if (config.engineType === "codex" || config.engineType === "codex-cli") {
     if (config.apiKey) {
       env.CODEX_API_KEY = config.apiKey;
+    } else if (env.OPENAI_API_KEY) {
+      env.CODEX_API_KEY = env.OPENAI_API_KEY;
     }
     if (config.baseUrl) {
       env.CODEX_BASE_URL = config.baseUrl;
+    } else if (env.OPENAI_BASE_URL) {
+      env.CODEX_BASE_URL = env.OPENAI_BASE_URL;
     }
     if (config.model) {
       env.CODEX_MODEL = config.model;
