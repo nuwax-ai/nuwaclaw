@@ -55,6 +55,8 @@ crates/agent-electron-client/resources/nuwax-file-server/
 # Bundled claude-code-acp-ts: 构建时 prepare:claude-code-acp-ts 从 GitHub 克隆源码 build 并集成
 crates/agent-electron-client/resources/claude-code-acp-ts/
 
+crates/agent-electron-client/resources/codex-acp-ts/
+
 # 源码克隆目录（prepare:nuwax-file-server / prepare:claude-code-acp-ts 使用）
 crates/agent-electron-client/sources/
 
