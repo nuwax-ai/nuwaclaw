@@ -16,10 +16,11 @@ NuwaClaw Electron -> nuwax-codex-acp -> local gateway /chat2response/v1 -> upstr
 {"error":{"code":"1211","message":"模型不存在，请检查模型代码。"}}
 ```
 
-后续验证还发现两个运行时问题：
+后续验证还发现三个运行时问题：
 
 - codex-acp 会优先尝试 WebSocket，gateway 对 `/v1/responses` 的 WebSocket GET 返回 404。
 - gateway 的 chat2response 插件为了覆盖模型提前读取了请求体，upstream Express body-parser 再次读取时触发 `stream is not readable`。
+- Electron 为 ACP 进程使用隔离 `HOME` 时，`nuwax-codex-acp` 还未激活 env API key，`session/new` 会返回 `{"code":-32000,"message":"Authentication required"}`。
 
 ## 最终约定
 
@@ -81,6 +82,15 @@ openai-compatible/glm-5 -> glm-5
   - `"CODEX_API_KEY": "{MODEL_PROVIDER_API_KEY}"`
   - `"CODEX_MODEL": "{MODEL_PROVIDER_DEFAULT_MODEL}"`
   - `"CODEX_BASE_URL": "{MODEL_PROVIDER_BASE_URL}"`
+
+### ACP 鉴权激活
+
+`crates/agent-electron-client/src/main/services/engines/acp/acpEngine.ts`
+
+- `codex-cli` 连接初始化后、创建 session 前，会根据运行时 env 自动调用 ACP `authenticate`。
+- 有 `CODEX_API_KEY` 或 `config.apiKey` 时使用 `methodId = "codex-api-key"`。
+- 仅有 `OPENAI_API_KEY` 时使用 `methodId = "openai-api-key"`。
+- 该步骤不改变环境变量传递方案，只是在隔离 `HOME` 下让 `nuwax-codex-acp` 激活当前进程 env 中的 API key，避免首次 `session/new` 返回 `Authentication required`。
 
 ### gateway 启动
 
@@ -144,7 +154,7 @@ cargo test normalize_model_strips_openai_compatible_prefix
 cargo build --release
 
 cd /Users/apple/workspace/nuwaclaw/crates/agent-electron-client
-npm run test:run -- src/main/services/engines/acp/acpClient.test.ts
+npm run test:run -- src/main/services/engines/acp/acpEngine.test.ts src/main/services/engines/acp/acpClient.test.ts
 npm run build:main:dev
 
 cd /Users/apple/workspace/nuwaclaw
@@ -157,6 +167,7 @@ git diff --check
 - gateway `/chat2response/v1/responses` 返回 200。
 - 实际转发到 mock 的模型为 `glm-5`。
 - 响应中不再出现 `stream is not readable`。
+- 隔离 `HOME` 的 `nuwax-codex-acp` 最小复现：不发 `authenticate` 时 `session/new` 返回 `Authentication required`；先发 `authenticate` 后 `session/new` 成功。
 
 开发启动命令：
 

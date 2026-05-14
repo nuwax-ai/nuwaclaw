@@ -388,6 +388,42 @@ export class AcpEngine extends EventEmitter {
     );
   }
 
+  private resolveCodexAuthMethod(
+    config: AgentConfig,
+    spawnEnv: Record<string, string>,
+  ): "codex-api-key" | "openai-api-key" | null {
+    if (this.engineName !== "codex-cli") return null;
+
+    const hasCodexApiKey = !!(
+      config.apiKey?.trim() || spawnEnv.CODEX_API_KEY?.trim()
+    );
+    if (hasCodexApiKey) return "codex-api-key";
+
+    const hasOpenAIApiKey = !!spawnEnv.OPENAI_API_KEY?.trim();
+    if (hasOpenAIApiKey) return "openai-api-key";
+
+    return null;
+  }
+
+  private async authenticateCodexWithEnv(
+    connection: AcpClientSideConnection,
+    config: AgentConfig,
+    spawnEnv: Record<string, string>,
+  ): Promise<void> {
+    const methodId = this.resolveCodexAuthMethod(config, spawnEnv);
+    if (!methodId) return;
+
+    if (typeof connection.authenticate !== "function") {
+      log.warn(
+        `${this.logTag} ACP connection does not expose authenticate(); env API key may not be activated`,
+      );
+      return;
+    }
+
+    await connection.authenticate({ methodId });
+    log.info(`${this.logTag} ACP env auth activated`, { methodId });
+  }
+
   /** Get the PID of the underlying ACP process (for process registry) */
   getProcessPid(): number | undefined {
     return this.acpProcess?.pid;
@@ -760,6 +796,7 @@ export class AcpEngine extends EventEmitter {
           terminal: true, // Enable ACP Terminal API (terminal/create, etc.)
         },
       });
+      await this.authenticateCodexWithEnv(connection, config, spawnEnv);
 
       handshakeTimer.end("acp.init.handshake", { engine: this.engineName });
 

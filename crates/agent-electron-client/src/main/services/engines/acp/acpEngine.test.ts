@@ -12,6 +12,16 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import * as path from "path";
 import * as dependencies from "@main/services/system/dependencies";
 
+vi.mock("electron", () => ({
+  app: {
+    getPath: vi.fn((name: string) =>
+      name === "home" ? "/mock/home" : "/mock/appdata",
+    ),
+    getVersion: vi.fn(() => "0.0.0-test"),
+    isPackaged: false,
+  },
+}));
+
 vi.mock("electron-log", () => ({
   default: {
     info: vi.fn(),
@@ -579,6 +589,52 @@ describe("AcpEngine.init", () => {
     expect(injected.mcp).toBeDefined();
     expect(injected.mcp["chrome-devtools"]).toBeDefined();
     expect(injected.permission.question).toBe("deny");
+
+    await engine.destroy();
+  });
+
+  it("codex-cli 使用 env API key 时应在建会话前激活 ACP auth", async () => {
+    const engine = new AcpEngine("codex-cli");
+    const authenticate = vi.fn().mockResolvedValue({});
+
+    const mockConnection = {
+      initialize: vi.fn().mockResolvedValue({ protocolVersion: "1.0.0" }),
+      authenticate,
+    } as any;
+
+    const mockProcess = {
+      pid: 12346,
+      on: vi.fn(),
+      stdout: { removeAllListeners: vi.fn() },
+      stderr: { removeAllListeners: vi.fn() },
+      stdin: { removeAllListeners: vi.fn() },
+      removeAllListeners: vi.fn(),
+      kill: vi.fn(),
+    } as any;
+
+    vi.spyOn(acpClient, "resolveAcpBinary").mockReturnValue({
+      binPath: "nuwax-codex-acp",
+      binArgs: [],
+      isNative: true,
+    });
+    vi.spyOn(acpClient, "createAcpConnection").mockResolvedValue({
+      connection: mockConnection,
+      process: mockProcess,
+      isolatedHome: null,
+      cleanup: vi.fn(),
+    } as any);
+    vi.spyOn(acpClient, "loadAcpSdk").mockResolvedValue({
+      PROTOCOL_VERSION: "1.0.0",
+    } as any);
+
+    const ok = await engine.init({
+      engine: "codex-cli",
+      workspaceDir: "/tmp",
+      apiKey: "ak-test",
+    } as any);
+
+    expect(ok).toBe(true);
+    expect(authenticate).toHaveBeenCalledWith({ methodId: "codex-api-key" });
 
     await engine.destroy();
   });

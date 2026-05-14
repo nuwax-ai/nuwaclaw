@@ -213,6 +213,10 @@ export interface AcpClientSideConnection {
     agentCapabilities?: Record<string, unknown>;
   }>;
 
+  authenticate?(params: {
+    methodId: string;
+  }): Promise<{ _meta?: Record<string, unknown> } | void>;
+
   newSession(params: {
     cwd: string;
     mcpServers: Array<AcpMcpServer>;
