@@ -19,8 +19,10 @@ import type {
   WorkbenchConversation,
   WorkbenchGuidQuestion,
   WorkbenchMessage,
+  WorkbenchModelOption,
   WorkbenchPermissionRequest,
   WorkbenchStreamEvent,
+  WorkbenchVariable,
 } from '../types';
 import { useAgentWorkbenchContext } from './AgentWorkbenchProvider';
 
@@ -69,6 +71,11 @@ const zh = {
   permissionTitle: '权限请求',
   allowOnce: '允许一次',
   reject: '拒绝',
+  suggestTitle: '推荐问题',
+  variableFormTitle: '会话参数',
+  variableSubmit: '开始会话',
+  selectModel: '选择模型',
+  noModels: '暂无可用模型',
 };
 
 const en: typeof zh = {
@@ -111,6 +118,11 @@ const en: typeof zh = {
   permissionTitle: 'Permission request',
   allowOnce: 'Allow once',
   reject: 'Reject',
+  suggestTitle: 'Suggested questions',
+  variableFormTitle: 'Session parameters',
+  variableSubmit: 'Start conversation',
+  selectModel: 'Select model',
+  noModels: 'No models available',
 };
 
 function createLocalId(prefix: string): string {
@@ -343,17 +355,31 @@ export function ChatInputHome({
   disabled,
   streaming,
   labels,
+  agentMode,
+  selectedModelId,
+  modelOptions,
+  showModelDropdown,
   onChange,
   onSubmit,
   onStop,
+  onModeChange,
+  onModelSelect,
+  onToggleModelDropdown,
 }: {
   value: string;
   disabled: boolean;
   streaming: boolean;
   labels: typeof zh;
+  agentMode: 'ask' | 'yolo';
+  selectedModelId?: string;
+  modelOptions: WorkbenchModelOption[];
+  showModelDropdown: boolean;
   onChange: (value: string) => void;
   onSubmit: () => void;
   onStop: () => void;
+  onModeChange: (mode: 'ask' | 'yolo') => void;
+  onModelSelect: (modelId: string) => void;
+  onToggleModelDropdown: () => void;
 }) {
   const onKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
     if (event.nativeEvent.isComposing) return;
@@ -364,6 +390,7 @@ export function ChatInputHome({
     }
   };
   const canSend = !streaming && !disabled && value.trim().length > 0;
+  const selectedModel = modelOptions.find((m) => m.id === selectedModelId);
   return (
     <form
       className="open-app-chat-input-home"
@@ -374,14 +401,53 @@ export function ChatInputHome({
       }}
     >
       <div className="open-app-input-topbar">
-        <button className="open-app-model-chip" type="button" disabled={disabled || streaming}>
-          <span>{labels.model}</span>
-        </button>
+        <div style={{ position: 'relative' }}>
+          <button
+            className="open-app-model-chip"
+            type="button"
+            disabled={disabled || streaming}
+            onClick={onToggleModelDropdown}
+          >
+            <span>{selectedModel?.name ?? labels.model}</span>
+          </button>
+          {showModelDropdown && modelOptions.length > 0 && (
+            <div className="open-app-model-dropdown">
+              {modelOptions.map((model) => (
+                <button
+                  key={model.id}
+                  type="button"
+                  className={model.id === selectedModelId ? 'active' : ''}
+                  onClick={() => {
+                    onModelSelect(model.id);
+                    onToggleModelDropdown();
+                  }}
+                >
+                  {model.name}
+                </button>
+              ))}
+            </div>
+          )}
+          {showModelDropdown && modelOptions.length === 0 && (
+            <div className="open-app-model-dropdown">
+              <div className="open-app-model-empty">{labels.noModels}</div>
+            </div>
+          )}
+        </div>
         <div className="open-app-mode-segment" aria-label={labels.agentMode}>
-          <button type="button" className="active" disabled={disabled || streaming}>
+          <button
+            type="button"
+            className={agentMode === 'ask' ? 'active' : ''}
+            disabled={disabled || streaming}
+            onClick={() => onModeChange('ask')}
+          >
             {labels.askMode}
           </button>
-          <button type="button" disabled={disabled || streaming}>
+          <button
+            type="button"
+            className={agentMode === 'yolo' ? 'active' : ''}
+            disabled={disabled || streaming}
+            onClick={() => onModeChange('yolo')}
+          >
             {labels.yoloMode}
           </button>
         </div>
@@ -481,6 +547,72 @@ export function PagePreviewIframe({
   );
 }
 
+function VariableForm({
+  variables,
+  labels,
+  onSubmit,
+  onCancel,
+}: {
+  variables: WorkbenchVariable[];
+  labels: typeof zh;
+  onSubmit: (params: Record<string, unknown>) => void;
+  onCancel: () => void;
+}) {
+  const [values, setValues] = useState<Record<string, string>>(() => {
+    const init: Record<string, string> = {};
+    for (const v of variables) {
+      if (v.defaultValue != null) init[v.name] = String(v.defaultValue);
+    }
+    return init;
+  });
+
+  const handleChange = (name: string, value: string) => {
+    setValues((prev) => ({ ...prev, [name]: value }));
+  };
+
+  const handleSubmit = (e: FormEvent) => {
+    e.preventDefault();
+    const params: Record<string, unknown> = {};
+    for (const v of variables) {
+      const val = values[v.name]?.trim();
+      if (val) params[v.name] = val;
+    }
+    onSubmit(params);
+  };
+
+  const missingRequired = variables.some(
+    (v) => v.require && !values[v.name]?.trim(),
+  );
+
+  return (
+    <form className="open-app-variable-form" onSubmit={handleSubmit}>
+      <div className="open-app-variable-title">{labels.variableFormTitle}</div>
+      {variables.map((v) => (
+        <label key={v.name} className="open-app-variable-field">
+          <span>
+            {v.label ?? v.name}
+            {v.require && <span className="open-app-variable-required">*</span>}
+          </span>
+          <input
+            type="text"
+            value={values[v.name] ?? ''}
+            placeholder={v.placeholder ?? v.label ?? v.name}
+            onChange={(e) => handleChange(v.name, e.target.value)}
+          />
+        </label>
+      ))}
+      <div className="open-app-variable-actions">
+        <button type="button" className="open-app-btn" onClick={onCancel}>
+          {labels.close}
+        </button>
+        <button type="submit" className="open-app-btn primary" disabled={missingRequired}>
+          {labels.variableSubmit}
+        </button>
+      </div>
+    </form>
+  );
+}
+
 function AgentChatEmpty({
   agent,
   labels,
@@ -532,7 +664,27 @@ export function NuwaxOpenApp() {
   const [historyKeyword, setHistoryKeyword] = useState('');
   const [sidebarVisible, setSidebarVisible] = useState(true);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const [agentMode, setAgentMode] = useState<'ask' | 'yolo'>('ask');
+  const [selectedModelId, setSelectedModelId] = useState<string | undefined>(undefined);
+  const [modelOptions, setModelOptions] = useState<WorkbenchModelOption[]>([]);
+  const [showModelDropdown, setShowModelDropdown] = useState(false);
+  const [suggestQuestions, setSuggestQuestions] = useState<string[]>([]);
+  const [variableParams, setVariableParams] = useState<Record<string, unknown>>({});
+  const [showVariableForm, setShowVariableForm] = useState(false);
   const transcriptRef = useRef<HTMLDivElement | null>(null);
+
+  // Close model dropdown on outside click
+  useEffect(() => {
+    if (!showModelDropdown) return;
+    const handler = (e: MouseEvent) => {
+      const target = e.target as HTMLElement;
+      if (!target.closest('.open-app-model-chip') && !target.closest('.open-app-model-dropdown')) {
+        setShowModelDropdown(false);
+      }
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [showModelDropdown]);
 
   const reportError = useCallback(
     (cause: unknown, fallbackMessage: string, context: Record<string, unknown>) => {
@@ -641,6 +793,19 @@ export function NuwaxOpenApp() {
   }, [refreshHistory]);
 
   useEffect(() => {
+    if (!agentId || !adapter.getModelOptions) return;
+    adapter
+      .getModelOptions(agentId)
+      .then((options) => {
+        setModelOptions(options);
+        if (options.length > 0 && !selectedModelId) {
+          setSelectedModelId(options[0].id);
+        }
+      })
+      .catch(() => {});
+  }, [adapter, agentId, selectedModelId]);
+
+  useEffect(() => {
     if (view.name !== 'chat') return;
     if (activeConversation?.id === view.conversationId && messages.length > 0) return;
     const target = conversations.find((item) => item.id === view.conversationId);
@@ -692,9 +857,24 @@ export function NuwaxOpenApp() {
       if (!agentId || streaming) return;
       const content = (overridePrompt ?? prompt).trim();
       if (!content) return;
+
+      // Check if variable form should be shown first
+      if (
+        !overridePrompt &&
+        agent?.variables &&
+        agent.variables.length > 0 &&
+        messages.length === 0 &&
+        !showVariableForm
+      ) {
+        setShowVariableForm(true);
+        return;
+      }
+
       setPrompt('');
       setError(null);
       setPermissionRequest(null);
+      setSuggestQuestions([]);
+      setShowVariableForm(false);
       setStreaming(true);
 
       let assistantId: string | null = null;
@@ -729,6 +909,9 @@ export function NuwaxOpenApp() {
           conversationId: conversation.id,
           content,
           requestId,
+          variableParams: Object.keys(variableParams).length > 0 ? variableParams : undefined,
+          modelId: selectedModelId,
+          agentMode,
         })) {
           if (streamEvent.type === 'thought') {
             setMessages((items) => [
@@ -765,6 +948,18 @@ export function NuwaxOpenApp() {
               : item,
           ),
         );
+
+        // Fetch suggest questions after stream completes
+        if (adapter.getSuggestQuestions) {
+          try {
+            const suggestions = await adapter.getSuggestQuestions(
+              conversation.id,
+              agentId,
+              Object.keys(variableParams).length > 0 ? variableParams : undefined,
+            );
+            if (suggestions.length > 0) setSuggestQuestions(suggestions);
+          } catch {}
+        }
       } catch (cause) {
         const nextError = reportError(cause, 'Send failed', { phase: 'sendMessage' });
         if (assistantId) {
@@ -784,13 +979,19 @@ export function NuwaxOpenApp() {
     [
       activeConversation,
       adapter,
+      agent,
       agentId,
+      agentMode,
       createConversation,
       labels.newConversation,
+      messages.length,
       prompt,
       reportError,
+      selectedModelId,
+      showVariableForm,
       streaming,
       updateAssistantMessage,
+      variableParams,
     ],
   );
 
@@ -1079,14 +1280,42 @@ export function NuwaxOpenApp() {
                   {permissionRequest && (
                     <PermissionCard request={permissionRequest} labels={labels} onRespond={answerPermission} />
                   )}
+                  {showVariableForm && agent?.variables && agent.variables.length > 0 && (
+                    <VariableForm
+                      variables={agent.variables}
+                      labels={labels}
+                      onSubmit={(params) => {
+                        setVariableParams(params);
+                        setShowVariableForm(false);
+                        void sendPrompt();
+                      }}
+                      onCancel={() => setShowVariableForm(false)}
+                    />
+                  )}
+                  {suggestQuestions.length > 0 && (
+                    <div className="open-app-recommend-list">
+                      {suggestQuestions.map((text, index) => (
+                        <button key={`${text}-${index}`} type="button" onClick={() => void sendPrompt(text)}>
+                          {text}
+                        </button>
+                      ))}
+                    </div>
+                  )}
                   <ChatInputHome
                     value={prompt}
                     labels={labels}
                     disabled={!agent || agent.hasPermission === false}
                     streaming={streaming}
+                    agentMode={agentMode}
+                    selectedModelId={selectedModelId}
+                    modelOptions={modelOptions}
+                    showModelDropdown={showModelDropdown}
                     onChange={setPrompt}
                     onSubmit={() => void sendPrompt()}
                     onStop={() => void stopStream()}
+                    onModeChange={setAgentMode}
+                    onModelSelect={setSelectedModelId}
+                    onToggleModelDropdown={() => setShowModelDropdown((v) => !v)}
                   />
                   <div className="open-app-ai-notice">{labels.contentGenerated}</div>
                 </div>

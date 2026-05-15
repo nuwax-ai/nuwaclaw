@@ -1072,3 +1072,109 @@
   height: 16px;
   flex: 0 0 auto;
 }
+
+/* Model dropdown */
+.open-app-model-dropdown {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  z-index: 100;
+  min-width: 180px;
+  max-height: 240px;
+  margin-top: 4px;
+  padding: 4px;
+  border: 1px solid var(--open-app-border);
+  border-radius: 10px;
+  background: white;
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.12);
+  overflow-y: auto;
+}
+
+.open-app-model-dropdown button {
+  display: block;
+  width: 100%;
+  min-height: 32px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: #374151;
+  font: inherit;
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.open-app-model-dropdown button:hover {
+  background: #f3f4f6;
+}
+
+.open-app-model-dropdown button.active {
+  background: #e5e7eb;
+  font-weight: 600;
+}
+
+.open-app-model-empty {
+  padding: 8px 12px;
+  color: #9ca3af;
+  font-size: 13px;
+}
+
+/* Variable form */
+.open-app-variable-form {
+  width: min(600px, calc(100% - 40px));
+  margin: 0 auto 12px;
+  padding: 16px;
+  border: 1px solid var(--open-app-border);
+  border-radius: 12px;
+  background: #fafbfc;
+}
+
+.open-app-variable-title {
+  margin-bottom: 12px;
+  color: #111827;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.open-app-variable-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-bottom: 10px;
+}
+
+.open-app-variable-field > span {
+  color: #374151;
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.open-app-variable-required {
+  color: #ef4444;
+  margin-left: 2px;
+}
+
+.open-app-variable-field input {
+  min-height: 36px;
+  padding: 0 10px;
+  border: 1px solid #d1d5db;
+  border-radius: 8px;
+  background: white;
+  color: #111827;
+  font: inherit;
+  font-size: 14px;
+  outline: none;
+}
+
+.open-app-variable-field input:focus {
+  border-color: #6366f1;
+  box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.15);
+}
+
+.open-app-variable-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 14px;
+}
