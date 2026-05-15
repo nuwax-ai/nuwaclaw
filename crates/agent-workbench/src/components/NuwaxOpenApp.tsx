@@ -25,6 +25,7 @@ import type {
   WorkbenchVariable,
 } from '../types';
 import { useAgentWorkbenchContext } from './AgentWorkbenchProvider';
+import { MarkdownRenderer } from './MarkdownRenderer';
 
 type OpenAppView =
   | { name: 'app' }
@@ -304,7 +305,9 @@ function ChatMessage({
           <span>{formatTime(message.createdAt)}</span>
         </div>
         <div className="open-app-message-text">
-          {message.content || (message.status === 'streaming' ? 'Streaming...' : '')}
+          {!message.content && message.status === 'streaming' && 'Streaming...'}
+          {message.content && isUser && <span>{message.content}</span>}
+          {message.content && !isUser && <MarkdownRenderer content={message.content} />}
         </div>
       </div>
     </article>

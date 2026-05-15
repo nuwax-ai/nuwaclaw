@@ -1178,3 +1178,86 @@
   gap: 8px;
   margin-top: 14px;
 }
+
+/* Markdown rendering */
+.open-app-message-text p {
+  margin: 0 0 8px;
+}
+
+.open-app-message-text p:last-child {
+  margin-bottom: 0;
+}
+
+.open-app-message-text ul,
+.open-app-message-text ol {
+  margin: 4px 0 8px;
+  padding-left: 20px;
+}
+
+.open-app-message-text li {
+  margin-bottom: 2px;
+}
+
+.open-app-message-text blockquote {
+  margin: 8px 0;
+  padding: 4px 12px;
+  border-left: 3px solid #d1d5db;
+  color: #6b7280;
+}
+
+.open-app-message-text h1,
+.open-app-message-text h2,
+.open-app-message-text h3,
+.open-app-message-text h4 {
+  margin: 12px 0 6px;
+  font-weight: 600;
+}
+
+.open-app-message-text h1 { font-size: 1.3em; }
+.open-app-message-text h2 { font-size: 1.2em; }
+.open-app-message-text h3 { font-size: 1.1em; }
+
+.open-app-md-code-inline {
+  padding: 1px 5px;
+  border-radius: 4px;
+  background: #f1f5f9;
+  color: #e11d48;
+  font-size: 0.9em;
+}
+
+.open-app-md-pre {
+  margin: 8px 0;
+  padding: 12px;
+  border-radius: 8px;
+  background: #1e293b;
+  overflow-x: auto;
+}
+
+.open-app-md-code-block {
+  color: #e2e8f0;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.open-app-md-table-wrap {
+  overflow-x: auto;
+  margin: 8px 0;
+}
+
+.open-app-md-table-wrap table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.open-app-md-table-wrap th,
+.open-app-md-table-wrap td {
+  padding: 6px 10px;
+  border: 1px solid #e5e7eb;
+  text-align: left;
+  font-size: 13px;
+}
+
+.open-app-md-table-wrap th {
+  background: #f9fafb;
+  font-weight: 600;
+}
