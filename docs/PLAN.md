@@ -66,6 +66,150 @@
   - `npm run test:run`
   - 对 `/app` 主链路手动验收：加载详情、新建会话、发送消息、流式输出、停止、历史列表、历史详情、权限处理、页面预览。
 
+## Implementation Status
+
+### Phase 0 — 已完成 ✅ (commit 22cdd992)
+- [x] `@nuwax-ai/agent-workbench` 包骨架：types, routes, SSE, web/mock adapter, Provider, AgentWorkbench
+- [x] `NuwaxOpenApp.tsx` 核心 UI（1111 行）：侧边栏、会话列表、聊天视图、历史页、权限卡片、页面预览
+- [x] Electron 客户端集成：App.tsx Agent Mode 入口、auth appAgentId、workbenchHandlers、workbenchConfig
+- [x] 完整 CSS 样式（响应式）
+- [x] 44 个单元测试全部通过
+- [x] 构建验证：typecheck + vite build + tests
+
+---
+
+### Phase 1 — API 与聊天增强（高优先级）
+
+#### 1.1 补充 chat body 字段
+**文件**: `crates/agent-workbench/src/adapters/webApiAdapter.ts`
+- `sendMessage` 请求体增加 `variableParams`, `modelId`, `agent_config.agent_mode`
+- 类型 `WorkbenchSendMessageRequest` 增加可选字段：
+  ```ts
+  variableParams?: Record<string, unknown>;
+  modelId?: string;
+  agentMode?: 'ask' | 'yolo';
+  attachments?: unknown[];
+  skillIds?: string[];
+  sandboxId?: string;
+  ```
+
+#### 1.2 Suggest 端点
+**文件**: `crates/agent-workbench/src/adapters/webApiAdapter.ts`, `types.ts`
+- 新增 `WorkbenchApiAdapter.getSuggestQuestions(conversationId, agentId, variableParams?)`
+- 端点: `POST /api/agent/conversation/chat/suggest`
+- 返回 `string[]`，用于 SSE 流结束后展示追问推荐
+
+#### 1.3 Model Options 端点
+**文件**: `crates/agent-workbench/src/adapters/webApiAdapter.ts`, `types.ts`
+- 新增 `WorkbenchApiAdapter.getModelOptions(agentId)`
+- 端点: `GET /api/agent/conversation/model/options/{agentId}`
+- 返回 `ModelOption[]`（id, name, icon?）
+
+#### 1.4 测试
+- 新增 webApiAdapter 测试：suggest、modelOptions、sendMessage 扩展字段
+
+---
+
+### Phase 2 — 输入区功能补全（中高优先级）
+
+#### 2.1 变量表单
+**文件**: 新建 `crates/agent-workbench/src/components/VariableForm/index.tsx`
+- 当 `agent.variables` 非空且为新会话首条消息时，渲染表单
+- 支持 inputType: `input` / `textarea` / `select` / `cascader`
+- 校验 `require` 字段，收集为 `variableParams` 传入 `sendMessage`
+- 从 nuwax `NewConversationSet` 保真迁移，去掉 Ant Design 依赖，用原生 form
+
+#### 2.2 Model 选择器
+**文件**: 新建 `crates/agent-workbench/src/components/ModelSelector/index.tsx`
+- 调用 `getModelOptions(agentId)` 获取模型列表
+- 渲染下拉选择，选中后存入 state 传入 `sendMessage` 的 `modelId`
+- 替换现有 stub model chip 按钮
+
+#### 2.3 Agent Mode 切换
+**文件**: `crates/agent-workbench/src/components/NuwaxOpenApp.tsx`
+- Ask/YOLO 按钮增加 state 管理（`agentMode`）
+- 切换时更新 state，`sendMessage` 时传入 `agent_config.agent_mode`
+- 样式：active 状态高亮
+
+#### 2.4 Suggest 追问推荐
+**文件**: `crates/agent-workbench/src/components/NuwaxOpenApp.tsx`
+- SSE 流结束后调用 `getSuggestQuestions`
+- 将结果渲染为推荐气泡列表（复用现有 `.open-app-recommend-list` 样式）
+- 点击后直接 `sendPrompt(text)`
+
+---
+
+### Phase 3 — 消息渲染增强（中优先级）
+
+#### 3.1 Markdown 渲染
+**依赖**: 添加 `react-markdown` + `remark-gfm`（或 `marked`）
+**文件**: 新建 `crates/agent-workbench/src/components/MarkdownRenderer/index.tsx`
+- 渲染 assistant 消息中的 Markdown 内容
+- 支持代码块高亮（`highlight.js` 或 `prism`）
+- 替换现有纯文本 `<pre>` 渲染
+
+#### 3.2 消息分页
+**文件**: `crates/agent-workbench/src/components/NuwaxOpenApp.tsx`
+- `getConversation` 支持分页参数
+- 聊天区顶部 Intersection Observer 触发加载更多
+- `MESSAGE_PAGE_SIZE = 10`
+
+---
+
+### Phase 4 — 页面预览增强（中优先级）
+
+#### 4.1 Electron Webview 集成
+**文件**: `crates/agent-workbench/src/components/PagePreviewIframe/index.tsx`
+- 当 `previewContainer === 'electron-webview'` 时，使用 `<webview>` 标签
+- preload bridge 增加 `workbench:webview-*` IPC
+- 支持 cookie 注入、CSP 绕过、下载拦截
+
+#### 4.2 自定义页面菜单自动打开
+**文件**: `crates/agent-workbench/src/components/NuwaxOpenApp.tsx`
+- 检查 `agent.customPageMenus[].selected`，自动打开默认页面
+- 缓存到 sessionStorage 避免重复打开
+
+#### 4.3 可调分割布局
+**文件**: `crates/agent-workbench/src/components/NuwaxOpenApp.tsx`
+- 聊天/预览区域支持拖拽调整宽度
+- 替换现有固定 CSS split
+
+---
+
+### Phase 5 — 深度链接与高级功能（低优先级）
+
+#### 5.1 URL 参数注入
+**文件**: `crates/agent-workbench/src/components/NuwaxOpenApp.tsx`, `routes.ts`
+- 解析 `?params=` JSON，预填变量并自动发送
+- 支持从外部 URL 直接跳转到特定会话
+
+#### 5.2 文件上传
+**依赖**: 需要后端支持 multipart upload 端点
+- `ChatInputHome` 增加文件选择和预览
+- `sendMessage` 时附带 `attachments` 数组
+
+#### 5.3 @ 技能提及
+- 输入框增加 `@` 触发弹出技能列表
+- 选择后传入 `skillIds`
+
+---
+
+## Phase 优先级与排期
+
+| Phase | 优先级 | 预估工作量 | 依赖 |
+|-------|--------|-----------|------|
+| Phase 1: API 增强 | P0 | 1-2 天 | 无 |
+| Phase 2: 输入区功能 | P0 | 2-3 天 | Phase 1 |
+| Phase 3: 消息渲染 | P1 | 1-2 天 | 无 |
+| Phase 4: 页面预览 | P1 | 2-3 天 | Electron IPC |
+| Phase 5: 深度链接 | P2 | 2-3 天 | Phase 1-2 |
+
+**建议执行顺序**: Phase 1 → Phase 2 → Phase 3 → Phase 4 → Phase 5
+
+每个 Phase 完成后提交一次，保持 commit 粒度清晰。
+
+---
+
 ## Assumptions
 - 本次只改 NuwaClaw，不改 `workspace/nuwax` PC Web。
 - `crates/agent-workbench` 先在 NuwaClaw 仓库内维护，后续再抽独立仓库给 NuwaClaw 和 nuwax 共用。

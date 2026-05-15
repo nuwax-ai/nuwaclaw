@@ -326,4 +326,127 @@ describe('createWebApiAdapter', () => {
     );
     expect(events).toEqual([expect.objectContaining({ type: 'final', content: 'ok' })]);
   });
+
+  it('sends extended fields in sendMessage body', async () => {
+    const fetcher = vi.fn().mockResolvedValueOnce(
+      new Response('event: final\ndata: {"content":"ok"}\n\n', {
+        status: 200,
+        headers: { 'content-type': 'text/event-stream' },
+      }),
+    );
+
+    const adapter = createWebApiAdapter({
+      baseUrl: 'https://api.example.com',
+      accessToken: 'token-123',
+      fetcher,
+    });
+
+    const events = [];
+    for await (const event of adapter.sendMessage({
+      agentId: 'agent-1',
+      conversationId: 'conv-1',
+      content: 'hello',
+      variableParams: { city: 'Shanghai' },
+      modelId: 'gpt-4',
+      agentMode: 'yolo',
+      skillIds: ['skill-1'],
+      sandboxId: 'sb-1',
+    })) {
+      events.push(event);
+    }
+
+    expect(fetcher).toHaveBeenCalledWith(
+      'https://api.example.com/api/agent/conversation/chat',
+      expect.objectContaining({
+        body: JSON.stringify({
+          agentId: 'agent-1',
+          conversationId: 'conv-1',
+          content: 'hello',
+          message: 'hello',
+          prompt: 'hello',
+          requestId: undefined,
+          metadata: undefined,
+          variableParams: { city: 'Shanghai' },
+          modelId: 'gpt-4',
+          agent_config: { agent_server: { agent_mode: 'yolo' } },
+          attachments: undefined,
+          skillIds: ['skill-1'],
+          sandboxId: 'sb-1',
+        }),
+      }),
+    );
+    expect(events).toEqual([expect.objectContaining({ type: 'final' })]);
+  });
+
+  it('calls getSuggestQuestions endpoint', async () => {
+    const fetcher = vi.fn().mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({ data: ['What next?', 'Show example'] }),
+        { status: 200, headers: { 'content-type': 'application/json' } },
+      ),
+    );
+
+    const adapter = createWebApiAdapter({
+      baseUrl: 'https://api.example.com',
+      accessToken: 'token-123',
+      fetcher,
+    });
+
+    const suggestions = await adapter.getSuggestQuestions?.('conv-1', 'agent-1', {
+      city: 'Beijing',
+    });
+
+    expect(fetcher).toHaveBeenCalledWith(
+      'https://api.example.com/api/agent/conversation/chat/suggest',
+      expect.objectContaining({
+        method: 'POST',
+        headers: expect.objectContaining({
+          Authorization: 'Bearer token-123',
+          'Content-Type': 'application/json',
+        }),
+        body: JSON.stringify({
+          conversationId: 'conv-1',
+          agentId: 'agent-1',
+          variableParams: { city: 'Beijing' },
+        }),
+      }),
+    );
+    expect(suggestions).toEqual(['What next?', 'Show example']);
+  });
+
+  it('calls getModelOptions endpoint and normalizes response', async () => {
+    const fetcher = vi.fn().mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          data: [
+            { id: 'gpt-4', name: 'GPT-4', provider: 'openai' },
+            { modelId: 'claude-3', modelName: 'Claude 3', icon: '🤖' },
+          ],
+        }),
+        { status: 200, headers: { 'content-type': 'application/json' } },
+      ),
+    );
+
+    const adapter = createWebApiAdapter({
+      baseUrl: 'https://api.example.com',
+      accessToken: 'token-123',
+      fetcher,
+    });
+
+    const models = await adapter.getModelOptions?.('agent-1');
+
+    expect(fetcher).toHaveBeenCalledWith(
+      'https://api.example.com/api/agent/conversation/model/options/agent-1',
+      expect.objectContaining({
+        method: 'GET',
+        headers: expect.objectContaining({
+          Authorization: 'Bearer token-123',
+        }),
+      }),
+    );
+    expect(models).toEqual([
+      expect.objectContaining({ id: 'gpt-4', name: 'GPT-4', provider: 'openai' }),
+      expect.objectContaining({ id: 'claude-3', name: 'Claude 3', icon: '🤖' }),
+    ]);
+  });
 });

@@ -6,6 +6,7 @@ import type {
   WorkbenchConversation,
   WorkbenchConversationMessages,
   WorkbenchMessage,
+  WorkbenchModelOption,
   WorkbenchSendMessageRequest,
   WorkbenchStreamEvent,
 } from '../types';
@@ -68,7 +69,7 @@ function readString(value: unknown, keys: string[]): string | undefined {
 function readCollection(value: unknown): unknown[] {
   if (Array.isArray(value)) return value;
   if (!isRecord(value)) return [];
-  for (const key of ['items', 'list', 'records', 'rows', 'conversations', 'messages']) {
+  for (const key of ['items', 'list', 'records', 'rows', 'conversations', 'messages', 'suggestions', 'questions']) {
     if (Array.isArray(value[key])) return value[key];
   }
   return [];
@@ -163,6 +164,19 @@ function normalizeAgentDetail(raw: unknown, agentId: string): WorkbenchAgentDeta
     allowCopy: item.allowCopy as WorkbenchAgentDetail['allowCopy'],
     allowOtherModel: item.allowOtherModel as WorkbenchAgentDetail['allowOtherModel'],
     sandboxId: readString(item, ['sandboxId', 'sandbox_id']),
+    raw: item,
+  };
+}
+
+function normalizeModelOption(raw: unknown): WorkbenchModelOption {
+  const item = isRecord(raw) ? raw : {};
+  const id = String(item.id ?? item.modelId ?? item.model_id ?? item.value ?? '');
+  return {
+    id,
+    name: readString(item, ['name', 'modelName', 'model_name', 'label']) ?? id,
+    icon: readString(item, ['icon', 'avatar', 'logo']),
+    provider: readString(item, ['provider', 'vendor']),
+    description: readString(item, ['description', 'desc']),
     raw: item,
   };
 }
@@ -352,6 +366,14 @@ export function createWebApiAdapter(options: WebApiAdapterOptions): WorkbenchApi
             prompt: request.content,
             requestId: request.requestId,
             metadata: request.metadata,
+            variableParams: request.variableParams,
+            modelId: request.modelId,
+            agent_config: request.agentMode
+              ? { agent_server: { agent_mode: request.agentMode } }
+              : undefined,
+            attachments: request.attachments,
+            skillIds: request.skillIds,
+            sandboxId: request.sandboxId,
           }),
         },
       );
@@ -435,6 +457,29 @@ export function createWebApiAdapter(options: WebApiAdapterOptions): WorkbenchApi
           },
         },
       );
+    },
+
+    async getSuggestQuestions(conversationId, agentId, variableParams) {
+      const data = await requestJson<unknown>(
+        apiPath('/agent/conversation/chat/suggest'),
+        {
+          method: 'POST',
+          body: { conversationId, agentId, variableParams },
+        },
+      );
+      if (Array.isArray(data)) return data.map(String);
+      const record = isRecord(data) ? data : {};
+      const items = readCollection(data);
+      return items.map(String);
+    },
+
+    async getModelOptions(agentId) {
+      const data = await requestJson<unknown>(
+        apiPath(`/agent/conversation/model/options/${encodeURIComponent(agentId)}`),
+        { method: 'GET' },
+      );
+      const items = Array.isArray(data) ? data : readCollection(data);
+      return items.map(normalizeModelOption);
     },
   };
 }

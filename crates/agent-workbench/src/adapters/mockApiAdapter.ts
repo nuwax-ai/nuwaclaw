@@ -239,5 +239,22 @@ export function createMockApiAdapter(options: MockApiAdapterOptions = {}): Workb
     async stopChat() {
       await sleep(Math.max(20, Math.floor(latencyMs / 2)));
     },
+
+    async getSuggestQuestions() {
+      await sleep(latencyMs);
+      return [
+        'Can you explain that in more detail?',
+        'What are the next steps?',
+        'Show me an example.',
+      ];
+    },
+
+    async getModelOptions() {
+      await sleep(latencyMs);
+      return [
+        { id: 'mock-default', name: 'Default Model', provider: 'mock' },
+        { id: 'mock-fast', name: 'Fast Model', provider: 'mock' },
+      ];
+    },
   };
 }

@@ -114,6 +114,21 @@ export interface WorkbenchSendMessageRequest {
   content: string;
   requestId?: string;
   metadata?: Record<string, unknown>;
+  variableParams?: Record<string, unknown>;
+  modelId?: string;
+  agentMode?: 'ask' | 'yolo';
+  attachments?: unknown[];
+  skillIds?: string[];
+  sandboxId?: string;
+}
+
+export interface WorkbenchModelOption {
+  id: string;
+  name: string;
+  icon?: string;
+  provider?: string;
+  description?: string;
+  raw?: unknown;
 }
 
 export interface WorkbenchApiAdapter {
@@ -139,6 +154,12 @@ export interface WorkbenchApiAdapter {
     choiceId: string,
     context: { agentId: string; conversationId: string },
   ): Promise<void>;
+  getSuggestQuestions?(
+    conversationId: string,
+    agentId: string,
+    variableParams?: Record<string, unknown>,
+  ): Promise<string[]>;
+  getModelOptions?(agentId: string): Promise<WorkbenchModelOption[]>;
 }
 
 export interface WorkbenchHostBridge {

@@ -28,6 +28,7 @@ export type {
   WorkbenchConversationMessages,
   WorkbenchHostBridge,
   WorkbenchMessage,
+  WorkbenchModelOption,
   WorkbenchPermissionChoice,
   WorkbenchPermissionRequest,
   WorkbenchSendMessageRequest,
