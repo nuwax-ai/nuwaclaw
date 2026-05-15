@@ -323,6 +323,11 @@ contextBridge.exposeInMainWorld("electronAPI", {
       ipcRenderer.invoke("shell:openPath", targetPath),
   },
 
+  // Workbench utilities
+  workbench: {
+    openEditor: () => ipcRenderer.invoke("workbench:openEditor"),
+  },
+
   // Session / Cookie management (for embedded webview)
   session: {
     setCookie: (params: {

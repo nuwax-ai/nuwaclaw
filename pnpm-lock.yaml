@@ -45,6 +45,9 @@ importers:
       '@modelcontextprotocol/sdk':
         specifier: ^1.27.1
         version: 1.27.1(zod@3.25.76)
+      '@nuwax-ai/agent-workbench':
+        specifier: file:../agent-workbench
+        version: link:../agent-workbench
       '@uiw/react-json-view':
         specifier: 2.0.0-alpha.42
         version: 2.0.0-alpha.42(@babel/runtime@7.29.2)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
@@ -128,7 +131,7 @@ importers:
         specifier: ^2.1.8
         version: 2.1.9(vitest@2.1.9(@types/node@22.19.15)(jsdom@28.1.0))
       agent-gui-server:
-        specifier: workspace:*
+        specifier: file:../agent-gui-server
         version: link:../agent-gui-server
       concurrently:
         specifier: ^9.1.2
@@ -161,7 +164,7 @@ importers:
         specifier: ^0.5.0
         version: 0.5.2(eslint@9.39.4)
       nuwax-mcp-stdio-proxy:
-        specifier: workspace:*
+        specifier: file:../nuwax-mcp-stdio-proxy
         version: link:../nuwax-mcp-stdio-proxy
       sharp:
         specifier: ^0.34.5
@@ -221,6 +224,36 @@ importers:
       typescript:
         specifier: ^5.7.0
         version: 5.8.3
+      vitest:
+        specifier: ^2.1.8
+        version: 2.1.9(@types/node@22.19.15)(jsdom@28.1.0)
+
+  crates/agent-workbench:
+    devDependencies:
+      '@types/node':
+        specifier: ^22.19.15
+        version: 22.19.15
+      '@types/react':
+        specifier: ^18.3.18
+        version: 18.3.28
+      '@types/react-dom':
+        specifier: ^18.3.5
+        version: 18.3.7(@types/react@18.3.28)
+      '@vitejs/plugin-react':
+        specifier: ^4.3.4
+        version: 4.7.0(vite@6.4.1(@types/node@22.19.15)(yaml@2.8.2))
+      react:
+        specifier: ^18.3.1
+        version: 18.3.1
+      react-dom:
+        specifier: ^18.3.1
+        version: 18.3.1(react@18.3.1)
+      typescript:
+        specifier: ^5.7.3
+        version: 5.8.3
+      vite:
+        specifier: ^6.0.7
+        version: 6.4.1(@types/node@22.19.15)(yaml@2.8.2)
       vitest:
         specifier: ^2.1.8
         version: 2.1.9(@types/node@22.19.15)(jsdom@28.1.0)
@@ -1711,19 +1744,16 @@ packages:
   '@nut-tree-fork/libnut-darwin@2.7.5':
     resolution: {integrity: sha512-LbqtPtMPTJUcg4XoPP2jsU1wc8flBcGyKTerKsIfK9cD7nBHROnO0QksbrsbSWEpLym8T8fRtuU7XEY83l6Z2Q==}
     engines: {node: '>=10.15.3'}
-    cpu: [x64, arm64]
     os: [darwin, linux, win32]
 
   '@nut-tree-fork/libnut-linux@2.7.5':
     resolution: {integrity: sha512-uxaXEcRKnFObAljsoR6tLOBUU1dJ2sctloG6gFgCBGN7+k6Jdv6jZfOuNjd/fpdq2C5WPMm0rtn9EE7h5J3Jcg==}
     engines: {node: '>=10.15.3'}
-    cpu: [x64, arm64]
     os: [darwin, linux, win32]
 
   '@nut-tree-fork/libnut-win32@2.7.5':
     resolution: {integrity: sha512-yqC87zvmFcDPwFrRU40DYhN0xmEVM3aSkOuyF0IX+y1x+HWSu/i0PNklATpPBhGid3QVb/TOHuVoaraMrUFCNw==}
     engines: {node: '>=10.15.3'}
-    cpu: [x64, arm64]
     os: [darwin, linux, win32]
 
   '@nut-tree-fork/libnut@4.2.6':
@@ -1737,7 +1767,6 @@ packages:
   '@nut-tree-fork/nut-js@4.2.6':
     resolution: {integrity: sha512-aI/WCX7gE1HFGPH3EZP/UWqpNMM1NMoM/EkXqp7pKMgXFCi8e5+o5p+jd/QOYpmALv9bQg7+s69nI7FONbMqDg==}
     engines: {node: '>=16'}
-    cpu: [x64, arm64]
     os: [linux, darwin, win32]
 
   '@nut-tree-fork/provider-interfaces@4.2.6':

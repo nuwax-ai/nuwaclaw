@@ -40,6 +40,7 @@ export interface AuthUserInfo {
   userId?: string;
   email?: string;
   currentDomain?: string;
+  appAgentId?: number | string;
 }
 
 export interface SetupState {

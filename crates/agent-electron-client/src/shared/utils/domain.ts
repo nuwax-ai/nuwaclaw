@@ -43,3 +43,13 @@ export function normalizeDomainForTokenKey(domain: string): string {
 export function getDomainTokenKey(domain: string): string {
   return `auth.tokens.${normalizeDomainForTokenKey(domain)}`;
 }
+
+/**
+ * 生成 Workbench API token 存储键。
+ *
+ * Workbench 远端 API 需要 bearer token；webview cookie 同步会清理
+ * auth.token/auth.tokens.*，所以这里使用独立域名级 key 保存 API 调用凭据。
+ */
+export function getWorkbenchAccessTokenKey(domain: string): string {
+  return `workbench.access_tokens.${normalizeDomainForTokenKey(domain)}`;
+}

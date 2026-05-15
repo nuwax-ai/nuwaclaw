@@ -15,6 +15,7 @@ import {
   Button,
   notification,
   message,
+  Alert,
 } from "antd";
 import type { PresetStatusColorType } from "antd/es/_util/colors";
 import {
@@ -28,7 +29,14 @@ import {
   ArrowLeftOutlined,
   ReloadOutlined,
   ApiOutlined,
+  RobotOutlined,
 } from "@ant-design/icons";
+import {
+  AgentWorkbench,
+  AgentWorkbenchProvider,
+  type AgentWorkbenchConfig,
+  type WorkbenchHostBridge,
+} from "@nuwax-ai/agent-workbench";
 import {
   setupService,
   authService,
@@ -48,6 +56,10 @@ import {
 import type { QuickInitConfig } from "@shared/types/quickInit";
 import type { UpdateState } from "@shared/types/updateTypes";
 import { t, getCurrentLang } from "./services/core/i18n";
+import {
+  loadWorkbenchConfig,
+  type AgentWorkbenchConfig as ResolvedWorkbenchConfig,
+} from "./services/workbenchConfig";
 import SetupWizard from "./components/setup/SetupWizard";
 import SetupDependencies from "./components/setup/SetupDependencies";
 import ClientPage from "./components/pages/ClientPage";
@@ -131,6 +143,10 @@ const STATUS_CONFIG: Record<
 const HEADER_SIMULATED_PROGRESS_CAP = 90;
 const HEADER_SIMULATED_PROGRESS_INTERVAL_MS = 500;
 const HEADER_SIMULATED_DURATION_MS = 45_000;
+const WORKBENCH_MOCK_APP_AGENT_ID = "mock-app-agent";
+const WORKBENCH_MOCK_ENABLED =
+  import.meta.env.DEV ||
+  import.meta.env.VITE_NUWAX_ENABLE_WORKBENCH_MOCK === "true";
 
 // 服务状态接口（与 ClientPage 共享）
 export interface ServiceItem {
@@ -141,6 +157,59 @@ export interface ServiceItem {
   pid?: number;
   port?: number;
   error?: string;
+}
+
+type WorkbenchConfigState =
+  | { status: "idle" }
+  | { status: "loading" }
+  | {
+      status: "missing-app-agent-id";
+      config: ResolvedWorkbenchConfig;
+      missingKeys: string[];
+    }
+  | {
+      status: "ready";
+      config: AgentWorkbenchConfig;
+      missingKeys: string[];
+      usingMock: boolean;
+    }
+  | { status: "error"; error: string };
+
+function createWorkbenchHostBridge(
+  workspaceDir: string,
+  onExit: () => void,
+): WorkbenchHostBridge {
+  return {
+    onOpenEditor: async () => {
+      if (!workspaceDir) {
+        throw new Error("workspaceDir is required");
+      }
+
+      if (window.electronAPI?.workbench?.openEditor) {
+        const result = await window.electronAPI.workbench.openEditor();
+        if (!result.success) throw new Error(result.error);
+        return;
+      }
+
+      const result = await window.electronAPI?.shell.openPath(workspaceDir);
+      if (!result?.success) {
+        throw new Error(result?.error || "shell.openPath is unavailable");
+      }
+    },
+    onExit,
+    onError: (error) => {
+      console.warn("[AgentMode] Workbench error:", error);
+    },
+  };
+}
+
+function createMockWorkbenchConfig(
+  resolved: ResolvedWorkbenchConfig,
+): ResolvedWorkbenchConfig {
+  return {
+    ...resolved,
+    appAgentId: WORKBENCH_MOCK_APP_AGENT_ID,
+  };
 }
 
 /**
@@ -340,6 +409,12 @@ function App() {
   // 核心状态
   // ============================================
   const [activeTab, setActiveTab] = useState<TabKey>("client");
+  const [agentModeEnabled, setAgentModeEnabled] = useState(false);
+  const [workbenchUseMockAppAgentId, setWorkbenchUseMockAppAgentId] =
+    useState(false);
+  const [workbenchConfigReloadKey, setWorkbenchConfigReloadKey] = useState(0);
+  const [workbenchConfigState, setWorkbenchConfigState] =
+    useState<WorkbenchConfigState>({ status: "idle" });
   const [sessionsAutoOpen, setSessionsAutoOpen] = useState(false);
   const [webviewActions, setWebviewActions] =
     useState<WebviewHeaderActions | null>(null);
@@ -383,6 +458,112 @@ function App() {
     }
     return keys;
   }, []);
+
+  // ============================================
+  // Agent Mode / Workbench 配置装配
+  // ============================================
+  useEffect(() => {
+    if (!agentModeEnabled) {
+      setWorkbenchConfigState({ status: "idle" });
+      return;
+    }
+
+    let cancelled = false;
+    const loadConfig = async () => {
+      setWorkbenchConfigState({ status: "loading" });
+      try {
+        let result = await loadWorkbenchConfig();
+        if (
+          !WORKBENCH_MOCK_ENABLED &&
+          (result.missing.accessToken || result.missing.appAgentId)
+        ) {
+          await syncConfigToServer({ suppressToast: true });
+          if (cancelled) return;
+          result = await loadWorkbenchConfig();
+        }
+        if (cancelled) return;
+
+        const shouldUseMockAppAgentId =
+          WORKBENCH_MOCK_ENABLED && workbenchUseMockAppAgentId;
+        const appAgentId =
+          result.config.appAgentId ||
+          (shouldUseMockAppAgentId ? WORKBENCH_MOCK_APP_AGENT_ID : "");
+
+        if (!appAgentId) {
+          setWorkbenchConfigState({
+            status: "missing-app-agent-id",
+            config: result.config,
+            missingKeys: result.missingKeys,
+          });
+          return;
+        }
+
+        const missingRemoteConfig = result.missingKeys.filter((key) =>
+          ["baseUrl", "accessToken"].includes(key),
+        );
+        if (missingRemoteConfig.length > 0 && !WORKBENCH_MOCK_ENABLED) {
+          setWorkbenchConfigState({
+            status: "error",
+            error: `Agent Mode missing required config: ${missingRemoteConfig.join(
+              ", ",
+            )}`,
+          });
+          return;
+        }
+
+        const resolvedConfig =
+          appAgentId === result.config.appAgentId
+            ? result.config
+            : createMockWorkbenchConfig(result.config);
+        const hostBridge = createWorkbenchHostBridge(
+          resolvedConfig.workspaceDir,
+          () => {
+            setAgentModeEnabled(false);
+            setWorkbenchUseMockAppAgentId(false);
+          },
+        );
+        const config: AgentWorkbenchConfig = {
+          agentId: appAgentId,
+          baseUrl: resolvedConfig.baseUrl,
+          accessToken: resolvedConfig.accessToken,
+          hostBridge,
+          initialPath: `/app/${encodeURIComponent(appAgentId)}`,
+          title: `Agent ${appAgentId}`,
+          useMock:
+            WORKBENCH_MOCK_ENABLED &&
+            (result.useMock ||
+              workbenchUseMockAppAgentId ||
+              !resolvedConfig.baseUrl ||
+              !resolvedConfig.accessToken),
+          mockLatencyMs: 140,
+        };
+
+        setWorkbenchConfigState({
+          status: "ready",
+          config,
+          missingKeys: result.missingKeys,
+          usingMock: config.useMock === true,
+        });
+      } catch (error) {
+        if (cancelled) return;
+        setWorkbenchConfigState({
+          status: "error",
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
+    };
+
+    loadConfig();
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    agentModeEnabled,
+    workbenchUseMockAppAgentId,
+    workbenchConfigReloadKey,
+    i18nLang,
+    authRefreshTrigger,
+  ]);
 
   // ============================================
   // 检查初始化向导状态（每次启动优先读取 quick init 配置）
@@ -1099,6 +1280,126 @@ function App() {
     [i18nLang, handleI18nLangChange],
   );
 
+  const handleEnterAgentMode = useCallback(() => {
+    setWorkbenchUseMockAppAgentId(false);
+    setAgentModeEnabled(true);
+  }, []);
+
+  const handleExitAgentMode = useCallback(() => {
+    setAgentModeEnabled(false);
+    setWorkbenchUseMockAppAgentId(false);
+  }, []);
+
+  const renderAgentModeContent = () => {
+    if (workbenchConfigState.status === "loading") {
+      return (
+        <div className={styles.agentModeState}>
+          <Spin size="large" />
+          <div className={styles.agentModeStateText}>Loading Agent Mode...</div>
+        </div>
+      );
+    }
+
+    if (workbenchConfigState.status === "error") {
+      return (
+        <div className={styles.agentModeState}>
+          <Alert
+            type="error"
+            showIcon
+            message="Agent Mode failed to load"
+            description={workbenchConfigState.error}
+          />
+          <Button onClick={() => setWorkbenchConfigReloadKey((v) => v + 1)}>
+            Retry
+          </Button>
+        </div>
+      );
+    }
+
+    if (workbenchConfigState.status === "missing-app-agent-id") {
+      return (
+        <div className={styles.agentModeState}>
+          <Alert
+            type="warning"
+            showIcon
+            message="Missing appAgentId"
+            description={
+              <div className={styles.agentModeMissingDescription}>
+                <div>
+                  Agent Mode needs an appAgentId from auth user info, settings,
+                  or VITE env fallback before it can connect to a real app
+                  agent.
+                </div>
+                <div>
+                  Current baseUrl:{" "}
+                  <code>
+                    {workbenchConfigState.config.baseUrl || "not set"}
+                  </code>
+                </div>
+                <div>
+                  Current workspaceDir:{" "}
+                  <code>
+                    {workbenchConfigState.config.workspaceDir || "not set"}
+                  </code>
+                </div>
+                <div>
+                  Access token cache:{" "}
+                  <code>
+                    {workbenchConfigState.config.accessToken
+                      ? "available"
+                      : "missing"}
+                  </code>
+                </div>
+                <div>
+                  Missing keys:{" "}
+                  <code>{workbenchConfigState.missingKeys.join(", ")}</code>
+                </div>
+              </div>
+            }
+          />
+          <div className={styles.agentModeStateActions}>
+            {WORKBENCH_MOCK_ENABLED && (
+              <Button
+                type="primary"
+                icon={<RobotOutlined />}
+                onClick={() => setWorkbenchUseMockAppAgentId(true)}
+              >
+                Use mock appAgentId
+              </Button>
+            )}
+            <Button onClick={handleExitAgentMode}>Exit Agent Mode</Button>
+          </div>
+        </div>
+      );
+    }
+
+    if (workbenchConfigState.status === "ready") {
+      return (
+        <div className={styles.agentModeWorkbench}>
+          {workbenchConfigState.usingMock && (
+            <Alert
+              type="info"
+              showIcon
+              banner
+              message="Using mock workbench fallback for integration testing"
+            />
+          )}
+          <AgentWorkbenchProvider config={workbenchConfigState.config}>
+            <AgentWorkbench />
+          </AgentWorkbenchProvider>
+        </div>
+      );
+    }
+
+    return (
+      <div className={styles.agentModeState}>
+        <Button type="primary" onClick={handleEnterAgentMode}>
+          Load Agent Mode
+        </Button>
+      </div>
+    );
+  };
+
   // ============================================
   // 渲染：加载中（含等待依赖检查完成）
   // ============================================
@@ -1162,7 +1463,16 @@ function App() {
           <div className="app-container">
             {/* 顶部栏 */}
             <div className="app-header">
-              {webviewActions ? (
+              {agentModeEnabled ? (
+                <div className="app-header-logo">
+                  <img
+                    src="./32x32.png"
+                    alt=""
+                    style={{ width: 16, height: 16 }}
+                  />
+                  <span className="app-header-title">{APP_DISPLAY_NAME}</span>
+                </div>
+              ) : webviewActions ? (
                 <div className={styles.headerWebviewActions}>
                   <Button
                     size="small"
@@ -1275,6 +1585,20 @@ function App() {
                 </div>
               )}
               <div className={styles.headerRight}>
+                <Button
+                  size="small"
+                  type={agentModeEnabled ? "primary" : "default"}
+                  icon={
+                    agentModeEnabled ? <ArrowLeftOutlined /> : <RobotOutlined />
+                  }
+                  onClick={
+                    agentModeEnabled
+                      ? handleExitAgentMode
+                      : handleEnterAgentMode
+                  }
+                >
+                  {agentModeEnabled ? "Exit Agent Mode" : "Agent Mode"}
+                </Button>
                 {username && (
                   <span className={styles.username}>{username}</span>
                 )}
@@ -1295,7 +1619,7 @@ function App() {
             {/* 主体部分 */}
             <div className="app-body">
               {/* 左侧边栏 (hidden when webview is active) */}
-              {!webviewActions && (
+              {!webviewActions && !agentModeEnabled && (
                 <div
                   className={
                     // 英文菜单文案通常更长，侧边栏适当加宽以减少截断；其他语言保持默认宽度
@@ -1321,7 +1645,7 @@ function App() {
               {/* 主内容区：flex 子撑满，便于日志等页占满高度 */}
               <div
                 className={
-                  webviewActions
+                  webviewActions || agentModeEnabled
                     ? "app-content app-content-fullwidth"
                     : "app-content"
                 }
@@ -1335,35 +1659,41 @@ function App() {
                     background: "var(--color-bg-layout)",
                   }}
                 >
-                  {activeTab === "client" && (
-                    <ClientPage
-                      onNavigate={(tab) => {
-                        if (tab === "sessions") setSessionsAutoOpen(true);
-                        setActiveTab(tab);
-                      }}
-                      services={services}
-                      servicesLoading={servicesLoading}
-                      startingServices={startingServices}
-                      setStartingServices={setStartingServices}
-                      onRefreshServices={pollServicesStatus}
-                      authRefreshTrigger={authRefreshTrigger}
-                      onAuthChange={handleAuthChange}
-                      onLoginStarted={handleLoginStarted}
-                    />
+                  {agentModeEnabled ? (
+                    renderAgentModeContent()
+                  ) : (
+                    <>
+                      {activeTab === "client" && (
+                        <ClientPage
+                          onNavigate={(tab) => {
+                            if (tab === "sessions") setSessionsAutoOpen(true);
+                            setActiveTab(tab);
+                          }}
+                          services={services}
+                          servicesLoading={servicesLoading}
+                          startingServices={startingServices}
+                          setStartingServices={setStartingServices}
+                          onRefreshServices={pollServicesStatus}
+                          authRefreshTrigger={authRefreshTrigger}
+                          onAuthChange={handleAuthChange}
+                          onLoginStarted={handleLoginStarted}
+                        />
+                      )}
+                      {activeTab === "sessions" && (
+                        <SessionsPage
+                          autoOpen={sessionsAutoOpen}
+                          onAutoOpenConsumed={() => setSessionsAutoOpen(false)}
+                          onWebviewChange={setWebviewActions}
+                        />
+                      )}
+                      {activeTab === "mcp" && <MCPSettings />}
+                      {activeTab === "settings" && <SettingsPage />}
+                      {activeTab === "dependencies" && <DependenciesPage />}
+                      {activeTab === "permissions" && <PermissionsPage />}
+                      {activeTab === "logs" && <LogViewer />}
+                      {activeTab === "about" && <AboutPage />}
+                    </>
                   )}
-                  {activeTab === "sessions" && (
-                    <SessionsPage
-                      autoOpen={sessionsAutoOpen}
-                      onAutoOpenConsumed={() => setSessionsAutoOpen(false)}
-                      onWebviewChange={setWebviewActions}
-                    />
-                  )}
-                  {activeTab === "mcp" && <MCPSettings />}
-                  {activeTab === "settings" && <SettingsPage />}
-                  {activeTab === "dependencies" && <DependenciesPage />}
-                  {activeTab === "permissions" && <PermissionsPage />}
-                  {activeTab === "logs" && <LogViewer />}
-                  {activeTab === "about" && <AboutPage />}
                 </div>
               </div>
             </div>

@@ -1,0 +1,2 @@
+export { ChatInputHome } from '../NuwaxOpenApp';
+

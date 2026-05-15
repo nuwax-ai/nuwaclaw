@@ -23,6 +23,7 @@ import { syncSessionCookie } from "../utils/sessionUrl";
 import { logger } from "../utils/logService";
 import {
   getDomainTokenKey,
+  getWorkbenchAccessTokenKey,
   normalizeDomainForTokenKey,
 } from "@shared/utils/domain";
 import { t } from "./i18n";
@@ -36,6 +37,7 @@ export interface AuthUserInfo {
   email?: string;
   phone?: string;
   currentDomain?: string;
+  appAgentId?: number | string;
 }
 
 // ========== 存储辅助函数 ===
@@ -150,6 +152,45 @@ async function clearAuthInfo(): Promise<void> {
   // 不清除 savedKey，跨登录会话持久化
 }
 
+function pickAppAgentIdFromResponse(
+  response: ClientRegisterResponse,
+): number | string | undefined {
+  const aliases = response as ClientRegisterResponse & {
+    app_agent_id?: unknown;
+    appAgentID?: unknown;
+    appAgent?: { id?: unknown };
+    app_agent?: { id?: unknown };
+  };
+  const raw =
+    aliases.appAgentId ??
+    aliases.app_agent_id ??
+    aliases.appAgentID ??
+    aliases.appAgent?.id ??
+    aliases.app_agent?.id;
+  if (typeof raw === "number" && Number.isFinite(raw)) return raw;
+  if (typeof raw === "string" && raw.trim()) return raw.trim();
+  return undefined;
+}
+
+function pickAccessTokenFromResponse(
+  response: ClientRegisterResponse,
+): string | undefined {
+  const aliases = response as ClientRegisterResponse & {
+    accessToken?: unknown;
+    access_token?: unknown;
+    bearerToken?: unknown;
+    bearer_token?: unknown;
+  };
+  const raw =
+    aliases.token ??
+    aliases.accessToken ??
+    aliases.access_token ??
+    aliases.bearerToken ??
+    aliases.bearer_token;
+  if (typeof raw === "string" && raw.trim()) return raw.trim();
+  return undefined;
+}
+
 // ========== Token 缓存辅助函数 ===
 /**
  * 缓存登录 token 到 one-shot 和域名级别存储
@@ -167,7 +208,14 @@ async function cacheAndSyncToken(
   const domainTokenKey = getDomainTokenKey(domain);
   await settingsSet(domainTokenKey, token);
 
-  logger.info("Login token cache written", logTag, { domain, domainTokenKey });
+  const workbenchTokenKey = getWorkbenchAccessTokenKey(domain);
+  await settingsSet(workbenchTokenKey, token);
+
+  logger.info("Login token cache written", logTag, {
+    domain,
+    domainTokenKey,
+    workbenchTokenKey,
+  });
 
   // 尝试立即同步到 webview cookie
   try {
@@ -322,29 +370,16 @@ export async function loginAndRegister(
       username,
       displayName: response.name,
       currentDomain: domain,
+      appAgentId: pickAppAgentIdFromResponse(response),
     });
 
     await setOnlineStatus(response.online);
 
     // 持久化 token（用于 webview cookie 同步）
     // 尝试立即同步，成功后清除；失败时保留给后续页面打开时重试
-    if (response.token) {
-      await settingsSet(AUTH_KEYS.AUTH_TOKEN, response.token);
-      const domainTokenKey = domain ? getDomainTokenKey(domain) : null;
-      if (domainTokenKey) {
-        await settingsSet(domainTokenKey, response.token);
-      }
-      logger.info("Login token cache written", "Auth", {
-        domain,
-        domainTokenKey,
-      });
-      try {
-        await syncSessionCookie(domain, response.token);
-        await settingsSet(AUTH_KEYS.AUTH_TOKEN, null);
-        logger.info("Token synced to webview cookie", "Auth");
-      } catch (e) {
-        logger.warn("Token sync failed, keeping local cache", "Auth", e);
-      }
+    const accessToken = pickAccessTokenFromResponse(response);
+    if (accessToken) {
+      await cacheAndSyncToken(domain, accessToken, "Auth");
     } else {
       logger.warn(
         "reg did not return token, cannot sync webview login state",
@@ -488,26 +523,21 @@ export async function reRegisterClient(): Promise<ClientRegisterResponse | null>
     await setConfigKey(response.configKey);
     await setSavedKey(response.configKey, domain, username || undefined);
     await setOnlineStatus(response.online);
+    const currentUserInfo = await getUserInfo();
+    await setUserInfo({
+      ...currentUserInfo,
+      id: response.id,
+      username: username || "",
+      displayName: response.name,
+      currentDomain: domain || currentUserInfo?.currentDomain,
+      appAgentId: pickAppAgentIdFromResponse(response),
+    } as AuthUserInfo);
 
     // 持久化 token（用于 webview cookie 同步）
     // 尝试立即同步，成功后清除；失败时保留给后续页面打开时重试
-    if (response.token) {
-      await settingsSet(AUTH_KEYS.AUTH_TOKEN, response.token);
-      const domainTokenKey = domain ? getDomainTokenKey(domain) : null;
-      if (domainTokenKey) {
-        await settingsSet(domainTokenKey, response.token);
-      }
-      logger.info("Login token cache written", "Auth", {
-        domain,
-        domainTokenKey,
-      });
-      try {
-        await syncSessionCookie(domain, response.token);
-        await settingsSet(AUTH_KEYS.AUTH_TOKEN, null);
-        logger.info("Token synced to webview cookie", "Auth");
-      } catch (e) {
-        logger.warn("Token sync failed, keeping local cache", "Auth", e);
-      }
+    const accessToken = pickAccessTokenFromResponse(response);
+    if (accessToken) {
+      await cacheAndSyncToken(domain, accessToken, "Auth");
     } else {
       logger.warn(
         "reg did not return token, cannot sync webview login state",
@@ -604,23 +634,9 @@ export async function syncConfigToServer(options?: {
 
     // 持久化 token（用于 webview cookie 同步）
     // 尝试立即同步，成功后清除；失败时保留给后续页面打开时重试
-    if (response.token) {
-      await settingsSet(AUTH_KEYS.AUTH_TOKEN, response.token);
-      const domainTokenKey = domain ? getDomainTokenKey(domain) : null;
-      if (domain) {
-        await settingsSet(domainTokenKey!, response.token);
-      }
-      logger.info("Login token cache written", "SyncConfig", {
-        domain,
-        domainTokenKey,
-      });
-      try {
-        await syncSessionCookie(domain, response.token);
-        await settingsSet(AUTH_KEYS.AUTH_TOKEN, null);
-        logger.info("Token synced to webview cookie", "SyncConfig");
-      } catch (e) {
-        logger.warn("Token sync failed, keeping local cache", "SyncConfig", e);
-      }
+    const accessToken = pickAccessTokenFromResponse(response);
+    if (accessToken) {
+      await cacheAndSyncToken(domain, accessToken, "SyncConfig");
     } else {
       logger.warn(
         "reg did not return token, cannot sync webview login state",
@@ -650,6 +666,7 @@ export async function syncConfigToServer(options?: {
       username: username || "",
       displayName: response.name,
       currentDomain: preservedCurrentDomain,
+      appAgentId: pickAppAgentIdFromResponse(response),
     } as AuthUserInfo);
 
     if (!suppressToast) {

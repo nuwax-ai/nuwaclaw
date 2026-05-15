@@ -189,6 +189,7 @@ export const AUTH_KEYS = {
   USER_INFO: "auth.user_info",
   ONLINE_STATUS: "auth.online_status",
   AUTH_TOKEN: "auth.token",
+  WORKBENCH_ACCESS_TOKEN_PREFIX: "workbench.access_tokens.",
   LANPROXY_SERVER_HOST: "lanproxy.server_host",
   LANPROXY_SERVER_PORT: "lanproxy.server_port",
 } as const;

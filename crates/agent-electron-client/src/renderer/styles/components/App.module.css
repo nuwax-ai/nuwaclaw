@@ -12,13 +12,13 @@
 
 /* 用户名 */
 .username {
-  color: #6B7280;
+  color: #6b7280;
   font-size: 12px;
 }
 
 /* 状态徽章文字 */
 .badgeText {
-  color: #6B7280;
+  color: #6b7280;
   font-size: 12px;
 }
 
@@ -34,4 +34,41 @@
   display: flex;
   align-items: center;
   gap: 6px;
+}
+
+.agentModeState {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  padding: 32px;
+  background: var(--color-bg-layout);
+}
+
+.agentModeStateText {
+  color: #6b7280;
+  font-size: 13px;
+}
+
+.agentModeMissingDescription {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.agentModeStateActions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.agentModeWorkbench {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--color-bg-layout);
 }

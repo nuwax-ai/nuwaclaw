@@ -216,6 +216,16 @@ export interface ClientRegisterResponse {
   serverPort?: number;
   /** 登录态 token，用于 webview cookie 同步 */
   token?: string;
+  accessToken?: string;
+  access_token?: string;
+  bearerToken?: string;
+  bearer_token?: string;
+  /** Nuwax /app/{agentId} 使用的真实应用 Agent ID */
+  appAgentId?: number | string;
+  app_agent_id?: number | string;
+  appAgentID?: number | string;
+  appAgent?: { id?: number | string };
+  app_agent?: { id?: number | string };
 }
 
 /**

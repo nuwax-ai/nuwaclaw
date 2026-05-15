@@ -52,6 +52,10 @@ vi.mock("./api", () => ({
   registerClient: (...args: unknown[]) => mockRegisterClient(...args),
 }));
 
+vi.mock("../utils/sessionUrl", () => ({
+  syncSessionCookie: vi.fn(async () => undefined),
+}));
+
 // ==================== Helpers ====================
 
 const DOMAIN = "https://testagent.xspaceagi.com";
@@ -313,6 +317,50 @@ describe("auth - savedKey 认证 (快捷登录)", () => {
       expect(store["auth.password"]).toBeUndefined();
       // savedKey 应保存
       expect(store["auth.saved_key"]).toBe(CONFIG_KEY_FROM_SERVER);
+    });
+
+    it("保存 snake_case appAgentId，并使用独立 workbench token cache", async () => {
+      mockRegisterClient.mockResolvedValueOnce(
+        makeRegisterResponse({
+          app_agent_id: "agent-from-snake-case",
+          token: "api-token",
+        }),
+      );
+
+      const { loginAndRegister } = await loadAuth();
+      await loginAndRegister("zhangsan", "abc123", {
+        suppressToast: true,
+        domain: DOMAIN,
+      });
+
+      expect(
+        (store["auth.user_info"] as { appAgentId?: string }).appAgentId,
+      ).toBe("agent-from-snake-case");
+      expect(store["workbench.access_tokens.testagent.xspaceagi.com"]).toBe(
+        "api-token",
+      );
+    });
+
+    it("兼容 access_token 并写入 workbench token cache", async () => {
+      mockRegisterClient.mockResolvedValueOnce(
+        makeRegisterResponse({
+          access_token: "access-token-from-snake-case",
+          appAgentId: "agent-from-camel-case",
+        }),
+      );
+
+      const { loginAndRegister } = await loadAuth();
+      await loginAndRegister("zhangsan", "abc123", {
+        suppressToast: true,
+        domain: DOMAIN,
+      });
+
+      expect(
+        (store["auth.user_info"] as { appAgentId?: string }).appAgentId,
+      ).toBe("agent-from-camel-case");
+      expect(store["workbench.access_tokens.testagent.xspaceagi.com"]).toBe(
+        "access-token-from-snake-case",
+      );
     });
   });
 

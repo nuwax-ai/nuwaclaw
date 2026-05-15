@@ -61,6 +61,10 @@ export default defineConfig(({ mode }) => ({
       '@preload': path.resolve(__dirname, './src/preload'),
       '@renderer': path.resolve(__dirname, './src/renderer'),
       '@shared': path.resolve(__dirname, './src/shared'),
+      '@nuwax-ai/agent-workbench': path.resolve(
+        __dirname,
+        '../agent-workbench/src/index.ts',
+      ),
     },
   },
   build: {
@@ -84,8 +88,13 @@ export default defineConfig(({ mode }) => ({
     port: 60173,
     strictPort: true,
     fs: {
-      // 允许访问项目根目录下的node_modules
-      allow: ['..', '../..', '../../node_modules'],
+      // 允许访问项目根目录、node_modules 以及同级 workspace package 源码。
+      allow: [
+        '..',
+        '../..',
+        '../../node_modules',
+        path.resolve(__dirname, '../agent-workbench'),
+      ],
     },
   },
 }));

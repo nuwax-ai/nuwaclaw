@@ -540,6 +540,15 @@ export interface ShellAPI {
   ) => Promise<{ success: boolean; error?: string }>;
 }
 
+export type WorkbenchOpenedBy = "cursor" | "vscode" | "system";
+
+export interface WorkbenchAPI {
+  openEditor: () => Promise<
+    | { success: true; openedBy: WorkbenchOpenedBy }
+    | { success: false; error: string }
+  >;
+}
+
 // ==================== Computer API (rcoder /computer/* compat) ====================
 
 // Shared types — single source of truth
@@ -726,6 +735,7 @@ export interface ElectronAPI {
   adminServer: AdminServerAPI;
   dependencies: DependenciesAPI;
   shell: ShellAPI;
+  workbench: WorkbenchAPI;
   mirror: MirrorAPI;
   i18n: I18nAPI;
   dialog: DialogAPI;
