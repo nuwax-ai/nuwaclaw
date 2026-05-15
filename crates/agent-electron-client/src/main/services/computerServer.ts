@@ -1514,6 +1514,89 @@ async function handleAdminRequest(
       return;
     }
 
+    // POST /admin/acp-mode — 设置 ACP 模式（调试用）
+    if (pathname === "/admin/acp-mode" && method === "POST") {
+      const body = (await parseBody(req)) as {
+        acpSessionId?: string;
+        mode?: string;
+      };
+      const acpEngine = agentService.getAcpEngine();
+      if (!acpEngine) {
+        sendJson(404, {
+          code: "404",
+          message: "ACP engine not running",
+        });
+        return;
+      }
+      if (!body.mode || (body.mode !== "ask" && body.mode !== "yolo")) {
+        sendJson(400, {
+          code: "400",
+          message: 'mode must be "ask" or "yolo"',
+        });
+        return;
+      }
+      if (body.acpSessionId) {
+        (acpEngine as any).setEffectiveMode(body.acpSessionId, body.mode);
+        log.info(
+          `[AdminServer] ACP mode set to "${body.mode}" for session ${body.acpSessionId}`,
+        );
+      } else {
+        const sessions = (acpEngine as any).sessions as Map<
+          string,
+          { acpSessionId?: string }
+        >;
+        for (const [, session] of sessions) {
+          if (session.acpSessionId) {
+            (acpEngine as any).setEffectiveMode(
+              session.acpSessionId,
+              body.mode,
+            );
+          }
+        }
+        log.info(
+          `[AdminServer] ACP mode set to "${body.mode}" for all ${sessions.size} session(s)`,
+        );
+      }
+      sendJson(200, {
+        code: "0000",
+        message: `ACP mode set to "${body.mode}"`,
+        data: { mode: body.mode, acpSessionId: body.acpSessionId || "all" },
+      });
+      return;
+    }
+
+    // GET /admin/acp-mode — 查询 ACP 模式
+    if (pathname === "/admin/acp-mode" && method === "GET") {
+      const acpEngine = agentService.getAcpEngine();
+      if (!acpEngine) {
+        sendJson(404, {
+          code: "404",
+          message: "ACP engine not running",
+        });
+        return;
+      }
+      const modes: Record<string, string> = {};
+      const sessions = (acpEngine as any).sessions as Map<
+        string,
+        { acpSessionId?: string }
+      >;
+      const effectiveModes = (acpEngine as any).effectiveModes as Map<
+        string,
+        string
+      >;
+      for (const [, session] of sessions) {
+        if (session.acpSessionId) {
+          modes[session.acpSessionId] =
+            effectiveModes.get(session.acpSessionId) ?? "yolo (default)";
+        }
+      }
+      sendJson(200, {
+        code: "0000",
+        data: modes,
+      });
+      return;
+    }
+
     // 404
     sendJson(404, { code: "404", message: `Path not found: ${pathname}` });
   } catch (error: any) {
