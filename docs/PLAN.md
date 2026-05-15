@@ -78,7 +78,7 @@
 
 ---
 
-### Phase 1 — API 与聊天增强（高优先级）
+### Phase 1 — API 与聊天增强（高优先级）✅ (commit e373725d)
 
 #### 1.1 补充 chat body 字段
 **文件**: `crates/agent-workbench/src/adapters/webApiAdapter.ts`
@@ -105,33 +105,33 @@
 - 端点: `GET /api/agent/conversation/model/options/{agentId}`
 - 返回 `ModelOption[]`（id, name, icon?）
 
-#### 1.4 测试
+#### 1.4 测试 ✅
 - 新增 webApiAdapter 测试：suggest、modelOptions、sendMessage 扩展字段
 
 ---
 
-### Phase 2 — 输入区功能补全（中高优先级）
+### Phase 2 — 输入区功能补全（中高优先级）✅ (commit d0f920bf)
 
-#### 2.1 变量表单
+#### 2.1 变量表单 ✅
 **文件**: 新建 `crates/agent-workbench/src/components/VariableForm/index.tsx`
 - 当 `agent.variables` 非空且为新会话首条消息时，渲染表单
 - 支持 inputType: `input` / `textarea` / `select` / `cascader`
 - 校验 `require` 字段，收集为 `variableParams` 传入 `sendMessage`
 - 从 nuwax `NewConversationSet` 保真迁移，去掉 Ant Design 依赖，用原生 form
 
-#### 2.2 Model 选择器
-**文件**: 新建 `crates/agent-workbench/src/components/ModelSelector/index.tsx`
+#### 2.2 Model 选择器 ✅
+**文件**: `crates/agent-workbench/src/components/NuwaxOpenApp.tsx` (内联，非独立组件)
 - 调用 `getModelOptions(agentId)` 获取模型列表
 - 渲染下拉选择，选中后存入 state 传入 `sendMessage` 的 `modelId`
 - 替换现有 stub model chip 按钮
 
-#### 2.3 Agent Mode 切换
+#### 2.3 Agent Mode 切换 ✅
 **文件**: `crates/agent-workbench/src/components/NuwaxOpenApp.tsx`
 - Ask/YOLO 按钮增加 state 管理（`agentMode`）
 - 切换时更新 state，`sendMessage` 时传入 `agent_config.agent_mode`
 - 样式：active 状态高亮
 
-#### 2.4 Suggest 追问推荐
+#### 2.4 Suggest 追问推荐 ✅
 **文件**: `crates/agent-workbench/src/components/NuwaxOpenApp.tsx`
 - SSE 流结束后调用 `getSuggestQuestions`
 - 将结果渲染为推荐气泡列表（复用现有 `.open-app-recommend-list` 样式）
@@ -139,24 +139,25 @@
 
 ---
 
-### Phase 3 — 消息渲染增强（中优先级）
+### Phase 3 — 消息渲染增强（中优先级）✅ (commit 31676e20)
 
-#### 3.1 Markdown 渲染
+#### 3.1 Markdown 渲染 ✅
 **依赖**: 添加 `react-markdown` + `remark-gfm`（或 `marked`）
 **文件**: 新建 `crates/agent-workbench/src/components/MarkdownRenderer/index.tsx`
 - 渲染 assistant 消息中的 Markdown 内容
 - 支持代码块高亮（`highlight.js` 或 `prism`）
 - 替换现有纯文本 `<pre>` 渲染
 
-#### 3.2 消息分页
+#### 3.2 消息分页（延后）
 **文件**: `crates/agent-workbench/src/components/NuwaxOpenApp.tsx`
 - `getConversation` 支持分页参数
 - 聊天区顶部 Intersection Observer 触发加载更多
 - `MESSAGE_PAGE_SIZE = 10`
+- **状态**: 延后实现，需要后端 API 支持分页参数
 
 ---
 
-### Phase 4 — 页面预览增强（中优先级）
+### Phase 4 — 页面预览增强（中优先级）⏳ 待实施
 
 #### 4.1 Electron Webview 集成
 **文件**: `crates/agent-workbench/src/components/PagePreviewIframe/index.tsx`
@@ -176,7 +177,7 @@
 
 ---
 
-### Phase 5 — 深度链接与高级功能（低优先级）
+### Phase 5 — 深度链接与高级功能（低优先级）⏳ 待实施
 
 #### 5.1 URL 参数注入
 **文件**: `crates/agent-workbench/src/components/NuwaxOpenApp.tsx`, `routes.ts`
@@ -196,13 +197,13 @@
 
 ## Phase 优先级与排期
 
-| Phase | 优先级 | 预估工作量 | 依赖 |
-|-------|--------|-----------|------|
-| Phase 1: API 增强 | P0 | 1-2 天 | 无 |
-| Phase 2: 输入区功能 | P0 | 2-3 天 | Phase 1 |
-| Phase 3: 消息渲染 | P1 | 1-2 天 | 无 |
-| Phase 4: 页面预览 | P1 | 2-3 天 | Electron IPC |
-| Phase 5: 深度链接 | P2 | 2-3 天 | Phase 1-2 |
+| Phase | 优先级 | 状态 | 依赖 |
+|-------|--------|------|------|
+| Phase 1: API 增强 | P0 | ✅ 完成 | 无 |
+| Phase 2: 输入区功能 | P0 | ✅ 完成 | Phase 1 |
+| Phase 3: 消息渲染 | P1 | ✅ 完成（分页延后） | 无 |
+| Phase 4: 页面预览 | P1 | 待实施 | Electron IPC |
+| Phase 5: 深度链接 | P2 | 待实施 | Phase 1-2 |
 
 **建议执行顺序**: Phase 1 → Phase 2 → Phase 3 → Phase 4 → Phase 5
 
