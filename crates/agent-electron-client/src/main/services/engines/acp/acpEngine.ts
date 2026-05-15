@@ -89,7 +89,6 @@ import { resolveEffectiveMode, type AcpMode } from "@shared/types/acpMode";
 import {
   approvalInterventionService,
   isRcoderNotifyResolvedRequest,
-  toRcoderPermissionProgressData,
 } from "../../intervention";
 import type {
   NotifyResolvedRequest,
@@ -2607,18 +2606,12 @@ User question: ${request.prompt}`;
       `${this.logTag} 📋 Permission pending (ask mode): id=${interventionRequest.id} tool=${params.toolCall.title}`,
     );
 
-    const permissionProgressData = toRcoderPermissionProgressData({
-      acpRequest: params,
-      interventionId: interventionRequest.id,
-      revision: interventionRequest.revision,
-    });
-
     this.emit("computer:progress", {
       sessionId: appSessionId,
       acpSessionId,
       messageType: "acpRequestPermission",
-      subType: "request_permission",
-      data: permissionProgressData,
+      subType: "session/request_permission",
+      data: interventionRequest,
       timestamp: new Date().toISOString(),
     });
 
