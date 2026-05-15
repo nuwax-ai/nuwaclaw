@@ -177,21 +177,27 @@
 
 ---
 
-### Phase 5 — 深度链接与高级功能（低优先级）⏳ 待实施
+### Phase 5 — 深度链接与高级功能（低优先级）✅ (commit pending)
 
-#### 5.1 URL 参数注入
-**文件**: `crates/agent-workbench/src/components/NuwaxOpenApp.tsx`, `routes.ts`
-- 解析 `?params=` JSON，预填变量并自动发送
-- 支持从外部 URL 直接跳转到特定会话
+#### 5.1 URL 参数注入 ✅
+**文件**: `crates/agent-workbench/src/components/NuwaxOpenApp.tsx`
+- 解析 `?params=` JSON 或 `?prompt=`/`?message=` 查询参数
+- 预填 `variableParams` 和 `prompt`，agent 加载后自动应用
+- `urlParamsAppliedRef` 防止重复应用
 
-#### 5.2 文件上传
-**依赖**: 需要后端支持 multipart upload 端点
-- `ChatInputHome` 增加文件选择和预览
-- `sendMessage` 时附带 `attachments` 数组
+#### 5.2 文件上传 ✅
+**文件**: `crates/agent-workbench/src/components/NuwaxOpenApp.tsx`, `styles.css`
+- `ChatInputHome` 增加隐藏 `<input type="file" multiple>` 和点击触发
+- 文件列表预览：文件名、大小、移除按钮
+- `attachments` state 传入 `sendMessage` 的 `attachments` 字段
+- **注意**: 后端 multipart upload 端点就绪后，需将 File 对象转为上传后的 URL/ID
 
-#### 5.3 @ 技能提及
-- 输入框增加 `@` 触发弹出技能列表
-- 选择后传入 `skillIds`
+#### 5.3 @ 技能提及 ✅
+**文件**: `crates/agent-workbench/src/components/NuwaxOpenApp.tsx`, `styles.css`
+- @ 按钮点击弹出技能列表下拉（`showSkillList` state）
+- 选中技能以 chip 形式展示，可移除
+- `selectedSkillIds` 传入 `sendMessage` 的 `skillIds` 字段
+- 技能列表数据待后端 API 就绪后填充
 
 ---
 
@@ -203,7 +209,7 @@
 | Phase 2: 输入区功能 | P0 | ✅ 完成 | Phase 1 |
 | Phase 3: 消息渲染 | P1 | ✅ 完成（分页延后） | 无 |
 | Phase 4: 页面预览 | P1 | ✅ 完成 | Electron IPC |
-| Phase 5: 深度链接 | P2 | 待实施 | Phase 1-2 |
+| Phase 5: 深度链接 | P2 | ✅ 完成 | Phase 1-2 |
 
 **建议执行顺序**: Phase 1 → Phase 2 → Phase 3 → Phase 4 → Phase 5
 

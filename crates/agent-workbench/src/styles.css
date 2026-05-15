@@ -469,6 +469,127 @@
   background: var(--open-app-accent);
 }
 
+.open-app-attachment-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 6px 0;
+}
+
+.open-app-attachment-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px;
+  background: var(--open-app-surface);
+  border: 1px solid var(--open-app-border);
+  border-radius: 6px;
+  font-size: 12px;
+}
+
+.open-app-attachment-name {
+  max-width: 140px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.open-app-attachment-size {
+  color: var(--open-app-text-secondary);
+  font-size: 11px;
+}
+
+.open-app-attachment-remove {
+  background: none;
+  border: none;
+  color: var(--open-app-text-secondary);
+  cursor: pointer;
+  font-size: 14px;
+  line-height: 1;
+  padding: 0 2px;
+}
+
+.open-app-attachment-remove:hover {
+  color: var(--open-app-error, #e74c3c);
+}
+
+.open-app-skill-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  padding: 4px 0;
+}
+
+.open-app-skill-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  background: var(--open-app-accent-bg, rgba(99, 102, 241, 0.1));
+  color: var(--open-app-accent, #6366f1);
+  border-radius: 12px;
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.open-app-skill-chip button {
+  background: none;
+  border: none;
+  color: inherit;
+  cursor: pointer;
+  font-size: 13px;
+  line-height: 1;
+  padding: 0;
+  opacity: 0.7;
+}
+
+.open-app-skill-chip button:hover {
+  opacity: 1;
+}
+
+.open-app-skill-dropdown {
+  position: absolute;
+  bottom: 100%;
+  left: 0;
+  margin-bottom: 4px;
+  min-width: 180px;
+  max-height: 200px;
+  overflow-y: auto;
+  background: var(--open-app-bg, #fff);
+  border: 1px solid var(--open-app-border);
+  border-radius: 8px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+  z-index: 100;
+}
+
+.open-app-skill-dropdown button {
+  display: block;
+  width: 100%;
+  padding: 8px 12px;
+  background: none;
+  border: none;
+  text-align: left;
+  cursor: pointer;
+  font-size: 13px;
+  color: var(--open-app-text);
+}
+
+.open-app-skill-dropdown button:hover {
+  background: var(--open-app-hover, rgba(0, 0, 0, 0.04));
+}
+
+.open-app-skill-dropdown button.active {
+  background: var(--open-app-accent-bg, rgba(99, 102, 241, 0.1));
+  color: var(--open-app-accent, #6366f1);
+}
+
+.open-app-skill-dropdown-empty {
+  padding: 12px;
+  text-align: center;
+  color: var(--open-app-text-secondary);
+  font-size: 13px;
+}
+
 .open-app-chat-empty {
   display: grid;
   align-content: center;

@@ -77,6 +77,7 @@ const zh = {
   variableSubmit: '开始会话',
   selectModel: '选择模型',
   noModels: '暂无可用模型',
+  noSkills: '暂无可用技能',
 };
 
 const en: typeof zh = {
@@ -124,6 +125,7 @@ const en: typeof zh = {
   variableSubmit: 'Start conversation',
   selectModel: 'Select model',
   noModels: 'No models available',
+  noSkills: 'No skills available',
 };
 
 function createLocalId(prefix: string): string {
@@ -362,12 +364,16 @@ export function ChatInputHome({
   selectedModelId,
   modelOptions,
   showModelDropdown,
+  attachments,
+  selectedSkillIds,
   onChange,
   onSubmit,
   onStop,
   onModeChange,
   onModelSelect,
   onToggleModelDropdown,
+  onAttachmentsChange,
+  onSkillIdsChange,
 }: {
   value: string;
   disabled: boolean;
@@ -377,13 +383,19 @@ export function ChatInputHome({
   selectedModelId?: string;
   modelOptions: WorkbenchModelOption[];
   showModelDropdown: boolean;
+  attachments: File[];
+  selectedSkillIds: string[];
   onChange: (value: string) => void;
   onSubmit: () => void;
   onStop: () => void;
   onModeChange: (mode: 'ask' | 'yolo') => void;
   onModelSelect: (modelId: string) => void;
   onToggleModelDropdown: () => void;
+  onAttachmentsChange: (files: File[]) => void;
+  onSkillIdsChange: (ids: string[]) => void;
 }) {
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [showSkillList, setShowSkillList] = useState(false);
   const onKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
     if (event.nativeEvent.isComposing) return;
     if (event.key === 'Enter' && !event.shiftKey) {
@@ -392,8 +404,26 @@ export function ChatInputHome({
       onSubmit();
     }
   };
-  const canSend = !streaming && !disabled && value.trim().length > 0;
+  const canSend = !streaming && !disabled && (value.trim().length > 0 || attachments.length > 0);
   const selectedModel = modelOptions.find((m) => m.id === selectedModelId);
+
+  const onFileSelect = useCallback(
+    (event: React.ChangeEvent<HTMLInputElement>) => {
+      const files = event.target.files;
+      if (!files || files.length === 0) return;
+      onAttachmentsChange([...attachments, ...Array.from(files)]);
+      event.target.value = '';
+    },
+    [attachments, onAttachmentsChange],
+  );
+
+  const removeAttachment = useCallback(
+    (index: number) => {
+      onAttachmentsChange(attachments.filter((_, i) => i !== index));
+    },
+    [attachments, onAttachmentsChange],
+  );
+
   return (
     <form
       className="open-app-chat-input-home"
@@ -455,6 +485,30 @@ export function ChatInputHome({
           </button>
         </div>
       </div>
+      {attachments.length > 0 && (
+        <div className="open-app-attachment-list">
+          {attachments.map((file, index) => (
+            <div key={`${file.name}-${index}`} className="open-app-attachment-item">
+              <span className="open-app-attachment-name">{file.name}</span>
+              <span className="open-app-attachment-size">
+                {file.size < 1024
+                  ? `${file.size} B`
+                  : file.size < 1048576
+                    ? `${(file.size / 1024).toFixed(1)} KB`
+                    : `${(file.size / 1048576).toFixed(1)} MB`}
+              </span>
+              <button
+                type="button"
+                className="open-app-attachment-remove"
+                onClick={() => removeAttachment(index)}
+                disabled={streaming}
+              >
+                &times;
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
       <textarea
         value={value}
         onChange={(event) => onChange(event.target.value)}
@@ -462,12 +516,54 @@ export function ChatInputHome({
         disabled={streaming}
         placeholder={labels.inputPlaceholder}
       />
+      {selectedSkillIds.length > 0 && (
+        <div className="open-app-skill-chips">
+          {selectedSkillIds.map((id) => (
+            <span key={id} className="open-app-skill-chip">
+              @{id}
+              <button
+                type="button"
+                onClick={() => onSkillIdsChange(selectedSkillIds.filter((s) => s !== id))}
+                disabled={streaming}
+              >
+                &times;
+              </button>
+            </span>
+          ))}
+        </div>
+      )}
       <div className="open-app-input-footer">
         <div className="open-app-input-tools">
-          <button type="button" title={labels.mentionSkill} disabled={disabled || streaming}>
-            @
-          </button>
-          <button type="button" title={labels.uploadAttachment} disabled={disabled || streaming}>
+          <div style={{ position: 'relative' }}>
+            <button
+              type="button"
+              title={labels.mentionSkill}
+              disabled={disabled || streaming}
+              onClick={() => setShowSkillList((v) => !v)}
+            >
+              @
+            </button>
+            {showSkillList && (
+              <div className="open-app-skill-dropdown">
+                <div className="open-app-skill-dropdown-empty">
+                  {labels.noSkills}
+                </div>
+              </div>
+            )}
+          </div>
+          <input
+            ref={fileInputRef}
+            type="file"
+            multiple
+            hidden
+            onChange={onFileSelect}
+          />
+          <button
+            type="button"
+            title={labels.uploadAttachment}
+            disabled={disabled || streaming}
+            onClick={() => fileInputRef.current?.click()}
+          >
             <Icon name="attachment" />
           </button>
           <button type="button" title={labels.enableTools} disabled={disabled || streaming}>
@@ -652,6 +748,24 @@ export function NuwaxOpenApp() {
     return { name: 'app' };
   }, [agentId, config.initialPath]);
 
+  const urlParams = useMemo(() => {
+    if (typeof window === 'undefined') return null;
+    const search = new URLSearchParams(window.location.search);
+    const raw = search.get('params');
+    if (raw) {
+      try {
+        const parsed = JSON.parse(raw);
+        return typeof parsed === 'object' && parsed !== null ? parsed as Record<string, unknown> : null;
+      } catch {
+        return null;
+      }
+    }
+    if (search.has('prompt') || search.has('message')) {
+      return Object.fromEntries(search.entries());
+    }
+    return null;
+  }, []);
+
   const [view, setView] = useState<OpenAppView>(initialRoute);
   const [agent, setAgent] = useState<WorkbenchAgentDetail | null>(null);
   const [conversations, setConversations] = useState<WorkbenchConversation[]>([]);
@@ -674,6 +788,8 @@ export function NuwaxOpenApp() {
   const [suggestQuestions, setSuggestQuestions] = useState<string[]>([]);
   const [variableParams, setVariableParams] = useState<Record<string, unknown>>({});
   const [showVariableForm, setShowVariableForm] = useState(false);
+  const [attachments, setAttachments] = useState<File[]>([]);
+  const [selectedSkillIds, setSelectedSkillIds] = useState<string[]>([]);
   const [splitRatio, setSplitRatio] = useState(0.42);
   const [isDragging, setIsDragging] = useState(false);
   const splitContainerRef = useRef<HTMLDivElement>(null);
@@ -834,6 +950,27 @@ export function NuwaxOpenApp() {
       .catch(() => {});
   }, [adapter, agentId, selectedModelId]);
 
+  const urlParamsAppliedRef = useRef(false);
+  useEffect(() => {
+    if (!urlParams || urlParamsAppliedRef.current || !agent) return;
+    urlParamsAppliedRef.current = true;
+    const { prompt: urlPrompt, message: urlMessage, ...rest } = urlParams as Record<string, unknown>;
+    const vars = Object.fromEntries(
+      Object.entries(rest).filter(([, v]) => v !== undefined && v !== null),
+    );
+    if (Object.keys(vars).length > 0) {
+      setVariableParams(vars);
+    }
+    const autoText = typeof urlPrompt === 'string'
+      ? urlPrompt
+      : typeof urlMessage === 'string'
+        ? urlMessage
+        : '';
+    if (autoText) {
+      setPrompt(autoText);
+    }
+  }, [agent, urlParams]);
+
   useEffect(() => {
     if (view.name !== 'chat') return;
     if (activeConversation?.id === view.conversationId && messages.length > 0) return;
@@ -904,6 +1041,10 @@ export function NuwaxOpenApp() {
       setPermissionRequest(null);
       setSuggestQuestions([]);
       setShowVariableForm(false);
+      const currentAttachments = attachments.length > 0 ? attachments : undefined;
+      const currentSkillIds = selectedSkillIds.length > 0 ? selectedSkillIds : undefined;
+      setAttachments([]);
+      setSelectedSkillIds([]);
       setStreaming(true);
 
       let assistantId: string | null = null;
@@ -941,6 +1082,8 @@ export function NuwaxOpenApp() {
           variableParams: Object.keys(variableParams).length > 0 ? variableParams : undefined,
           modelId: selectedModelId,
           agentMode,
+          attachments: currentAttachments as unknown[],
+          skillIds: currentSkillIds,
         })) {
           if (streamEvent.type === 'thought') {
             setMessages((items) => [
@@ -1011,12 +1154,14 @@ export function NuwaxOpenApp() {
       agent,
       agentId,
       agentMode,
+      attachments,
       createConversation,
       labels.newConversation,
       messages.length,
       prompt,
       reportError,
       selectedModelId,
+      selectedSkillIds,
       showVariableForm,
       streaming,
       updateAssistantMessage,
@@ -1362,12 +1507,16 @@ export function NuwaxOpenApp() {
                     selectedModelId={selectedModelId}
                     modelOptions={modelOptions}
                     showModelDropdown={showModelDropdown}
+                    attachments={attachments}
+                    selectedSkillIds={selectedSkillIds}
                     onChange={setPrompt}
                     onSubmit={() => void sendPrompt()}
                     onStop={() => void stopStream()}
                     onModeChange={setAgentMode}
                     onModelSelect={setSelectedModelId}
                     onToggleModelDropdown={() => setShowModelDropdown((v) => !v)}
+                    onAttachmentsChange={setAttachments}
+                    onSkillIdsChange={setSelectedSkillIds}
                   />
                   <div className="open-app-ai-notice">{labels.contentGenerated}</div>
                 </div>
