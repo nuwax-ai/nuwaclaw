@@ -55,6 +55,7 @@ export interface WorkbenchGuidQuestion {
   question?: string;
   content?: string;
   title?: string;
+  info?: string;
 }
 
 export interface WorkbenchVariable {

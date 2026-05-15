@@ -16,11 +16,13 @@
   --open-app-surface: #ffffff;
   --open-app-surface-muted: #f7f7f8;
   --open-app-text: #1f2328;
+  --open-app-text-secondary: #6b7280;
   --open-app-muted: #6b7280;
   --open-app-subtle: #a3a3a3;
   --open-app-border: #dedfe3;
   --open-app-active: #f0f1f3;
   --open-app-primary: #111827;
+  --open-app-accent: #6366f1;
   --open-app-green: #8fcf8d;
   --open-app-danger: #c23b3b;
   display: flex;
@@ -466,7 +468,7 @@
 
 .open-app-split-handle:hover,
 .open-app-split-handle:active {
-  background: var(--open-app-accent);
+  background: var(--open-app-accent, #6366f1);
 }
 
 .open-app-attachment-list {
@@ -495,14 +497,14 @@
 }
 
 .open-app-attachment-size {
-  color: var(--open-app-text-secondary);
+  color: var(--open-app-text-secondary, #6b7280);
   font-size: 11px;
 }
 
 .open-app-attachment-remove {
   background: none;
   border: none;
-  color: var(--open-app-text-secondary);
+  color: var(--open-app-text-secondary, #6b7280);
   cursor: pointer;
   font-size: 14px;
   line-height: 1;
@@ -510,7 +512,7 @@
 }
 
 .open-app-attachment-remove:hover {
-  color: var(--open-app-error, #e74c3c);
+  color: var(--open-app-danger, #c23b3b);
 }
 
 .open-app-skill-chips {
@@ -586,7 +588,7 @@
 .open-app-skill-dropdown-empty {
   padding: 12px;
   text-align: center;
-  color: var(--open-app-text-secondary);
+  color: var(--open-app-text-secondary, #6b7280);
   font-size: 13px;
 }
 

@@ -78,6 +78,7 @@ const zh = {
   selectModel: '选择模型',
   noModels: '暂无可用模型',
   noSkills: '暂无可用技能',
+  untitledSession: '未命名会话',
 };
 
 const en: typeof zh = {
@@ -126,6 +127,7 @@ const en: typeof zh = {
   selectModel: 'Select model',
   noModels: 'No models available',
   noSkills: 'No skills available',
+  untitledSession: 'Untitled session',
 };
 
 function createLocalId(prefix: string): string {
@@ -178,8 +180,7 @@ function buildPreviewUrl(baseUrl: string | undefined, path: string): string {
 }
 
 function questionText(item: WorkbenchGuidQuestion): string {
-  const raw = item as WorkbenchGuidQuestion & { info?: unknown };
-  return String(raw.question ?? raw.content ?? raw.title ?? raw.info ?? '').trim();
+  return String(item.question ?? item.content ?? item.title ?? item.info ?? '').trim();
 }
 
 function agentInitial(name: string): string {
@@ -915,9 +916,10 @@ export function NuwaxOpenApp() {
     (adapter.getAgentDetail?.(agentId) ?? Promise.resolve(fallbackAgent(agentId)))
       .then((detail) => {
         setAgent(detail);
-        if (detail.conversationId) {
+        const existingConversationId = detail.conversationId;
+        if (existingConversationId) {
           setActiveConversation((current) => current ?? {
-            id: detail.conversationId as string,
+            id: existingConversationId,
             agentId,
             title: detail.name,
             createdAt: nowIso(),
@@ -943,12 +945,14 @@ export function NuwaxOpenApp() {
       .getModelOptions(agentId)
       .then((options) => {
         setModelOptions(options);
-        if (options.length > 0 && !selectedModelId) {
-          setSelectedModelId(options[0].id);
+        if (options.length > 0) {
+          setSelectedModelId((current) => current ?? options[0].id);
         }
       })
-      .catch(() => {});
-  }, [adapter, agentId, selectedModelId]);
+      .catch((err) => {
+        console.warn('[agent-workbench] Failed to load model options:', err);
+      });
+  }, [adapter, agentId]);
 
   const urlParamsAppliedRef = useRef(false);
   useEffect(() => {
@@ -971,11 +975,17 @@ export function NuwaxOpenApp() {
     }
   }, [agent, urlParams]);
 
+  const loadedConversationRef = useRef<string | null>(null);
   useEffect(() => {
     if (view.name !== 'chat') return;
-    if (activeConversation?.id === view.conversationId && messages.length > 0) return;
+    if (loadedConversationRef.current === view.conversationId) return;
+    if (activeConversation?.id === view.conversationId && messages.length > 0) {
+      loadedConversationRef.current = view.conversationId;
+      return;
+    }
     const target = conversations.find((item) => item.id === view.conversationId);
     if (target) {
+      loadedConversationRef.current = view.conversationId;
       void loadConversation(target);
     }
   }, [activeConversation?.id, conversations, loadConversation, messages.length, view]);
@@ -1019,7 +1029,7 @@ export function NuwaxOpenApp() {
   }, []);
 
   const sendPrompt = useCallback(
-    async (overridePrompt?: string) => {
+    async (overridePrompt?: string, overrideVariableParams?: Record<string, unknown>) => {
       if (!agentId || streaming) return;
       const content = (overridePrompt ?? prompt).trim();
       if (!content) return;
@@ -1027,6 +1037,7 @@ export function NuwaxOpenApp() {
       // Check if variable form should be shown first
       if (
         !overridePrompt &&
+        !overrideVariableParams &&
         agent?.variables &&
         agent.variables.length > 0 &&
         messages.length === 0 &&
@@ -1079,10 +1090,13 @@ export function NuwaxOpenApp() {
           conversationId: conversation.id,
           content,
           requestId,
-          variableParams: Object.keys(variableParams).length > 0 ? variableParams : undefined,
+          variableParams: (() => {
+            const params = overrideVariableParams ?? variableParams;
+            return Object.keys(params).length > 0 ? params : undefined;
+          })(),
           modelId: selectedModelId,
           agentMode,
-          attachments: currentAttachments as unknown[],
+          attachments: currentAttachments,
           skillIds: currentSkillIds,
         })) {
           if (streamEvent.type === 'thought') {
@@ -1112,7 +1126,7 @@ export function NuwaxOpenApp() {
               ? {
                   ...item,
                   title:
-                    item.title === labels.newConversation || item.title === 'Untitled session'
+                    item.title === labels.newConversation || item.title === labels.untitledSession
                       ? content.slice(0, 48)
                       : item.title,
                   updatedAt: nowIso(),
@@ -1127,10 +1141,15 @@ export function NuwaxOpenApp() {
             const suggestions = await adapter.getSuggestQuestions(
               conversation.id,
               agentId,
-              Object.keys(variableParams).length > 0 ? variableParams : undefined,
+              (() => {
+                const params = overrideVariableParams ?? variableParams;
+                return Object.keys(params).length > 0 ? params : undefined;
+              })(),
             );
             if (suggestions.length > 0) setSuggestQuestions(suggestions);
-          } catch {}
+          } catch (err) {
+            console.warn('[agent-workbench] Failed to load suggest questions:', err);
+          }
         }
       } catch (cause) {
         const nextError = reportError(cause, 'Send failed', { phase: 'sendMessage' });
@@ -1280,9 +1299,6 @@ export function NuwaxOpenApp() {
     );
   }
 
-  const showHome = view.name === 'app' && messages.length === 0;
-  const currentMessages = messages;
-
   return (
     <div className="nuwax-open-app">
       {mode === 'mock' && (
@@ -1306,7 +1322,7 @@ export function NuwaxOpenApp() {
                 <Icon name="plus" />
                 <span>{labels.newConversation}</span>
                 <span className="open-app-shortcut">
-                  {typeof navigator !== 'undefined' && /Mac/i.test(navigator.platform) ? '⌘' : 'Ctrl'}
+                  {typeof navigator !== 'undefined' && /Mac|iPhone|iPad|iPod/i.test(navigator.userAgent) ? '⌘' : 'Ctrl'}
                 </span>
                 <span className="open-app-shortcut">J</span>
               </button>
@@ -1453,8 +1469,8 @@ export function NuwaxOpenApp() {
               >
                 <div className="open-app-chat-left">
                   <div className="open-app-chat-body" ref={transcriptRef}>
-                    {currentMessages.length > 0 ? (
-                      currentMessages.map((message) => (
+                    {messages.length > 0 ? (
+                      messages.map((message) => (
                         <ChatMessage key={message.id} message={message} agent={agent} />
                       ))
                     ) : (
@@ -1484,7 +1500,7 @@ export function NuwaxOpenApp() {
                       onSubmit={(params) => {
                         setVariableParams(params);
                         setShowVariableForm(false);
-                        void sendPrompt();
+                        void sendPrompt(undefined, params);
                       }}
                       onCancel={() => setShowVariableForm(false)}
                     />
