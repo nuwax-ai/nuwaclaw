@@ -119,9 +119,9 @@ openai-compatible/glm-5 -> glm-5
 
 维护分支：`dev`
 
-当前集成版本：`v0.15.0`
+当前集成版本：`v0.15.1`
 
-Release：`https://github.com/nuwax-ai/codex-acp/releases/tag/v0.15.0`
+Release：`https://github.com/nuwax-ai/codex-acp/releases/tag/v0.15.1`
 
 命令名：`nuwax-codex-acp`
 
@@ -175,8 +175,8 @@ git diff --check
 make electron-dev
 ```
 
-`make electron-dev` 会通过 `electron-prepare-codex-acp` 调用 `prepare:codex-acp`，默认从 `nuwax-ai/codex-acp` 的 `v0.15.0` release 下载已集成 NuwaClaw env override 的 `nuwax-codex-acp` 二进制。`CODEX_ACP_BIN` / `NUWACLAW_CODEX_ACP_BIN` 仅保留为本地临时调试入口，正常开发和打包不依赖该覆盖变量。
+`make electron-dev` 会通过 `electron-prepare-codex-acp` 调用 `prepare:codex-acp`，默认从 `nuwax-ai/codex-acp` 的 `v0.15.1` release 下载已集成 NuwaClaw env override 的 `nuwax-codex-acp` 二进制。`CODEX_ACP_BIN` / `NUWACLAW_CODEX_ACP_BIN` 仅保留为本地临时调试入口，正常开发和打包不依赖该覆盖变量。
 
 ## 已知非阻塞日志
 
-`Model metadata for glm-5 not found. Defaulting to fallback metadata` 来自 Codex 模型元数据表未包含 `glm-5`。本次修复后该日志不再影响路由正确性，但可能影响 token 预算或能力标记。后续如果需要进一步优化，可以在 codex-acp 侧补国内模型 metadata 映射。
+`Model metadata for glm-5 not found. Defaulting to fallback metadata` 来自 Codex 模型元数据表未包含 `glm-5`。`v0.15.1` 后该提示不再作为 agent message 展示给用户，但仍保留低级别日志用于排查；路由正确性不受影响。后续如果需要进一步优化，可以在 codex-acp 侧补国内模型 metadata 映射。

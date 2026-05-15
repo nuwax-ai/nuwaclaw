@@ -1225,7 +1225,7 @@ export function getSetupRequiredDependencies(): LocalDependencyConfig[] {
       description: t(I18N_KEYS.Pages.Dependencies.DESC_CODEX_ACP),
       required: true,
       binName: "nuwax-codex-acp",
-      installVersion: "0.15.0",
+      installVersion: "0.15.1",
     },
   ];
 }
