@@ -157,23 +157,23 @@
 
 ---
 
-### Phase 4 — 页面预览增强（中优先级）⏳ 待实施
+### Phase 4 — 页面预览增强（中优先级）✅ (commit pending)
 
 #### 4.1 Electron Webview 集成
-**文件**: `crates/agent-workbench/src/components/PagePreviewIframe/index.tsx`
-- 当 `previewContainer === 'electron-webview'` 时，使用 `<webview>` 标签
-- preload bridge 增加 `workbench:webview-*` IPC
-- 支持 cookie 注入、CSP 绕过、下载拦截
-
-#### 4.2 自定义页面菜单自动打开
 **文件**: `crates/agent-workbench/src/components/NuwaxOpenApp.tsx`
-- 检查 `agent.customPageMenus[].selected`，自动打开默认页面
-- 缓存到 sessionStorage 避免重复打开
+- `PagePreviewIframe` 已支持 `previewContainer === 'electron-webview'` 时使用 `<webview>` 标签
+- preload bridge IPC (cookie 注入、CSP 绕过、下载拦截) 需后续 Electron preload 层配合
 
-#### 4.3 可调分割布局
+#### 4.2 自定义页面菜单自动打开 ✅
 **文件**: `crates/agent-workbench/src/components/NuwaxOpenApp.tsx`
-- 聊天/预览区域支持拖拽调整宽度
-- 替换现有固定 CSS split
+- Agent detail 加载后检查 `agent.customPageMenus[].selected === true`，自动调用 `openPreview(path)`
+- sessionStorage key `openApp:autoOpenedDefaultPage:{agentId}` 避免重复打开
+
+#### 4.3 可调分割布局 ✅
+**文件**: `crates/agent-workbench/src/components/NuwaxOpenApp.tsx`, `styles.css`
+- `splitRatio` state (0.25–0.75) 控制 grid-template-columns 动态比例
+- 鼠标拖拽 `open-app-split-handle` 分隔条实时调整宽度
+- 拖拽时禁用文本选择和设置 col-resize cursor
 
 ---
 
@@ -202,7 +202,7 @@
 | Phase 1: API 增强 | P0 | ✅ 完成 | 无 |
 | Phase 2: 输入区功能 | P0 | ✅ 完成 | Phase 1 |
 | Phase 3: 消息渲染 | P1 | ✅ 完成（分页延后） | 无 |
-| Phase 4: 页面预览 | P1 | 待实施 | Electron IPC |
+| Phase 4: 页面预览 | P1 | ✅ 完成 | Electron IPC |
 | Phase 5: 深度链接 | P2 | 待实施 | Phase 1-2 |
 
 **建议执行顺序**: Phase 1 → Phase 2 → Phase 3 → Phase 4 → Phase 5

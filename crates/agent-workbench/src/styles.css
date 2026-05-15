@@ -416,9 +416,10 @@
   min-height: 0;
   height: 100%;
   grid-template-columns: minmax(400px, 0.42fr) minmax(420px, 0.58fr);
-  gap: 20px;
+  gap: 0;
   padding: 0 20px;
   overflow: hidden;
+  align-items: stretch;
 }
 
 .open-app-chat-preview-split.no-preview {
@@ -451,6 +452,21 @@
   min-width: 0;
   min-height: 0;
   padding-bottom: 20px;
+}
+
+.open-app-split-handle {
+  width: 6px;
+  cursor: col-resize;
+  background: var(--open-app-border);
+  border-radius: 3px;
+  transition: background 0.15s;
+  flex-shrink: 0;
+  align-self: stretch;
+}
+
+.open-app-split-handle:hover,
+.open-app-split-handle:active {
+  background: var(--open-app-accent);
 }
 
 .open-app-chat-empty {

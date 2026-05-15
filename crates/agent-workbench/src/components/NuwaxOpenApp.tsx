@@ -674,6 +674,32 @@ export function NuwaxOpenApp() {
   const [suggestQuestions, setSuggestQuestions] = useState<string[]>([]);
   const [variableParams, setVariableParams] = useState<Record<string, unknown>>({});
   const [showVariableForm, setShowVariableForm] = useState(false);
+  const [splitRatio, setSplitRatio] = useState(0.42);
+  const [isDragging, setIsDragging] = useState(false);
+  const splitContainerRef = useRef<HTMLDivElement>(null);
+
+  const onSplitDragStart = useCallback(
+    (event: React.MouseEvent) => {
+      event.preventDefault();
+      setIsDragging(true);
+      const container = splitContainerRef.current;
+      if (!container) return;
+
+      const onMove = (e: MouseEvent) => {
+        const rect = container.getBoundingClientRect();
+        const ratio = (e.clientX - rect.left) / rect.width;
+        setSplitRatio(Math.min(0.75, Math.max(0.25, ratio)));
+      };
+      const onUp = () => {
+        setIsDragging(false);
+        window.removeEventListener('mousemove', onMove);
+        window.removeEventListener('mouseup', onUp);
+      };
+      window.addEventListener('mousemove', onMove);
+      window.addEventListener('mouseup', onUp);
+    },
+    [],
+  );
   const transcriptRef = useRef<HTMLDivElement | null>(null);
 
   // Close model dropdown on outside click
@@ -1037,6 +1063,17 @@ export function NuwaxOpenApp() {
     [config.baseUrl],
   );
 
+  useEffect(() => {
+    if (!agent || previewUrl) return;
+    const autoOpenKey = `openApp:autoOpenedDefaultPage:${agentId}`;
+    if (sessionStorage.getItem(autoOpenKey)) return;
+    const defaultPage = agent.customPageMenus?.find((item) => item.selected && item.path);
+    if (defaultPage?.path) {
+      sessionStorage.setItem(autoOpenKey, '1');
+      openPreview(defaultPage.path);
+    }
+  }, [agent, agentId, openPreview, previewUrl]);
+
   const openEditor = useCallback(async () => {
     await config.hostBridge?.onOpenEditor?.({
       agentId,
@@ -1256,7 +1293,19 @@ export function NuwaxOpenApp() {
                 </button>
               </header>
               {error && <div className="open-app-error">{error}</div>}
-              <div className={previewUrl ? 'open-app-chat-preview-split' : 'open-app-chat-preview-split no-preview'}>
+              <div
+                ref={splitContainerRef}
+                className={previewUrl ? 'open-app-chat-preview-split' : 'open-app-chat-preview-split no-preview'}
+                style={
+                  previewUrl
+                    ? {
+                        gridTemplateColumns: `${splitRatio}fr ${1 - splitRatio}fr`,
+                        cursor: isDragging ? 'col-resize' : undefined,
+                        userSelect: isDragging ? 'none' : undefined,
+                      }
+                    : undefined
+                }
+              >
                 <div className="open-app-chat-left">
                   <div className="open-app-chat-body" ref={transcriptRef}>
                     {currentMessages.length > 0 ? (
@@ -1323,7 +1372,12 @@ export function NuwaxOpenApp() {
                   <div className="open-app-ai-notice">{labels.contentGenerated}</div>
                 </div>
                 {previewUrl && (
-                  <div className="open-app-chat-right">
+                  <>
+                    <div
+                      className="open-app-split-handle"
+                      onMouseDown={onSplitDragStart}
+                    />
+                    <div className="open-app-chat-right">
                     <PagePreviewIframe
                       url={previewUrl}
                       title={labels.pagePreview}
@@ -1332,6 +1386,7 @@ export function NuwaxOpenApp() {
                       onClose={() => setPreviewUrl(null)}
                     />
                   </div>
+                  </>
                 )}
               </div>
             </section>
