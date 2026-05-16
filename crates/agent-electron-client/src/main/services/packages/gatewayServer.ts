@@ -6,11 +6,28 @@ import { readSetting } from "../../db";
 import { DEFAULT_GATEWAY_PORT } from "@shared/constants";
 import { getAppEnv, getGatewayBundledDir } from "../system/dependencies";
 import { checkGatewayHealth } from "./gatewayHealth";
+import { killProcessTreesListeningOnTcpPort } from "../utils/processTree";
 
 const gatewayProcess = new ManagedProcess("gateway");
 let currentPort = DEFAULT_GATEWAY_PORT;
 type GatewaySource = "configured" | "bundled" | "path";
 let currentSource: GatewaySource = "bundled";
+
+const PORT_SWEEP_SETTLE_MS = 450;
+
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function sweepGatewayPort(port: number, phase: string): Promise<void> {
+  try {
+    log.info(`[Gateway] ${phase}: clearing TCP listeners on port ${port}`);
+    await killProcessTreesListeningOnTcpPort(port);
+    await delay(PORT_SWEEP_SETTLE_MS);
+  } catch (error) {
+    log.warn(`[Gateway] ${phase}: port cleanup failed`, error);
+  }
+}
 
 function resolveBundledStartup(): {
   command: string;
@@ -148,6 +165,9 @@ export async function startGateway(
     }
     log.info("[Gateway] restarting to apply new runtime config");
     await gatewayProcess.stopAsync(3000);
+    await sweepGatewayPort(resolvedPort, "restart");
+  } else {
+    await sweepGatewayPort(resolvedPort, "pre-start");
   }
 
   const resourcesDir = getGatewayBundledDir() || "";
@@ -207,6 +227,7 @@ export async function stopGateway(): Promise<{
 }> {
   try {
     const result = await gatewayProcess.stopAsync(3000);
+    await sweepGatewayPort(currentPort, "stop");
     return { success: result.success };
   } catch (error) {
     return { success: false, error: String(error) };

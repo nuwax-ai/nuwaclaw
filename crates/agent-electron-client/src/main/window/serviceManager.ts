@@ -41,6 +41,7 @@ import {
 import { stopAllEngines } from "../services/engines/engineManager";
 import { clearAllSseEventBuffers } from "../services/computerServer";
 import { startGateway, stopGateway } from "../services/packages/gatewayServer";
+import { killProcessTreesListeningOnTcpPort } from "../services/utils/processTree";
 
 export interface ServiceManagerContext {
   lanproxy: ManagedProcess;
@@ -70,6 +71,13 @@ export function createServiceManager(ctx: ServiceManagerContext) {
   const startFileServer = async (port: number): Promise<ServiceResult> => {
     if (ctx.fileServer.running) {
       return { success: true, message: "Already running" };
+    }
+
+    try {
+      log.info(`[ServiceManager] Pre-start FileServer port sweep for ${port}`);
+      await killProcessTreesListeningOnTcpPort(port);
+    } catch (e) {
+      log.warn("[ServiceManager] FileServer pre-start port sweep failed:", e);
     }
 
     const appDataDir = path.join(app.getPath("home"), APP_DATA_DIR_NAME);
@@ -209,8 +217,9 @@ export function createServiceManager(ctx: ServiceManagerContext) {
     } catch (e) {
       log.warn("[ServiceManager] Agent destroy error (ignored):", e);
     }
-    ctx.fileServer.stop();
-    ctx.lanproxy.stop();
+    await ctx.fileServer.stopAsync();
+    await killProcessTreesListeningOnTcpPort(getConfiguredPorts().fileServer);
+    await ctx.lanproxy.stopAsync();
     await stopGateway();
     await mcpProxyManager.stop();
 
@@ -395,7 +404,8 @@ export function createServiceManager(ctx: ServiceManagerContext) {
     } catch (e) {
       log.warn("[ServiceManager] Agent destroy error (ignored):", e);
     }
-    ctx.fileServer.stop();
+    await ctx.fileServer.stopAsync();
+    await killProcessTreesListeningOnTcpPort(getConfiguredPorts().fileServer);
     await stopGateway();
     // 不停止 lanproxy: ctx.lanproxy.stop();
     // 先停止 GUI agents（它们依赖 MCP Proxy，先停 MCP 再停 GUI）
@@ -522,7 +532,8 @@ export function createServiceManager(ctx: ServiceManagerContext) {
 
     // 停止文件服务器
     try {
-      ctx.fileServer.stop();
+      await ctx.fileServer.stopAsync();
+      await killProcessTreesListeningOnTcpPort(getConfiguredPorts().fileServer);
       results.fileServer = { success: true };
       log.info("[ServiceManager] FileServer stopped");
     } catch (e) {
@@ -542,7 +553,7 @@ export function createServiceManager(ctx: ServiceManagerContext) {
 
     // 停止 Lanproxy
     try {
-      ctx.lanproxy.stop();
+      await ctx.lanproxy.stopAsync();
       results.lanproxy = { success: true };
       log.info("[Lanproxy] Stopped");
     } catch (e) {

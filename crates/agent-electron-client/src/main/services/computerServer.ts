@@ -31,6 +31,7 @@ import { firstTokenTrace } from "./engines/perf/firstTokenTrace";
 import { checkFileServerHealth } from "./packages/fileServerHealth";
 import { LOCALHOST_HOSTNAME } from "./constants";
 import { getConfiguredPorts } from "./startupPorts";
+import { killProcessTreesListeningOnTcpPort } from "./utils/processTree";
 import type {
   ComputerChatRequest,
   HttpResult,
@@ -60,6 +61,7 @@ let server: http.Server | null = null;
 let sseClients: Map<string, http.ServerResponse[]> = new Map();
 let lastError: string | null = null;
 let interventionSecret: string | null = null;
+let runningPort: number | null = null;
 
 /** 每个 sessionId 最多缓冲的早期 SSE 事件条数，防止内存泄漏 */
 const SSE_EVENT_BUFFER_MAX = 50;
@@ -950,7 +952,15 @@ async function handleRequest(
         ? verifyInternalCallback(req, interventionSecret)
         : { ok: false };
       if (!auth.ok) {
-        if (!isRcoderPermissionResolve || hasInternalSecretHeader) {
+        const { readSetting: _readSetting } = await import("../db");
+        const configKey = _readSetting("auth.config_key") as string | null;
+        if (
+          configKey &&
+          typeof req.headers["x-nuwax-internal-secret"] === "string" &&
+          req.headers["x-nuwax-internal-secret"] === configKey
+        ) {
+          log.info("[HTTP] Accepted notify-resolved with configKey auth");
+        } else if (!isRcoderPermissionResolve || hasInternalSecretHeader) {
           const payload = isRcoderPermissionResolve
             ? httpError("ERR_VALIDATION", "invalid internal secret")
             : {
@@ -1273,9 +1283,18 @@ export function pushSseEvent(
 /**
  * 启动 Computer HTTP Server
  */
-export function startComputerServer(
+export async function startComputerServer(
   port: number,
 ): Promise<{ success: boolean; error?: string }> {
+  if (!server) {
+    try {
+      log.info(`[ComputerServer] Pre-start port sweep for ${port}`);
+      await killProcessTreesListeningOnTcpPort(port);
+    } catch (error) {
+      log.warn("[ComputerServer] Pre-start port sweep failed:", error);
+    }
+  }
+
   return new Promise((resolve) => {
     if (server) {
       lastError = null;
@@ -1308,6 +1327,7 @@ export function startComputerServer(
         err.code === "EADDRINUSE" ? `Port ${port} already in use` : err.message;
       lastError = errorMsg;
       server = null;
+      runningPort = null;
       resolve({ success: false, error: errorMsg });
     });
 
@@ -1317,6 +1337,7 @@ export function startComputerServer(
         `✅ [ComputerServer] Listening on 0.0.0.0:${port} (aligned with rcoder /computer/* API)`,
       );
       lastError = null;
+      runningPort = port;
       resolve({ success: true });
     });
   });
@@ -1327,9 +1348,15 @@ export function startComputerServer(
  */
 export function stopComputerServer(): Promise<void> {
   return new Promise((resolve) => {
+    const portToSweep = runningPort ?? getConfiguredPorts().agent;
     if (!server) {
       lastError = null;
-      resolve();
+      runningPort = null;
+      killProcessTreesListeningOnTcpPort(portToSweep)
+        .catch((error) => {
+          log.warn("[ComputerServer] Stop port sweep failed:", error);
+        })
+        .finally(() => resolve());
       return;
     }
     // 关闭所有 SSE 连接
@@ -1352,7 +1379,12 @@ export function stopComputerServer(): Promise<void> {
       log.info("[ComputerServer] Stopped");
       server = null;
       lastError = null;
-      resolve();
+      runningPort = null;
+      killProcessTreesListeningOnTcpPort(portToSweep)
+        .catch((error) => {
+          log.warn("[ComputerServer] Stop port sweep failed:", error);
+        })
+        .finally(() => resolve());
     });
   });
 }
