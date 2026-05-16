@@ -17,7 +17,7 @@
     "test": "npm run lint:check && npm run test:smoke"
   },
   "dependencies": {
-    "chat2response": "git+https://github.com/wang-h/chat2response.git"
+    "chat2response": "git+https://github.com/dongdada29/chat2response.git#master"
   },
   "engines": {
     "node": ">=22.0.0"
