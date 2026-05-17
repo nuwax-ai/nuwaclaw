@@ -36,18 +36,31 @@ function exec(cmd, opts = {}) {
 }
 
 function main() {
-  // 1. 克隆或更新源码
+  const hasBuild = fs.existsSync(path.join(SOURCE_DIR, 'dist'));
+  const hasNodeModules = fs.existsSync(path.join(SOURCE_DIR, 'node_modules'));
+
+  // 1. 克隆或更新源码（已有 dist 时跳过 git pull，避免 CI 二次 prepare 时 pull 失败）
   if (!fs.existsSync(path.join(SOURCE_DIR, '.git'))) {
     console.log('[prepare-claude-code-acp-ts] 克隆源码...');
     exec(`git clone --branch ${GIT_BRANCH} ${GIT_REPO} "${SOURCE_DIR}"`);
-  } else {
+  } else if (!hasBuild || !hasNodeModules) {
     console.log('[prepare-claude-code-acp-ts] 更新源码...');
-    exec(`cd "${SOURCE_DIR}" && git checkout ${GIT_BRANCH} && git pull`);
+    try {
+      exec(
+        `cd "${SOURCE_DIR}" && git fetch origin ${GIT_BRANCH} && git checkout ${GIT_BRANCH} && git pull --ff-only`,
+      );
+    } catch (err) {
+      console.warn(
+        `[prepare-claude-code-acp-ts] git 更新失败，继续使用已有源码: ${err.message || err}`,
+      );
+    }
+  } else {
+    console.log(
+      '[prepare-claude-code-acp-ts] 源码与构建产物已就绪，跳过 git pull',
+    );
   }
 
   // 2. 检查构建产物是否存在
-  const hasBuild = fs.existsSync(path.join(SOURCE_DIR, 'dist'));
-  const hasNodeModules = fs.existsSync(path.join(SOURCE_DIR, 'node_modules'));
 
   if (!hasBuild || !hasNodeModules) {
     // 清理旧的 node_modules（若有）

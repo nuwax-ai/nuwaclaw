@@ -41,7 +41,7 @@
     "prepare:gui-server": "node scripts/prepare/prepare-gui-server.js",
     "prepare:windows-mcp": "node scripts/prepare/prepare-windows-mcp.js",
     "electron-rebuild": "electron-rebuild -f -w better-sqlite3",
-    "build:electron": "npm run build && npm run prepare:all && electron-builder --config.compression=maximum",
+    "build:electron": "npm run build && node scripts/build/run-build-electron.js",
     "dist": "npm run build:electron -- --mac",
     "dist:mac": "npm run build:electron -- --mac",
     "dist:mac:arm64": "npm run build:electron -- --mac --arm64",
