@@ -29,7 +29,14 @@ const OPENAI_PROVIDER = {
   models: [],
   supportsTools: true,
   supportsStreaming: true,
-  transformRequest: (req) => req,
+  transformRequest: (req) => {
+    // Disable thinking/reasoning mode to avoid deepseek-v4-pro
+    // reasoning_content passthrough requirement across turns.
+    if (!req.thinking) {
+      req.thinking = { type: "disabled" };
+    }
+    return req;
+  },
 };
 
 /**

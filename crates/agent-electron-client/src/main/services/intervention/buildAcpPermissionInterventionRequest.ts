@@ -40,7 +40,7 @@ export function buildAcpPermissionInterventionRequest(args: {
       method: "session/request_permission",
       request: args.acpRequest,
     },
-    timeoutMs: args.timeoutMs ?? 120_000,
+    timeoutMs: args.timeoutMs,
     createdAt: Date.now(),
   };
 }

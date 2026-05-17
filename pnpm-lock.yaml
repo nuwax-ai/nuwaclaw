@@ -243,8 +243,8 @@ importers:
   crates/gateway-server:
     dependencies:
       chat2response:
-        specifier: git+https://github.com/dongdada29/chat2response.git#master
-        version: https://codeload.github.com/dongdada29/chat2response/tar.gz/30f257aaf0a5809846107f5492fffff347fbb02d
+        specifier: github:dongdada29/chat2response#dd14ac7f09801d2362aedeedf69c0660d26df2a7
+        version: https://codeload.github.com/dongdada29/chat2response/tar.gz/dd14ac7f09801d2362aedeedf69c0660d26df2a7
 
   crates/nuwax-mcp-stdio-proxy:
     dependencies:
@@ -1713,16 +1713,19 @@ packages:
   '@nut-tree-fork/libnut-darwin@2.7.5':
     resolution: {integrity: sha512-LbqtPtMPTJUcg4XoPP2jsU1wc8flBcGyKTerKsIfK9cD7nBHROnO0QksbrsbSWEpLym8T8fRtuU7XEY83l6Z2Q==}
     engines: {node: '>=10.15.3'}
+    cpu: [x64, arm64]
     os: [darwin, linux, win32]
 
   '@nut-tree-fork/libnut-linux@2.7.5':
     resolution: {integrity: sha512-uxaXEcRKnFObAljsoR6tLOBUU1dJ2sctloG6gFgCBGN7+k6Jdv6jZfOuNjd/fpdq2C5WPMm0rtn9EE7h5J3Jcg==}
     engines: {node: '>=10.15.3'}
+    cpu: [x64, arm64]
     os: [darwin, linux, win32]
 
   '@nut-tree-fork/libnut-win32@2.7.5':
     resolution: {integrity: sha512-yqC87zvmFcDPwFrRU40DYhN0xmEVM3aSkOuyF0IX+y1x+HWSu/i0PNklATpPBhGid3QVb/TOHuVoaraMrUFCNw==}
     engines: {node: '>=10.15.3'}
+    cpu: [x64, arm64]
     os: [darwin, linux, win32]
 
   '@nut-tree-fork/libnut@4.2.6':
@@ -1736,6 +1739,7 @@ packages:
   '@nut-tree-fork/nut-js@4.2.6':
     resolution: {integrity: sha512-aI/WCX7gE1HFGPH3EZP/UWqpNMM1NMoM/EkXqp7pKMgXFCi8e5+o5p+jd/QOYpmALv9bQg7+s69nI7FONbMqDg==}
     engines: {node: '>=16'}
+    cpu: [x64, arm64]
     os: [linux, darwin, win32]
 
   '@nut-tree-fork/provider-interfaces@4.2.6':
@@ -2734,9 +2738,9 @@ packages:
   character-reference-invalid@2.0.1:
     resolution: {integrity: sha512-iBZ4F4wRbyORVsu0jPV7gXkOsGYjGHPmAyv+HiHG8gi5PtC9KI2j1+v8/tlibRvjoWX027ypmG/n0HtO5t7unw==}
 
-  chat2response@https://codeload.github.com/dongdada29/chat2response/tar.gz/30f257aaf0a5809846107f5492fffff347fbb02d:
-    resolution: {tarball: https://codeload.github.com/dongdada29/chat2response/tar.gz/30f257aaf0a5809846107f5492fffff347fbb02d}
-    version: 0.1.0
+  chat2response@https://codeload.github.com/dongdada29/chat2response/tar.gz/dd14ac7f09801d2362aedeedf69c0660d26df2a7:
+    resolution: {tarball: https://codeload.github.com/dongdada29/chat2response/tar.gz/dd14ac7f09801d2362aedeedf69c0660d26df2a7}
+    version: 0.2.0
 
   check-error@2.1.3:
     resolution: {integrity: sha512-PAJdDJusoxnwm1VwW07VWwUN1sl7smmC3OKggvndJFadxxDRyFJBX/ggnu/KE4kQAB7a3Dp8f/YXC1FlUprWmA==}
@@ -3351,8 +3355,8 @@ packages:
     peerDependencies:
       express: '>= 4.11'
 
-  express@4.22.1:
-    resolution: {integrity: sha512-F2X8g9P1X7uCPZMA3MVf9wcTqlyNp7IhH5qPCI0izhaOIYXaW9L535tGA3qmjRzpH+bZczqq7hVKxTR4NWnu+g==}
+  express@4.22.2:
+    resolution: {integrity: sha512-IuL+Elrou2ZvCFHs18/CIzy2Nzvo25nZ1/D2eIZlz7c+QUayAcYoiM2BthCjs+EBHVpjYjcuLDAiCWgeIX3X1Q==}
     engines: {node: '>= 0.10.0'}
 
   express@5.2.1:
@@ -4675,6 +4679,9 @@ packages:
   path-to-regexp@8.3.0:
     resolution: {integrity: sha512-7jdwVIRtsP8MYpdXSwOS0YdD0Du+qOoF/AEPIt88PcCFrZCzx41oxku1jD88hZBwbNUIEfpqvuhjFaMAqMTWnA==}
 
+  path-to-regexp@8.4.2:
+    resolution: {integrity: sha512-qRcuIdP69NPm4qbACK+aDogI5CBDMi1jKe0ry5rSQJz8JVLsC7jV8XpiJjGRLLol3N+R5ihGYcrPLTno6pAdBA==}
+
   path-type@4.0.0:
     resolution: {integrity: sha512-gDKb8aZMDeD/tZWs9P6+q0J9Mwkdl6xMV8TjnGP3qJVJ06bdMgkbBlLU8IdfOsIsFz2BW1rNVT3XuNEl8zPAvw==}
     engines: {node: '>=8'}
@@ -4820,10 +4827,6 @@ packages:
     resolution: {integrity: sha512-QpgqWi8rD9DsS9EP3z7BT+5lY5SFhsqGjpgW5DY/i3mK4M9DTBNz3ErMi8BWYEfI3L0d8GIbGmcdFAS1uIRGjA==}
     peerDependencies:
       react: ^16.8.0 || ^17.0.0 || ^18.0.0 || ^19.0.0
-
-  qs@6.14.2:
-    resolution: {integrity: sha512-V/yCWTTF7VJ9hIh18Ugr2zhJMP01MY7c5kh4J870L7imm6/DIzBsNLTXzMwUA3yZ5b/KBqLx8Kp3uRvd7xSe3Q==}
-    engines: {node: '>=0.6'}
 
   qs@6.15.0:
     resolution: {integrity: sha512-mAZTtNCeetKMH+pSjrb76NAM8V9a05I9aBZOHztWy/UqcJdQYNsf59vrRKWnojAT9Y+GbIvoTBC++CPHqpDBhQ==}
@@ -9083,11 +9086,11 @@ snapshots:
 
   character-reference-invalid@2.0.1: {}
 
-  chat2response@https://codeload.github.com/dongdada29/chat2response/tar.gz/30f257aaf0a5809846107f5492fffff347fbb02d:
+  chat2response@https://codeload.github.com/dongdada29/chat2response/tar.gz/dd14ac7f09801d2362aedeedf69c0660d26df2a7:
     dependencies:
       cors: 2.8.6
       dotenv: 16.6.1
-      express: 4.22.1
+      express: 4.22.2
       uuid: 9.0.1
     transitivePeerDependencies:
       - supports-color
@@ -9818,7 +9821,7 @@ snapshots:
       express: 5.2.1
       ip-address: 10.1.0
 
-  express@4.22.1:
+  express@4.22.2:
     dependencies:
       accepts: 1.3.8
       array-flatten: 1.1.1
@@ -9839,9 +9842,9 @@ snapshots:
       methods: 1.1.2
       on-finished: 2.4.1
       parseurl: 1.3.3
-      path-to-regexp: 8.3.0
+      path-to-regexp: 8.4.2
       proxy-addr: 2.0.7
-      qs: 6.14.2
+      qs: 6.15.1
       range-parser: 1.2.1
       safe-buffer: 5.2.1
       send: 0.19.2
@@ -11333,6 +11336,8 @@ snapshots:
 
   path-to-regexp@8.3.0: {}
 
+  path-to-regexp@8.4.2: {}
+
   path-type@4.0.0: {}
 
   pathe@1.1.2: {}
@@ -11457,10 +11462,6 @@ snapshots:
   qrcode.react@4.2.0(react@18.3.1):
     dependencies:
       react: 18.3.1
-
-  qs@6.14.2:
-    dependencies:
-      side-channel: 1.1.0
 
   qs@6.15.0:
     dependencies:

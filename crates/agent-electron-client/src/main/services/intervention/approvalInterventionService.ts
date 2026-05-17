@@ -26,7 +26,7 @@ export class ApprovalInterventionService extends EventEmitter {
   private pending = new Map<string, PendingAcpPermission>();
   private pendingByAcpPermissionKey = new Map<string, string>();
 
-  private static readonly DEFAULT_TIMEOUT_MS = 120_000;
+  private static readonly DEFAULT_TIMEOUT_MS: number | undefined = undefined;
 
   /**
    * 创建 pending intervention 并返回 intervention request（用于 SSE 抨递）
@@ -68,13 +68,18 @@ export class ApprovalInterventionService extends EventEmitter {
     });
 
     const acpResponsePromise = new Promise<AcpPermissionResponse>((resolve) => {
-      const timer = setTimeout(() => {
-        this.resolvePendingInternal(
-          interventionRequest.id,
-          { outcome: { outcome: "cancelled" } },
-          "timeout",
-        );
-      }, interventionRequest.timeoutMs ?? ApprovalInterventionService.DEFAULT_TIMEOUT_MS);
+      const effectiveTimeoutMs =
+        interventionRequest.timeoutMs ??
+        ApprovalInterventionService.DEFAULT_TIMEOUT_MS;
+      const timer = effectiveTimeoutMs
+        ? setTimeout(() => {
+            this.resolvePendingInternal(
+              interventionRequest.id,
+              { outcome: { outcome: "cancelled" } },
+              "timeout",
+            );
+          }, effectiveTimeoutMs)
+        : undefined;
 
       this.pending.set(interventionRequest.id, {
         interventionId: interventionRequest.id,

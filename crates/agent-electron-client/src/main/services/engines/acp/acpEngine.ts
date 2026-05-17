@@ -2008,7 +2008,7 @@ export class AcpEngine extends EventEmitter {
         });
       }
 
-      if (session.acpSessionId) {
+      if (session.acpSessionId && !isFallback) {
         this.setEffectiveMode(session.acpSessionId, effectiveMode);
       }
 
@@ -2599,7 +2599,6 @@ User question: ${request.prompt}`;
         appSessionId,
         acpSessionId,
         acpRequest: params,
-        timeoutMs: 120_000,
       });
 
     log.info(
@@ -2610,8 +2609,32 @@ User question: ${request.prompt}`;
       sessionId: appSessionId,
       acpSessionId,
       messageType: "acpRequestPermission",
-      subType: "session/request_permission",
-      data: interventionRequest,
+      subType: "request_permission",
+      data: {
+        request_permission_request: {
+          session_id: acpSessionId,
+          tool_call: {
+            tool_call_id: params.toolCall.toolCallId,
+            kind: params.toolCall.kind ?? undefined,
+            status: (params.toolCall as any).status ?? "pending",
+            title: params.toolCall.title ?? undefined,
+            content: (params.toolCall as any).content ?? [],
+            raw_input: params.toolCall.rawInput ?? {},
+            _meta: {},
+          },
+          options: params.options.map((o) => ({
+            option_id: o.optionId,
+            name: o.name,
+            kind: o.kind,
+            _meta: {},
+          })),
+          _meta: {},
+        },
+        tool_call_id: params.toolCall.toolCallId,
+        save_rule: null,
+        _intervention: interventionRequest,
+        _engine: this.engineName,
+      },
       timestamp: new Date().toISOString(),
     });
 

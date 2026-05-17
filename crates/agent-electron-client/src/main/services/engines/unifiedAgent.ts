@@ -74,6 +74,21 @@ function maskUrlForLog(raw: string | undefined): string {
   }
 }
 
+function shouldNormalizeCodexModelToOpenAICompat(args: {
+  engine: AgentEngineType | null | undefined;
+  apiProtocol?: string | null;
+  baseUrl?: string | null;
+  model?: string | null;
+}): boolean {
+  if (args.engine !== "codex-cli") return false;
+  const model = (args.model || "").trim();
+  if (!model || model.includes("/")) return false;
+  const protocol = (args.apiProtocol || "").trim().toLowerCase();
+  if (protocol !== "anthropic") return false;
+  const baseUrl = (args.baseUrl || "").trim().toLowerCase();
+  return baseUrl.includes("open.bigmodel.cn/api/anthropic");
+}
+
 // ==================== Types ====================
 
 import type { AgentConfig, AgentEngineType } from "./types";
@@ -881,6 +896,9 @@ export class UnifiedAgentService extends EventEmitter {
 
     const agentServer = request.agent_config?.agent_server;
     const mp = request.model_provider;
+    const requiredEngine = agentServer?.command
+      ? mapAgentCommand(agentServer.command)
+      : this.engineType;
     const resolvedEnv = agentServer?.env
       ? resolveAgentEnv(agentServer.env, mp)
       : undefined;
@@ -892,7 +910,7 @@ export class UnifiedAgentService extends EventEmitter {
         resolvedEnv?.ANTHROPIC_MODEL ||
         resolvedEnv?.CODEX_MODEL,
     });
-    const requestedModel =
+    let requestedModel =
       resolvedOpenAICompatModel?.rawModel ||
       mp?.model ||
       mp?.default_model ||
@@ -900,6 +918,19 @@ export class UnifiedAgentService extends EventEmitter {
       resolvedEnv?.ANTHROPIC_MODEL ||
       resolvedEnv?.CODEX_MODEL ||
       this.baseConfig?.model;
+    if (
+      shouldNormalizeCodexModelToOpenAICompat({
+        engine: requiredEngine,
+        apiProtocol: mp?.api_protocol,
+        baseUrl: mp?.base_url,
+        model: requestedModel,
+      })
+    ) {
+      requestedModel = `openai-compatible/${requestedModel}`;
+      log.info(
+        `[UnifiedAgent] normalized codex model to OpenAI-compatible variant: ${requestedModel}`,
+      );
+    }
 
     // 性能优化：快速路径检测
     const existingEngine = this.getEngineForProject(engineKey);
@@ -908,9 +939,6 @@ export class UnifiedAgentService extends EventEmitter {
     const storedRawMcp = this.engineRawMcpServers.get(registryKey);
     const requestMcpFiltered = filterBridgeEntries(requestMcpServersEarly);
     const mcpChanged = !rawMcpServersEqual(requestMcpFiltered, storedRawMcp);
-    const requiredEngine = agentServer?.command
-      ? mapAgentCommand(agentServer.command)
-      : this.engineType;
     // codex-cli 场景下自动维持 chat2response 协议转换服务；
     // 非 codex 场景下主动停用，避免无谓驻留进程。
     await ensureGatewayForEngine(requiredEngine, {

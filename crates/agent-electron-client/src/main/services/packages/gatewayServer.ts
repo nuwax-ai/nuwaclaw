@@ -12,11 +12,32 @@ const gatewayProcess = new ManagedProcess("gateway");
 let currentPort = DEFAULT_GATEWAY_PORT;
 type GatewaySource = "configured" | "bundled" | "path";
 let currentSource: GatewaySource = "bundled";
+let gatewayOpChain: Promise<void> = Promise.resolve();
 
 const PORT_SWEEP_SETTLE_MS = 450;
 
 function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function runGatewayExclusive<T>(
+  label: string,
+  task: () => Promise<T>,
+): Promise<T> {
+  const previous = gatewayOpChain;
+  let releaseCurrent: (() => void) | undefined;
+  const current = new Promise<void>((resolve) => {
+    releaseCurrent = () => resolve();
+  });
+  gatewayOpChain = current;
+
+  await previous.catch(() => undefined);
+  try {
+    return await task();
+  } finally {
+    releaseCurrent?.();
+    log.debug(`[Gateway] ${label} op released`);
+  }
 }
 
 async function sweepGatewayPort(port: number, phase: string): Promise<void> {
@@ -141,97 +162,113 @@ export async function startGateway(
   port?: number,
   credentials?: { apiKey?: string; baseUrl?: string; model?: string },
 ): Promise<{ success: boolean; error?: string }> {
-  const startup = resolveStartCommand();
-  if (!startup) {
-    return {
-      success: false,
-      error:
-        "gateway start command not found. Prefer bundled resources/gateway, or configure gateway.binPath as fallback.",
-    };
-  }
-  currentSource = startup.source;
-
-  const resolvedPort = resolveStartupPort(port);
-  currentPort = resolvedPort;
-  const status = gatewayProcess.status();
-  const hasRuntimeConfig = !!(
-    credentials?.apiKey ||
-    credentials?.baseUrl ||
-    credentials?.model
-  );
-  if (status.running) {
-    if (!hasRuntimeConfig) {
-      return { success: true };
+  return runGatewayExclusive("start", async () => {
+    const startup = resolveStartCommand();
+    if (!startup) {
+      return {
+        success: false,
+        error:
+          "gateway start command not found. Prefer bundled resources/gateway, or configure gateway.binPath as fallback.",
+      };
     }
-    log.info("[Gateway] restarting to apply new runtime config");
-    await gatewayProcess.stopAsync(3000);
-    await sweepGatewayPort(resolvedPort, "restart");
-  } else {
-    await sweepGatewayPort(resolvedPort, "pre-start");
-  }
+    currentSource = startup.source;
 
-  const resourcesDir = getGatewayBundledDir() || "";
+    const resolvedPort = resolveStartupPort(port);
+    currentPort = resolvedPort;
+    const status = gatewayProcess.status();
+    const hasRuntimeConfig = !!(
+      credentials?.apiKey ||
+      credentials?.baseUrl ||
+      credentials?.model
+    );
 
-  const result = await gatewayProcess.start({
-    command: startup.command,
-    args: startup.args,
-    cwd: startup.cwd,
-    env: {
-      ...getAppEnv(),
-      GATEWAY_PORT: String(resolvedPort),
-      GATEWAY_RESOURCES_DIR: resourcesDir,
-      PORT: String(resolvedPort),
-      NODE_ENV: "production",
-      ELECTRON_RUN_AS_NODE: "1",
-      ...(credentials?.apiKey
-        ? {
-            DEEPSEEK_API_KEY: credentials.apiKey,
-            CODEX_API_KEY: credentials.apiKey,
-            OPENAI_API_KEY: credentials.apiKey,
-          }
-        : {}),
-      ...(credentials?.baseUrl ? { OPENAI_BASE_URL: credentials.baseUrl } : {}),
-      ...(credentials?.model
-        ? { CODEX_MODEL: credentials.model, OPENAI_MODEL: credentials.model }
-        : {}),
-    },
-    startupDelayMs: 1500,
+    if (status.running) {
+      if (!hasRuntimeConfig) {
+        const health = await checkGatewayHealth(resolvedPort);
+        if (health.healthy) {
+          return { success: true };
+        }
+        log.warn(
+          "[Gateway] running process is unhealthy, forcing restart before start",
+          { port: resolvedPort, error: health.error },
+        );
+      } else {
+        log.info("[Gateway] restarting to apply new runtime config");
+      }
+      await gatewayProcess.stopAsync(3000);
+      await sweepGatewayPort(resolvedPort, "restart");
+    } else {
+      await sweepGatewayPort(resolvedPort, "pre-start");
+    }
+
+    const resourcesDir = getGatewayBundledDir() || "";
+
+    const result = await gatewayProcess.start({
+      command: startup.command,
+      args: startup.args,
+      cwd: startup.cwd,
+      env: {
+        ...getAppEnv(),
+        GATEWAY_PORT: String(resolvedPort),
+        GATEWAY_RESOURCES_DIR: resourcesDir,
+        PORT: String(resolvedPort),
+        NODE_ENV: "production",
+        ELECTRON_RUN_AS_NODE: "1",
+        ...(credentials?.apiKey
+          ? {
+              DEEPSEEK_API_KEY: credentials.apiKey,
+              CODEX_API_KEY: credentials.apiKey,
+              OPENAI_API_KEY: credentials.apiKey,
+            }
+          : {}),
+        ...(credentials?.baseUrl
+          ? { OPENAI_BASE_URL: credentials.baseUrl }
+          : {}),
+        ...(credentials?.model
+          ? { CODEX_MODEL: credentials.model, OPENAI_MODEL: credentials.model }
+          : {}),
+      },
+      startupDelayMs: 1500,
+    });
+
+    if (!result.success) return result;
+
+    const health = await checkGatewayHealth(resolvedPort);
+    if (!health.healthy) {
+      await gatewayProcess.stopAsync(3000);
+      await sweepGatewayPort(resolvedPort, "health-check-failed");
+      return {
+        success: false,
+        error: `gateway health check failed: ${health.error || "unknown error"}`,
+      };
+    }
+
+    log.info("[Gateway] started", {
+      port: resolvedPort,
+      baseUrl: getGatewayBaseUrl(resolvedPort),
+      source: currentSource,
+      command: startup.command,
+      plugins: health.plugins
+        ? Object.keys(health.plugins).join(", ")
+        : "unknown",
+    });
+    return { success: true };
   });
-
-  if (!result.success) return result;
-
-  const health = await checkGatewayHealth(resolvedPort);
-  if (!health.healthy) {
-    await stopGateway();
-    return {
-      success: false,
-      error: `gateway health check failed: ${health.error || "unknown error"}`,
-    };
-  }
-
-  log.info("[Gateway] started", {
-    port: resolvedPort,
-    baseUrl: getGatewayBaseUrl(resolvedPort),
-    source: currentSource,
-    command: startup.command,
-    plugins: health.plugins
-      ? Object.keys(health.plugins).join(", ")
-      : "unknown",
-  });
-  return { success: true };
 }
 
 export async function stopGateway(): Promise<{
   success: boolean;
   error?: string;
 }> {
-  try {
-    const result = await gatewayProcess.stopAsync(3000);
-    await sweepGatewayPort(currentPort, "stop");
-    return { success: result.success };
-  } catch (error) {
-    return { success: false, error: String(error) };
-  }
+  return runGatewayExclusive("stop", async () => {
+    try {
+      const result = await gatewayProcess.stopAsync(3000);
+      await sweepGatewayPort(currentPort, "stop");
+      return { success: result.success };
+    } catch (error) {
+      return { success: false, error: String(error) };
+    }
+  });
 }
 
 export function getGatewayStatus(): {
