@@ -2,8 +2,11 @@
 # 通过 prerelease-v* tag 触发，构建全平台安装包并创建 GitHub Draft Release，
 # 自动同步到阿里云 OSS 并更新 beta/latest.json，供开发测试使用。
 #
-# 触发方式：
-#   - 推送 tag 匹配 prerelease-v*（例如 prerelease-v0.8.0）→ 构建 → 自动上传 OSS → 更新 beta/latest.json
+# 触发方式（手动，无 nuwaxcode 自动联动）：
+#   1. 确认 nuwaxcode GitHub Release 已就绪（如 v1.2.1）
+#   2. 准备 release-notes/prerelease-v{x.y.z}.md
+#   3. git tag prerelease-v{x.y.z} && git push origin prerelease-v{x.y.z}
+#   → 构建 → 自动上传 OSS → 更新 beta/latest.json
 #
 # 支持平台：
 #   - macOS arm64（macos-latest）

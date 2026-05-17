@@ -251,17 +251,19 @@ cd crates/agent-electron-client
 npm run prepare:nuwaxcode   # 或 prepare:all
 ```
 
-### Beta 发版流水线（prerelease-v0.11.29）
+### Beta 发版流水线（prerelease-v0.11.29，手动 tag）
 
 1. **nuwaxcode**：推送 `v1.2.1` → `build-release.yml` 构建并发布 GitHub Release  
-2. **（可选自动）** nuwaxcode 配置 Secret `NUWACLAW_REPO_DISPATCH_TOKEN`（PAT，含 `nuwax-ai/nuwax-agent-client` 的 `repo` + `workflow`）→ 完成后 `repository_dispatch`  
-3. **nuwaclaw**：`on-nuwaxcode-released.yml` 校验 `v1.2.1` 存在 → 推送 tag **`prerelease-v0.11.29`**  
-4. **`release-electron-dev.yml`** 构建全平台 beta → OSS `nuwaclaw-electron/beta/latest.json`  
+2. **nuwaclaw**（本地）：确认 `prepare-nuwaxcode` / `NUWAXCODE_VERSION` 与 Release 一致  
+3. 准备 `release-notes/prerelease-v0.11.29.md`  
+4. 推送 tag 触发 CI（与历史流程一致）：
 
-手动触发（不依赖 nuwaxcode dispatch）：
+```bash
+git tag prerelease-v0.11.29
+git push origin prerelease-v0.11.29
+```
 
-- Actions → **On Nuwaxcode Released** → Run workflow（默认 1.2.1 + prerelease-v0.11.29）  
-- 或直接推送 tag：`git tag prerelease-v0.11.29 && git push origin prerelease-v0.11.29`（需先有 `release-notes/prerelease-v0.11.29.md`）
+5. **`release-electron-dev.yml`** 构建全平台 beta → OSS `nuwaclaw-electron/beta/latest.json`
 
 ### Tag 与二进制内部版本
 
