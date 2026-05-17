@@ -183,6 +183,7 @@ jobs:
         working-directory: crates/agent-electron-client
         env:
           TARGET_ARCH: ${{ matrix.arch }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: npm run prepare:all
         timeout-minutes: 15
 
@@ -249,7 +250,16 @@ jobs:
           CSC_NAME: ${{ secrets.APPLE_SIGNING_IDENTITY }}
         run: |
           echo "Building Electron app for ${{ runner.os }} (${{ matrix.arch }})"
-          npm run ${{ matrix.dist_cmd }} -- --publish never
+          if [ "${{ runner.os }}" = "macOS" ] && [ -z "${{ secrets.APPLE_CERTIFICATE }}" ]; then
+            echo "APPLE_CERTIFICATE not set — using unsigned mac build"
+            case "${{ matrix.arch }}" in
+              arm64) npm run dist:mac:unsigned:arm64 -- --publish never ;;
+              x64)   npm run dist:mac:unsigned:x64 -- --publish never ;;
+              *)     npm run ${{ matrix.dist_cmd }} -- --publish never ;;
+            esac
+          else
+            npm run ${{ matrix.dist_cmd }} -- --publish never
+          fi
 
       - name: Upload artifacts to Release
         shell: bash
