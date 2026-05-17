@@ -51,6 +51,9 @@ crates/agent-electron-client/resources/nuwax-file-server/
 # Bundled claude-code-acp-ts: 构建时 prepare:claude-code-acp-ts 从 GitHub 克隆源码 build 并集成
 crates/agent-electron-client/resources/claude-code-acp-ts/
 
+# Bundled codex-acp: 构建时 prepare:codex-acp 从 Release 下载，不入库
+crates/agent-electron-client/resources/codex-acp/
+
 # 源码克隆目录（prepare:nuwax-file-server / prepare:claude-code-acp-ts 使用）
 crates/agent-electron-client/sources/
 
@@ -69,6 +72,9 @@ crates/agent-electron-client/index.html
 
 # Bundled gateway: 构建时 prepare-gateway 生成，不入库
 crates/agent-electron-client/resources/gateway/
+
+# Gateway server 本地环境变量（含密钥，不入库）
+crates/gateway-server/.env
 
 .kilo/
 
