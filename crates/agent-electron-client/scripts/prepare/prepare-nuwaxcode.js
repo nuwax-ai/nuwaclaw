@@ -28,7 +28,7 @@ const { URL } = require('url');
 const { execSync, execFileSync } = require('child_process');
 const { getProjectRoot } = require('../utils/project-paths');
 
-const NUWAXCODE_VERSION = '1.1.99';
+const NUWAXCODE_VERSION = '1.2.0';
 const NUWAXCODE_REPO = process.env.NUWAXCODE_REPO || 'nuwax-ai/nuwaxcode';
 
 const projectRoot = getProjectRoot();
@@ -95,8 +95,19 @@ function getBinaryCandidates(key) {
  * - 使用 force:true，确保目录不存在时也不会抛错。
  */
 function resetDestBinDir(destDir) {
-  fs.rmSync(destDir, { recursive: true, force: true });
-  fs.mkdirSync(destDir, { recursive: true });
+  try {
+    fs.rmSync(destDir, { recursive: true, force: true });
+    fs.mkdirSync(destDir, { recursive: true });
+  } catch (err) {
+    if (err && (err.code === 'EPERM' || err.code === 'EBUSY')) {
+      console.warn(
+        `[prepare-nuwaxcode] cannot remove ${destDir} (${err.code}); overwriting in place`,
+      );
+      fs.mkdirSync(destDir, { recursive: true });
+      return;
+    }
+    throw err;
+  }
 }
 
 /**
@@ -139,6 +150,17 @@ const FORCE_REFRESH_ON_MATCH = true;
 
 // ==================== 模式 1: 本地 dist 复制 ====================
 
+function findDistSourceBinary(nuwaxcodeDist, distName, key) {
+  const srcBinDir = path.join(nuwaxcodeDist, distName, 'bin');
+  for (const name of getBinaryCandidates(key)) {
+    const candidate = path.join(srcBinDir, name);
+    if (fs.existsSync(candidate)) {
+      return { srcBinDir, sourceBinaryName: name };
+    }
+  }
+  return null;
+}
+
 function copyFromDist(key) {
   const nuwaxcodeDist = process.env.NUWAXCODE_DIST_DIR || path.join(
     process.env.HOME || '/root',
@@ -152,14 +174,18 @@ function copyFromDist(key) {
 
   const resourceKey = getResourcePlatformKey(key);
   const binary = getBinaryName(key);
-  const srcPath = path.join(nuwaxcodeDist, distName, 'bin', binary);
   const destDir = path.join(resDir, resourceKey, 'bin');
   const destPath = path.join(destDir, binary);
 
-  if (!fs.existsSync(srcPath)) {
-    console.warn(`[prepare-nuwaxcode] ${key}: 构建产物不存在 ${srcPath}`);
+  const source = findDistSourceBinary(nuwaxcodeDist, distName, key);
+  if (!source) {
+    const tried = getBinaryCandidates(key)
+      .map((name) => path.join(nuwaxcodeDist, distName, 'bin', name))
+      .join(', ');
+    console.warn(`[prepare-nuwaxcode] ${key}: 构建产物不存在 (tried: ${tried})`);
     return false;
   }
+  const srcPath = path.join(source.srcBinDir, source.sourceBinaryName);
 
   // 检查是否已是最新（SHA256 一致 + 版本匹配）
   // 注意：codesign 会修改二进制，所以用保存的 .sha256 记录比对 dest（签名后），
@@ -195,8 +221,36 @@ function copyFromDist(key) {
   resetDestBinDir(destDir);
 
   // 复制整个 bin 目录（包含二进制 + assets 等）
-  const srcBinDir = path.join(nuwaxcodeDist, distName, 'bin');
-  fs.cpSync(srcBinDir, destDir, { recursive: true });
+  fs.cpSync(source.srcBinDir, destDir, { recursive: true });
+  if (source.sourceBinaryName !== binary) {
+    const copiedSource = path.join(destDir, source.sourceBinaryName);
+    if (fs.existsSync(copiedSource)) {
+      const destTmp = `${destPath}.new`;
+      fs.copyFileSync(copiedSource, destTmp);
+      try {
+        if (fs.existsSync(destPath)) fs.unlinkSync(destPath);
+        fs.renameSync(destTmp, destPath);
+      } catch (err) {
+        if (err && (err.code === 'EPERM' || err.code === 'EBUSY')) {
+          console.warn(
+            `[prepare-nuwaxcode] ${key}: cannot replace locked ${binary} (${err.code}); left ${path.basename(destTmp)} — stop nuwaclaw/electron and re-run prepare`,
+          );
+          if (fs.existsSync(destTmp)) {
+            // Still usable if runtime resolves opencode.exe fallback
+          }
+        } else {
+          throw err;
+        }
+      }
+      if (fs.existsSync(copiedSource) && copiedSource !== destPath) {
+        try {
+          fs.unlinkSync(copiedSource);
+        } catch {
+          // ignore
+        }
+      }
+    }
+  }
   ensureModelJson(destDir, NUWAXCODE_VERSION);
   fs.chmodSync(destPath, 0o755);
 

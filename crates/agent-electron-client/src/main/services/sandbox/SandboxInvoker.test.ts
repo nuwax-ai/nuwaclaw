@@ -345,15 +345,20 @@ describe("SandboxInvoker - macos-seatbelt", () => {
     expect(matches).toHaveLength(1);
   });
 
-  it("should write profile to temp directory", async () => {
-    const invoker = new SandboxInvoker("macos-seatbelt");
-    await invoker.buildInvocation(makeParams());
+  it.skipIf(process.platform !== "darwin")(
+    "should write profile to temp directory",
+    async () => {
+      const invoker = new SandboxInvoker("macos-seatbelt");
+      await invoker.buildInvocation(makeParams());
 
-    const writeCall = mockFspWriteFile.mock.calls[0];
-    const profilePath = writeCall[0] as string;
+      const writeCall = mockFspWriteFile.mock.calls[0];
+      const profilePath = writeCall[0] as string;
 
-    expect(profilePath).toMatch(/^\/tmp\/nuwaclaw-sandbox-\d+-[a-z0-9]+\.sb$/);
-  });
+      expect(profilePath).toMatch(
+        /^\/tmp\/nuwaclaw-sandbox-\d+-[a-z0-9]+\.sb$/,
+      );
+    },
+  );
 });
 
 // ============================================================================
@@ -838,6 +843,22 @@ describe("SandboxInvoker - windows-sandbox", () => {
 
         expect(result.args).not.toContain("--no-write-restricted");
       });
+    });
+
+    it("serve (all modes): should NOT include --write-restricted (MCP child spawn)", async () => {
+      for (const mode of ["strict", "compat", "permissive"] as const) {
+        await withPlatform("win32", async () => {
+          const invoker = new SandboxInvoker("windows-sandbox", {
+            windowsSandboxHelperPath: fakeHelperPath,
+            mode,
+          });
+          const result = await invoker.buildInvocation(
+            makeParams({ subcommand: "serve" }),
+          );
+
+          expect(result.args).not.toContain("--write-restricted");
+        });
+      }
     });
 
     it("permissive: should include all writable_roots", async () => {

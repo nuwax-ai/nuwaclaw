@@ -79,10 +79,18 @@ export async function buildSandboxedSpawnArgs(
     mode: sandboxConfig.mode,
   });
 
-  // 可写路径：工作区 + 额外路径（如 isolatedHome）
-  const writablePaths = [projectWorkspaceDir, ...extraWritablePaths].filter(
-    (p): p is string => typeof p === "string" && p.length > 0,
-  );
+  // Writable paths for process-level wrap (serve).
+  // Strict: do NOT grant the broad workspace root — session file I/O is enforced by
+  // sandboxed-fs MCP + nuwaxcode native sandbox per ACP session cwd. Only engine
+  // infra paths (isolatedHome, temp) stay writable at the OS token level.
+  const writablePaths =
+    sandboxConfig.mode === "strict"
+      ? extraWritablePaths.filter(
+          (p): p is string => typeof p === "string" && p.length > 0,
+        )
+      : [projectWorkspaceDir, ...extraWritablePaths].filter(
+          (p): p is string => typeof p === "string" && p.length > 0,
+        );
 
   // 确保可写路径存在（bwrap --bind 要求路径存在）
   for (const wp of writablePaths) {

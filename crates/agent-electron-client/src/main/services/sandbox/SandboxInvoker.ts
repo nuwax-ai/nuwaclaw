@@ -355,9 +355,11 @@ export class SandboxInvoker {
     // - compat/permissive: keep full writable roots list
     if (winMode === "workspace-write" && params.writablePaths.length > 0) {
       sandboxPolicy.writable_roots =
-        sandboxMode === "strict"
-          ? [params.writablePaths[0]]
-          : params.writablePaths;
+        sandboxMode === "strict" && subcommand === "serve"
+          ? params.writablePaths
+          : sandboxMode === "strict"
+            ? [params.writablePaths[0]]
+            : params.writablePaths;
     }
 
     const helperArgs = [
@@ -377,21 +379,15 @@ export class SandboxInvoker {
       helperArgs.push("--no-write-restricted");
     }
 
-    // Serve mode: never enable WRITE_RESTRICTED.
-    // WRITE_RESTRICTED adds restricting SIDs (logon, everyone, capability) to the
-    // token, which blocks the restricted process from spawning child processes.
-    // In serve mode the ACP engine (claude-code-acp-ts / nuwaxcode) MUST spawn
-    // MCP server sub-processes during session/new — restricting SIDs causes
-    // EPERM on every child spawn, making the session unusable.
-    //
-    // Filesystem write protection in serve mode is enforced by:
-    // 1. DACL ACEs (ALLOW paths applied by the sandbox helper)
-    // 2. sandboxed-bash MCP + sandboxed-fs MCP (tool-level interception)
-    // 3. evaluateStrictWritePermission proactive guard (nuwaxcode)
+    // Serve mode: keep WRITE_RESTRICTED off so nuwaxcode can spawn MCP children.
+    // Restricting SIDs on the serve token causes EPERM on MCP stdio subprocesses,
+    // leaving tool_call stuck in pending with no completed/error update.
+    // Filesystem enforcement for nuwaxcode: sandboxed-fs MCP + strictPermissionGuard.
     const serveWriteRestricted = false;
     if (subcommand === "serve") {
       log.info(
-        "[SandboxInvoker] WRITE_RESTRICTED disabled for serve mode (spawn EPERM prevention)",
+        "[SandboxInvoker] WRITE_RESTRICTED disabled for serve mode (MCP spawn compatibility)",
+        { sandboxMode },
       );
     }
 
