@@ -1,4 +1,4 @@
-# Quick smoke checks for nuwaxcode 1.2.0 native sandbox bundle (Windows).
+# Quick smoke checks for nuwaxcode 1.2.1 native sandbox bundle (Windows).
 $ErrorActionPreference = "Stop"
 $root = Split-Path -Parent $PSScriptRoot
 $binDir = Join-Path $root "resources\nuwaxcode\windows-x64\bin"
@@ -17,7 +17,7 @@ if (-not (Test-Path $exe)) {
 $ver = & $exe --version 2>&1
 Write-Host "bundled --version: $ver"
 if ($ver -notmatch "1\.2\.0") {
-  Write-Warning "Expected 1.2.0; native sandbox gate uses resources/.version file"
+  Write-Warning "Expected 1.2.1; native sandbox gate uses resources/.version file"
 }
 
 $dotVersion = Join-Path (Join-Path $root "resources\nuwaxcode") ".version"

@@ -1,0 +1,91 @@
+# 在 nuwaxcode GitHub Release 就绪后，为 Nuwaclaw 打 prerelease tag 并触发 release-electron-dev.yml
+#
+# 触发方式：
+#   1) nuwaxcode 仓库 build-release 完成后 repository_dispatch（需配置 NUWACLAW_REPO_DISPATCH_TOKEN）
+#   2) 本仓库 Actions → Run workflow（手动，可改 nuwaxcode 版本与 prerelease tag）
+#
+# 推送 prerelease-v* tag 后由 release-electron-dev.yml 构建全平台 beta 包并上传 OSS beta 通道。
+
+name: On Nuwaxcode Released
+
+on:
+  repository_dispatch:
+    types: [nuwaxcode-released]
+  workflow_dispatch:
+    inputs:
+      nuwaxcode_version:
+        description: "Verify nuwax-ai/nuwaxcode release tag (without v prefix)"
+        required: true
+        default: "1.2.1"
+      prerelease_tag:
+        description: "Electron prerelease tag to create (triggers release-electron-dev)"
+        required: true
+        default: "prerelease-v0.11.29"
+
+permissions:
+  contents: write
+
+jobs:
+  verify-and-tag:
+    name: Verify nuwaxcode release and push prerelease tag
+    runs-on: ubuntu-latest
+    steps:
+      - name: Resolve config
+        id: cfg
+        shell: bash
+        run: |
+          if [ "${{ github.event_name }}" = "repository_dispatch" ]; then
+            VERSION='${{ github.event.client_payload.nuwaxcode_version }}'
+            TAG='${{ github.event.client_payload.prerelease_tag }}'
+          else
+            VERSION='${{ inputs.nuwaxcode_version }}'
+            TAG='${{ inputs.prerelease_tag }}'
+          fi
+          if [ -z "$VERSION" ] || [ -z "$TAG" ]; then
+            echo "::error::nuwaxcode_version and prerelease_tag are required"
+            exit 1
+          fi
+          echo "nuwaxcode_version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "prerelease_tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "nuwaxcode v${VERSION} → ${TAG}"
+
+      - name: Verify nuwaxcode GitHub Release exists
+        shell: bash
+        run: |
+          VERSION="${{ steps.cfg.outputs.nuwaxcode_version }}"
+          URL="https://api.github.com/repos/nuwax-ai/nuwaxcode/releases/tags/v${VERSION}"
+          STATUS=$(curl -sS -o /tmp/release.json -w "%{http_code}" "$URL")
+          if [ "$STATUS" != "200" ]; then
+            echo "::error::nuwaxcode release v${VERSION} not found (HTTP ${STATUS})"
+            echo "Publish with: cd nuwaxcode && git tag v${VERSION} && push origin v${VERSION}"
+            exit 1
+          fi
+          echo "Verified: $URL"
+          jq -r '.assets[] | .name' /tmp/release.json | head -20
+
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GH_PAT || github.token }}
+
+      - name: Create and push prerelease tag
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GH_PAT || github.token }}
+        run: |
+          TAG="${{ steps.cfg.outputs.prerelease_tag }}"
+          if git rev-parse "refs/tags/${TAG}" >/dev/null 2>&1; then
+            echo "Tag ${TAG} already exists on this repo"
+            if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+              echo "GitHub Release ${TAG} exists; release-electron-dev may have already run"
+              exit 0
+            fi
+            echo "::warning::Local tag exists but no GitHub Release; pushing tag may be a no-op"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag -a "$TAG" -m "Prerelease ${TAG} (nuwaxcode v${{ steps.cfg.outputs.nuwaxcode_version }})"
+          git push origin "$TAG"
+          echo "Pushed ${TAG} → release-electron-dev.yml will build beta"

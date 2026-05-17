@@ -28,7 +28,7 @@ const { URL } = require('url');
 const { execSync, execFileSync } = require('child_process');
 const { getProjectRoot } = require('../utils/project-paths');
 
-const NUWAXCODE_VERSION = '1.2.0';
+const NUWAXCODE_VERSION = '1.2.1';
 const NUWAXCODE_REPO = process.env.NUWAXCODE_REPO || 'nuwax-ai/nuwaxcode';
 
 const projectRoot = getProjectRoot();
@@ -273,6 +273,54 @@ function copyFromDist(key) {
 }
 
 // ==================== 模式 2: GitHub Release 下载 ====================
+
+/**
+ * 检查 GitHub 是否存在目标 Release tag（避免目标版本未发版时反复 404）。
+ * @returns {Promise<{ ok: boolean, latestTag?: string }>}
+ */
+function checkGithubReleaseTag() {
+  return new Promise((resolve) => {
+    const tag = `v${NUWAXCODE_VERSION}`;
+    const apiUrl = `https://api.github.com/repos/${NUWAXCODE_REPO}/releases/tags/${tag}`;
+    const headers = {
+      'User-Agent': 'NuwaClaw-Build',
+      Accept: 'application/vnd.github+json',
+    };
+    if (process.env.GITHUB_TOKEN) {
+      headers.Authorization = `Bearer ${process.env.GITHUB_TOKEN}`;
+    }
+    https
+      .get(apiUrl, { headers }, (res) => {
+        let body = '';
+        res.on('data', (chunk) => {
+          body += chunk;
+        });
+        res.on('end', () => {
+          if (res.statusCode === 200) {
+            resolve({ ok: true });
+            return;
+          }
+          const latestUrl = `https://api.github.com/repos/${NUWAXCODE_REPO}/releases/latest`;
+          https
+            .get(latestUrl, { headers }, (res2) => {
+              let body2 = '';
+              res2.on('data', (c) => {
+                body2 += c;
+              });
+              res2.on('end', () => {
+                let latestTag;
+                try {
+                  latestTag = JSON.parse(body2).tag_name;
+                } catch (_) {}
+                resolve({ ok: false, latestTag, status: res.statusCode });
+              });
+            })
+            .on('error', () => resolve({ ok: false, status: res.statusCode }));
+        });
+      })
+      .on('error', () => resolve({ ok: false }));
+  });
+}
 
 /**
  * 下载文件到缓存目录
@@ -641,6 +689,34 @@ async function main() {
   console.log(`[prepare-nuwaxcode] 模式: ${mode}`);
   console.log(`[prepare-nuwaxcode] 版本: v${NUWAXCODE_VERSION}`);
   console.log(`[prepare-nuwaxcode] 平台: ${keys.join(', ')}`);
+
+  if (!useLocalDist) {
+    const releaseCheck = await checkGithubReleaseTag();
+    if (!releaseCheck.ok) {
+      console.error(
+        `[prepare-nuwaxcode] GitHub Release 不存在: https://github.com/${NUWAXCODE_REPO}/releases/tag/v${NUWAXCODE_VERSION}`,
+      );
+      if (releaseCheck.latestTag) {
+        console.error(
+          `[prepare-nuwaxcode] 当前远端最新 Release: ${releaseCheck.latestTag}（与 prepare 脚本 NUWAXCODE_VERSION=${NUWAXCODE_VERSION} 不一致）`,
+        );
+      }
+      console.error('[prepare-nuwaxcode] 可选方案:');
+      console.error(
+        `  1) 在 nuwaxcode 仓库执行 ./release.sh ${NUWAXCODE_VERSION} 发布 GitHub Release`,
+      );
+      console.error(
+        '  2) 开发调试: NUWAXCODE_DIST_DIR=<nuwaxcode>/packages/opencode/dist npm run prepare:nuwaxcode',
+      );
+      console.error(
+        '  3) 临时回退: 修改 prepare-nuwaxcode.js 中 NUWAXCODE_VERSION 为已存在的 tag（不推荐用于发版）',
+      );
+      process.exit(1);
+    }
+    console.log(
+      `[prepare-nuwaxcode] GitHub Release v${NUWAXCODE_VERSION} 已存在`,
+    );
+  }
 
   if (!allPlatforms && !PLATFORM_MAP[keys[0]]) {
     console.error(`[prepare-nuwaxcode] 不支持的平台: ${keys[0]}`);

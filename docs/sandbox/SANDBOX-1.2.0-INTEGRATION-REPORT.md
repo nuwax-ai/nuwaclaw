@@ -86,7 +86,7 @@ flowchart TB
 - `scripts/prepare/prepare-sandboxed-mcp.js`：esbuild 产出 `dist/*.bundle.mjs`（含 MCP SDK）
 - `scripts/verify-sandboxed-mcp-bundle.mjs`：`npm run verify:sandboxed-mcp`
 - `prepare:all` 串联；`extraResources` 包含 `dist/**`
-- `prepare-nuwaxcode.js`：默认 **nuwaxcode 1.2.0**
+- `prepare-nuwaxcode.js`：默认 **nuwaxcode 1.2.1**（从 GitHub Release `v1.2.1` 下载）
 - `.gitignore`：忽略 `dist/`、`.bundle-version`
 
 ### 3.3 行为要点
@@ -199,6 +199,73 @@ npm run verify:sandboxed-mcp
 |------|----------------|------|
 | **nuwax-agent-client** | `feature/electron-client-0.11` | 本报告所在仓库；含客户端沙箱与 MCP bundle |
 | **nuwaxcode** | `feat/nuwaxcode` | 引擎 1.2.0 原生沙箱；需独立 push/发 npm 二进制 |
+
+---
+
+## 7.1 GitHub Release Tag 对齐（重要）
+
+### 现状（2026-05-17 核查）
+
+| 项 | 值 |
+|----|-----|
+| 客户端 `prepare-nuwaxcode.js` | `NUWAXCODE_VERSION = '1.2.1'` |
+| `nuwaxcode` 发版 | 由你在 nuwaxcode 仓库执行 `./release.sh 1.2.1` |
+| 原生沙箱能力门槛（客户端逻辑） | **`>= 1.2.0`**（`OPENCODE_NATIVE_SANDBOX_CONFIG_MIN_VERSION`，1.2.1 满足） |
+
+因此 CI / 正式构建执行 `npm run prepare:nuwaxcode` 时会请求：
+
+`https://github.com/nuwax-ai/nuwaxcode/releases/download/v1.2.1/nuwaxcode-windows-x64-v1.2.1.tar.gz`
+
+（或回退资产名 `nuwaxcode-windows-x64.tar.gz`）——**需你先发布 GitHub Release `v1.2.1`**。开发环境若用本地 dist（`NUWAXCODE_DIST_DIR`）则不受影响。
+
+### Release 资产命名（与 prepare 脚本兼容）
+
+prepare 按顺序尝试：
+
+1. `nuwaxcode-{platform}-v{version}.tar.gz`（如 `nuwaxcode-windows-x64-v1.1.99.tar.gz`）
+2. `nuwaxcode-{platform}.tar.gz`（`release.sh` / `build.ts` 上传的默认名）
+
+同一 Release 上两种命名可能并存（以 v1.1.99 为例）。
+
+### 发布 nuwaxcode 1.2.1 的标准流程
+
+在 **nuwaxcode** 仓库根目录（需 `bun@1.3.13`、npm 凭据）：
+
+```bash
+# 合并 feat/nuwaxcode → 发版分支后
+./release.sh 1.2.1
+```
+
+脚本会：更新 `package.json` → 构建各平台二进制 → `gh release` 上传 `dist/*.tar.gz` → 发布 npm optional 包。
+
+发布后确认：
+
+- https://github.com/nuwax-ai/nuwaxcode/releases/tag/v1.2.1
+- 资产含 `nuwaxcode-windows-x64.tar.gz` 或 `nuwaxcode-windows-x64-v1.2.1.tar.gz`
+- 二进制 `--version` 输出为 `1.2.1`（与 tag 一致；prepare 会校验）
+
+再在 **nuwaclaw** 侧：
+
+```bash
+cd crates/agent-electron-client
+npm run prepare:nuwaxcode   # 或 prepare:all
+```
+
+### Beta 发版流水线（prerelease-v0.11.29）
+
+1. **nuwaxcode**：推送 `v1.2.1` → `build-release.yml` 构建并发布 GitHub Release  
+2. **（可选自动）** nuwaxcode 配置 Secret `NUWACLAW_REPO_DISPATCH_TOKEN`（PAT，含 `nuwax-ai/nuwax-agent-client` 的 `repo` + `workflow`）→ 完成后 `repository_dispatch`  
+3. **nuwaclaw**：`on-nuwaxcode-released.yml` 校验 `v1.2.1` 存在 → 推送 tag **`prerelease-v0.11.29`**  
+4. **`release-electron-dev.yml`** 构建全平台 beta → OSS `nuwaclaw-electron/beta/latest.json`  
+
+手动触发（不依赖 nuwaxcode dispatch）：
+
+- Actions → **On Nuwaxcode Released** → Run workflow（默认 1.2.1 + prerelease-v0.11.29）  
+- 或直接推送 tag：`git tag prerelease-v0.11.29 && git push origin prerelease-v0.11.29`（需先有 `release-notes/prerelease-v0.11.29.md`）
+
+### Tag 与二进制内部版本
+
+`prepare-nuwaxcode.js` 会在复制/下载后用 `--version` 校验二进制内部版本；若 **tag 与包内版本不一致**，会强制重新下载并告警（防止 Release 资产未更新）。
 
 ---
 
