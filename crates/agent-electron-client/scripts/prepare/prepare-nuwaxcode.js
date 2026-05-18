@@ -307,11 +307,11 @@ function checkGithubReleaseTag() {
               return;
             }
             console.warn(
-              `[prepare-nuwaxcode] Release ${tag} 检查失败: HTTP ${res.statusCode}`,
+              `[prepare-nuwaxcode] Release ${tag} 检查失败: HTTP ${res.statusCode}${res.statusCode === 403 ? ' (rate limit or auth issue)' : ''}`,
             );
             if (attempts < maxAttempts) {
-              console.log(`[prepare-nuwaxcode] ${retryDelay(1000)}ms 后重试...`);
-              retryDelay(1000).then(tryRequest);
+              console.log(`[prepare-nuwaxcode] 1s 后重试...`);
+              setTimeout(tryRequest, 1000);
               return;
             }
             // Exhausted retries — try to get latest tag for diagnostic
@@ -336,7 +336,7 @@ function checkGithubReleaseTag() {
         .on('error', (err) => {
           console.warn(`[prepare-nuwaxcode] 网络错误 (尝试 ${attempts}/${maxAttempts}): ${err.message}`);
           if (attempts < maxAttempts) {
-            retryDelay(1500).then(tryRequest);
+            setTimeout(tryRequest, 1500);
           } else {
             resolve({ ok: false, status: -1 });
           }
