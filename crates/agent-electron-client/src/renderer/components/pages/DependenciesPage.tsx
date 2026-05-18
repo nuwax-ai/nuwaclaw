@@ -70,7 +70,7 @@ const MOCK_LOCAL_DEPS: LocalDependencyItem[] = [
     description: t(I18N_KEYS.Pages.Dependencies.DESC_FILE_SERVER),
     type: "npm-local",
     status: "outdated",
-    version: "1.2.0",
+    version: "1.2.1",
     latestVersion: "1.3.0",
     required: true,
   },

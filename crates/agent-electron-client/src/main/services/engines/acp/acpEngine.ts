@@ -18,19 +18,18 @@ import { ACP_SESSION_CANCELLED_ERROR_CODE } from "@shared/constants";
 import { getGuiAgentServerUrl } from "@main/services/packages/guiAgentServer";
 import { getWindowsMcpUrl } from "@main/services/packages/windowsMcp";
 import { isWindows } from "@main/services/system/shellEnv";
-import {
-  getResourcesPath,
-  getAppEnv,
-  getBundledGitBashPath,
-} from "@main/services/system/dependencies";
-import {
-  getSandboxPolicy,
-  resolveSandboxType,
-  getBundledLinuxBwrapPath,
-  getBundledWindowsSandboxHelperPath,
-} from "@main/services/sandbox/policy";
-import { SandboxError, SandboxErrorCode } from "@shared/errors/sandbox";
+import { getResourcesPath } from "@main/services/system/dependencies";
 import type { SandboxProcessConfig } from "@shared/types/sandbox";
+import {
+  getAcpEngineSandboxCapabilities,
+  isOpencodeAcpEngine,
+} from "./acpEngineSandbox";
+import { resolveAcpSandboxProcessConfig } from "./acpSandboxPolicy";
+import { injectSandboxedMcpForSession } from "./acpSandboxedMcpSession";
+import {
+  buildOpencodeSpawnConfig,
+  describeOpencodeSandboxActive,
+} from "./opencodeAcpSpawnConfig";
 import {
   createAcpConnection,
   getMcpTransportSnapshot,
@@ -127,6 +126,8 @@ interface AcpSession {
   id: string;
   title?: string;
   acpSessionId?: string;
+  /** Session working directory (ACP newSession cwd). */
+  cwd?: string;
   createdAt: number;
   status: AcpSessionStatus;
   mcpServerCount?: number;
@@ -282,7 +283,7 @@ export class AcpEngine extends EventEmitter {
   }
 
   private isMcpReconnectFailure(errorMsg: string): boolean {
-    if (this.engineName !== "nuwaxcode") return false;
+    if (!isOpencodeAcpEngine(this.engineName)) return false;
     return (
       this.isMcpReconnectErrorMessage(errorMsg) ||
       isMcpReconnectWindowActive(this.acpProcess, MCP_RECONNECT_WINDOW_MS)
@@ -297,7 +298,7 @@ export class AcpEngine extends EventEmitter {
       meta.requestId = opts.messageID;
       meta.request_id = opts.messageID;
     }
-    if (this.engineName === "nuwaxcode") {
+    if (isOpencodeAcpEngine(this.engineName)) {
       const policy = opts?.mcpInitPolicy ?? NUWAX_MCP_INIT_POLICY_DEFAULT;
       if (policy) {
         meta.mcpInitPolicy = policy;
@@ -384,9 +385,13 @@ export class AcpEngine extends EventEmitter {
     });
   }
 
-  private isStrictSandboxActiveForNuwaxcode(): boolean {
+  private get sandboxCaps() {
+    return getAcpEngineSandboxCapabilities(this.engineName);
+  }
+
+  private isStrictSandboxActiveForEngine(): boolean {
     return (
-      this.engineName === "nuwaxcode" &&
+      this.sandboxCaps.supportsStrictSessionGuard &&
       this.storedSandboxConfig?.enabled === true &&
       this.storedSandboxConfig.mode === "strict"
     );
@@ -458,207 +463,78 @@ export class AcpEngine extends EventEmitter {
 
       // For nuwaxcode: inject config via OPENCODE_CONFIG_CONTENT env var
       const spawnEnv = { ...(config.env || {}) };
-      if (this.engineName === "nuwaxcode") {
-        const configObj: Record<string, unknown> = {};
+
+      // Resolve sandbox policy early (OpenCode spawn config + process wrap + createSession).
+      const sandboxResolved = await resolveAcpSandboxProcessConfig(
+        config.workspaceDir,
+        this.logTag,
+      );
+      if (sandboxResolved.unavailable) {
+        throw sandboxResolved.unavailable;
+      }
+      const sandboxConfig = sandboxResolved.config;
+
+      if (this.sandboxCaps.usesOpencodeSpawnConfig) {
         const isWarmupProcess = spawnEnv.NUWAX_AGENT_WARMUP === "1";
+        const { configObj, sandboxApply: opencodeSandboxApply } =
+          buildOpencodeSpawnConfig({
+            mcpServers: config.mcpServers,
+            model: config.model,
+            sandboxConfig,
+            workspaceDir: config.workspaceDir,
+            applySandbox: (opts) =>
+              this.sandboxCaps.applyOpencodeSpawnSandbox(opts),
+          });
 
-        // A/B test mode: inject MCP into OPENCODE_CONFIG_CONTENT again.
-        // This restores legacy dual-path injection (static config + ACP newSession).
-        // NOTE: warmup 进程也必须注入 MCP，否则复用 warmup 后会出现 MCP.tools() 为空。
-        if (config.mcpServers && Object.keys(config.mcpServers).length > 0) {
-          const mcpConfig: Record<string, unknown> = {};
-          for (const [name, srv] of Object.entries(config.mcpServers)) {
-            if ("url" in srv && srv.url) {
-              const urlSrv = srv as { url: string; type?: string };
-              mcpConfig[name] = {
-                type: urlSrv.type === "sse" ? "sse" : "streamable-http",
-                url: urlSrv.url,
-                enabled: true,
-              };
-            } else if ("command" in srv) {
-              const stdioSrv = srv as {
-                command: string;
-                args?: string[];
-                env?: Record<string, string>;
-              };
-              mcpConfig[name] = {
-                type: "local",
-                command: [stdioSrv.command, ...(stdioSrv.args || [])],
-                environment: stdioSrv.env || {},
-                enabled: true,
-              };
-            }
-          }
-          configObj.mcp = mcpConfig;
+        spawnEnv.OPENCODE_CONFIG_CONTENT = JSON.stringify(configObj);
+        if (
+          opencodeSandboxApply?.opencodeSandboxConfigInjected &&
+          configObj.sandbox
+        ) {
+          spawnEnv.NUWAX_AGENT_SANDBOX_CONFIG = JSON.stringify(
+            configObj.sandbox,
+          );
         }
-
-        // 1. Permission bypass (question: deny to avoid interactive prompts)
-        configObj.permission = {
-          edit: "allow",
-          bash: "allow",
-          webfetch: "allow",
-          doom_loop: "allow",
-          external_directory: "allow",
-          question: "deny",
-        };
-
-        // Register model provider from config.model into the config content.
-        // nuwaxcode v1.1.82+ requires providers to exist in the models database.
-        // Generic providers (openai-compatible, anthropic-compatible) are not
-        // in the bundled models.json, so we register them via config provider section.
-        if (config.model) {
-          const slashIdx = config.model.indexOf("/");
-          if (slashIdx > 0) {
-            const providerID = config.model.substring(0, slashIdx);
-            const modelID = config.model.substring(slashIdx + 1);
-            configObj.provider = {
-              [providerID]: {
-                name: providerID,
-                env:
-                  providerID === "openai-compatible"
-                    ? ["OPENAI_API_KEY"]
-                    : providerID === "anthropic-compatible"
-                      ? ["ANTHROPIC_API_KEY"]
-                      : [],
-                models: {
-                  [modelID]: {
-                    name: modelID,
-                  },
-                },
-              },
-            };
-          }
-        }
-
-        const configContent = JSON.stringify(configObj);
-        spawnEnv.OPENCODE_CONFIG_CONTENT = configContent;
+        const effectivePerm = configObj.permission as Record<string, string>;
         log.info(
-          `${this.logTag} 🔌 nuwaxcode config injected (OPENCODE_CONFIG_CONTENT)`,
+          `${this.logTag} 🔌 OpenCode ACP config injected (OPENCODE_CONFIG_CONTENT)`,
           {
+            engine: this.engineName,
             mcp_injection: isWarmupProcess
               ? "enabled (legacy dual-path for A/B, warmup process)"
               : "enabled (legacy dual-path for A/B)",
             mcp_servers: configObj.mcp
               ? Object.keys(configObj.mcp as Record<string, unknown>)
               : [],
-            permission: {
-              edit: "allow",
-              bash: "allow",
-              webfetch: "allow",
-              doom_loop: "allow",
-              external_directory: "allow",
-              question: "deny",
-            },
-            content: configContent,
+            permission: effectivePerm,
+            sandbox_active: describeOpencodeSandboxActive(opencodeSandboxApply),
           },
         );
+        if (opencodeSandboxApply) {
+          if (opencodeSandboxApply.opencodeSandboxConfigInjected) {
+            log.info(
+              `${this.logTag} OPENCODE sandbox config injected (engine=${this.engineName}, v${opencodeSandboxApply.engineVersion})`,
+            );
+          } else {
+            log.info(
+              `${this.logTag} OpenCode ACP compat sandbox (engine=${this.engineName}, v${opencodeSandboxApply.engineVersion ?? "?"}): helper serve + sandboxed-bash/fs MCP`,
+              {
+                builtinBashDenied: opencodeSandboxApply.builtinBashDenied,
+                builtinEditDenied: opencodeSandboxApply.builtinEditDenied,
+              },
+            );
+          }
+        }
       }
 
       // Spawn ACP binary and create ClientSideConnection
       configTimer.end("acp.init.config", { engine: this.engineName });
 
-      // Resolve sandbox policy for process-level wrapping
-      let sandboxConfig: SandboxProcessConfig | undefined;
-      try {
-        const policy = getSandboxPolicy();
-        if (policy.enabled) {
-          const resolved = await resolveSandboxType(policy);
-          if (resolved.type !== "none") {
-            sandboxConfig = {
-              enabled: true,
-              type: resolved.type,
-              mode: policy.mode,
-              autoFallback: policy.autoFallback,
-              projectWorkspaceDir: config.workspaceDir,
-              networkEnabled: true, // 引擎需要网络访问（API 调用）
-              fallback: "degrade_to_off",
-              linuxBwrapPath: getBundledLinuxBwrapPath() ?? undefined,
-              windowsSandboxHelperPath:
-                getBundledWindowsSandboxHelperPath() ?? undefined,
-              windowsSandboxMode: policy.windowsMode,
-            };
-            log.info(`${this.logTag} Sandbox config resolved:`, {
-              type: resolved.type,
-              mode: policy.mode,
-              autoFallback: policy.autoFallback,
-              degraded: resolved.degraded,
-            });
-          }
-        }
-      } catch (e) {
-        if (
-          e instanceof SandboxError &&
-          e.code === SandboxErrorCode.SANDBOX_UNAVAILABLE
-        ) {
-          throw e;
-        }
-        log.warn(
-          `${this.logTag} Sandbox policy parse failed, running without sandbox:`,
-          e,
-        );
-      }
-
-      // Per-command sandboxing for nuwaxcode:
-      // Inject sandbox config into OPENCODE_CONFIG_CONTENT so nuwaxcode (opencode) can
-      // self-sandbox individual commands. Covers all sandbox types (Windows, macOS seatbelt,
-      // Linux bwrap). Must happen AFTER sandboxConfig is resolved.
-      //
-      // NOTE: Actual enforcement depends on the nuwaxcode/opencode binary reading and
-      // honoring sandbox_mode, writable_roots, and permission.external_directory.
-      // If opencode does not support these fields, file write restrictions will not be
-      // enforced for nuwaxcode — this requires corresponding changes in the opencode binary.
-      if (
-        sandboxConfig?.enabled &&
-        sandboxConfig.type !== "none" &&
-        this.engineName === "nuwaxcode"
-      ) {
-        try {
-          const existingConfig = JSON.parse(
-            spawnEnv.OPENCODE_CONFIG_CONTENT as string,
-          ) as Record<string, unknown>;
-          const effectiveMode = sandboxConfig.mode ?? "compat";
-          const sandboxObj: Record<string, unknown> = {
-            mode: sandboxConfig.windowsSandboxMode ?? "workspace-write",
-            network_enabled: true, // engine always needs network (API calls)
-            sandbox_mode: effectiveMode, // strict/compat/permissive
-            writable_roots: sandboxConfig.projectWorkspaceDir
-              ? [sandboxConfig.projectWorkspaceDir]
-              : [config.workspaceDir],
-          };
-          // Only set helper_path on Windows where the helper exe exists
-          if (sandboxConfig.windowsSandboxHelperPath) {
-            sandboxObj.helper_path = sandboxConfig.windowsSandboxHelperPath;
-          }
-          existingConfig.sandbox = sandboxObj;
-
-          // In strict mode, deny external_directory writes
-          if (effectiveMode === "strict") {
-            const perm = existingConfig.permission as
-              | Record<string, string>
-              | undefined;
-            if (perm) {
-              perm.external_directory = "deny";
-            }
-          }
-
-          spawnEnv.OPENCODE_CONFIG_CONTENT = JSON.stringify(existingConfig);
-          log.info(
-            `${this.logTag} per-command sandbox config injected`,
-            existingConfig.sandbox,
-          );
-        } catch (e) {
-          log.warn(
-            `${this.logTag} failed to inject sandbox config into OPENCODE_CONFIG_CONTENT:`,
-            e,
-          );
-        }
-      }
-
       // GUI MCP (gui-agent) and sandbox are mutually exclusive for now.
       // Remove gui-agent from legacy OPENCODE_CONFIG_CONTENT injection path
       // when sandbox is enabled, so nuwaxcode won't bootstrap GUI MCP.
       if (
-        this.engineName === "nuwaxcode" &&
+        this.sandboxCaps.usesOpencodeSpawnConfig &&
         sandboxConfig?.enabled &&
         spawnEnv.OPENCODE_CONFIG_CONTENT
       ) {
@@ -1020,6 +896,14 @@ export class AcpEngine extends EventEmitter {
     }
 
     const sandboxEnabled = this.storedSandboxConfig?.enabled === true;
+    const sandboxMode = this.storedSandboxConfig?.mode ?? "compat";
+    const isStrictOrCompat = sandboxMode !== "permissive";
+    const sessionCwd = (() => {
+      const raw = opts?.cwd || this.config.workspaceDir;
+      if (path.isAbsolute(raw)) return raw;
+      log.warn(`${this.logTag} sessionCwd is not absolute (${raw}), resolving`);
+      return path.resolve(raw);
+    })();
 
     // GUI MCP (gui-agent) and sandbox are mutually exclusive for now.
     // Drop gui-agent from both global and per-request MCP inputs when sandbox is on.
@@ -1067,155 +951,15 @@ export class AcpEngine extends EventEmitter {
       );
     }
 
-    // 3. Sandboxed Bash MCP — replace built-in Bash with sandboxed version on Windows
-    // Disables Claude Code's internal Bash (which runs unsandboxed) and provides
-    // an MCP "Bash" tool that routes all commands through nuwax-sandbox-helper.exe run.
-    let sandboxedBashInjected = false;
-    log.info(
-      `${this.logTag} 🔍 Sandbox check: engine=${this.engineName}, sandboxEnabled=${this.storedSandboxConfig?.enabled}, type=${this.storedSandboxConfig?.type}, helperPath=${this.storedSandboxConfig?.windowsSandboxHelperPath ?? "(none)"}`,
-    );
-    if (
-      this.storedSandboxConfig?.enabled &&
-      this.storedSandboxConfig.type === "windows-sandbox" &&
-      this.storedSandboxConfig.windowsSandboxHelperPath
-    ) {
-      const nodePath = process.execPath; // Electron's Node
-      // Use getResourcesPath() for both dev and packaged resolution.
-      // Script is bundled at resources/sandboxed-bash-mcp/sandboxed-bash-mcp.mjs
-      const scriptPath = path.join(
-        getResourcesPath(),
-        "sandboxed-bash-mcp",
-        "sandboxed-bash-mcp.mjs",
-      );
-      const resolvedScriptPath = path.resolve(scriptPath);
-      if (!fs.existsSync(resolvedScriptPath)) {
-        log.warn(
-          `${this.logTag} Sandboxed Bash MCP script missing, skip injection`,
-          { scriptPath: resolvedScriptPath },
-        );
-      } else {
-        // Build PATH with bundled tools (node, git, etc.) so sandboxed shell
-        // can find them even under a restricted token with minimal PATH.
-        const appEnv = getAppEnv({ includeSystemPath: false });
-        const gitBashPath = getBundledGitBashPath();
-
-        mcpServers.push({
-          name: "sandboxed-bash",
-          command: nodePath,
-          args: [resolvedScriptPath],
-          env: [
-            { name: "ELECTRON_RUN_AS_NODE", value: "1" },
-            {
-              name: "NUWAX_SANDBOX_HELPER_PATH",
-              value: this.storedSandboxConfig.windowsSandboxHelperPath,
-            },
-            {
-              name: "NUWAX_SANDBOX_MODE",
-              value:
-                this.storedSandboxConfig.windowsSandboxMode ??
-                "workspace-write",
-            },
-            {
-              name: "NUWAX_SANDBOX_NETWORK_ENABLED",
-              value:
-                (this.storedSandboxConfig.networkEnabled ?? true) ? "1" : "0",
-            },
-            {
-              name: "NUWAX_SANDBOX_WRITABLE_ROOTS",
-              value: JSON.stringify(
-                this.storedSandboxConfig.projectWorkspaceDir
-                  ? [this.storedSandboxConfig.projectWorkspaceDir]
-                  : [],
-              ),
-            },
-            // Pass bundled tools PATH for sandboxed shell execution
-            ...(appEnv.PATH
-              ? [{ name: "NUWAX_SANDBOX_PATH", value: appEnv.PATH }]
-              : []),
-            // Pass Git Bash path so MCP script can use bash instead of PowerShell
-            ...(gitBashPath
-              ? [{ name: "NUWAX_SANDBOX_GIT_BASH_PATH", value: gitBashPath }]
-              : []),
-          ],
-        });
-        sandboxedBashInjected = true;
-        log.info(
-          `${this.logTag} 🔒 Sandboxed Bash MCP injected (Windows, mode=${this.storedSandboxConfig.windowsSandboxMode ?? "workspace-write"})`,
-        );
-      }
-    }
-
-    // Sandbox mode — shared by sandboxed-fs MCP injection and disallowedTools below.
-    const sandboxMode = this.storedSandboxConfig?.mode ?? "compat";
-    const isStrictOrCompat = sandboxMode !== "permissive";
-
-    // 4. Sandboxed FS MCP — replace built-in Write/Edit with sandboxed versions
-    // Cross-platform (Windows, macOS seatbelt, Linux bwrap). Pure Node.js — no helper needed.
-    // Only injected in strict and compat modes. Permissive mode leaves built-in tools enabled.
-    // - strict:  only workspace + TEMP/TMP
-    // - compat:  workspace + TEMP/TMP + APPDATA/LOCALAPPDATA (Windows) / XDG dirs (macOS/Linux)
-    /** True only after sandboxed-fs MCP is successfully pushed into `mcpServers`. */
-    let sandboxedFsInjected = false;
-    if (
-      this.storedSandboxConfig?.enabled &&
-      this.storedSandboxConfig.type !== "none" &&
-      isStrictOrCompat
-    ) {
-      const nodePath = process.execPath;
-      const fsScriptPath = path.join(
-        getResourcesPath(),
-        "sandboxed-fs-mcp",
-        "sandboxed-fs-mcp.mjs",
-      );
-      const resolvedFsScriptPath = path.resolve(fsScriptPath);
-      if (!fs.existsSync(resolvedFsScriptPath)) {
-        log.warn(
-          `${this.logTag} Sandboxed FS MCP script missing, skip injection`,
-          { scriptPath: resolvedFsScriptPath, sandboxMode },
-        );
-      } else {
-        mcpServers.push({
-          name: "sandboxed-fs",
-          command: nodePath,
-          args: [resolvedFsScriptPath],
-          env: [
-            { name: "ELECTRON_RUN_AS_NODE", value: "1" },
-            {
-              name: "NUWAX_SANDBOX_MODE",
-              value: sandboxMode,
-            },
-            {
-              name: "NUWAX_SANDBOX_WRITABLE_ROOTS",
-              value: JSON.stringify(
-                this.storedSandboxConfig.projectWorkspaceDir
-                  ? [this.storedSandboxConfig.projectWorkspaceDir]
-                  : [],
-              ),
-            },
-            // Pass TEMP/TMP explicitly for temp file validation
-            ...(process.env.TEMP
-              ? [{ name: "TEMP", value: process.env.TEMP }]
-              : []),
-            ...(process.env.TMP
-              ? [{ name: "TMP", value: process.env.TMP }]
-              : []),
-            // Pass APPDATA/LOCALAPPDATA for compat mode
-            ...(process.env.APPDATA
-              ? [{ name: "APPDATA", value: process.env.APPDATA }]
-              : []),
-            ...(process.env.LOCALAPPDATA
-              ? [{ name: "LOCALAPPDATA", value: process.env.LOCALAPPDATA }]
-              : []),
-          ],
-        });
-        sandboxedFsInjected = true;
-        log.info(
-          `${this.logTag} 🔒 Sandboxed FS MCP injected (cross-platform, mode=${sandboxMode})`,
-        );
-      }
-    }
-
-    const sessionCwd = opts?.cwd || this.config.workspaceDir;
+    const { sandboxedBashInjected, sandboxedFsInjected } =
+      injectSandboxedMcpForSession({
+        engineId: this.engineName,
+        logTag: this.logTag,
+        sandboxConfig: this.storedSandboxConfig,
+        sessionCwd,
+        mcpServers,
+        resourcesPath: getResourcesPath(),
+      });
 
     // Build _meta with systemPrompt if provided (skip if empty or whitespace only)
     const systemPromptTrimmed = opts?.systemPrompt?.trim();
@@ -1322,6 +1066,7 @@ export class AcpEngine extends EventEmitter {
       id: sessionId,
       title: opts?.title,
       acpSessionId: sessionId,
+      cwd: sessionCwd,
       createdAt: Date.now(),
       status: "idle",
       mcpServerCount: mcpServers.length,
@@ -1572,7 +1317,7 @@ export class AcpEngine extends EventEmitter {
             prompt: promptContent,
             _meta: this.buildPromptMeta(_opts),
           };
-          if (this.engineName === "nuwaxcode") {
+          if (this.sandboxCaps.usesOpencodePromptBehaviors) {
             log.info(`${this.logTag} acp.prompt.meta`, {
               sessionId,
               requestId: _opts?.messageID,
@@ -1582,7 +1327,9 @@ export class AcpEngine extends EventEmitter {
           }
 
           const runPromptWithRetry = async () => {
-            const maxAttempts = this.engineName === "nuwaxcode" ? 2 : 1;
+            const maxAttempts = this.sandboxCaps.usesOpencodePromptBehaviors
+              ? 2
+              : 1;
             let attempt = 1;
             while (true) {
               try {
@@ -2134,7 +1881,7 @@ User question: ${request.prompt}`;
       const promptOptions: PromptOptions = {
         messageID: request.request_id,
       };
-      if (this.engineName === "nuwaxcode") {
+      if (this.sandboxCaps.usesOpencodePromptBehaviors) {
         promptOptions.mcpInitPolicy = NUWAX_MCP_INIT_POLICY_DEFAULT;
         promptOptions.mcpInitTimeoutMs = NUWAX_MCP_INIT_TIMEOUT_MS_DEFAULT;
       }
@@ -2316,105 +2063,6 @@ User question: ${request.prompt}`;
       case "tool_call_update": {
         const u = update as AcpToolCallUpdate;
 
-        // Windows-only proactive strict guard for nuwaxcode.
-        // On Windows, the OS-level sandbox only restricts terminal sub-processes,
-        // not nuwaxcode's own file operations. nuwaxcode may execute writes
-        // without sending permission_request. Intercept tool_call_update events
-        // to detect violations retroactively and cancel the session.
-        // macOS/Linux rely on handlePermissionRequest (permission_request from engine)
-        // or OS-level seatbelt/bwrap process sandboxing.
-        const proactiveRawInput =
-          u.rawInput ??
-          (u.locations?.length
-            ? Object.fromEntries(
-                u.locations
-                  .filter((l) => l.path)
-                  .map((l, i) => [`location_${i}`, l.path!]),
-              )
-            : null);
-        if (
-          isWindows() &&
-          this.isStrictSandboxActiveForNuwaxcode() &&
-          proactiveRawInput != null &&
-          u.kind &&
-          u.status === "in_progress"
-        ) {
-          const violationCheck = evaluateStrictWritePermission(
-            {
-              sessionId: acpSessionId,
-              toolCall: {
-                toolCallId: u.toolCallId,
-                title: u.title ?? null,
-                kind: u.kind ?? null,
-                rawInput: proactiveRawInput,
-              },
-              options: [
-                {
-                  optionId: "_strict_proactive",
-                  kind: "allow_once",
-                  name: "auto",
-                },
-              ],
-            },
-            {
-              strictEnabled: true,
-              sandboxMode: this.sandboxMode,
-              workspaceDir: this.config?.workspaceDir,
-              projectWorkspaceDir:
-                this.storedSandboxConfig?.projectWorkspaceDir,
-              isolatedHome: this.isolatedHome,
-              appDataDir: path.join(os.homedir(), APP_DATA_DIR_NAME),
-              tempDirs: [
-                os.tmpdir(),
-                process.env.TMPDIR,
-                process.env.TMP,
-                process.env.TEMP,
-              ].filter(Boolean) as string[],
-            },
-          );
-
-          if (violationCheck.blocked) {
-            log.warn(
-              `${this.logTag} 🚫 strict proactive guard (win32): write blocked outside writable roots`,
-              {
-                reason: violationCheck.reason,
-                toolCallId: u.toolCallId,
-                toolKind: u.kind,
-                toolTitle: u.title,
-                candidatePaths: violationCheck.candidatePaths,
-                resolvedPaths: violationCheck.resolvedPaths,
-                writableRoots: violationCheck.writableRoots,
-              },
-            );
-
-            this.emit("message.part.updated", {
-              sessionId: acpSessionId,
-              type: "tool",
-              toolCallId: u.toolCallId,
-              status: "error",
-              output: {
-                error: `Strict sandbox violation: ${violationCheck.reason}`,
-                candidatePaths: violationCheck.candidatePaths,
-                resolvedPaths: violationCheck.resolvedPaths,
-              },
-              content: [
-                {
-                  type: "text",
-                  text: `⛔ Strict sandbox blocked write outside workspace: ${violationCheck.candidatePaths.join(", ")}`,
-                },
-              ],
-            });
-
-            this.abortSession(acpSessionId).catch((e: unknown) => {
-              log.warn(
-                `${this.logTag} Failed to cancel session after strict violation:`,
-                e,
-              );
-            });
-            break;
-          }
-        }
-
         this.emit("message.part.updated", {
           sessionId: acpSessionId,
           type: "tool",
@@ -2469,12 +2117,13 @@ User question: ${request.prompt}`;
       return { outcome: { outcome: "cancelled" } };
     }
 
-    const strictEnabled = this.isStrictSandboxActiveForNuwaxcode();
+    const strictEnabled = this.isStrictSandboxActiveForEngine();
     const strictCheck = evaluateStrictWritePermission(params, {
       strictEnabled,
       sandboxMode: this.sandboxMode,
       workspaceDir: this.config?.workspaceDir,
       projectWorkspaceDir: this.storedSandboxConfig?.projectWorkspaceDir,
+      sessionWorkspaceDir: this.sessions.get(acpSessionId)?.cwd,
       isolatedHome: this.isolatedHome,
       appDataDir: path.join(os.homedir(), APP_DATA_DIR_NAME),
       tempDirs: [

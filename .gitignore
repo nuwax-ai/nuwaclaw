@@ -40,6 +40,12 @@ crates/agent-electron-client/resources/nuwax-mcp-stdio-proxy/
 # Bundled GUI Agent Server: 构建时 prepare-gui-server 从源码 build 并集成
 crates/agent-electron-client/resources/agent-gui-server/
 
+# Bundled sandboxed MCP: prepare:sandboxed-mcp esbuild 产物，不入库
+crates/agent-electron-client/resources/sandboxed-bash-mcp/dist/
+crates/agent-electron-client/resources/sandboxed-bash-mcp/.bundle-version
+crates/agent-electron-client/resources/sandboxed-fs-mcp/dist/
+crates/agent-electron-client/resources/sandboxed-fs-mcp/.bundle-version
+
 # Bundled nuwaxcode: 构建时从 GitHub Release 下载，不入库
 crates/agent-electron-client/resources/nuwaxcode/
 
@@ -62,8 +68,6 @@ crates/agent-electron-client/resources/nuwax-file-server/
 # Bundled claude-code-acp-ts: 构建时 prepare:claude-code-acp-ts 从 GitHub 克隆源码 build 并集成
 crates/agent-electron-client/resources/claude-code-acp-ts/
 
-crates/agent-electron-client/resources/codex-acp-ts/
-
 # 源码克隆目录（prepare:nuwax-file-server / prepare:claude-code-acp-ts 使用）
 crates/agent-electron-client/sources/
 
@@ -82,5 +86,8 @@ crates/agent-electron-client/index.html
 
 # Bundled gateway: 构建时 prepare-gateway 生成，不入库
 crates/agent-electron-client/resources/gateway/
+
+# Gateway server 本地环境变量（含密钥，不入库）
+crates/gateway-server/.env
 
 .kilo/

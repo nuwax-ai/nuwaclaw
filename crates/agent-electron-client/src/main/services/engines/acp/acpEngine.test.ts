@@ -11,6 +11,8 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import * as path from "path";
 import * as dependencies from "@main/services/system/dependencies";
+import * as sandboxPolicy from "@main/services/sandbox/policy";
+import * as opencodeAcpSandbox from "./opencodeAcpSandbox";
 
 vi.mock("electron", () => ({
   app: {
@@ -329,6 +331,49 @@ describe("AcpEngine.handleAcpSessionUpdate", () => {
 });
 
 describe("AcpEngine.createSession", () => {
+  it("nuwaxcode 1.2.0 原生 strict 沙箱仍注入 session-scoped sandboxed-bash/fs MCP", async () => {
+    const { engine, newSession } = setupEngineForCreateSession("nuwaxcode");
+    const resourcesSpy = vi
+      .spyOn(dependencies, "getResourcesPath")
+      .mockReturnValue(path.join(process.cwd(), "resources"));
+    vi.spyOn(
+      opencodeAcpSandbox,
+      "readBundledOpencodeEngineVersion",
+    ).mockReturnValue("1.2.0");
+
+    (engine as any).storedSandboxConfig = {
+      enabled: true,
+      type: "windows-sandbox",
+      mode: "strict",
+      projectWorkspaceDir: "C:\\workspace\\project",
+      windowsSandboxHelperPath: "C:\\tools\\nuwax-sandbox-helper.exe",
+    };
+
+    try {
+      await engine.createSession({ cwd: "C:\\workspace\\project\\session-1" });
+    } finally {
+      resourcesSpy.mockRestore();
+    }
+
+    const sent = newSession.mock.calls[0][0] as {
+      mcpServers: Array<{
+        name: string;
+        env?: Array<{ name: string; value: string }>;
+      }>;
+    };
+    const names = sent.mcpServers.map((m) => m.name);
+    expect(names).toContain("sandboxed-bash");
+    expect(names).toContain("sandboxed-fs");
+    const bashServer = sent.mcpServers.find((m) => m.name === "sandboxed-bash");
+    expect(
+      bashServer?.env?.find((kv) => kv.name === "NUWAX_SANDBOX_MODE")?.value,
+    ).toBe("workspace-write");
+    expect(
+      bashServer?.env?.find((kv) => kv.name === "NUWAX_SANDBOX_POLICY_MODE")
+        ?.value,
+    ).toBe("strict");
+  });
+
   it("沙箱启用时应移除 gui-agent MCP（互斥）", async () => {
     const { engine, newSession } = setupEngineForCreateSession("nuwaxcode");
 
@@ -410,7 +455,11 @@ describe("AcpEngine.createSession", () => {
   });
 
   it("compat 模式下 sandboxed-fs 注入与工具禁用应生效", async () => {
-    const { engine, newSession } = setupEngineForCreateSession("claude-code");
+    const { engine, newSession } = setupEngineForCreateSession("nuwaxcode");
+    vi.spyOn(
+      opencodeAcpSandbox,
+      "readBundledOpencodeEngineVersion",
+    ).mockReturnValue("1.1.99");
     const resourcesSpy = vi
       .spyOn(dependencies, "getResourcesPath")
       .mockReturnValue(path.join(process.cwd(), "resources"));
@@ -445,6 +494,15 @@ describe("AcpEngine.createSession", () => {
       (kv) => kv.name === "NUWAX_SANDBOX_MODE",
     );
     expect(modeVar?.value).toBe("compat");
+    const rootsVar = fsServer?.env?.find(
+      (kv) => kv.name === "NUWAX_SANDBOX_WRITABLE_ROOTS",
+    );
+    const parsedRoots = JSON.parse(rootsVar?.value ?? "[]") as string[];
+    expect(
+      parsedRoots.some((r) =>
+        r.replace(/\\/g, "/").includes("/workspace/project"),
+      ),
+    ).toBe(true);
     const disallowed = sent._meta?.claudeCode?.options?.disallowedTools || [];
     expect(disallowed).toContain("Write");
     expect(disallowed).toContain("Edit");
@@ -637,6 +695,94 @@ describe("AcpEngine.init", () => {
     expect(authenticate).toHaveBeenCalledWith({ methodId: "codex-api-key" });
 
     await engine.destroy();
+  });
+
+  it("沙箱启用时 nuwaxcode 1.1.x 不注入 sandbox 键，并禁用内置 bash/edit", async () => {
+    const engine = new AcpEngine("nuwaxcode");
+    let capturedEnv: Record<string, string> | undefined;
+
+    vi.spyOn(sandboxPolicy, "getSandboxPolicy").mockReturnValue({
+      enabled: true,
+      backend: "auto",
+      mode: "compat",
+      autoFallback: "startup-only",
+      windowsMode: "workspace-write",
+    });
+    vi.spyOn(sandboxPolicy, "resolveSandboxType").mockResolvedValue({
+      type: "windows-sandbox",
+      degraded: false,
+    });
+    vi.spyOn(
+      sandboxPolicy,
+      "getBundledWindowsSandboxHelperPath",
+    ).mockReturnValue("C:\\tools\\nuwax-sandbox-helper.exe");
+    const applySpy = vi
+      .spyOn(opencodeAcpSandbox, "applyOpencodeSandboxToOpenCodeConfig")
+      .mockImplementation(({ configObj }) => {
+        configObj.permission = {
+          ...(configObj.permission as object),
+          bash: "deny",
+          edit: "deny",
+        };
+        return {
+          opencodeSandboxConfigInjected: false,
+          builtinBashDenied: true,
+          builtinEditDenied: true,
+          engineVersion: "1.1.99",
+          usesNativeSandbox: false,
+        };
+      });
+
+    const mockConnection = {
+      initialize: vi.fn().mockResolvedValue({ protocolVersion: "1.0.0" }),
+    } as any;
+    const mockProcess = {
+      pid: 12345,
+      on: vi.fn(),
+      stdout: { removeAllListeners: vi.fn() },
+      stderr: { removeAllListeners: vi.fn() },
+      stdin: { removeAllListeners: vi.fn() },
+      removeAllListeners: vi.fn(),
+      kill: vi.fn(),
+    } as any;
+
+    vi.spyOn(acpClient, "resolveAcpBinary").mockReturnValue({
+      binPath: "nuwaxcode",
+      binArgs: ["acp"],
+      isNative: false,
+    });
+    vi.spyOn(acpClient, "createAcpConnection").mockImplementation(
+      async (cfg: any) => {
+        capturedEnv = cfg.env as Record<string, string>;
+        return {
+          connection: mockConnection,
+          process: mockProcess,
+          isolatedHome: null,
+          cleanup: vi.fn(),
+        } as any;
+      },
+    );
+    vi.spyOn(acpClient, "loadAcpSdk").mockResolvedValue({
+      PROTOCOL_VERSION: "1.0.0",
+    } as any);
+
+    try {
+      const ok = await engine.init({
+        engine: "nuwaxcode",
+        workspaceDir: "/tmp/workspace",
+        apiKey: "test-key",
+        model: "openai-compatible/glm-5",
+      } as any);
+
+      expect(ok).toBe(true);
+      const injected = JSON.parse(capturedEnv!.OPENCODE_CONFIG_CONTENT!);
+      expect(injected.sandbox).toBeUndefined();
+      expect(injected.permission.bash).toBe("deny");
+      expect(injected.permission.edit).toBe("deny");
+    } finally {
+      applySpy.mockRestore();
+      await engine.destroy();
+    }
   });
 });
 

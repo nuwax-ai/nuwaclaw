@@ -548,11 +548,19 @@ export class UnifiedAgentService extends EventEmitter {
           }
         : {}),
     };
-    this.warmup.start(warmupBaseConfig, (e) => this.forwardEvents(e), {
-      allowWhenActiveEngines: options?.allowWhenActiveEngines ?? true,
-      mcpServers: options?.mcpServers,
-      reason: options?.reason,
-    });
+    const startWarmup = () => {
+      this.warmup.start(warmupBaseConfig, (e) => this.forwardEvents(e), {
+        allowWhenActiveEngines: options?.allowWhenActiveEngines ?? true,
+        mcpServers: options?.mcpServers,
+        reason: options?.reason,
+      });
+    };
+    // 冷启动补仓延后到下一 macrotask，避免与刚完成的 init/chat 抢同一事件循环
+    if (options?.reason === "create_refill") {
+      setTimeout(startWarmup, 0);
+    } else {
+      startWarmup();
+    }
   }
 
   /**

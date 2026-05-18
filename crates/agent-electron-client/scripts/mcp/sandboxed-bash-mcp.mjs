@@ -8,6 +8,7 @@
  * Environment variables:
  *   NUWAX_SANDBOX_HELPER_PATH     — Path to nuwax-sandbox-helper.exe
  *   NUWAX_SANDBOX_MODE            — "read-only" | "workspace-write"
+ *   NUWAX_SANDBOX_POLICY_MODE     — "strict" | "compat" | "permissive"
  *   NUWAX_SANDBOX_NETWORK_ENABLED — "1" | "0"
  *   NUWAX_SANDBOX_WRITABLE_ROOTS  — JSON array of writable paths
  *   NUWAX_SANDBOX_PATH            — Pre-built PATH with bundled node/git/uv
@@ -35,6 +36,7 @@ import {
 
 const HELPER_PATH = process.env.NUWAX_SANDBOX_HELPER_PATH;
 const SANDBOX_MODE = process.env.NUWAX_SANDBOX_MODE || "read-only";
+const SANDBOX_POLICY_MODE = process.env.NUWAX_SANDBOX_POLICY_MODE || "compat";
 const NETWORK_ENABLED = process.env.NUWAX_SANDBOX_NETWORK_ENABLED !== "0";
 const WRITABLE_ROOTS = JSON.parse(
   process.env.NUWAX_SANDBOX_WRITABLE_ROOTS || "[]",
@@ -139,6 +141,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
   const policy = {
     type: SANDBOX_MODE === "workspace-write" ? "workspace-write" : "read-only",
     network_access: NETWORK_ENABLED,
+    sandbox_mode: SANDBOX_POLICY_MODE,
     ...(WRITABLE_ROOTS.length > 0 ? { writable_roots: WRITABLE_ROOTS } : {}),
   };
 

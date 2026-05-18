@@ -41,8 +41,10 @@ describe("sandbox matrix artifact consistency", () => {
     const baselineJson = fs.readFileSync(jsonPath, "utf8");
     const baselineMd = fs.readFileSync(mdPath, "utf8");
 
-    expect(baselineJson).toBe(generatedJson);
-    expect(baselineMd).toBe(generatedMd);
+    // Normalize CRLF on Windows so checkout EOL does not fail the check.
+    const normalizeEol = (text: string) => text.replace(/\r\n/g, "\n");
+    expect(normalizeEol(baselineJson)).toBe(normalizeEol(generatedJson));
+    expect(normalizeEol(baselineMd)).toBe(normalizeEol(generatedMd));
   });
 });
 

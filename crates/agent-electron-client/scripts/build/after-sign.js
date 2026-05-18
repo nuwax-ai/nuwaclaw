@@ -225,6 +225,20 @@ async function afterSignMac(context) {
     }
   }
 
+  // 5b. 签名 resources/nuwaxcode（内置引擎二进制）
+  const nuwaxcodePath = path.join(resourcesPath, 'nuwaxcode');
+  if (fs.existsSync(nuwaxcodePath)) {
+    const nuwaxcodeFiles = findExecutables(nuwaxcodePath);
+    console.log(`[after-sign] 找到 nuwaxcode 可执行文件: ${nuwaxcodeFiles.length} 个`);
+    for (const file of nuwaxcodeFiles) {
+      const base = path.basename(file);
+      if (base !== 'nuwaxcode' && base !== 'opencode') continue;
+      const relative = path.relative(nuwaxcodePath, file);
+      console.log(`[after-sign] 签名 nuwaxcode/${relative}`);
+      codesign(file, identity, childEntitlements);
+    }
+  }
+
   // 6. 对主 .app 重新签名，恢复 seal（内部二进制被签过后包内容已变，必须整体再签一次）
   console.log('[after-sign] 对主 app 重新签名以恢复 seal...');
   const entitlementsPath = path.join(process.cwd(), 'build', 'entitlements.mac.plist');

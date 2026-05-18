@@ -45,14 +45,28 @@ function resolveReal(p) {
 
 const SANDBOX_MODE = process.env.NUWAX_SANDBOX_MODE || "strict";
 
+const SESSION_CWD = (() => {
+  const val = process.env.NUWAX_SANDBOX_SESSION_CWD?.trim() || "";
+  if (val && !path.isAbsolute(val)) {
+    process.stderr.write(
+      `[sandboxed-fs] NUWAX_SANDBOX_SESSION_CWD must be absolute, got "${val}" — ignoring\n`,
+    );
+    return "";
+  }
+  return val;
+})();
+
 const WRITABLE_ROOTS = JSON.parse(
   process.env.NUWAX_SANDBOX_WRITABLE_ROOTS || "[]",
 ).map((p) => resolveReal(path.resolve(p)));
 
-// Always include TEMP/TMP as writable (matching Rust allow.rs behavior)
-const ADDITIONAL_ROOTS = [process.env.TEMP, process.env.TMP]
-  .filter(Boolean)
-  .map((p) => resolveReal(path.resolve(p)));
+// compat/permissive: include TEMP/TMP (strict session writes must stay under SESSION_CWD only)
+const ADDITIONAL_ROOTS =
+  SANDBOX_MODE === "strict"
+    ? []
+    : [process.env.TEMP, process.env.TMP]
+        .filter(Boolean)
+        .map((p) => resolveReal(path.resolve(p)));
 
 // compat mode: also allow APPDATA / LOCALAPPDATA (application data dirs)
 const COMPAT_ROOTS = SANDBOX_MODE === "compat"
@@ -70,7 +84,12 @@ function validatePath(targetPath) {
     return { allowed: false, error: "Sandbox: file_path is required" };
   }
 
-  let resolved = path.resolve(targetPath);
+  const baseDir = SESSION_CWD || undefined;
+  let resolved = path.isAbsolute(targetPath)
+    ? path.resolve(targetPath)
+    : baseDir
+      ? path.resolve(baseDir, targetPath)
+      : path.resolve(targetPath);
 
   // Resolve symlinks for defense-in-depth
   try {

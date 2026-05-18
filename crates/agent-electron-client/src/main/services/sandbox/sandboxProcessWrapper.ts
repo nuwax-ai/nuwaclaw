@@ -11,11 +11,14 @@
  */
 
 import * as fs from "fs";
-import * as path from "path";
 import log from "electron-log";
 import { SandboxInvoker } from "./SandboxInvoker";
 import type { Invocation } from "./SandboxInvoker";
 import type { SandboxProcessConfig } from "@shared/types/sandbox";
+import {
+  resolveMacOsStrictMcpExecAllowlist,
+  resolveMacOsStrictMcpResourceSubpaths,
+} from "./macOsStrictMcpSandbox";
 
 const NOOP_CLEANUP = () => {};
 
@@ -79,10 +82,35 @@ export async function buildSandboxedSpawnArgs(
     mode: sandboxConfig.mode,
   });
 
-  // 可写路径：工作区 + 额外路径（如 isolatedHome）
-  const writablePaths = [projectWorkspaceDir, ...extraWritablePaths].filter(
-    (p): p is string => typeof p === "string" && p.length > 0,
-  );
+  const isMacOsStrict =
+    type === "macos-seatbelt" && sandboxConfig.mode === "strict";
+  const macOsStrictMcpExtras = isMacOsStrict
+    ? {
+        exec: resolveMacOsStrictMcpExecAllowlist(),
+        execSubpaths: resolveMacOsStrictMcpResourceSubpaths(),
+      }
+    : null;
+
+  // strict: session/new 需在 projectWorkspaceDir 下建会话目录并写 MCP 配置；仅靠
+  // isolatedHome 不够（cwd 在 Downloads/.../computer-project-workspace/...）。
+  // 工具级写入门控仍由 OpenCode sandbox_mode=strict + strictPermissionGuard 负责。
+  const strictOsWritable =
+    sandboxConfig.mode === "strict" && projectWorkspaceDir
+      ? [projectWorkspaceDir]
+      : [];
+
+  const writablePaths =
+    sandboxConfig.mode === "strict"
+      ? [...extraWritablePaths, ...strictOsWritable].filter(
+          (p): p is string => typeof p === "string" && p.length > 0,
+        )
+      : [projectWorkspaceDir, ...extraWritablePaths].filter(
+          (p): p is string => typeof p === "string" && p.length > 0,
+        );
+
+  const startupExecAllowlist = macOsStrictMcpExtras
+    ? [originalCommand, ...macOsStrictMcpExtras.exec]
+    : [originalCommand];
 
   // 确保可写路径存在（bwrap --bind 要求路径存在）
   for (const wp of writablePaths) {
@@ -99,7 +127,8 @@ export async function buildSandboxedSpawnArgs(
       writablePaths,
       networkEnabled,
       subcommand: "serve",
-      startupExecAllowlist: [originalCommand],
+      startupExecAllowlist,
+      startupExecSubpathAllowlist: macOsStrictMcpExtras?.execSubpaths,
     });
 
     log.info("[SandboxProcessWrapper] Sandbox wrapping succeeded:", {

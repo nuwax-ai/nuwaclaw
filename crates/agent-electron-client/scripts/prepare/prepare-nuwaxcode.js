@@ -28,7 +28,7 @@ const { URL } = require('url');
 const { execSync, execFileSync } = require('child_process');
 const { getProjectRoot } = require('../utils/project-paths');
 
-const NUWAXCODE_VERSION = '1.1.99';
+const NUWAXCODE_VERSION = '1.2.1';
 const NUWAXCODE_REPO = process.env.NUWAXCODE_REPO || 'nuwax-ai/nuwaxcode';
 
 const projectRoot = getProjectRoot();
@@ -95,8 +95,19 @@ function getBinaryCandidates(key) {
  * - 使用 force:true，确保目录不存在时也不会抛错。
  */
 function resetDestBinDir(destDir) {
-  fs.rmSync(destDir, { recursive: true, force: true });
-  fs.mkdirSync(destDir, { recursive: true });
+  try {
+    fs.rmSync(destDir, { recursive: true, force: true });
+    fs.mkdirSync(destDir, { recursive: true });
+  } catch (err) {
+    if (err && (err.code === 'EPERM' || err.code === 'EBUSY')) {
+      console.warn(
+        `[prepare-nuwaxcode] cannot remove ${destDir} (${err.code}); overwriting in place`,
+      );
+      fs.mkdirSync(destDir, { recursive: true });
+      return;
+    }
+    throw err;
+  }
 }
 
 /**
@@ -136,6 +147,17 @@ const FORCE_REFRESH_ON_MATCH = false;
 
 // ==================== 模式 1: 本地 dist 复制 ====================
 
+function findDistSourceBinary(nuwaxcodeDist, distName, key) {
+  const srcBinDir = path.join(nuwaxcodeDist, distName, 'bin');
+  for (const name of getBinaryCandidates(key)) {
+    const candidate = path.join(srcBinDir, name);
+    if (fs.existsSync(candidate)) {
+      return { srcBinDir, sourceBinaryName: name };
+    }
+  }
+  return null;
+}
+
 function copyFromDist(key) {
   const nuwaxcodeDist = process.env.NUWAXCODE_DIST_DIR || path.join(
     process.env.HOME || '/root',
@@ -149,14 +171,18 @@ function copyFromDist(key) {
 
   const resourceKey = getResourcePlatformKey(key);
   const binary = getBinaryName(key);
-  const srcPath = path.join(nuwaxcodeDist, distName, 'bin', binary);
   const destDir = path.join(resDir, resourceKey, 'bin');
   const destPath = path.join(destDir, binary);
 
-  if (!fs.existsSync(srcPath)) {
-    console.warn(`[prepare-nuwaxcode] ${key}: 构建产物不存在 ${srcPath}`);
+  const source = findDistSourceBinary(nuwaxcodeDist, distName, key);
+  if (!source) {
+    const tried = getBinaryCandidates(key)
+      .map((name) => path.join(nuwaxcodeDist, distName, 'bin', name))
+      .join(', ');
+    console.warn(`[prepare-nuwaxcode] ${key}: 构建产物不存在 (tried: ${tried})`);
     return false;
   }
+  const srcPath = path.join(source.srcBinDir, source.sourceBinaryName);
 
   // 检查是否已是最新（SHA256 一致 + 版本匹配）
   // 注意：codesign 会修改二进制，所以用保存的 .sha256 记录比对 dest（签名后），
@@ -192,8 +218,36 @@ function copyFromDist(key) {
   resetDestBinDir(destDir);
 
   // 复制整个 bin 目录（包含二进制 + assets 等）
-  const srcBinDir = path.join(nuwaxcodeDist, distName, 'bin');
-  fs.cpSync(srcBinDir, destDir, { recursive: true });
+  fs.cpSync(source.srcBinDir, destDir, { recursive: true });
+  if (source.sourceBinaryName !== binary) {
+    const copiedSource = path.join(destDir, source.sourceBinaryName);
+    if (fs.existsSync(copiedSource)) {
+      const destTmp = `${destPath}.new`;
+      fs.copyFileSync(copiedSource, destTmp);
+      try {
+        if (fs.existsSync(destPath)) fs.unlinkSync(destPath);
+        fs.renameSync(destTmp, destPath);
+      } catch (err) {
+        if (err && (err.code === 'EPERM' || err.code === 'EBUSY')) {
+          console.warn(
+            `[prepare-nuwaxcode] ${key}: cannot replace locked ${binary} (${err.code}); left ${path.basename(destTmp)} — stop nuwaclaw/electron and re-run prepare`,
+          );
+          if (fs.existsSync(destTmp)) {
+            // Still usable if runtime resolves opencode.exe fallback
+          }
+        } else {
+          throw err;
+        }
+      }
+      if (fs.existsSync(copiedSource) && copiedSource !== destPath) {
+        try {
+          fs.unlinkSync(copiedSource);
+        } catch {
+          // ignore
+        }
+      }
+    }
+  }
   ensureModelJson(destDir, NUWAXCODE_VERSION);
   fs.chmodSync(destPath, 0o755);
 
@@ -216,6 +270,82 @@ function copyFromDist(key) {
 }
 
 // ==================== 模式 2: GitHub Release 下载 ====================
+
+/**
+ * 检查 GitHub 是否存在目标 Release tag（避免目标版本未发版时反复 404）。
+ * @returns {Promise<{ ok: boolean, latestTag?: string, status?: number }>}
+ */
+function checkGithubReleaseTag() {
+  return new Promise((resolve) => {
+    const tag = `v${NUWAXCODE_VERSION}`;
+    const apiUrl = `https://api.github.com/repos/${NUWAXCODE_REPO}/releases/tags/${tag}`;
+    const headers = {
+      'User-Agent': 'NuwaClaw-Build',
+      Accept: 'application/vnd.github+json',
+    };
+    if (process.env.GITHUB_TOKEN) {
+      headers.Authorization = `Bearer ${process.env.GITHUB_TOKEN}`;
+    }
+
+    let attempts = 0;
+    const maxAttempts = 3;
+    const retryDelay = (ms) => new Promise((r) => setTimeout(r, ms));
+
+    const tryRequest = () => {
+      attempts++;
+      console.log(`[prepare-nuwaxcode] 检查 Release ${tag} (尝试 ${attempts}/${maxAttempts})...`);
+      https
+        .get(apiUrl, { headers }, (res) => {
+          let body = '';
+          res.on('data', (chunk) => {
+            body += chunk;
+          });
+          res.on('end', () => {
+            if (res.statusCode === 200) {
+              console.log(`[prepare-nuwaxcode] ✓ Release ${tag} 存在`);
+              resolve({ ok: true });
+              return;
+            }
+            console.warn(
+              `[prepare-nuwaxcode] Release ${tag} 检查失败: HTTP ${res.statusCode}`,
+            );
+            if (attempts < maxAttempts) {
+              console.log(`[prepare-nuwaxcode] ${retryDelay(1000)}ms 后重试...`);
+              retryDelay(1000).then(tryRequest);
+              return;
+            }
+            // Exhausted retries — try to get latest tag for diagnostic
+            const latestUrl = `https://api.github.com/repos/${NUWAXCODE_REPO}/releases/latest`;
+            https
+              .get(latestUrl, { headers }, (res2) => {
+                let body2 = '';
+                res2.on('data', (c) => {
+                  body2 += c;
+                });
+                res2.on('end', () => {
+                  let latestTag;
+                  try {
+                    latestTag = JSON.parse(body2).tag_name;
+                  } catch (_) {}
+                  resolve({ ok: false, latestTag, status: res.statusCode });
+                });
+              })
+              .on('error', () => resolve({ ok: false, status: res.statusCode }));
+          });
+        })
+        .on('error', (err) => {
+          console.warn(`[prepare-nuwaxcode] 网络错误 (尝试 ${attempts}/${maxAttempts}): ${err.message}`);
+          if (attempts < maxAttempts) {
+            retryDelay(1500).then(tryRequest);
+          } else {
+            resolve({ ok: false, status: -1 });
+          }
+        });
+    };
+
+    tryRequest();
+  });
+}
 
 /**
  * 下载文件到缓存目录
@@ -584,6 +714,34 @@ async function main() {
   console.log(`[prepare-nuwaxcode] 模式: ${mode}`);
   console.log(`[prepare-nuwaxcode] 版本: v${NUWAXCODE_VERSION}`);
   console.log(`[prepare-nuwaxcode] 平台: ${keys.join(', ')}`);
+
+  if (!useLocalDist) {
+    const releaseCheck = await checkGithubReleaseTag();
+    if (!releaseCheck.ok) {
+      console.error(
+        `[prepare-nuwaxcode] GitHub Release 不存在: https://github.com/${NUWAXCODE_REPO}/releases/tag/v${NUWAXCODE_VERSION}`,
+      );
+      if (releaseCheck.latestTag) {
+        console.error(
+          `[prepare-nuwaxcode] 当前远端最新 Release: ${releaseCheck.latestTag}（与 prepare 脚本 NUWAXCODE_VERSION=${NUWAXCODE_VERSION} 不一致）`,
+        );
+      }
+      console.error('[prepare-nuwaxcode] 可选方案:');
+      console.error(
+        `  1) 在 nuwaxcode 仓库执行 ./release.sh ${NUWAXCODE_VERSION} 发布 GitHub Release`,
+      );
+      console.error(
+        '  2) 开发调试: NUWAXCODE_DIST_DIR=<nuwaxcode>/packages/opencode/dist npm run prepare:nuwaxcode',
+      );
+      console.error(
+        '  3) 临时回退: 修改 prepare-nuwaxcode.js 中 NUWAXCODE_VERSION 为已存在的 tag（不推荐用于发版）',
+      );
+      process.exit(1);
+    }
+    console.log(
+      `[prepare-nuwaxcode] GitHub Release v${NUWAXCODE_VERSION} 已存在`,
+    );
+  }
 
   if (!allPlatforms && !PLATFORM_MAP[keys[0]]) {
     console.error(`[prepare-nuwaxcode] 不支持的平台: ${keys[0]}`);

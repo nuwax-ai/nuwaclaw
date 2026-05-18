@@ -2,8 +2,11 @@
 # 通过 prerelease-v* tag 触发，构建全平台安装包并创建 GitHub Draft Release，
 # 自动同步到阿里云 OSS 并更新 beta/latest.json，供开发测试使用。
 #
-# 触发方式：
-#   - 推送 tag 匹配 prerelease-v*（例如 prerelease-v0.8.0）→ 构建 → 自动上传 OSS → 更新 beta/latest.json
+# 触发方式（手动，无 nuwaxcode 自动联动）：
+#   1. 确认 nuwaxcode GitHub Release 已就绪（如 v1.2.1）
+#   2. 准备 release-notes/prerelease-v{x.y.z}.md
+#   3. git tag prerelease-v{x.y.z} && git push origin prerelease-v{x.y.z}
+#   → 构建 → 自动上传 OSS → 更新 beta/latest.json
 #
 # 支持平台：
 #   - macOS arm64（macos-latest）
@@ -173,12 +176,14 @@ jobs:
         uses: actions/cache@v4
         with:
           path: crates/agent-electron-client/resources/nuwaxcode
-          key: bundled-nuwaxcode-v1-${{ matrix.platform }}-${{ matrix.arch }}-${{ hashFiles('crates/agent-electron-client/scripts/prepare/prepare-nuwaxcode.js') }}
+          # 前缀含 1.2.1：避免命中旧版 1.1.x 缓存；hashFiles 随 prepare-nuwaxcode.js 变更失效
+          key: bundled-nuwaxcode-1.2.1-${{ matrix.platform }}-${{ matrix.arch }}-${{ hashFiles('crates/agent-electron-client/scripts/prepare/prepare-nuwaxcode.js') }}
 
       - name: Prepare bundled resources (uv, node, git, nuwaxcode)
         working-directory: crates/agent-electron-client
         env:
           TARGET_ARCH: ${{ matrix.arch }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: npm run prepare:all
         timeout-minutes: 15
 
@@ -241,11 +246,21 @@ jobs:
         working-directory: crates/agent-electron-client
         env:
           TARGET_ARCH: ${{ matrix.arch }}
-          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
-          CSC_NAME: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          SKIP_PREPARE: "1"
         run: |
           echo "Building Electron app for ${{ runner.os }} (${{ matrix.arch }})"
-          npm run ${{ matrix.dist_cmd }} -- --publish never
+          if [ "${{ runner.os }}" = "macOS" ] && [ -z "${{ secrets.APPLE_CERTIFICATE || '' }}" ]; then
+            echo "APPLE_CERTIFICATE not set — using unsigned mac build"
+            case "${{ matrix.arch }}" in
+              arm64) npm run dist:mac:unsigned:arm64 -- --publish never ;;
+              x64)   npm run dist:mac:unsigned:x64 -- --publish never ;;
+              *)     npm run ${{ matrix.dist_cmd }} -- --publish never ;;
+            esac
+          else
+            APPLE_SIGNING_IDENTITY="${{ secrets.APPLE_SIGNING_IDENTITY }}" \
+            CSC_NAME="${{ secrets.APPLE_SIGNING_IDENTITY }}" \
+              npm run ${{ matrix.dist_cmd }} -- --publish never
+          fi
 
       - name: Upload artifacts to Release
         shell: bash

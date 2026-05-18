@@ -62,8 +62,10 @@ export interface SandboxInvocationParams {
   networkEnabled: boolean;
   /** 子命令模式：run=捕获输出返回 JSON，serve=双向 stdio 转发 */
   subcommand?: "run" | "serve";
-  /** 额外可执行路径白名单（compat 启动链路） */
+  /** 额外可执行路径白名单（compat 启动链路；strict 下仅追加 MCP 等显式路径） */
   startupExecAllowlist?: string[];
+  /** 额外可执行目录白名单；不授予写权限。 */
+  startupExecSubpathAllowlist?: string[];
 }
 
 /** 沙箱包装后的调用描述 */
@@ -192,8 +194,9 @@ export class SandboxInvoker {
   ): Promise<Invocation> {
     const mode = this.effectiveMode;
     const uniqueSuffix = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const tmpDir = fs.realpathSync(os.tmpdir());
     const profilePath = path.join(
-      fs.realpathSync(os.tmpdir()),
+      tmpDir,
       `nuwaclaw-sandbox-${uniqueSuffix}.sb`,
     );
     const profile = this.buildSeatbeltProfile(
@@ -201,6 +204,7 @@ export class SandboxInvoker {
       params.writablePaths,
       params.networkEnabled,
       params.startupExecAllowlist,
+      params.startupExecSubpathAllowlist,
     );
     await fsp.writeFile(profilePath, profile, "utf-8");
     log.info("[SandboxInvoker] seatbelt profile written:", {
@@ -208,6 +212,8 @@ export class SandboxInvoker {
       mode,
       command: params.command,
       startupExecAllowlistCount: params.startupExecAllowlist?.length ?? 0,
+      startupExecSubpathAllowlistCount:
+        params.startupExecSubpathAllowlist?.length ?? 0,
       networkEnabled: params.networkEnabled,
     });
 
@@ -264,7 +270,13 @@ export class SandboxInvoker {
       if (strict) {
         const roBindTargets = new Set<string>();
         const addRoBind = (p: string) => {
-          if (!p || !path.isAbsolute(p) || !fs.existsSync(p)) return;
+          if (!p || !path.isAbsolute(p)) return;
+          if (!fs.existsSync(p)) {
+            log.warn(
+              `[SandboxInvoker] addRoBind: path does not exist, skipping: ${p}`,
+            );
+            return;
+          }
           roBindTargets.add(p);
           try {
             const resolved = fs.realpathSync(p);
@@ -355,9 +367,11 @@ export class SandboxInvoker {
     // - compat/permissive: keep full writable roots list
     if (winMode === "workspace-write" && params.writablePaths.length > 0) {
       sandboxPolicy.writable_roots =
-        sandboxMode === "strict"
-          ? [params.writablePaths[0]]
-          : params.writablePaths;
+        sandboxMode === "strict" && subcommand === "serve"
+          ? params.writablePaths
+          : sandboxMode === "strict"
+            ? [params.writablePaths[0]]
+            : params.writablePaths;
     }
 
     const helperArgs = [
@@ -377,21 +391,15 @@ export class SandboxInvoker {
       helperArgs.push("--no-write-restricted");
     }
 
-    // Serve mode: never enable WRITE_RESTRICTED.
-    // WRITE_RESTRICTED adds restricting SIDs (logon, everyone, capability) to the
-    // token, which blocks the restricted process from spawning child processes.
-    // In serve mode the ACP engine (claude-code-acp-ts / nuwaxcode) MUST spawn
-    // MCP server sub-processes during session/new — restricting SIDs causes
-    // EPERM on every child spawn, making the session unusable.
-    //
-    // Filesystem write protection in serve mode is enforced by:
-    // 1. DACL ACEs (ALLOW paths applied by the sandbox helper)
-    // 2. sandboxed-bash MCP + sandboxed-fs MCP (tool-level interception)
-    // 3. evaluateStrictWritePermission proactive guard (nuwaxcode)
+    // Serve mode: keep WRITE_RESTRICTED off so nuwaxcode can spawn MCP children.
+    // Restricting SIDs on the serve token causes EPERM on MCP stdio subprocesses,
+    // leaving tool_call stuck in pending with no completed/error update.
+    // Filesystem enforcement for nuwaxcode: sandboxed-fs MCP + strictPermissionGuard.
     const serveWriteRestricted = false;
     if (subcommand === "serve") {
       log.info(
-        "[SandboxInvoker] WRITE_RESTRICTED disabled for serve mode (spawn EPERM prevention)",
+        "[SandboxInvoker] WRITE_RESTRICTED disabled for serve mode (MCP spawn compatibility)",
+        { sandboxMode },
       );
     }
 
@@ -431,6 +439,7 @@ export class SandboxInvoker {
     writablePaths: string[],
     networkEnabled: boolean,
     startupExecAllowlist: string[] = [],
+    startupExecSubpathAllowlist: string[] = [],
   ): string {
     const mode = this.effectiveMode;
     const permissive = mode === "permissive";
@@ -458,9 +467,8 @@ export class SandboxInvoker {
         '(allow process-exec (regex #"^/usr/lib/"))',
       );
       const execAllow = new Set<string>([command]);
-      // strict mode keeps a minimal exec surface and does not include
-      // startup chain allowlist entries.
-      if (compat) {
+      // compat: full startup chain; strict: only paths caller appends (e.g. MCP node/proxy).
+      if (compat || mode === "strict") {
         for (const p of startupExecAllowlist) execAllow.add(p);
       }
       for (const p of execAllow) {
@@ -476,11 +484,28 @@ export class SandboxInvoker {
           // ignore realpath failures for non-existing startup path
         }
       }
+      const execSubpathAllow = new Set<string>();
+      for (const p of startupExecSubpathAllowlist) {
+        if (!p || !path.isAbsolute(p)) continue;
+        execSubpathAllow.add(p);
+        try {
+          const resolved = fs.realpathSync(p);
+          if (resolved !== p) execSubpathAllow.add(resolved);
+        } catch {
+          // ignore realpath failures for non-existing startup path
+        }
+      }
+      for (const p of execSubpathAllow) {
+        lines.push(`(allow process-exec (subpath "${p}"))`);
+      }
       log.info("[SandboxInvoker] seatbelt exec allowlist resolved", {
         mode,
         command,
         execAllowCount: execAllow.size,
+        execSubpathAllowCount: execSubpathAllow.size,
         includeStartupChain: compat,
+        startupExecAllowlistCount: startupExecAllowlist.length,
+        startupExecSubpathAllowlistCount: startupExecSubpathAllowlist.length,
       });
       lines.push("(allow signal (target self))");
     }

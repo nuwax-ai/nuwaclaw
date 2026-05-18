@@ -1,3 +1,4 @@
+import path from "path";
 import { describe, it, expect } from "vitest";
 import { evaluateStrictWritePermission } from "./strictPermissionGuard";
 import type { AcpPermissionRequest } from "./acpClient";
@@ -79,7 +80,9 @@ describe("strictPermissionGuard", () => {
 
     expect(result.blocked).toBe(false);
     expect(result.reason).toBe("strict_paths_allowed");
-    expect(result.resolvedPaths[0]).toBe("/workspace/src/a.ts");
+    expect(result.resolvedPaths[0]).toBe(
+      path.resolve("/workspace", "src/a.ts"),
+    );
   });
 
   it("允许 temp 目录写入", () => {
@@ -125,7 +128,9 @@ describe("strictPermissionGuard", () => {
 
     expect(result.blocked).toBe(false);
     expect(result.reason).toBe("strict_paths_allowed");
-    expect(result.resolvedPaths[0]).toBe("/sandbox/home/notes/a.txt");
+    expect(result.resolvedPaths[0]).toBe(
+      path.resolve("/sandbox/home", "notes/a.txt"),
+    );
   });
 
   it("Windows: 绝对路径按 win32 语义解析且大小写不敏感", () => {
@@ -262,7 +267,39 @@ describe("strictPermissionGuard", () => {
 
     expect(result.blocked).toBe(false);
     expect(result.reason).toBe("strict_paths_allowed");
-    expect(result.resolvedPaths[0]).toBe("/workspace/notes/todo.md");
+    expect(result.resolvedPaths[0]).toBe(
+      path.resolve("/workspace", "notes/todo.md"),
+    );
+  });
+
+  it("strict + sessionWorkspaceDir 时拒绝项目根内但会话外的写入", () => {
+    const result = evaluateStrictWritePermission(
+      makeRequest({
+        toolCall: {
+          toolCallId: "tc-session-out",
+          kind: "write",
+          title: "sandboxed-fs_Write",
+          rawInput: {
+            file_path:
+              "C:\\project\\computer-project-workspace\\user\\other\\evil.txt",
+          },
+        },
+      }),
+      {
+        strictEnabled: true,
+        sandboxMode: "strict",
+        workspaceDir: "C:\\project",
+        projectWorkspaceDir: "C:\\project",
+        sessionWorkspaceDir:
+          "C:\\project\\computer-project-workspace\\user\\session-1",
+        appDataDir: "C:\\Users\\me\\.nuwaclaw",
+        tempDirs: ["C:\\Temp"],
+        platform: "win32",
+      },
+    );
+
+    expect(result.blocked).toBe(true);
+    expect(result.reason).toBe("strict_path_outside_roots");
   });
 
   it("非写入请求不触发 strict 路径拦截", () => {

@@ -286,24 +286,61 @@ describe("SandboxInvoker - macos-seatbelt", () => {
       );
     });
 
-    it("should include command literal but not startup-chain allowlist in strict mode", async () => {
+    it("should use engine-only startupExecAllowlist in strict when caller passes no MCP extras", async () => {
       const invoker = new SandboxInvoker("macos-seatbelt", { mode: "strict" });
       await invoker.buildInvocation(
         makeParams({
-          command: "/mock/resources/node/darwin-arm64/bin/node",
+          command: "/mock/resources/nuwaxcode/darwin-arm64/bin/nuwaxcode",
           startupExecAllowlist: [
-            "/mock/resources/claude-code-acp-ts/dist/index.js",
+            "/mock/resources/nuwaxcode/darwin-arm64/bin/nuwaxcode",
           ],
         }),
       );
 
-      const writeCall = mockFspWriteFile.mock.calls[0];
-      const profile = writeCall[1] as string;
+      const profile = mockFspWriteFile.mock.calls[0][1] as string;
+      expect(profile).toContain(
+        '(allow process-exec (literal "/mock/resources/nuwaxcode/darwin-arm64/bin/nuwaxcode"))',
+      );
+      expect(profile).not.toContain("claude-code-acp-ts");
+    });
+
+    it("should honor startupExecAllowlist MCP paths in strict mode", async () => {
+      const invoker = new SandboxInvoker("macos-seatbelt", { mode: "strict" });
+      await invoker.buildInvocation(
+        makeParams({
+          command: "/mock/resources/nuwaxcode/darwin-arm64/bin/nuwaxcode",
+          startupExecAllowlist: [
+            "/mock/resources/nuwaxcode/darwin-arm64/bin/nuwaxcode",
+            "/mock/resources/node/darwin-arm64/bin/node",
+            "/mock/resources/nuwax-mcp-stdio-proxy/dist/index.js",
+          ],
+        }),
+      );
+
+      const profile = mockFspWriteFile.mock.calls[0][1] as string;
       expect(profile).toContain(
         '(allow process-exec (literal "/mock/resources/node/darwin-arm64/bin/node"))',
       );
+      expect(profile).toContain(
+        '(allow process-exec (literal "/mock/resources/nuwax-mcp-stdio-proxy/dist/index.js"))',
+      );
+    });
+
+    it("should allow strict exec subpaths without granting file writes", async () => {
+      const invoker = new SandboxInvoker("macos-seatbelt", { mode: "strict" });
+      await invoker.buildInvocation(
+        makeParams({
+          command: "/mock/resources/nuwaxcode/darwin-arm64/bin/nuwaxcode",
+          startupExecSubpathAllowlist: ["/mock/resources/node"],
+        }),
+      );
+
+      const profile = mockFspWriteFile.mock.calls[0][1] as string;
+      expect(profile).toContain(
+        '(allow process-exec (subpath "/mock/resources/node"))',
+      );
       expect(profile).not.toContain(
-        '(allow process-exec (literal "/mock/resources/claude-code-acp-ts/dist/index.js"))',
+        '(allow file-write* (subpath "/mock/resources/node"))',
       );
     });
   });
@@ -345,15 +382,20 @@ describe("SandboxInvoker - macos-seatbelt", () => {
     expect(matches).toHaveLength(1);
   });
 
-  it("should write profile to temp directory", async () => {
-    const invoker = new SandboxInvoker("macos-seatbelt");
-    await invoker.buildInvocation(makeParams());
+  it.skipIf(process.platform !== "darwin")(
+    "should write profile to temp directory",
+    async () => {
+      const invoker = new SandboxInvoker("macos-seatbelt");
+      await invoker.buildInvocation(makeParams());
 
-    const writeCall = mockFspWriteFile.mock.calls[0];
-    const profilePath = writeCall[0] as string;
+      const writeCall = mockFspWriteFile.mock.calls[0];
+      const profilePath = writeCall[0] as string;
 
-    expect(profilePath).toMatch(/^\/tmp\/nuwaclaw-sandbox-\d+-[a-z0-9]+\.sb$/);
-  });
+      expect(profilePath).toMatch(
+        /^\/tmp\/nuwaclaw-sandbox-\d+-[a-z0-9]+\.sb$/,
+      );
+    },
+  );
 });
 
 // ============================================================================
@@ -780,6 +822,30 @@ describe("SandboxInvoker - windows-sandbox", () => {
       });
     });
 
+    it("strict serve: should keep all process roots for MCP spawn compatibility", async () => {
+      await withPlatform("win32", async () => {
+        const invoker = new SandboxInvoker("windows-sandbox", {
+          windowsSandboxHelperPath: fakeHelperPath,
+          windowsSandboxMode: "workspace-write",
+          mode: "strict",
+        });
+        const result = await invoker.buildInvocation(
+          makeParams({
+            subcommand: "serve",
+            writablePaths: ["C:\\workspace", "C:\\isolated-home"],
+          }),
+        );
+
+        const policyArgIdx = result.args.indexOf("--policy-json");
+        const policy = JSON.parse(result.args[policyArgIdx + 1]);
+        expect(policy.writable_roots).toEqual([
+          "C:\\workspace",
+          "C:\\isolated-home",
+        ]);
+        expect(result.args).not.toContain("--write-restricted");
+      });
+    });
+
     it("strict: should NOT include --no-write-restricted", async () => {
       await withPlatform("win32", async () => {
         const invoker = new SandboxInvoker("windows-sandbox", {
@@ -838,6 +904,22 @@ describe("SandboxInvoker - windows-sandbox", () => {
 
         expect(result.args).not.toContain("--no-write-restricted");
       });
+    });
+
+    it("serve (all modes): should NOT include --write-restricted (MCP child spawn)", async () => {
+      for (const mode of ["strict", "compat", "permissive"] as const) {
+        await withPlatform("win32", async () => {
+          const invoker = new SandboxInvoker("windows-sandbox", {
+            windowsSandboxHelperPath: fakeHelperPath,
+            mode,
+          });
+          const result = await invoker.buildInvocation(
+            makeParams({ subcommand: "serve" }),
+          );
+
+          expect(result.args).not.toContain("--write-restricted");
+        });
+      }
     });
 
     it("permissive: should include all writable_roots", async () => {

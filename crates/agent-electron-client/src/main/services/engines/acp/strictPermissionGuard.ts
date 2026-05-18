@@ -14,7 +14,16 @@ const WRITE_KEYWORDS = [
   "create file",
 ] as const;
 
-const NON_WRITE_KEYWORDS = ["bash", "terminal", "shell", "webfetch", "http"];
+const NON_WRITE_KEYWORDS = [
+  "bash",
+  "terminal",
+  "shell",
+  "webfetch",
+  "http",
+  // Subagent orchestration — paths in prompt are instructions, not direct writes.
+  "task",
+  "subagent",
+];
 
 const PATH_FIELDS = new Set([
   "path",
@@ -46,6 +55,8 @@ export interface StrictPermissionContext {
   sandboxMode?: string;
   workspaceDir?: string;
   projectWorkspaceDir?: string;
+  /** ACP session cwd — strict mode prefers this over broad project roots. */
+  sessionWorkspaceDir?: string;
   isolatedHome?: string | null;
   appDataDir: string;
   tempDirs?: Array<string | null | undefined>;
@@ -149,7 +160,10 @@ function buildPathResolveContext(
   context: StrictPermissionContext,
 ): PathResolveContext {
   return {
-    baseDir: context.projectWorkspaceDir || context.workspaceDir,
+    baseDir:
+      context.sessionWorkspaceDir ||
+      context.projectWorkspaceDir ||
+      context.workspaceDir,
     homeDir: context.isolatedHome,
     platform: context.platform ?? getCurrentPlatform(),
   };
@@ -182,8 +196,15 @@ function buildStrictWritableRoots(
     if (resolved) roots.add(resolved);
   };
 
-  add(context.workspaceDir);
-  add(context.projectWorkspaceDir);
+  if (context.sandboxMode === "strict" && context.sessionWorkspaceDir) {
+    add(context.sessionWorkspaceDir);
+  } else {
+    add(context.workspaceDir);
+    add(context.projectWorkspaceDir);
+    if (context.sessionWorkspaceDir) {
+      add(context.sessionWorkspaceDir);
+    }
+  }
   // Only include appDataDir in compat/permissive — matches Rust allow.rs behavior.
   // Strict mode intentionally excludes APPDATA for minimal write surface.
   if (context.sandboxMode !== "strict") {

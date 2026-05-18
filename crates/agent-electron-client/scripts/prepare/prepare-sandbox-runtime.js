@@ -73,16 +73,34 @@ function resolvePlatformArtifact(manifest, key) {
   return normalizeEntry(table[key]);
 }
 
+function writeSkippedStub(key, reason) {
+  ensureDir(targetRoot);
+  ensureDir(targetBin);
+  const payload = {
+    skipped: true,
+    reason,
+    platform: key,
+    preparedAt: new Date().toISOString(),
+  };
+  fs.writeFileSync(
+    path.join(targetRoot, "resolved-manifest.json"),
+    JSON.stringify(payload, null, 2),
+    "utf-8",
+  );
+  console.warn(`[prepare-sandbox-runtime] 已写入占位目录（${reason}）`);
+}
+
 function main() {
   const key = getPlatformKey();
   const manifest = loadManifest();
-  if (!manifest) return;
+  if (!manifest) {
+    writeSkippedStub(key, "manifest missing");
+    return;
+  }
 
   const artifact = resolvePlatformArtifact(manifest, key);
   if (!artifact) {
-    console.warn(
-      `[prepare-sandbox-runtime] manifest 未提供平台 ${key} 的产物定义，跳过`,
-    );
+    writeSkippedStub(key, `no artifact for ${key}`);
     return;
   }
 
