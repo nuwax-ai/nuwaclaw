@@ -56,15 +56,19 @@ export function buildOpencodeProviderSection(
   if (slashIdx <= 0) return undefined;
   const providerID = model.substring(0, slashIdx);
   const modelID = model.substring(slashIdx + 1);
+  // Infer key env var from providerID pattern (openai-compatible/anthropic-compatible
+  // are special cases; dot-separated model IDs like "gpt-4o" from provider "gpt" are
+  // treated as custom providers with no default env).
+  const envVars: string[] =
+    providerID === "openai-compatible"
+      ? ["OPENAI_API_KEY"]
+      : providerID === "anthropic-compatible"
+        ? ["ANTHROPIC_API_KEY"]
+        : [];
   return {
     [providerID]: {
       name: providerID,
-      env:
-        providerID === "openai-compatible"
-          ? ["OPENAI_API_KEY"]
-          : providerID === "anthropic-compatible"
-            ? ["ANTHROPIC_API_KEY"]
-            : [],
+      env: envVars,
       models: {
         [modelID]: { name: modelID },
       },

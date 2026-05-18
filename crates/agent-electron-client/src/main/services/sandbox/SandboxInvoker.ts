@@ -192,8 +192,9 @@ export class SandboxInvoker {
   ): Promise<Invocation> {
     const mode = this.effectiveMode;
     const uniqueSuffix = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const tmpDir = fs.realpathSync(os.tmpdir());
     const profilePath = path.join(
-      fs.realpathSync(os.tmpdir()),
+      tmpDir,
       `nuwaclaw-sandbox-${uniqueSuffix}.sb`,
     );
     const profile = this.buildSeatbeltProfile(
@@ -264,7 +265,13 @@ export class SandboxInvoker {
       if (strict) {
         const roBindTargets = new Set<string>();
         const addRoBind = (p: string) => {
-          if (!p || !path.isAbsolute(p) || !fs.existsSync(p)) return;
+          if (!p || !path.isAbsolute(p)) return;
+          if (!fs.existsSync(p)) {
+            log.warn(
+              `[SandboxInvoker] addRoBind: path does not exist, skipping: ${p}`,
+            );
+            return;
+          }
           roBindTargets.add(p);
           try {
             const resolved = fs.realpathSync(p);

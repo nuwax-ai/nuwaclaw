@@ -247,11 +247,9 @@ jobs:
         env:
           TARGET_ARCH: ${{ matrix.arch }}
           SKIP_PREPARE: "1"
-          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
-          CSC_NAME: ${{ secrets.APPLE_SIGNING_IDENTITY }}
         run: |
           echo "Building Electron app for ${{ runner.os }} (${{ matrix.arch }})"
-          if [ "${{ runner.os }}" = "macOS" ] && [ -z "${{ secrets.APPLE_CERTIFICATE }}" ]; then
+          if [ "${{ runner.os }}" = "macOS" ] && [ -z "${{ secrets.APPLE_CERTIFICATE || '' }}" ]; then
             echo "APPLE_CERTIFICATE not set — using unsigned mac build"
             case "${{ matrix.arch }}" in
               arm64) npm run dist:mac:unsigned:arm64 -- --publish never ;;
@@ -259,7 +257,9 @@ jobs:
               *)     npm run ${{ matrix.dist_cmd }} -- --publish never ;;
             esac
           else
-            npm run ${{ matrix.dist_cmd }} -- --publish never
+            APPLE_SIGNING_IDENTITY="${{ secrets.APPLE_SIGNING_IDENTITY }}" \
+            CSC_NAME="${{ secrets.APPLE_SIGNING_IDENTITY }}" \
+              npm run ${{ matrix.dist_cmd }} -- --publish never
           fi
 
       - name: Upload artifacts to Release
