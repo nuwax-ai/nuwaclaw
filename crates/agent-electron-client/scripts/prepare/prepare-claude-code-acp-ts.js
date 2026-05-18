@@ -35,6 +35,10 @@ function exec(cmd, opts = {}) {
   execSync(cmd, { stdio: 'inherit', ...opts });
 }
 
+function execGit(cmd, opts = {}) {
+  return exec(`git ${cmd}`, opts);
+}
+
 function main() {
   const hasBuild = fs.existsSync(path.join(SOURCE_DIR, 'dist'));
   const hasNodeModules = fs.existsSync(path.join(SOURCE_DIR, 'node_modules'));
@@ -42,17 +46,29 @@ function main() {
   // 1. 克隆或更新源码（已有 dist 时跳过 git pull，避免 CI 二次 prepare 时 pull 失败）
   if (!fs.existsSync(path.join(SOURCE_DIR, '.git'))) {
     console.log('[prepare-claude-code-acp-ts] 克隆源码...');
-    exec(`git clone --branch ${GIT_BRANCH} ${GIT_REPO} "${SOURCE_DIR}"`);
+    execGit(`clone --branch ${GIT_BRANCH} --depth 1 ${GIT_REPO} "${SOURCE_DIR}"`);
   } else if (!hasBuild || !hasNodeModules) {
     console.log('[prepare-claude-code-acp-ts] 更新源码...');
-    try {
-      exec(
-        `cd "${SOURCE_DIR}" && git fetch origin ${GIT_BRANCH} && git checkout ${GIT_BRANCH} && git pull --ff-only`,
-      );
-    } catch (err) {
-      console.warn(
-        `[prepare-claude-code-acp-ts] git 更新失败，继续使用已有源码: ${err.message || err}`,
-      );
+    let updated = false;
+    // 重试 fetch + checkout 最多 3 次，网络抖动时有用
+    for (let attempt = 1; attempt <= 3 && !updated; attempt++) {
+      try {
+        execGit(`fetch origin ${GIT_BRANCH} --depth=1`, { cwd: SOURCE_DIR });
+        execGit(`checkout ${GIT_BRANCH}`, { cwd: SOURCE_DIR });
+        execGit(`pull --ff-only origin ${GIT_BRANCH}`, { cwd: SOURCE_DIR });
+        updated = true;
+      } catch (err) {
+        if (attempt === 3) {
+          console.warn(
+            `[prepare-claude-code-acp-ts] git 更新失败（已重试 ${attempt} 次），继续使用已有源码: ${err.message || err}`,
+          );
+        } else {
+          console.warn(
+            `[prepare-claude-code-acp-ts] git 更新失败（尝试 ${attempt}/3），1s 后重试...`,
+          );
+          execSync('sleep 1', { stdio: 'pipe' });
+        }
+      }
     }
   } else {
     console.log(
