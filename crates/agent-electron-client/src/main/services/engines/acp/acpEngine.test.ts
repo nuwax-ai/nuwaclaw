@@ -346,11 +346,22 @@ describe("AcpEngine.createSession", () => {
     }
 
     const sent = newSession.mock.calls[0][0] as {
-      mcpServers: Array<{ name: string }>;
+      mcpServers: Array<{
+        name: string;
+        env?: Array<{ name: string; value: string }>;
+      }>;
     };
     const names = sent.mcpServers.map((m) => m.name);
     expect(names).toContain("sandboxed-bash");
     expect(names).toContain("sandboxed-fs");
+    const bashServer = sent.mcpServers.find((m) => m.name === "sandboxed-bash");
+    expect(
+      bashServer?.env?.find((kv) => kv.name === "NUWAX_SANDBOX_MODE")?.value,
+    ).toBe("workspace-write");
+    expect(
+      bashServer?.env?.find((kv) => kv.name === "NUWAX_SANDBOX_POLICY_MODE")
+        ?.value,
+    ).toBe("strict");
   });
 
   it("沙箱启用时应移除 gui-agent MCP（互斥）", async () => {

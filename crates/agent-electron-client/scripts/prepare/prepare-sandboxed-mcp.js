@@ -80,13 +80,14 @@ function resolveEsbuildCmd() {
   process.exit(1);
 }
 
-function needsRebuild(outfile, versionStampPath) {
+function needsRebuild(entry, outfile, versionStampPath) {
   if (!fs.existsSync(outfile) || !fs.existsSync(versionStampPath)) {
     return true;
   }
   try {
     const stamp = fs.readFileSync(versionStampPath, 'utf8').trim();
-    return stamp !== sdkVersion;
+    if (stamp !== sdkVersion) return true;
+    return fs.statSync(entry).mtimeMs > fs.statSync(outfile).mtimeMs;
   } catch {
     return true;
   }
@@ -102,7 +103,7 @@ function bundleOne(esbuildCmd, spec) {
     process.exit(1);
   }
 
-  if (!needsRebuild(outfile, versionStampPath)) {
+  if (!needsRebuild(entry, outfile, versionStampPath)) {
     console.log(
       `[prepare-sandboxed-mcp] ${name} @modelcontextprotocol/sdk@${sdkVersion} already bundled, skip`,
     );

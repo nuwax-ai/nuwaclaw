@@ -133,6 +133,10 @@ export function injectSandboxedMcpForSession(
             value: sandboxConfig.windowsSandboxMode ?? "workspace-write",
           },
           {
+            name: "NUWAX_SANDBOX_POLICY_MODE",
+            value: sandboxMode,
+          },
+          {
             name: "NUWAX_SANDBOX_NETWORK_ENABLED",
             value: (sandboxConfig.networkEnabled ?? true) ? "1" : "0",
           },
