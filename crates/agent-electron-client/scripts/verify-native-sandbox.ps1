@@ -16,7 +16,7 @@ if (-not (Test-Path $exe)) {
 
 $ver = & $exe --version 2>&1
 Write-Host "bundled --version: $ver"
-if ($ver -notmatch "1\.2\.0") {
+if ($ver -notmatch "1\.2\.1") {
   Write-Warning "Expected 1.2.1; native sandbox gate uses resources/.version file"
 }
 

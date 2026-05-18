@@ -837,7 +837,12 @@ export class AcpEngine extends EventEmitter {
     const sandboxEnabled = this.storedSandboxConfig?.enabled === true;
     const sandboxMode = this.storedSandboxConfig?.mode ?? "compat";
     const isStrictOrCompat = sandboxMode !== "permissive";
-    const sessionCwd = opts?.cwd || this.config.workspaceDir;
+    const sessionCwd = (() => {
+      const raw = opts?.cwd || this.config.workspaceDir;
+      if (path.isAbsolute(raw)) return raw;
+      log.warn(`${this.logTag} sessionCwd is not absolute (${raw}), resolving`);
+      return path.resolve(raw);
+    })();
 
     // GUI MCP (gui-agent) and sandbox are mutually exclusive for now.
     // Drop gui-agent from both global and per-request MCP inputs when sandbox is on.

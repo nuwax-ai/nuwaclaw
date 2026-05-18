@@ -45,7 +45,16 @@ function resolveReal(p) {
 
 const SANDBOX_MODE = process.env.NUWAX_SANDBOX_MODE || "strict";
 
-const SESSION_CWD = process.env.NUWAX_SANDBOX_SESSION_CWD?.trim() || "";
+const SESSION_CWD = (() => {
+  const val = process.env.NUWAX_SANDBOX_SESSION_CWD?.trim() || "";
+  if (val && !path.isAbsolute(val)) {
+    process.stderr.write(
+      `[sandboxed-fs] NUWAX_SANDBOX_SESSION_CWD must be absolute, got "${val}" — ignoring\n`,
+    );
+    return "";
+  }
+  return val;
+})();
 
 const WRITABLE_ROOTS = JSON.parse(
   process.env.NUWAX_SANDBOX_WRITABLE_ROOTS || "[]",
