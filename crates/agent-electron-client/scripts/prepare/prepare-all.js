@@ -108,7 +108,6 @@ async function main() {
     'prepare:windows-mcp',
     'prepare:nuwax-file-server',
     'prepare:claude-code-acp-ts',
-    'prepare:gateway',
   ];
   console.log(`[prepare-all] Phase 2: 并行执行 ${phase2.length} 个脚本`);
   const r2 = await runParallel(phase2);

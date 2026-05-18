@@ -1,41 +1,28 @@
 # codex-acp OpenAI-Compatible Routing
 
-Last updated: 2026-05-14
+Last updated: 2026-05-18
 
-## 背景
+## Current Contract
 
-NuwaClaw 的 `codex-cli` 引擎实际通过自维护的 `nuwax-codex-acp` 运行。国内 OpenAI 协议模型需要走本地 gateway 的 `chat2response` 兼容层：
+NuwaClaw 的 `codex-cli` 引擎通过自维护的 `nuwax-codex-acp` 运行。OpenAI-compatible 协议转换能力已收口到 `nuwax-codex-acp` 内部，Electron 客户端不再启动或打包独立的 gateway/chat2response 进程。
 
 ```text
-NuwaClaw Electron -> nuwax-codex-acp -> local gateway /chat2response/v1 -> upstream OpenAI-compatible /chat/completions
+NuwaClaw Electron -> nuwax-codex-acp -> upstream OpenAI-compatible endpoint
 ```
 
-本次修复的直接问题是 `glm-5` 被 codex-acp 内部默认模型覆盖，最终向上游发送了 `gpt-5.1-codex-max`，触发：
-
-```json
-{"error":{"code":"1211","message":"模型不存在，请检查模型代码。"}}
-```
-
-后续验证还发现三个运行时问题：
-
-- codex-acp 会优先尝试 WebSocket，gateway 对 `/v1/responses` 的 WebSocket GET 返回 404。
-- gateway 的 chat2response 插件为了覆盖模型提前读取了请求体，upstream Express body-parser 再次读取时触发 `stream is not readable`。
-- Electron 为 ACP 进程使用隔离 `HOME` 时，`nuwax-codex-acp` 还未激活 env API key，`session/new` 会返回 `{"code":-32000,"message":"Authentication required"}`。
-
-## 最终约定
-
-NuwaClaw 和 `nuwax-codex-acp` 之间只通过环境变量传递运行时模型配置，不写入 `config.toml`，不落盘保存密钥。
+NuwaClaw 只负责把运行时模型配置注入 ACP 进程环境，不写入 `config.toml`，不落盘保存密钥。
 
 | 变量 | 生产者 | 消费者 | 含义 |
 | --- | --- | --- | --- |
-| `CODEX_MODEL` | NuwaClaw | nuwax-codex-acp, gateway | provider 原始模型名，例如 `glm-5` |
-| `CODEX_BASE_URL` | NuwaClaw | nuwax-codex-acp | 本地 Responses 兼容地址，例如 `http://127.0.0.1:60009/chat2response/v1` |
+| `CODEX_MODEL` | NuwaClaw | nuwax-codex-acp | provider 原始模型名，例如 `glm-5` |
+| `CODEX_BASE_URL` | NuwaClaw | nuwax-codex-acp | 上游 OpenAI-compatible base URL |
 | `CODEX_API_KEY` | NuwaClaw | nuwax-codex-acp | 上游模型 provider key |
-| `OPENAI_BASE_URL` | NuwaClaw | gateway chat2response | 上游 OpenAI-compatible base URL |
-| `OPENAI_API_KEY` | NuwaClaw | gateway chat2response, nuwax-codex-acp auth | 上游模型 provider key |
-| `OPENAI_MODEL` | NuwaClaw | gateway chat2response | provider 原始模型名 |
+| `OPENAI_BASE_URL` | NuwaClaw | nuwaxcode / nuwax-codex-acp auth compat | 上游 OpenAI-compatible base URL |
+| `OPENAI_API_KEY` | NuwaClaw | nuwaxcode / nuwax-codex-acp auth compat | 上游模型 provider key |
 
-模型解析优先级为：
+## Model Resolution
+
+模型解析优先级：
 
 ```text
 agent_server.env model override
@@ -43,140 +30,48 @@ agent_server.env model override
   -> model_provider.default_model
 ```
 
-支持的 env model override 包括 `OPENCODE_MODEL`、`ANTHROPIC_MODEL`、`CODEX_MODEL`。如果模型带 `openai-compatible/` 前缀，NuwaClaw 保留 raw model 用于识别路由，但传给 provider 的模型会剥离前缀：
+支持的 env model override 包括 `OPENCODE_MODEL`、`ANTHROPIC_MODEL`、`CODEX_MODEL`。如果模型带 `openai-compatible/` 前缀，NuwaClaw 保留 raw model 用于识别 OpenAI-compatible，但传给 provider 的模型会剥离前缀：
 
 ```text
 openai-compatible/glm-5 -> glm-5
 ```
 
-## NuwaClaw 侧实现
-
-### 模型解析
+## Electron Responsibilities
 
 `crates/agent-electron-client/src/main/services/engines/acp/openAICompatRouting.ts`
 
-- 新增 `resolveOpenAICompatModel`。
-- env model override 优先于 fallback/default model，避免 agent 显式选择的模型被覆盖。
-- `applyOpenAICompatibleEnv` 用统一的解析结果判断是否启用 OpenAI-compatible 路由。
-
-### 统一入口
-
-`crates/agent-electron-client/src/main/services/engines/unifiedAgent.ts`
-
-- 在收到远端 `agent_config.agent_server.env` 后先解析 env。
-- 用解析出的 provider model 启动 gateway。
-- 对 `codex-cli` 保证 `model_provider.default_model` 也能参与路由。
-
-### ACP 进程环境
+- `resolveOpenAICompatModel` 负责解析 `openai-compatible/` 前缀。
+- `applyOpenAICompatibleEnv` 只注入标准 `OPENAI_API_KEY` / `OPENAI_BASE_URL`。
+- 不再包含 gateway/chat2response proxy 选择、URL 改写或上游地址暂存逻辑。
 
 `crates/agent-electron-client/src/main/services/engines/acp/acpClient.ts`
 
-- 对 `codex` / `codex-cli` 注入：
-  - `CODEX_API_KEY`
-  - `OPENAI_API_KEY`
-  - `CODEX_MODEL`
-  - `CODEX_BASE_URL`
-- `CODEX_BASE_URL` 使用 `applyOpenAICompatibleEnv` 后的最终地址，OpenAI-compatible 模型走本地 gateway。
-- 支持 `NUWACLAW_CODEX_ACP_BIN` / `CODEX_ACP_BIN` 覆盖 `nuwax-codex-acp` 二进制，便于本地验证 fork。
-- `agent_server.env` 支持 `{MODEL_PROVIDER_DEFAULT_MODEL}`，可直接配置：
-  - `"CODEX_API_KEY": "{MODEL_PROVIDER_API_KEY}"`
-  - `"CODEX_MODEL": "{MODEL_PROVIDER_DEFAULT_MODEL}"`
-  - `"CODEX_BASE_URL": "{MODEL_PROVIDER_BASE_URL}"`
+- `codex` / `codex-cli` 注入 `CODEX_API_KEY`、`CODEX_MODEL`、`CODEX_BASE_URL`。
+- OpenAI-compatible 配置同时注入 `OPENAI_API_KEY`、`OPENAI_BASE_URL`，用于 nuwaxcode/opencode 兼容路径和 codex ACP auth。
+- `CODEX_BASE_URL` 指向真实上游 base URL，不再指向本地转换服务。
 
-### ACP 鉴权激活
+`crates/agent-electron-client/src/main/services/engines/unifiedAgent.ts`
 
-`crates/agent-electron-client/src/main/services/engines/acp/acpEngine.ts`
+- 不再自动启动本地 gateway。
+- `codex-cli` 的协议兼容由 `nuwax-codex-acp` 负责。
 
-- `codex-cli` 连接初始化后、创建 session 前，会根据运行时 env 自动调用 ACP `authenticate`。
-- 有 `CODEX_API_KEY` 或 `config.apiKey` 时使用 `methodId = "codex-api-key"`。
-- 仅有 `OPENAI_API_KEY` 时使用 `methodId = "openai-api-key"`。
-- 该步骤不改变环境变量传递方案，只是在隔离 `HOME` 下让 `nuwax-codex-acp` 激活当前进程 env 中的 API key，避免首次 `session/new` 返回 `Authentication required`。
+## Removed Surface
 
-### gateway 启动
+Electron 客户端不再维护以下内容：
 
-`crates/agent-electron-client/src/main/services/packages/gatewayServer.ts`
+- `crates/gateway-server`
+- 根目录 `chat2response` gitlink
+- `prepare:gateway`
+- `resources/gateway` extraResources
+- gateway/chat2response IPC、preload API、renderer 服务项
+- gateway/chat2response dependency checks
 
-- gateway runtime config 包含 `apiKey`、`baseUrl`、`model`。
-- 这些配置变化时重启 gateway。
-- 启动 gateway 时注入 `OPENAI_BASE_URL`、`OPENAI_API_KEY`、`CODEX_API_KEY`、`CODEX_MODEL`、`OPENAI_MODEL`。
-
-## gateway 兼容层实现
-
-`crates/gateway-server/lib/plugins/chat2response.js`
-
-- 启动 chat2response 时动态注入 `openai` provider，让它使用 `OPENAI_BASE_URL` 和 `OPENAI_API_KEY`。
-- 请求 `/v1/responses` 时用 `CODEX_MODEL` / `OPENAI_MODEL` 覆盖 body 里的 `model`。
-- 覆盖模型后不再把请求体重新伪造成可读流，而是创建 body-parser 兼容 request proxy：
-  - `req.body` 返回已解析并改写的 body。
-  - `req._body` 返回 `true`，让 Express body-parser 跳过二次读取。
-  - 移除旧 `content-length`，并补 `x-provider: openai`，避免 `glm-5` 被 chat2response 自动分配到内置 `glm` provider。
-
-`crates/agent-electron-client/resources/gateway/` 是 prepare 后的运行时资源目录，仓库提交以 `crates/gateway-server` 为源。全新 prepare 或打包时会从 gateway-server 源目录生成 runtime 资源。
-
-## nuwax-codex-acp fork 实现
-
-仓库：`https://github.com/nuwax-ai/codex-acp`
-
-维护分支：`dev`
-
-当前集成版本：`v0.15.1`
-
-Release：`https://github.com/nuwax-ai/codex-acp/releases/tag/v0.15.1`
-
-命令名：`nuwax-codex-acp`
-
-`src/lib.rs`
-
-- `Config` 加载完成后无条件应用 NuwaClaw env override。
-- `CODEX_API_KEY` 映射为 `OPENAI_API_KEY`，让 Codex auth 逻辑正常读取。
-- `CODEX_MODEL` 无条件覆盖 `config.model`，并剥离 `openai-compatible/` 前缀。
-- `CODEX_BASE_URL` 创建自定义 provider：
-  - `model_provider_id = "nuwaclaw-openai-compatible"`
-  - `base_url = CODEX_BASE_URL`
-  - `env_key = OPENAI_API_KEY`
-  - `wire_api = Responses`
-  - `requires_openai_auth = false`
-  - `supports_websockets = false`
-
-禁用 WebSocket 是必要的，因为本地 gateway 只实现 HTTP Responses 兼容入口。
-
-`Cargo.toml`
-
-- 增加 `codex-model-provider-info` 依赖，用于构造 provider 信息。
-
-## 验证
-
-已执行：
+## Verification
 
 ```bash
-cd /Users/apple/workspace/codex-acp
-cargo test normalize_model_strips_openai_compatible_prefix
-cargo build --release
-
-cd /Users/apple/workspace/nuwaclaw/crates/agent-electron-client
-npm run test:run -- src/main/services/engines/acp/acpEngine.test.ts src/main/services/engines/acp/acpClient.test.ts
+cd crates/agent-electron-client
+npm run test:run -- src/main/services/engines/acp/acpClient.test.ts src/main/services/engines/acp/acpEngine.test.ts
+npm run test:scripts
 npm run build:main:dev
-
-cd /Users/apple/workspace/nuwaclaw
-git diff --check
+npm run build:renderer
 ```
-
-额外 smoke 验证：
-
-- 本地 mock OpenAI-compatible `/chat/completions`。
-- gateway `/chat2response/v1/responses` 返回 200。
-- 实际转发到 mock 的模型为 `glm-5`。
-- 响应中不再出现 `stream is not readable`。
-- 隔离 `HOME` 的 `nuwax-codex-acp` 最小复现：不发 `authenticate` 时 `session/new` 返回 `Authentication required`；先发 `authenticate` 后 `session/new` 成功。
-
-开发启动命令：
-
-```bash
-make electron-dev
-```
-
-`make electron-dev` 会通过 `electron-prepare-codex-acp` 调用 `prepare:codex-acp`，默认从 `nuwax-ai/codex-acp` 的 `v0.15.1` release 下载已集成 NuwaClaw env override 的 `nuwax-codex-acp` 二进制。`CODEX_ACP_BIN` / `NUWACLAW_CODEX_ACP_BIN` 仅保留为本地临时调试入口，正常开发和打包不依赖该覆盖变量。
-
-## 已知非阻塞日志
-
-`Model metadata for glm-5 not found. Defaulting to fallback metadata` 来自 Codex 模型元数据表未包含 `glm-5`。`v0.15.1` 后该提示不再作为 agent message 展示给用户，但仍保留低级别日志用于排查；路由正确性不受影响。后续如果需要进一步优化，可以在 codex-acp 侧补国内模型 metadata 映射。

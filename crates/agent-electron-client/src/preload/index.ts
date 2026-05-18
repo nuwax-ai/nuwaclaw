@@ -222,20 +222,6 @@ contextBridge.exposeInMainWorld("electronAPI", {
       ipcRenderer.invoke("guiServer:setEnabled", enabled),
   },
 
-  // Gateway lifecycle (统一网关服务，含 chat2response 等)
-  gateway: {
-    start: (port?: number) => ipcRenderer.invoke("gateway:start", port),
-    stop: () => ipcRenderer.invoke("gateway:stop"),
-    status: () => ipcRenderer.invoke("gateway:status"),
-  },
-
-  // Chat2Response lifecycle (向后兼容，委托给 gateway)
-  chat2response: {
-    start: (port?: number) => ipcRenderer.invoke("gateway:start", port),
-    stop: () => ipcRenderer.invoke("gateway:stop"),
-    status: () => ipcRenderer.invoke("gateway:status"),
-  },
-
   // Admin Server lifecycle (管理接口服务)
   adminServer: {
     start: (port?: number) => ipcRenderer.invoke("adminServer:start", port),

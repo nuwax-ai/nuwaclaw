@@ -1544,33 +1544,6 @@ export async function checkCodexAcpBundled(): Promise<{
   }
 }
 
-/**
- * 检测应用包内集成的 chat2response 是否可用
- */
-export async function checkChat2responseBundled(): Promise<{
-  available: boolean;
-  version?: string;
-}> {
-  const bundledDir = getChat2responseBundledDir();
-  if (!bundledDir) {
-    log.info("[checkChat2responseBundled] Bundled not found");
-    return { available: false };
-  }
-  const pkgPath = path.join(bundledDir, "package.json");
-  try {
-    const raw = fs.readFileSync(pkgPath, "utf-8");
-    const pkg = JSON.parse(raw) as { version?: string };
-    const version = pkg?.version;
-    log.info(
-      `[checkChat2responseBundled] Bundled available: ${bundledDir}, version=${version ?? "unknown"}`,
-    );
-    return { available: true, version };
-  } catch (e) {
-    log.warn("[checkChat2responseBundled] Failed to read package.json:", e);
-    return { available: true };
-  }
-}
-
 // ==================== Bundled nuwax-file-server ====================
 
 /**
@@ -1605,43 +1578,6 @@ export function getClaudeCodeAcpBundledDir(): string | null {
     return bundledDir;
   }
   return null;
-}
-
-// ==================== Bundled chat2response ====================
-
-/**
- * 获取应用内集成的 chat2response 目录
- *
- * 打包后: process.resourcesPath/chat2response/
- * 开发时: resources/chat2response/
- *
- * @returns 目录路径（含 package.json），或 null
- */
-export function getChat2responseBundledDir(): string | null {
-  const bundledDir = path.join(getResourcesPath(), "chat2response");
-  if (fs.existsSync(path.join(bundledDir, "package.json"))) {
-    return bundledDir;
-  }
-  return null;
-}
-
-// ==================== Bundled gateway ====================
-
-/**
- * 获取应用内集成的 gateway 目录
- *
- * 打包后: process.resourcesPath/gateway/
- * 开发时: resources/gateway/
- *
- * @returns 目录路径（含 package.json），或 null
- */
-export function getGatewayBundledDir(): string | null {
-  const bundledDir = path.join(getResourcesPath(), "gateway");
-  if (fs.existsSync(path.join(bundledDir, "package.json"))) {
-    return bundledDir;
-  }
-  // fallback: 尝试旧的 chat2response 目录（兼容迁移期）
-  return getChat2responseBundledDir();
 }
 
 /** 检测指定路径的 uv 二进制 */
@@ -2330,6 +2266,4 @@ export default {
   getNuwaxFileServerBundledDir,
   getClaudeCodeAcpBundledDir,
   getCodexAcpBundledDir,
-  getChat2responseBundledDir,
-  getGatewayBundledDir,
 };

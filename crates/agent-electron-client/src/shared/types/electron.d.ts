@@ -152,22 +152,6 @@ export interface GuiServerAPI {
   ) => Promise<{ success: boolean; error?: string }>;
 }
 
-export interface GatewayAPI {
-  start: (port?: number) => Promise<{ success: boolean; error?: string }>;
-  stop: () => Promise<{ success: boolean; error?: string }>;
-  status: () => Promise<{
-    running: boolean;
-    pid?: number;
-    port?: number;
-    baseUrl?: string;
-    source?: "configured" | "bundled" | "path";
-    error?: string;
-  }>;
-}
-
-/** @deprecated 使用 GatewayAPI 代替 */
-export type Chat2responseAPI = GatewayAPI;
-
 export interface AdminServerAPI {
   start: (port?: number) => Promise<{ success: boolean; error?: string }>;
   stop: () => Promise<{ success: boolean; error?: string }>;
@@ -746,8 +730,6 @@ export interface ElectronAPI {
   fileServer: FileServerAPI;
   computerServer: ComputerServerAPI;
   guiServer: GuiServerAPI;
-  chat2response: Chat2responseAPI;
-  gateway: GatewayAPI;
   adminServer: AdminServerAPI;
   dependencies: DependenciesAPI;
   shell: ShellAPI;

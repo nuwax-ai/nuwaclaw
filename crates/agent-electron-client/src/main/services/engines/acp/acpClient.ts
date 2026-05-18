@@ -43,7 +43,6 @@ import {
   applyOpenAICompatibleEnv,
   resolveOpenAICompatModel,
 } from "./openAICompatRouting";
-import { getGatewayStatus } from "../../packages/gatewayServer";
 
 function extractSessionIdFromLine(line: string): string | undefined {
   try {
@@ -400,18 +399,6 @@ export interface AcpConnectionConfig {
   baseUrl?: string;
   model?: string;
   apiProtocol?: string;
-  /**
-   * Optional third-party chat2response proxy endpoint for codex-cli.
-   * When set, codex-cli OpenAI Chat traffic can be routed through this proxy,
-   * which converts chat/completions-style requests to responses API upstream.
-   */
-  chat2responseProxyBaseUrl?: string;
-  /**
-   * Optional switch for codex-cli chat2response routing.
-   * - true/undefined: allow auto-routing for non-official OpenAI baseUrl
-   * - false: always keep original OPENAI_BASE_URL
-   */
-  chat2responseEnabled?: boolean;
   env?: Record<string, string>;
   /** Engine type for process registry tracking */
   engineType?: "claude-code" | "nuwaxcode" | "codex" | "codex-cli";
@@ -758,6 +745,8 @@ export async function createAcpConnection(
     model: config.model,
     envModel: env.OPENCODE_MODEL || env.ANTHROPIC_MODEL || env.CODEX_MODEL,
   });
+  applyOpenAICompatibleEnv(config, env);
+
   if (config.engineType === "codex" || config.engineType === "codex-cli") {
     if (config.apiKey) {
       env.CODEX_API_KEY = config.apiKey;
@@ -768,56 +757,10 @@ export async function createAcpConnection(
     if (codexResolvedModel?.providerModel) {
       env.CODEX_MODEL = codexResolvedModel.providerModel;
     }
-  }
-
-  const gatewayStatus =
-    config.engineType === "codex" || config.engineType === "codex-cli"
-      ? getGatewayStatus()
-      : null;
-  const openAICompatRouting = applyOpenAICompatibleEnv(
-    {
-      ...config,
-      chat2responseLocalBaseUrl: gatewayStatus?.running
-        ? gatewayStatus.baseUrl
-        : undefined,
-    },
-    env,
-  );
-
-  if (config.engineType === "codex" || config.engineType === "codex-cli") {
-    const finalBaseUrl =
-      openAICompatRouting.finalOpenAIBaseUrl ||
-      env.OPENAI_BASE_URL ||
-      config.baseUrl;
+    const finalBaseUrl = env.OPENAI_BASE_URL || config.baseUrl;
     if (finalBaseUrl) {
       env.CODEX_BASE_URL = finalBaseUrl;
     }
-    if (!env.CODEX_API_KEY && env.OPENAI_API_KEY) {
-      env.CODEX_API_KEY = env.OPENAI_API_KEY;
-    }
-  }
-
-  if (
-    (config.engineType === "codex" || config.engineType === "codex-cli") &&
-    openAICompatRouting.isOpenAICompatible &&
-    openAICompatRouting.chat2responseReason === "missing-proxy-url"
-  ) {
-    log.warn(
-      "[AcpClient] codex chat2response not enabled: proxy URL is missing; keeping original OPENAI_BASE_URL",
-    );
-  }
-
-  if (
-    (config.engineType === "codex" || config.engineType === "codex-cli") &&
-    openAICompatRouting.isOpenAICompatible
-  ) {
-    log.info("[AcpClient] codex openai compatibility routing", {
-      chat2responseEnabled: openAICompatRouting.chat2responseEnabled,
-      reason: openAICompatRouting.chat2responseReason,
-      openAIBaseUrlSource: openAICompatRouting.openAIBaseUrlSource,
-      localChat2responseRunning: gatewayStatus?.running ?? false,
-      localChat2responsePort: gatewayStatus?.port,
-    });
   }
 
   if (isNuwaxcodeEngine) {

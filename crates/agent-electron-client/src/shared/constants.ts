@@ -47,14 +47,6 @@ export const DEFAULT_GUI_MCP_PORT = 60008;
 /** Admin Server 默认端口（管理接口） */
 export const DEFAULT_ADMIN_SERVER_PORT = 60007;
 
-/** Gateway 默认端口（统一网关服务，复用原 chat2response 端口） */
-export const DEFAULT_GATEWAY_PORT = 60009;
-
-/** Chat2Response 默认端口（codex-cli 协议转换服务）
- * @deprecated 使用 DEFAULT_GATEWAY_PORT 代替
- */
-export const DEFAULT_CHAT2RESPONSE_PORT = 60009;
-
 /** 开发服务器默认端口 */
 export const DEFAULT_DEV_SERVER_PORT = 60173;
 

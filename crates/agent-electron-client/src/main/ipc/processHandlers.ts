@@ -5,12 +5,6 @@ import { z } from "zod";
 import type { HandlerContext } from "@shared/types/ipc";
 import { createServiceManager } from "../window/serviceManager";
 import { checkLanproxyHealth } from "../services/packages/lanproxyHealth";
-import {
-  getGatewayStatus,
-  startGateway,
-  stopGateway,
-} from "../services/packages/gatewayServer";
-import { DEFAULT_GATEWAY_PORT } from "@shared/constants";
 import { getConfiguredPorts } from "../services/startupPorts";
 import { killProcessTreesListeningOnTcpPort } from "../services/utils/processTree";
 
@@ -315,42 +309,6 @@ export function registerProcessHandlers(ctx: HandlerContext): void {
     await stopComputerServer();
     await clearServicePort("computerServer:stop", getConfiguredPorts().agent);
     return { success: true };
-  });
-
-  // Gateway handlers (统一网关服务)
-  ipcMain.handle("gateway:start", async (_, port?: number) => {
-    const resolvedPort = port ?? DEFAULT_GATEWAY_PORT;
-    const parsed = portSchema.safeParse(resolvedPort);
-    if (!parsed.success) {
-      return invalidArgs("gateway:start", parsed.error.issues);
-    }
-    return startGateway(parsed.data);
-  });
-
-  ipcMain.handle("gateway:stop", async () => {
-    return stopGateway();
-  });
-
-  ipcMain.handle("gateway:status", async () => {
-    return getGatewayStatus();
-  });
-
-  // Chat2Response handlers (向后兼容，委托给 gateway)
-  ipcMain.handle("chat2response:start", async (_, port?: number) => {
-    const resolvedPort = port ?? DEFAULT_GATEWAY_PORT;
-    const parsed = portSchema.safeParse(resolvedPort);
-    if (!parsed.success) {
-      return invalidArgs("chat2response:start", parsed.error.issues);
-    }
-    return startGateway(parsed.data);
-  });
-
-  ipcMain.handle("chat2response:stop", async () => {
-    return stopGateway();
-  });
-
-  ipcMain.handle("chat2response:status", async () => {
-    return getGatewayStatus();
   });
 
   // Admin Server handlers (管理接口服务)

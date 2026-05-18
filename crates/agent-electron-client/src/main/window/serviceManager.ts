@@ -40,7 +40,6 @@ import {
 } from "../services/packages/windowsMcp";
 import { stopAllEngines } from "../services/engines/engineManager";
 import { clearAllSseEventBuffers } from "../services/computerServer";
-import { startGateway, stopGateway } from "../services/packages/gatewayServer";
 import { killProcessTreesListeningOnTcpPort } from "../services/utils/processTree";
 
 export interface ServiceManagerContext {
@@ -220,7 +219,6 @@ export function createServiceManager(ctx: ServiceManagerContext) {
     await ctx.fileServer.stopAsync();
     await killProcessTreesListeningOnTcpPort(getConfiguredPorts().fileServer);
     await ctx.lanproxy.stopAsync();
-    await stopGateway();
     await mcpProxyManager.stop();
 
     // 2. 启动 MCP Proxy（必须先于 Agent：Agent 初始化时会连 MCP Proxy 注入 mcpServers）
@@ -292,8 +290,7 @@ export function createServiceManager(ctx: ServiceManagerContext) {
       results.agent = { success: ok };
       log.info("[ServiceManager] Agent started");
       if (ok) {
-        results.gateway = await startGateway();
-        results.chat2response = results.gateway;
+        log.info("[ServiceManager] Agent started");
       }
     } catch (e) {
       results.agent = { success: false, error: String(e) };
@@ -406,7 +403,6 @@ export function createServiceManager(ctx: ServiceManagerContext) {
     }
     await ctx.fileServer.stopAsync();
     await killProcessTreesListeningOnTcpPort(getConfiguredPorts().fileServer);
-    await stopGateway();
     // 不停止 lanproxy: ctx.lanproxy.stop();
     // 先停止 GUI agents（它们依赖 MCP Proxy，先停 MCP 再停 GUI）
     await mcpProxyManager.stop();
@@ -481,8 +477,7 @@ export function createServiceManager(ctx: ServiceManagerContext) {
       results.agent = { success: ok };
       log.info("[ServiceManager] Agent started");
       if (ok) {
-        results.gateway = await startGateway();
-        results.chat2response = results.gateway;
+        log.info("[ServiceManager] Agent started");
       }
     } catch (e) {
       results.agent = { success: false, error: String(e) };
@@ -538,17 +533,6 @@ export function createServiceManager(ctx: ServiceManagerContext) {
       log.info("[ServiceManager] FileServer stopped");
     } catch (e) {
       results.fileServer = { success: false, error: String(e) };
-    }
-
-    // 停止 Gateway
-    try {
-      const gw = await stopGateway();
-      results.gateway = { success: gw.success, error: gw.error };
-      results.chat2response = results.gateway;
-      log.info("[ServiceManager] Gateway stopped");
-    } catch (e) {
-      results.gateway = { success: false, error: String(e) };
-      results.chat2response = results.gateway;
     }
 
     // 停止 Lanproxy

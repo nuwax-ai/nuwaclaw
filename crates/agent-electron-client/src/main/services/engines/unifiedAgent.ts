@@ -29,7 +29,6 @@ import { buildSandboxPolicyFingerprint } from "./sandboxPolicyFingerprint";
 import dependencies from "../system/dependencies";
 import { getSandboxPolicy } from "../sandbox/policy";
 import { processRegistry } from "../system/processRegistry";
-import { ensureGatewayForEngine } from "../packages/gatewayServer";
 import type { DetailedSession } from "@shared/types/sessions";
 import { ENGINE_DESTROY_TIMEOUT } from "@shared/constants";
 
@@ -947,16 +946,6 @@ export class UnifiedAgentService extends EventEmitter {
     const storedRawMcp = this.engineRawMcpServers.get(registryKey);
     const requestMcpFiltered = filterBridgeEntries(requestMcpServersEarly);
     const mcpChanged = !rawMcpServersEqual(requestMcpFiltered, storedRawMcp);
-    // codex-cli 场景下自动维持 chat2response 协议转换服务；
-    // 非 codex 场景下主动停用，避免无谓驻留进程。
-    await ensureGatewayForEngine(requiredEngine, {
-      apiKey: mp?.api_key || (this.baseConfig?.apiKey ?? undefined),
-      baseUrl: mp?.base_url || (this.baseConfig?.baseUrl ?? undefined),
-      model:
-        resolvedOpenAICompatModel?.providerModel ||
-        requestedModel ||
-        (this.baseConfig?.model ?? undefined),
-    });
     const requestMcpServersRuntime = requestMcpServersEarly;
 
     // 快速路径：已有就绪引擎 + 无配置变更
@@ -1091,11 +1080,6 @@ export class UnifiedAgentService extends EventEmitter {
     }
 
     const mergedEnv = { ...(base.env || {}), ...(resolvedEnv || {}) };
-    const chat2responseProxyUrl =
-      mergedEnv.NUWAX_CHAT2RESPONSE_PROXY_URL ||
-      mergedEnv.CHAT2RESPONSE_PROXY_URL;
-    const chat2responseEnabledRaw =
-      mergedEnv.NUWAX_CHAT2RESPONSE_ENABLED || mergedEnv.CHAT2RESPONSE_ENABLED;
 
     // OPENCODE_LOG_DIR 容器路径本地化
     if (
@@ -1222,8 +1206,6 @@ export class UnifiedAgentService extends EventEmitter {
         `├─ env ANTHROPIC_MODEL: ${effectiveConfig.env?.ANTHROPIC_MODEL || "(not set)"}\n` +
         `├─ baseUrl: ${effectiveConfig.baseUrl || "(not set)"}\n` +
         `├─ apiKeySet: ${!!effectiveConfig.apiKey}\n` +
-        `├─ chat2response.enabled(raw): ${chat2responseEnabledRaw || "(default)"}\n` +
-        `├─ chat2response.proxyUrl(masked): ${maskUrlForLog(chat2responseProxyUrl)}\n` +
         `└─ mcpServers: ${effectiveConfig.mcpServers ? Object.keys(effectiveConfig.mcpServers).join(", ") : "(none)"}`,
     );
 
