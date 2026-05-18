@@ -276,7 +276,7 @@ function copyFromDist(key) {
 
 /**
  * 检查 GitHub 是否存在目标 Release tag（避免目标版本未发版时反复 404）。
- * @returns {Promise<{ ok: boolean, latestTag?: string }>}
+ * @returns {Promise<{ ok: boolean, latestTag?: string, status?: number }>}
  */
 function checkGithubReleaseTag() {
   return new Promise((resolve) => {
@@ -289,36 +289,64 @@ function checkGithubReleaseTag() {
     if (process.env.GITHUB_TOKEN) {
       headers.Authorization = `Bearer ${process.env.GITHUB_TOKEN}`;
     }
-    https
-      .get(apiUrl, { headers }, (res) => {
-        let body = '';
-        res.on('data', (chunk) => {
-          body += chunk;
-        });
-        res.on('end', () => {
-          if (res.statusCode === 200) {
-            resolve({ ok: true });
-            return;
+
+    let attempts = 0;
+    const maxAttempts = 3;
+    const retryDelay = (ms) => new Promise((r) => setTimeout(r, ms));
+
+    const tryRequest = () => {
+      attempts++;
+      console.log(`[prepare-nuwaxcode] 检查 Release ${tag} (尝试 ${attempts}/${maxAttempts})...`);
+      https
+        .get(apiUrl, { headers }, (res) => {
+          let body = '';
+          res.on('data', (chunk) => {
+            body += chunk;
+          });
+          res.on('end', () => {
+            if (res.statusCode === 200) {
+              console.log(`[prepare-nuwaxcode] ✓ Release ${tag} 存在`);
+              resolve({ ok: true });
+              return;
+            }
+            console.warn(
+              `[prepare-nuwaxcode] Release ${tag} 检查失败: HTTP ${res.statusCode}`,
+            );
+            if (attempts < maxAttempts) {
+              console.log(`[prepare-nuwaxcode] ${retryDelay(1000)}ms 后重试...`);
+              retryDelay(1000).then(tryRequest);
+              return;
+            }
+            // Exhausted retries — try to get latest tag for diagnostic
+            const latestUrl = `https://api.github.com/repos/${NUWAXCODE_REPO}/releases/latest`;
+            https
+              .get(latestUrl, { headers }, (res2) => {
+                let body2 = '';
+                res2.on('data', (c) => {
+                  body2 += c;
+                });
+                res2.on('end', () => {
+                  let latestTag;
+                  try {
+                    latestTag = JSON.parse(body2).tag_name;
+                  } catch (_) {}
+                  resolve({ ok: false, latestTag, status: res.statusCode });
+                });
+              })
+              .on('error', () => resolve({ ok: false, status: res.statusCode }));
+          });
+        })
+        .on('error', (err) => {
+          console.warn(`[prepare-nuwaxcode] 网络错误 (尝试 ${attempts}/${maxAttempts}): ${err.message}`);
+          if (attempts < maxAttempts) {
+            retryDelay(1500).then(tryRequest);
+          } else {
+            resolve({ ok: false, status: -1 });
           }
-          const latestUrl = `https://api.github.com/repos/${NUWAXCODE_REPO}/releases/latest`;
-          https
-            .get(latestUrl, { headers }, (res2) => {
-              let body2 = '';
-              res2.on('data', (c) => {
-                body2 += c;
-              });
-              res2.on('end', () => {
-                let latestTag;
-                try {
-                  latestTag = JSON.parse(body2).tag_name;
-                } catch (_) {}
-                resolve({ ok: false, latestTag, status: res.statusCode });
-              });
-            })
-            .on('error', () => resolve({ ok: false, status: res.statusCode }));
         });
-      })
-      .on('error', () => resolve({ ok: false }));
+    };
+
+    tryRequest();
   });
 }
 

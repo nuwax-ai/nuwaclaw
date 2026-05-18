@@ -85,9 +85,15 @@ export function injectSandboxedMcpForSession(
 
   if (nativeSandbox) {
     result.nativeSandboxSkipped = true;
-    log.info(
-      `${logTag} Using native OpenCode sandbox (engine=${engineId}); sandboxed-bash/fs MCP skipped`,
-    );
+    if (useSandboxedMcpAtSession) {
+      log.info(
+        `${logTag} Using native OpenCode sandbox (engine=${engineId}); session-scoped sandboxed MCP remains enabled`,
+      );
+    } else {
+      log.info(
+        `${logTag} Using native OpenCode sandbox (engine=${engineId}); sandboxed-bash/fs MCP skipped`,
+      );
+    }
   }
 
   log.info(
@@ -125,6 +131,10 @@ export function injectSandboxedMcpForSession(
           {
             name: "NUWAX_SANDBOX_MODE",
             value: sandboxConfig.windowsSandboxMode ?? "workspace-write",
+          },
+          {
+            name: "NUWAX_SANDBOX_POLICY_MODE",
+            value: sandboxMode,
           },
           {
             name: "NUWAX_SANDBOX_NETWORK_ENABLED",

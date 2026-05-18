@@ -155,10 +155,17 @@ export function usesSandboxedMcpAtSession(
   if (!sandboxConfig?.enabled || sandboxConfig.type === "none") {
     return false;
   }
-  if (usesNativeSandboxForEngine(engineId, sandboxConfig)) {
+  const nativeSandbox = usesNativeSandboxForEngine(engineId, sandboxConfig);
+  const caps = getAcpEngineSandboxCapabilities(engineId);
+  if (nativeSandbox && caps.family === "opencode-acp") {
+    // Native OpenCode sandbox config is process-scoped. In strict mode, the
+    // session cwd is only known at newSession time, so keep the session-level
+    // sandboxed MCP replacement for file writes.
+    return sandboxConfig.mode === "strict";
+  }
+  if (nativeSandbox) {
     return false;
   }
-  const caps = getAcpEngineSandboxCapabilities(engineId);
   if (caps.usesCompatMcpLayer(sandboxConfig)) {
     return true;
   }

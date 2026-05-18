@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import {
   getAcpEngineSandboxCapabilities,
   isOpencodeAcpEngine,
@@ -6,6 +6,10 @@ import {
   usesSandboxedMcpAtSession,
 } from "./acpEngineSandbox";
 import type { SandboxProcessConfig } from "@shared/types/sandbox";
+
+vi.mock("@main/services/system/dependencies", () => ({
+  getResourcesPath: vi.fn(() => "/mock/resources"),
+}));
 
 const windowsSandbox: SandboxProcessConfig = {
   enabled: true,
@@ -36,6 +40,10 @@ describe("acpEngineSandbox", () => {
 
   it("usesSandboxedMcpAtSession: claude-code on Windows uses session MCP", () => {
     expect(usesSandboxedMcpAtSession("claude-code", windowsSandbox)).toBe(true);
+  });
+
+  it("usesSandboxedMcpAtSession: OpenCode strict keeps session MCP for cwd-scoped writes", () => {
+    expect(usesSandboxedMcpAtSession("nuwaxcode", windowsSandbox)).toBe(true);
   });
 
   it("usesSandboxedMcpAtSession: disabled when sandbox off", () => {
