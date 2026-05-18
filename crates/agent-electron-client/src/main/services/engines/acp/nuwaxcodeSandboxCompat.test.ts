@@ -105,7 +105,7 @@ describe("nuwaxcodeSandboxCompat", () => {
     const sandbox = configObj.sandbox as Record<string, unknown>;
     expect(sandbox.sandbox_mode).toBe("strict");
     expect(sandbox.helper_path).toContain("nuwax-sandbox-helper");
-    expect(sandbox).not.toHaveProperty("writable_roots");
+    expect(sandbox.writable_roots).toEqual(["/workspace"]);
     const perm = configObj.permission as Record<string, string>;
     expect(perm.bash).toBe("deny");
     expect(perm.external_directory).toBe("deny");

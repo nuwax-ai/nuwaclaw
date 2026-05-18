@@ -62,7 +62,7 @@ export interface SandboxInvocationParams {
   networkEnabled: boolean;
   /** 子命令模式：run=捕获输出返回 JSON，serve=双向 stdio 转发 */
   subcommand?: "run" | "serve";
-  /** 额外可执行路径白名单（compat 启动链路） */
+  /** 额外可执行路径白名单（compat 启动链路；strict 下仅追加 MCP 等显式路径） */
   startupExecAllowlist?: string[];
 }
 
@@ -454,9 +454,8 @@ export class SandboxInvoker {
         '(allow process-exec (regex #"^/usr/lib/"))',
       );
       const execAllow = new Set<string>([command]);
-      // strict mode keeps a minimal exec surface and does not include
-      // startup chain allowlist entries.
-      if (compat) {
+      // compat: full startup chain; strict: only paths caller appends (e.g. MCP node/proxy).
+      if (compat || mode === "strict") {
         for (const p of startupExecAllowlist) execAllow.add(p);
       }
       for (const p of execAllow) {
@@ -477,6 +476,7 @@ export class SandboxInvoker {
         command,
         execAllowCount: execAllow.size,
         includeStartupChain: compat,
+        startupExecAllowlistCount: startupExecAllowlist.length,
       });
       lines.push("(allow signal (target self))");
     }

@@ -214,9 +214,9 @@ export function applyOpencodeSandboxToOpenCodeConfig(
     if (sandboxConfig.windowsSandboxHelperPath) {
       sandboxObj.helper_path = sandboxConfig.windowsSandboxHelperPath;
     }
-    if (effectiveMode === "compat") {
+    if (effectiveMode === "compat" || effectiveMode === "strict") {
       sandboxObj.writable_roots = resolveSandboxWritableRoots({
-        mode: "compat",
+        mode: effectiveMode,
         sessionCwd: options.sessionCwd ?? workspaceDir,
         projectWorkspaceDir: sandboxConfig.projectWorkspaceDir,
       });

@@ -286,24 +286,43 @@ describe("SandboxInvoker - macos-seatbelt", () => {
       );
     });
 
-    it("should include command literal but not startup-chain allowlist in strict mode", async () => {
+    it("should use engine-only startupExecAllowlist in strict when caller passes no MCP extras", async () => {
       const invoker = new SandboxInvoker("macos-seatbelt", { mode: "strict" });
       await invoker.buildInvocation(
         makeParams({
-          command: "/mock/resources/node/darwin-arm64/bin/node",
+          command: "/mock/resources/nuwaxcode/darwin-arm64/bin/nuwaxcode",
           startupExecAllowlist: [
-            "/mock/resources/claude-code-acp-ts/dist/index.js",
+            "/mock/resources/nuwaxcode/darwin-arm64/bin/nuwaxcode",
           ],
         }),
       );
 
-      const writeCall = mockFspWriteFile.mock.calls[0];
-      const profile = writeCall[1] as string;
+      const profile = mockFspWriteFile.mock.calls[0][1] as string;
+      expect(profile).toContain(
+        '(allow process-exec (literal "/mock/resources/nuwaxcode/darwin-arm64/bin/nuwaxcode"))',
+      );
+      expect(profile).not.toContain("claude-code-acp-ts");
+    });
+
+    it("should honor startupExecAllowlist MCP paths in strict mode", async () => {
+      const invoker = new SandboxInvoker("macos-seatbelt", { mode: "strict" });
+      await invoker.buildInvocation(
+        makeParams({
+          command: "/mock/resources/nuwaxcode/darwin-arm64/bin/nuwaxcode",
+          startupExecAllowlist: [
+            "/mock/resources/nuwaxcode/darwin-arm64/bin/nuwaxcode",
+            "/mock/resources/node/darwin-arm64/bin/node",
+            "/mock/resources/nuwax-mcp-stdio-proxy/dist/index.js",
+          ],
+        }),
+      );
+
+      const profile = mockFspWriteFile.mock.calls[0][1] as string;
       expect(profile).toContain(
         '(allow process-exec (literal "/mock/resources/node/darwin-arm64/bin/node"))',
       );
-      expect(profile).not.toContain(
-        '(allow process-exec (literal "/mock/resources/claude-code-acp-ts/dist/index.js"))',
+      expect(profile).toContain(
+        '(allow process-exec (literal "/mock/resources/nuwax-mcp-stdio-proxy/dist/index.js"))',
       );
     });
   });
