@@ -64,6 +64,8 @@ export interface SandboxInvocationParams {
   subcommand?: "run" | "serve";
   /** 额外可执行路径白名单（compat 启动链路；strict 下仅追加 MCP 等显式路径） */
   startupExecAllowlist?: string[];
+  /** 额外可执行目录白名单；不授予写权限。 */
+  startupExecSubpathAllowlist?: string[];
 }
 
 /** 沙箱包装后的调用描述 */
@@ -202,6 +204,7 @@ export class SandboxInvoker {
       params.writablePaths,
       params.networkEnabled,
       params.startupExecAllowlist,
+      params.startupExecSubpathAllowlist,
     );
     await fsp.writeFile(profilePath, profile, "utf-8");
     log.info("[SandboxInvoker] seatbelt profile written:", {
@@ -209,6 +212,8 @@ export class SandboxInvoker {
       mode,
       command: params.command,
       startupExecAllowlistCount: params.startupExecAllowlist?.length ?? 0,
+      startupExecSubpathAllowlistCount:
+        params.startupExecSubpathAllowlist?.length ?? 0,
       networkEnabled: params.networkEnabled,
     });
 
@@ -434,6 +439,7 @@ export class SandboxInvoker {
     writablePaths: string[],
     networkEnabled: boolean,
     startupExecAllowlist: string[] = [],
+    startupExecSubpathAllowlist: string[] = [],
   ): string {
     const mode = this.effectiveMode;
     const permissive = mode === "permissive";
@@ -478,12 +484,28 @@ export class SandboxInvoker {
           // ignore realpath failures for non-existing startup path
         }
       }
+      const execSubpathAllow = new Set<string>();
+      for (const p of startupExecSubpathAllowlist) {
+        if (!p || !path.isAbsolute(p)) continue;
+        execSubpathAllow.add(p);
+        try {
+          const resolved = fs.realpathSync(p);
+          if (resolved !== p) execSubpathAllow.add(resolved);
+        } catch {
+          // ignore realpath failures for non-existing startup path
+        }
+      }
+      for (const p of execSubpathAllow) {
+        lines.push(`(allow process-exec (subpath "${p}"))`);
+      }
       log.info("[SandboxInvoker] seatbelt exec allowlist resolved", {
         mode,
         command,
         execAllowCount: execAllow.size,
+        execSubpathAllowCount: execSubpathAllow.size,
         includeStartupChain: compat,
         startupExecAllowlistCount: startupExecAllowlist.length,
+        startupExecSubpathAllowlistCount: startupExecSubpathAllowlist.length,
       });
       lines.push("(allow signal (target self))");
     }

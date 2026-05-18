@@ -85,9 +85,15 @@ export function injectSandboxedMcpForSession(
 
   if (nativeSandbox) {
     result.nativeSandboxSkipped = true;
-    log.info(
-      `${logTag} Using native OpenCode sandbox (engine=${engineId}); sandboxed-bash/fs MCP skipped`,
-    );
+    if (useSandboxedMcpAtSession) {
+      log.info(
+        `${logTag} Using native OpenCode sandbox (engine=${engineId}); session-scoped sandboxed MCP remains enabled`,
+      );
+    } else {
+      log.info(
+        `${logTag} Using native OpenCode sandbox (engine=${engineId}); sandboxed-bash/fs MCP skipped`,
+      );
+    }
   }
 
   log.info(

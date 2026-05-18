@@ -325,6 +325,24 @@ describe("SandboxInvoker - macos-seatbelt", () => {
         '(allow process-exec (literal "/mock/resources/nuwax-mcp-stdio-proxy/dist/index.js"))',
       );
     });
+
+    it("should allow strict exec subpaths without granting file writes", async () => {
+      const invoker = new SandboxInvoker("macos-seatbelt", { mode: "strict" });
+      await invoker.buildInvocation(
+        makeParams({
+          command: "/mock/resources/nuwaxcode/darwin-arm64/bin/nuwaxcode",
+          startupExecSubpathAllowlist: ["/mock/resources/node"],
+        }),
+      );
+
+      const profile = mockFspWriteFile.mock.calls[0][1] as string;
+      expect(profile).toContain(
+        '(allow process-exec (subpath "/mock/resources/node"))',
+      );
+      expect(profile).not.toContain(
+        '(allow file-write* (subpath "/mock/resources/node"))',
+      );
+    });
   });
 
   it("should handle symlink paths for writablePaths by adding both", async () => {
@@ -801,6 +819,30 @@ describe("SandboxInvoker - windows-sandbox", () => {
 
         expect(policy.type).toBe("workspace-write");
         expect(policy.writable_roots).toEqual(["C:\\workspace"]);
+      });
+    });
+
+    it("strict serve: should keep all process roots for MCP spawn compatibility", async () => {
+      await withPlatform("win32", async () => {
+        const invoker = new SandboxInvoker("windows-sandbox", {
+          windowsSandboxHelperPath: fakeHelperPath,
+          windowsSandboxMode: "workspace-write",
+          mode: "strict",
+        });
+        const result = await invoker.buildInvocation(
+          makeParams({
+            subcommand: "serve",
+            writablePaths: ["C:\\workspace", "C:\\isolated-home"],
+          }),
+        );
+
+        const policyArgIdx = result.args.indexOf("--policy-json");
+        const policy = JSON.parse(result.args[policyArgIdx + 1]);
+        expect(policy.writable_roots).toEqual([
+          "C:\\workspace",
+          "C:\\isolated-home",
+        ]);
+        expect(result.args).not.toContain("--write-restricted");
       });
     });
 

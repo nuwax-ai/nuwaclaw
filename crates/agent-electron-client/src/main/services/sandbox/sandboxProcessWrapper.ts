@@ -87,7 +87,7 @@ export async function buildSandboxedSpawnArgs(
   const macOsStrictMcpExtras = isMacOsStrict
     ? {
         exec: resolveMacOsStrictMcpExecAllowlist(),
-        writable: resolveMacOsStrictMcpResourceSubpaths(),
+        execSubpaths: resolveMacOsStrictMcpResourceSubpaths(),
       }
     : null;
 
@@ -101,11 +101,9 @@ export async function buildSandboxedSpawnArgs(
 
   const writablePaths =
     sandboxConfig.mode === "strict"
-      ? [
-          ...extraWritablePaths,
-          ...strictOsWritable,
-          ...(macOsStrictMcpExtras?.writable ?? []),
-        ].filter((p): p is string => typeof p === "string" && p.length > 0)
+      ? [...extraWritablePaths, ...strictOsWritable].filter(
+          (p): p is string => typeof p === "string" && p.length > 0,
+        )
       : [projectWorkspaceDir, ...extraWritablePaths].filter(
           (p): p is string => typeof p === "string" && p.length > 0,
         );
@@ -130,6 +128,7 @@ export async function buildSandboxedSpawnArgs(
       networkEnabled,
       subcommand: "serve",
       startupExecAllowlist,
+      startupExecSubpathAllowlist: macOsStrictMcpExtras?.execSubpaths,
     });
 
     log.info("[SandboxProcessWrapper] Sandbox wrapping succeeded:", {

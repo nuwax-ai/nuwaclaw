@@ -214,7 +214,15 @@ export function applyOpencodeSandboxToOpenCodeConfig(
     if (sandboxConfig.windowsSandboxHelperPath) {
       sandboxObj.helper_path = sandboxConfig.windowsSandboxHelperPath;
     }
-    if (effectiveMode === "compat" || effectiveMode === "strict") {
+    if (effectiveMode === "strict") {
+      // Spawn-time config does not know the ACP session cwd yet. Do not grant
+      // the broader base workspace here; session-scoped writes are provided by
+      // sandboxed-fs MCP and strictPermissionGuard after newSession.
+      // Note: Windows process-level serve mode still has its own cwd/root
+      // compatibility allowances for MCP spawn; this only controls OpenCode's
+      // native per-command sandbox config.
+      sandboxObj.writable_roots = [];
+    } else if (effectiveMode === "compat") {
       sandboxObj.writable_roots = resolveSandboxWritableRoots({
         mode: effectiveMode,
         sessionCwd: options.sessionCwd ?? workspaceDir,
@@ -225,12 +233,24 @@ export function applyOpencodeSandboxToOpenCodeConfig(
     result.opencodeSandboxConfigInjected = true;
     if (effectiveMode === "strict") {
       perm.external_directory = "deny";
-      perm.bash = "deny";
-      result.builtinBashDenied = true;
+      perm.edit = "deny";
+      result.builtinEditDenied = true;
+      const shouldDenyBuiltinBash = canInjectSandboxedBashMcp(
+        sandboxConfig,
+        resourcesPath,
+        fileExists,
+      );
+      if (shouldDenyBuiltinBash) {
+        perm.bash = "deny";
+        result.builtinBashDenied = true;
+      }
       const tools = (configObj.tools ?? {}) as Record<string, boolean>;
       configObj.tools = {
         ...tools,
-        bash: false,
+        write: false,
+        edit: false,
+        apply_patch: false,
+        ...(shouldDenyBuiltinBash ? { bash: false } : {}),
       };
     }
     return result;

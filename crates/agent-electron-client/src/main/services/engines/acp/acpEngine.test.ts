@@ -13,7 +13,6 @@ import * as path from "path";
 import * as dependencies from "@main/services/system/dependencies";
 import * as sandboxPolicy from "@main/services/sandbox/policy";
 import * as opencodeAcpSandbox from "./opencodeAcpSandbox";
-import * as nuwaxcodeSandboxCompat from "./nuwaxcodeSandboxCompat";
 
 vi.mock("electron-log", () => ({
   default: {
@@ -322,11 +321,14 @@ describe("AcpEngine.handleAcpSessionUpdate", () => {
 });
 
 describe("AcpEngine.createSession", () => {
-  it("nuwaxcode 1.2.0 原生沙箱时不注入 sandboxed-bash/fs MCP", async () => {
+  it("nuwaxcode 1.2.0 原生 strict 沙箱仍注入 session-scoped sandboxed-bash/fs MCP", async () => {
     const { engine, newSession } = setupEngineForCreateSession("nuwaxcode");
+    const resourcesSpy = vi
+      .spyOn(dependencies, "getResourcesPath")
+      .mockReturnValue(path.join(process.cwd(), "resources"));
     vi.spyOn(
-      nuwaxcodeSandboxCompat,
-      "readBundledNuwaxcodeVersion",
+      opencodeAcpSandbox,
+      "readBundledOpencodeEngineVersion",
     ).mockReturnValue("1.2.0");
 
     (engine as any).storedSandboxConfig = {
@@ -337,14 +339,18 @@ describe("AcpEngine.createSession", () => {
       windowsSandboxHelperPath: "C:\\tools\\nuwax-sandbox-helper.exe",
     };
 
-    await engine.createSession({ cwd: "C:\\workspace\\project\\session-1" });
+    try {
+      await engine.createSession({ cwd: "C:\\workspace\\project\\session-1" });
+    } finally {
+      resourcesSpy.mockRestore();
+    }
 
     const sent = newSession.mock.calls[0][0] as {
       mcpServers: Array<{ name: string }>;
     };
     const names = sent.mcpServers.map((m) => m.name);
-    expect(names).not.toContain("sandboxed-bash");
-    expect(names).not.toContain("sandboxed-fs");
+    expect(names).toContain("sandboxed-bash");
+    expect(names).toContain("sandboxed-fs");
   });
 
   it("沙箱启用时应移除 gui-agent MCP（互斥）", async () => {

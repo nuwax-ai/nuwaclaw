@@ -75,7 +75,7 @@ describe("nuwaxcodeSandboxCompat", () => {
     expect(tools.bash).toBe(false);
   });
 
-  it("1.2.0: injects sandbox config, keeps built-in tools (no MCP deny)", () => {
+  it("1.2.0 strict: injects native sandbox config without broad writable roots", () => {
     const configObj: Record<string, unknown> = {
       permission: { bash: "allow", edit: "allow" },
     };
@@ -101,18 +101,53 @@ describe("nuwaxcodeSandboxCompat", () => {
     expect(result.usesNativeSandbox).toBe(true);
     expect(result.opencodeSandboxConfigInjected).toBe(true);
     expect(result.builtinBashDenied).toBe(true);
-    expect(result.builtinEditDenied).toBe(false);
+    expect(result.builtinEditDenied).toBe(true);
     const sandbox = configObj.sandbox as Record<string, unknown>;
     expect(sandbox.sandbox_mode).toBe("strict");
     expect(sandbox.helper_path).toContain("nuwax-sandbox-helper");
-    expect(sandbox.writable_roots).toEqual(["/workspace"]);
+    expect(sandbox.writable_roots).toEqual([]);
     const perm = configObj.permission as Record<string, string>;
     expect(perm.bash).toBe("deny");
+    expect(perm.edit).toBe("deny");
     expect(perm.external_directory).toBe("deny");
     const tools = configObj.tools as Record<string, boolean>;
     expect(tools.bash).toBe(false);
-    expect(tools.write).toBeUndefined();
-    expect(tools.edit).toBeUndefined();
+    expect(tools.write).toBe(false);
+    expect(tools.edit).toBe(false);
+    expect(tools.apply_patch).toBe(false);
+  });
+
+  it("1.2.0 strict on macOS keeps built-in bash when no sandboxed-bash replacement exists", () => {
+    const configObj: Record<string, unknown> = {
+      permission: { bash: "allow", edit: "allow" },
+    };
+
+    const result = applyNuwaxcodeSandboxToOpenCodeConfig({
+      configObj,
+      nuwaxcodeVersion: "1.2.0",
+      resourcesPath: "/mock/resources",
+      workspaceDir: "/workspace",
+      fileExists: alwaysExists,
+      sandboxConfig: {
+        enabled: true,
+        type: "macos-seatbelt",
+        mode: "strict",
+        projectWorkspaceDir: "/workspace/project",
+        networkEnabled: true,
+        fallback: "startup-only",
+      },
+    });
+
+    expect(result.usesNativeSandbox).toBe(true);
+    expect(result.opencodeSandboxConfigInjected).toBe(true);
+    expect(result.builtinBashDenied).toBe(false);
+    expect(result.builtinEditDenied).toBe(true);
+    expect((configObj.permission as Record<string, string>).bash).toBe("allow");
+    const tools = configObj.tools as Record<string, boolean>;
+    expect(tools.bash).toBeUndefined();
+    expect(tools.write).toBe(false);
+    expect(tools.edit).toBe(false);
+    expect(tools.apply_patch).toBe(false);
   });
 
   it("skips bash deny when helper script missing", () => {
@@ -151,10 +186,10 @@ describe("nuwaxcodeSandboxCompat", () => {
   it("resolveSandboxWritableRoots: strict 仅会话目录", () => {
     const roots = resolveSandboxWritableRoots({
       mode: "strict",
-      sessionCwd: "C:\\project\\user\\session-1",
-      projectWorkspaceDir: "C:\\project",
+      sessionCwd: "/project/user/session-1",
+      projectWorkspaceDir: "/project",
     });
-    expect(roots).toEqual(["C:\\project\\user\\session-1"]);
+    expect(roots).toEqual(["/project/user/session-1"]);
   });
 
   it("resolveSandboxWritableRoots: compat 含项目根与会话目录", () => {
