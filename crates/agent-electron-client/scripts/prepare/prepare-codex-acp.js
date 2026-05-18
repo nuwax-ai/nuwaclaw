@@ -21,7 +21,7 @@ const { URL } = require('url');
 const { execFileSync } = require('child_process');
 const { getProjectRoot } = require('../utils/project-paths');
 
-const CODEX_ACP_VERSION = process.env.CODEX_ACP_VERSION || '0.15.1';
+const CODEX_ACP_VERSION = process.env.CODEX_ACP_VERSION || '0.15.4';
 const CODEX_ACP_REPO = process.env.CODEX_ACP_REPO || 'nuwax-ai/codex-acp';
 const CODEX_ACP_ASSET_PREFIX = process.env.CODEX_ACP_ASSET_PREFIX || 'nuwax-codex-acp';
 

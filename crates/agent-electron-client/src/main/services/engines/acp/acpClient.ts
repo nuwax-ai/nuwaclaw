@@ -761,6 +761,13 @@ export async function createAcpConnection(
     if (finalBaseUrl) {
       env.CODEX_BASE_URL = finalBaseUrl;
     }
+    env.CODEX_PROVIDER_ID = "zhipu-glm-5";
+    // codex-acp uses Responses API by default; domestic providers often only support Chat API.
+    // Setting CODEX_WIRE_API=chat forces codex-acp to translate Chat API → Responses upstream.
+    env.CODEX_WIRE_API = "chat";
+    env.CODEX_MODEL_CONTEXT_WINDOW = "200000";
+    env.CODEX_LOG_DIR = "/Users/apple/workspace/nuwaclaw/logs";
+    env.RUST_LOG = "debug";
   }
 
   if (isNuwaxcodeEngine) {
@@ -822,6 +829,11 @@ export async function createAcpConnection(
       : "(not set)",
     CODEX_MODEL: env.CODEX_MODEL || "(not set)",
     CODEX_BASE_URL: env.CODEX_BASE_URL || "(not set)",
+    CODEX_PROVIDER_ID: env.CODEX_PROVIDER_ID || "(not set)",
+    CODEX_WIRE_API: env.CODEX_WIRE_API || "(not set)",
+    CODEX_MODEL_CONTEXT_WINDOW: env.CODEX_MODEL_CONTEXT_WINDOW || "(not set)",
+    CODEX_LOG_DIR: env.CODEX_LOG_DIR || "(not set)",
+    RUST_LOG: env.RUST_LOG || "(not set)",
     CODEX_API_KEY: env.CODEX_API_KEY
       ? env.CODEX_API_KEY.slice(
           0,
