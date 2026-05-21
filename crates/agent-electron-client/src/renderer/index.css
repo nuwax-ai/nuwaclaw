@@ -189,6 +189,7 @@ body {
   flex: 1;
   display: flex;
   overflow: hidden;
+  min-height: 0;
 }
 
 .app-sider {

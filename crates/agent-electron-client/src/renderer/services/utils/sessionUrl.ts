@@ -12,6 +12,7 @@ import { getCurrentAuth } from "../core/auth";
 import { AUTH_KEYS } from "@shared/constants";
 import { logger } from "./logService";
 import { getDomainTokenKey } from "@shared/utils/domain";
+import { persistAccessTokenForDomains } from "../workbenchToken";
 
 /**
  * 解析 JWT exp 字段，返回 ISO 时间字符串或 null。
@@ -259,6 +260,17 @@ export async function persistTicketCookie(domain: string): Promise<void> {
       return;
     }
 
+    const ticketValue =
+      typeof result.value === "string" ? result.value.trim() : "";
+    if (ticketValue) {
+      await persistAccessTokenForDomains(ticketValue, [domain]);
+      logger.info(
+        "[SessionUrl] persistTicketCookie: ticket synced to workbench token cache",
+        "SessionUrl",
+        { domain },
+      );
+    }
+
     // 主动刷盘，确保 Chromium 将 cookie 写入磁盘
     await window.electronAPI?.session.flushStore();
     logger.info(
@@ -267,17 +279,17 @@ export async function persistTicketCookie(domain: string): Promise<void> {
       { domain },
     );
 
-    // webview 内重新登录后，清除 settings 里的旧 token cache。
-    // 否则下次打开 webview 时，syncCookieAndBuildUrl 会用过期的缓存 token
-    // 覆盖刚登录得到的新 ticket，导致服务端再次拒绝并跳到登录页。
-    const domainTokenKey = getDomainTokenKey(domain);
+    // 清除 one-shot，避免覆盖 webview 新 ticket；域名缓存已由 persistAccessTokenForDomains 更新
     await window.electronAPI?.settings.set(AUTH_KEYS.AUTH_TOKEN, null);
-    await window.electronAPI?.settings.set(domainTokenKey, null);
-    logger.info(
-      "[SessionUrl] persistTicketCookie: stale token cache cleared",
-      "SessionUrl",
-      { domain },
-    );
+    const domainTokenKey = getDomainTokenKey(domain);
+    if (!ticketValue) {
+      await window.electronAPI?.settings.set(domainTokenKey, null);
+      logger.info(
+        "[SessionUrl] persistTicketCookie: stale token cache cleared (no ticket value)",
+        "SessionUrl",
+        { domain },
+      );
+    }
   } catch (error) {
     logger.warn("[SessionUrl] persistTicketCookie failed", "SessionUrl", {
       domain,

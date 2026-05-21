@@ -564,6 +564,7 @@ export function registerAppHandlers(ctx: HandlerContext): void {
         return {
           success: true,
           found: true,
+          value: hit.value,
           count: cookies.length,
           cookies: cookies.map((c) => ({
             name: c.name,

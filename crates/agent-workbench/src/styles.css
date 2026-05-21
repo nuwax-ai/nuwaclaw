@@ -29,7 +29,9 @@
   min-width: 0;
   min-height: 0;
   height: 100%;
+  width: 100%;
   flex-direction: column;
+  overflow: hidden;
   color: var(--open-app-text);
   background: var(--open-app-bg);
   font-family:

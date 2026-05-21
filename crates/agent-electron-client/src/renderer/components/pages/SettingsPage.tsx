@@ -31,8 +31,19 @@ import {
   DesktopOutlined,
   ReloadOutlined,
   ExperimentOutlined,
+  RobotOutlined,
 } from "@ant-design/icons";
-import { APP_DISPLAY_NAME, APP_DATA_DIR_NAME } from "@shared/constants";
+import {
+  APP_DISPLAY_NAME,
+  APP_DATA_DIR_NAME,
+  AUTH_KEYS,
+} from "@shared/constants";
+import {
+  WORKBENCH_APP_AGENT_ID_SETTING_KEY,
+  WORKBENCH_CONFIG_CHANGED_EVENT,
+  getAppAgentIdFromUserInfo,
+} from "../../services/workbenchConfig";
+import type { AuthUserInfo } from "../../services/core/auth";
 import {
   setupService,
   Step1Config,
@@ -137,6 +148,11 @@ export default function SettingsPage() {
     null,
   );
 
+  // Agent Mode 联调（仅影响顶部 Agent Mode 工作台）
+  const [workbenchAppAgentId, setWorkbenchAppAgentId] = useState("");
+  const [authAppAgentId, setAuthAppAgentId] = useState("");
+  const [workbenchSaving, setWorkbenchSaving] = useState(false);
+
   // GUI MCP 设置
   const [guiMcpLoading, setGuiMcpLoading] = useState(false);
   const [guiMcpSaving, setGuiMcpSaving] = useState(false);
@@ -184,6 +200,43 @@ export default function SettingsPage() {
   }, [aiForm]);
 
   // ========== 加载系统设置 ==========
+  const loadWorkbenchSettings = useCallback(async () => {
+    try {
+      const [settingValue, userInfo] = await Promise.all([
+        window.electronAPI?.settings.get(WORKBENCH_APP_AGENT_ID_SETTING_KEY),
+        window.electronAPI?.settings.get(AUTH_KEYS.USER_INFO),
+      ]);
+      setWorkbenchAppAgentId(
+        typeof settingValue === "string" || typeof settingValue === "number"
+          ? String(settingValue)
+          : "",
+      );
+      setAuthAppAgentId(
+        getAppAgentIdFromUserInfo((userInfo as AuthUserInfo | null) ?? null) ??
+          "",
+      );
+    } catch (error) {
+      console.error("Failed to load Agent Mode settings:", error);
+    }
+  }, []);
+
+  const handleSaveWorkbenchAppAgentId = async () => {
+    setWorkbenchSaving(true);
+    try {
+      await window.electronAPI?.settings.set(
+        WORKBENCH_APP_AGENT_ID_SETTING_KEY,
+        workbenchAppAgentId.trim(),
+      );
+      window.dispatchEvent(new CustomEvent(WORKBENCH_CONFIG_CHANGED_EVENT));
+      message.success(t("Claw.Settings.agentMode.saved"));
+    } catch (error) {
+      console.error("Failed to save Agent Mode settings:", error);
+      message.error(t("Claw.Settings.agentMode.saveFailed"));
+    } finally {
+      setWorkbenchSaving(false);
+    }
+  };
+
   const loadSystemSettings = useCallback(async () => {
     try {
       const enabled = await window.electronAPI?.autolaunch?.get();
@@ -247,6 +300,7 @@ export default function SettingsPage() {
     loadConfig();
     loadAiConfig();
     loadSystemSettings();
+    loadWorkbenchSettings();
     loadSandboxState();
     loadGuiMcpState();
 
@@ -264,7 +318,13 @@ export default function SettingsPage() {
         handleAutolaunchChanged as any,
       );
     };
-  }, [loadConfig, loadAiConfig, loadSystemSettings, loadSandboxState]);
+  }, [
+    loadConfig,
+    loadAiConfig,
+    loadSystemSettings,
+    loadWorkbenchSettings,
+    loadSandboxState,
+  ]);
 
   // ========== 加载语言列表 ==========
   useEffect(() => {
@@ -919,6 +979,63 @@ export default function SettingsPage() {
                   {t("Claw.Settings.system.open")}
                 </Button>
               </div>
+            </div>
+          </div>
+
+          {/* Agent Mode 联调配置（独立于本地 Sessions / ACP） */}
+          <div className={styles.section}>
+            <div className={styles.sectionHeader}>
+              <RobotOutlined
+                style={{
+                  fontSize: 14,
+                  color: "var(--color-text-secondary)",
+                }}
+              />
+              <span className={styles.sectionTitle}>
+                {t("Claw.Settings.agentMode.title")}
+              </span>
+            </div>
+            <div
+              className={styles.sectionBody}
+              style={{ padding: "0 16px 12px" }}
+            >
+              <div
+                style={{
+                  marginBottom: 12,
+                  fontSize: 12,
+                  color: "var(--color-text-tertiary)",
+                }}
+              >
+                {t("Claw.Settings.agentMode.hint")}
+              </div>
+              <Form layout="vertical" size="small">
+                <Form.Item label={t("Claw.Settings.agentMode.appAgentId")}>
+                  <Input
+                    value={workbenchAppAgentId}
+                    placeholder={t(
+                      "Claw.Settings.agentMode.appAgentIdPlaceholder",
+                    )}
+                    onChange={(event) =>
+                      setWorkbenchAppAgentId(event.target.value)
+                    }
+                  />
+                </Form.Item>
+                <Form.Item label={t("Claw.Settings.agentMode.fromAuth")}>
+                  <Input
+                    value={authAppAgentId || t("Claw.AgentMode.notSet")}
+                    readOnly
+                  />
+                </Form.Item>
+                <Button
+                  type="primary"
+                  size="small"
+                  icon={<SaveOutlined />}
+                  loading={workbenchSaving}
+                  onClick={() => void handleSaveWorkbenchAppAgentId()}
+                >
+                  {t("Claw.Settings.agentMode.save")}
+                </Button>
+              </Form>
             </div>
           </div>
 

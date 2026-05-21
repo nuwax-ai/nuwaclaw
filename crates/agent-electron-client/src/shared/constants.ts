@@ -245,6 +245,17 @@ export const DEFAULT_MCP_PROXY_HOST = LOCALHOST_IP;
  */
 export const I18N_KEYS = {
   // 通用 Common
+  AgentMode: {
+    ENTER: "Claw.AgentMode.enter",
+    EXIT: "Claw.AgentMode.exit",
+    LOADING: "Claw.AgentMode.loading",
+    LOAD_FAILED: "Claw.AgentMode.loadFailed",
+    MISSING_APP_AGENT_ID: "Claw.AgentMode.missingAppAgentId",
+    MISSING_DESCRIPTION: "Claw.AgentMode.missingDescription",
+    USE_MOCK: "Claw.AgentMode.useMock",
+    MOCK_BANNER: "Claw.AgentMode.mockBanner",
+  },
+
   Common: {
     LOADING: "Claw.Common.loading",
     SAVE: "Claw.Common.save",
