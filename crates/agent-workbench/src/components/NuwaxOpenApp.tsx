@@ -598,12 +598,23 @@ export function PagePreviewIframe({
   onClose: () => void;
 }) {
   const [frameKey, setFrameKey] = useState(0);
+  const webviewRef = useRef<HTMLElement | null>(null);
+  const useElectronWebview = previewContainer === 'electron-webview';
+
   const copyUrl = useCallback(() => {
     void navigator.clipboard?.writeText(url);
   }, [url]);
   const openUrl = useCallback(() => {
     window.open(url, '_blank', 'noopener,noreferrer');
   }, [url]);
+  const reloadFrame = useCallback(() => {
+    if (useElectronWebview) {
+      (webviewRef.current as { reload?: () => void } | null)?.reload?.();
+      return;
+    }
+    setFrameKey((value) => value + 1);
+  }, [useElectronWebview]);
+
   return (
     <div className="open-app-page-preview">
       <header className="open-app-page-preview-header">
@@ -618,7 +629,7 @@ export function PagePreviewIframe({
           <button type="button" title={labels.forward} disabled>
             <Icon name="forward" />
           </button>
-          <button type="button" title={labels.refresh} onClick={() => setFrameKey((value) => value + 1)}>
+          <button type="button" title={labels.refresh} onClick={reloadFrame}>
             <Icon name="reload" />
           </button>
           <button type="button" title={labels.copyLink} onClick={copyUrl}>
@@ -633,11 +644,14 @@ export function PagePreviewIframe({
         </div>
       </header>
       <div className="open-app-page-preview-body">
-        {previewContainer === 'electron-webview'
+        {useElectronWebview
           ? createElement('webview', {
               key: frameKey,
+              ref: webviewRef,
               className: 'open-app-page-preview-frame',
               src: url,
+              // 与 EmbeddedWebview 一致：使用 defaultSession（不设 partition），与 session:setCookie 共享 ticket
+              allowpopups: 'true',
             })
           : (
               <iframe key={frameKey} className="open-app-page-preview-frame" src={url} title={title} />
@@ -1220,11 +1234,27 @@ export function NuwaxOpenApp() {
   );
 
   const openPreview = useCallback(
-    (path: string) => {
+    async (path: string) => {
       const url = buildPreviewUrl(config.baseUrl, path);
-      if (url) setPreviewUrl(url);
+      if (!url) return;
+
+      if (config.previewContainer === 'electron-webview') {
+        try {
+          await config.hostBridge?.onPreparePreview?.({
+            url,
+            baseUrl: config.baseUrl,
+          });
+        } catch (cause) {
+          reportError(cause, 'Preview session prepare failed', {
+            phase: 'preparePreview',
+            path,
+          });
+        }
+      }
+
+      setPreviewUrl(url);
     },
-    [config.baseUrl],
+    [config.baseUrl, config.hostBridge, config.previewContainer, reportError],
   );
 
   useEffect(() => {

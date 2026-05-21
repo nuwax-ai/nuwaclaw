@@ -58,8 +58,10 @@ import type { UpdateState } from "@shared/types/updateTypes";
 import { t, getCurrentLang } from "./services/core/i18n";
 import {
   loadWorkbenchConfig,
+  WORKBENCH_PREVIEW_CONTAINER,
   type AgentWorkbenchConfig as ResolvedWorkbenchConfig,
 } from "./services/workbenchConfig";
+import { prepareWorkbenchPreviewSession } from "./services/workbenchPreview";
 import SetupWizard from "./components/setup/SetupWizard";
 import SetupDependencies from "./components/setup/SetupDependencies";
 import ClientPage from "./components/pages/ClientPage";
@@ -177,9 +179,16 @@ type WorkbenchConfigState =
 
 function createWorkbenchHostBridge(
   workspaceDir: string,
+  session: { baseUrl: string; accessToken: string },
   onExit: () => void,
 ): WorkbenchHostBridge {
   return {
+    onPreparePreview: async ({ url, baseUrl }) => {
+      const resolvedBase = (baseUrl ?? session.baseUrl).trim();
+      const token = session.accessToken.trim();
+      if (!resolvedBase || !token) return;
+      await prepareWorkbenchPreviewSession(resolvedBase, url, token);
+    },
     onOpenEditor: async () => {
       if (!workspaceDir) {
         throw new Error("workspaceDir is required");
@@ -517,15 +526,23 @@ function App() {
             : createMockWorkbenchConfig(result.config);
         const hostBridge = createWorkbenchHostBridge(
           resolvedConfig.workspaceDir,
+          {
+            baseUrl: resolvedConfig.baseUrl,
+            accessToken: resolvedConfig.accessToken,
+          },
           () => {
             setAgentModeEnabled(false);
             setWorkbenchUseMockAppAgentId(false);
           },
         );
         const config: AgentWorkbenchConfig = {
+          appAgentId,
           agentId: appAgentId,
           baseUrl: resolvedConfig.baseUrl,
           accessToken: resolvedConfig.accessToken,
+          workspaceDir: resolvedConfig.workspaceDir,
+          locale: resolvedConfig.locale,
+          previewContainer: WORKBENCH_PREVIEW_CONTAINER,
           hostBridge,
           initialPath: `/app/${encodeURIComponent(appAgentId)}`,
           title: `Agent ${appAgentId}`,

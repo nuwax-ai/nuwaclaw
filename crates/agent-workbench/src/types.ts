@@ -168,6 +168,14 @@ export interface WorkbenchHostBridge {
     agentId: string;
     conversationId?: string;
   }) => void | Promise<void>;
+  /**
+   * Electron 宿主在加载自定义页面预览前调用，用于同步 ticket cookie 等会话状态。
+   * 仅在 previewContainer === 'electron-webview' 时由 workbench 触发。
+   */
+  onPreparePreview?: (context: {
+    url: string;
+    baseUrl?: string;
+  }) => void | Promise<void>;
   onExit?: () => void | Promise<void>;
   onNavigate?: (path: string) => void | Promise<void>;
   onError?: (error: Error, context?: Record<string, unknown>) => void;

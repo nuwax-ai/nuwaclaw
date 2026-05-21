@@ -159,10 +159,11 @@
 
 ### Phase 4 — 页面预览增强（中优先级）✅ (commit pending)
 
-#### 4.1 Electron Webview 集成
-**文件**: `crates/agent-workbench/src/components/NuwaxOpenApp.tsx`
-- `PagePreviewIframe` 已支持 `previewContainer === 'electron-webview'` 时使用 `<webview>` 标签
-- preload bridge IPC (cookie 注入、CSP 绕过、下载拦截) 需后续 Electron preload 层配合
+#### 4.1 Electron Webview 集成 ✅
+**文件**: `crates/agent-workbench/src/components/NuwaxOpenApp.tsx`, `crates/agent-electron-client/src/renderer/services/workbenchPreview.ts`
+- `PagePreviewIframe` 在 `previewContainer === 'electron-webview'` 时使用 `<webview>`（defaultSession、`allowpopups`）
+- 打开预览前通过 `WorkbenchHostBridge.onPreparePreview` 同步 ticket cookie（复用 `syncSessionCookie`）
+- 主进程 `will-attach-webview` 已为 http(s) 页面注入 `webviewPerfBridge` preload
 
 #### 4.2 自定义页面菜单自动打开 ✅
 **文件**: `crates/agent-workbench/src/components/NuwaxOpenApp.tsx`
