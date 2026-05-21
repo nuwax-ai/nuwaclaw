@@ -23,8 +23,10 @@
     "src/routes.ts",
     "src/sse.ts",
     "src/adapters/**/*.ts",
+    "src/components/**/*.ts",
     "src/components/**/*.tsx",
     "tests/**/*.ts",
+    "tests/**/*.tsx",
     "vite.config.ts",
     "vitest.config.ts"
   ],

@@ -15,6 +15,10 @@ contextBridge.exposeInMainWorld("electronAPI", {
     get: (key: string) => ipcRenderer.invoke("settings:get", key),
     set: (key: string, value: unknown) =>
       ipcRenderer.invoke("settings:set", key, value),
+    listKeys: (prefix?: string) =>
+      ipcRenderer.invoke("settings:listKeys", prefix) as Promise<
+        Array<{ key: string; value: unknown }>
+      >,
   },
 
   // Window controls
@@ -326,6 +330,19 @@ contextBridge.exposeInMainWorld("electronAPI", {
   // Workbench utilities
   workbench: {
     openEditor: () => ipcRenderer.invoke("workbench:openEditor"),
+    /**
+     * 返回 agent-workbench 内嵌 <webview> 使用的 preload 脚本路径。
+     * 返回值同时包含绝对路径与 file:// URL（webview 接受 URL 形式更稳）。
+     */
+    getPreviewPreloadPath: () =>
+      ipcRenderer.invoke("workbench:getPreviewPreloadPath") as Promise<{
+        success: boolean;
+        path?: string;
+        url?: string;
+        partition?: string;
+        isPackaged?: boolean;
+        error?: string;
+      }>,
   },
 
   // Session / Cookie management (for embedded webview)
@@ -340,6 +357,13 @@ contextBridge.exposeInMainWorld("electronAPI", {
     }) => ipcRenderer.invoke("session:setCookie", params),
     getCookie: (params: { url: string; name: string }) =>
       ipcRenderer.invoke("session:getCookie", params),
+    getCookieValue: (params: { url: string; name: string }) =>
+      ipcRenderer.invoke("session:getCookie", params) as Promise<{
+        success: boolean;
+        found?: boolean;
+        value?: string;
+        error?: string;
+      }>,
     removeCookie: (params: { url: string; name: string }) =>
       ipcRenderer.invoke("session:removeCookie", params),
     flushStore: () => ipcRenderer.invoke("session:flushStore"),

@@ -547,6 +547,22 @@ export interface WorkbenchAPI {
     | { success: true; openedBy: WorkbenchOpenedBy }
     | { success: false; error: string }
   >;
+  /**
+   * 返回 agent-workbench 内嵌 <webview> 所用的 preload 脚本路径。
+   *
+   * Returned shape:
+   * - `path`：本地绝对路径（dev / 打包后 app.asar 内部均成立）
+   * - `url`：对应 file:// URL（webview `preload` 属性接受 URL 形式更稳）
+   * - `partition`：建议使用的 Session partition 名称
+   */
+  getPreviewPreloadPath: () => Promise<{
+    success: boolean;
+    path?: string;
+    url?: string;
+    partition?: string;
+    isPackaged?: boolean;
+    error?: string;
+  }>;
 }
 
 // ==================== Computer API (rcoder /computer/* compat) ====================
@@ -684,6 +700,7 @@ export interface ElectronAPI {
     getCookie: (params: { url: string; name: string }) => Promise<{
       success: boolean;
       found?: boolean;
+      value?: string;
       count?: number;
       cookies?: Array<{
         name: string;
@@ -719,6 +736,9 @@ export interface ElectronAPI {
   settings: {
     get: (key: string) => Promise<unknown>;
     set: (key: string, value: unknown) => Promise<boolean>;
+    listKeys: (
+      prefix?: string,
+    ) => Promise<Array<{ key: string; value: unknown }>>;
   };
   window: {
     minimize: () => Promise<void>;

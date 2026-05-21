@@ -1,0 +1,127 @@
+/**
+ * OpenApp localized label dictionaries.
+ *
+ * Extracted from `NuwaxOpenApp.tsx` to break the circular import that existed
+ * between `ChatInputHome` (which needed the shared `zh` label shape) and
+ * `NuwaxOpenApp` (which still defined it). Both files now pull labels from
+ * here independently.
+ *
+ * The exported `Labels` type is a `typeof zh` so child components can keep
+ * using the same `labels: Labels`-shaped prop without having to import the
+ * concrete `zh` object.
+ *
+ * NOTE: `NuwaxOpenApp.tsx` continues to re-export `nuwaxOpenAppLabelsZh = zh`
+ * for backward compatibility with existing consumers (tests, electron-client).
+ */
+
+export const zh = {
+  collapseNav: '收起导航',
+  expandNav: '展开导航',
+  newConversation: '新建会话',
+  historyConversation: '历史会话',
+  viewAll: '查看全部',
+  firstConversationTip: '还没有看到文件',
+  emptyTitle: '和 {name} 开始会话',
+  emptySubtitle: '直接输入指令，或从历史会话继续。',
+  inputPlaceholder:
+    '直接输入指令，可通过Shift+Enter换行，通过回车发送消息；支持输入@唤起技能；支持粘贴图片',
+  contentGenerated: '内容由AI生成，请仔细甄别',
+  send: '发送',
+  stop: '停止',
+  searchPlaceholder: '搜索历史会话',
+  historyTitle: '历史会话',
+  rename: '重命名',
+  delete: '删除',
+  renamePrompt: '请输入新的会话标题',
+  deleteConfirm: '确定删除该会话吗？',
+  openEditor: 'Open Editor',
+  pagePreview: '页面预览',
+  model: '默认模型',
+  agentMode: 'Agent 模式',
+  askMode: 'Ask',
+  yoloMode: 'YOLO',
+  mentionSkill: '提及技能',
+  uploadAttachment: '上传附件',
+  enableTools: '工具',
+  refresh: '刷新',
+  back: '后退',
+  forward: '前进',
+  copyLink: '复制链接',
+  openInNewWindow: '打开',
+  close: '关闭',
+  missingToken: '缺少 accessToken，当前使用 mock adapter。',
+  mockMode: 'Using mock workbench fallback for integration testing',
+  permissionTitle: '权限请求',
+  allowOnce: '允许一次',
+  reject: '拒绝',
+  suggestTitle: '推荐问题',
+  variableFormTitle: '会话参数',
+  variableSubmit: '开始会话',
+  selectModel: '选择模型',
+  noModels: '暂无可用模型',
+  noSkills: '暂无可用技能',
+  skillTabAll: '全部',
+  skillTabCollect: '收藏',
+  skillTabRecent: '最近',
+  attachmentUploadIncomplete: '附件上传未完成，请移除后重试',
+  loadMoreMessages: '加载更早的消息',
+  loadingMoreMessages: '加载中…',
+  untitledSession: '未命名会话',
+};
+
+export type Labels = typeof zh;
+
+export const en: Labels = {
+  collapseNav: 'Collapse navigation',
+  expandNav: 'Expand navigation',
+  newConversation: 'New conversation',
+  historyConversation: 'History',
+  viewAll: 'View all',
+  firstConversationTip: 'No conversation yet',
+  emptyTitle: 'Start a conversation with {name}',
+  emptySubtitle: 'Enter a command, or continue from history.',
+  inputPlaceholder:
+    'Type a command. Shift+Enter for newline, Enter to send. Supports @ skills and pasted images.',
+  contentGenerated: 'AI generated content. Review carefully.',
+  send: 'Send',
+  stop: 'Stop',
+  searchPlaceholder: 'Search conversations',
+  historyTitle: 'Conversation history',
+  rename: 'Rename',
+  delete: 'Delete',
+  renamePrompt: 'Enter a new conversation title',
+  deleteConfirm: 'Delete this conversation?',
+  openEditor: 'Open Editor',
+  pagePreview: 'Page preview',
+  model: 'Default model',
+  agentMode: 'Agent mode',
+  askMode: 'Ask',
+  yoloMode: 'YOLO',
+  mentionSkill: 'Mention skill',
+  uploadAttachment: 'Upload attachment',
+  enableTools: 'Tools',
+  refresh: 'Refresh',
+  back: 'Back',
+  forward: 'Forward',
+  copyLink: 'Copy link',
+  openInNewWindow: 'Open',
+  close: 'Close',
+  missingToken: 'Missing accessToken. Mock adapter is active.',
+  mockMode: 'Using mock workbench fallback for integration testing',
+  permissionTitle: 'Permission request',
+  allowOnce: 'Allow once',
+  reject: 'Reject',
+  suggestTitle: 'Suggested questions',
+  variableFormTitle: 'Session parameters',
+  variableSubmit: 'Start conversation',
+  selectModel: 'Select model',
+  noModels: 'No models available',
+  noSkills: 'No skills available',
+  skillTabAll: 'All',
+  skillTabCollect: 'Saved',
+  skillTabRecent: 'Recent',
+  attachmentUploadIncomplete: 'Attachment upload incomplete. Remove and retry.',
+  loadMoreMessages: 'Load earlier messages',
+  loadingMoreMessages: 'Loading…',
+  untitledSession: 'Untitled session',
+};

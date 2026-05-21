@@ -44,6 +44,7 @@
   },
   "license": "MIT",
   "dependencies": {
+    "prism-react-renderer": "^2.4.1",
     "react-markdown": "^10.1.0",
     "remark-gfm": "^4.0.1"
   }

@@ -14,10 +14,27 @@ let store: Record<string, unknown> = {};
 
 const mockSettingsGet = vi.fn(async (key: string) => store[key] ?? null);
 
+const mockSettingsListKeys = vi.fn(async (prefix?: string) => {
+  const normalized = prefix ?? "";
+  return Object.entries(store)
+    .filter(([key]) => key.startsWith(normalized))
+    .map(([key, value]) => ({ key, value }));
+});
+
 vi.stubGlobal("window", {
   electronAPI: {
     settings: {
       get: mockSettingsGet,
+      set: vi.fn(async (key: string, value: unknown) => {
+        store[key] = value;
+      }),
+      listKeys: mockSettingsListKeys,
+    },
+    session: {
+      getCookieValue: vi.fn(async () => ({
+        success: true,
+        found: false,
+      })),
     },
   },
 });
@@ -173,6 +190,67 @@ describe("loadWorkbenchConfig", () => {
     ]);
     expect(result.useMock).toBe(true);
     expect(result.config.useMock).toBe(true);
+  });
+
+  it("accessToken 可来自 userInfo.accessToken（登录后持久化）", async () => {
+    store[AUTH_KEYS.USER_INFO] = {
+      currentDomain: "https://app.example.com",
+      appAgentId: "2809",
+      accessToken: "userinfo-bearer-token",
+    };
+    store[WORKBENCH_APP_AGENT_ID_SETTING_KEY] = "2809";
+    store[STORAGE_KEYS.STEP1_CONFIG] = {
+      workspaceDir: "/tmp/workspace",
+    };
+
+    const result = await loadWorkbenchConfig();
+
+    expect(result.config.accessToken).toBe("userinfo-bearer-token");
+    expect(result.missing.accessToken).toBe(false);
+    expect(result.config.appAgentId).toBe("2809");
+  });
+
+  it("无 settings token 时可从 session ticket 恢复 accessToken", async () => {
+    vi.mocked(window.electronAPI!.session.getCookieValue).mockResolvedValueOnce(
+      {
+        success: true,
+        found: true,
+        value: "recovered-jwt",
+      },
+    );
+    store[AUTH_KEYS.USER_INFO] = {
+      currentDomain: "https://app.example.com",
+      appAgentId: "2809",
+    };
+    store[WORKBENCH_APP_AGENT_ID_SETTING_KEY] = "2809";
+    store[STORAGE_KEYS.STEP1_CONFIG] = {
+      serverHost: "https://app.example.com",
+      workspaceDir: "/tmp/workspace",
+    };
+
+    const result = await loadWorkbenchConfig();
+
+    expect(result.config.accessToken).toBe("recovered-jwt");
+    expect(result.missing.accessToken).toBe(false);
+  });
+
+  it("baseUrl 与 token 缓存域名不一致时，会回退尝试 step1 serverHost", async () => {
+    store[AUTH_KEYS.USER_INFO] = {
+      currentDomain: "https://ui.example.com",
+      appAgentId: "2809",
+    };
+    store[STORAGE_KEYS.STEP1_CONFIG] = {
+      serverHost: "https://login.example.com",
+      workspaceDir: "/tmp/workspace",
+    };
+    store[getWorkbenchAccessTokenKey("https://login.example.com")] =
+      "token-on-login-host";
+
+    const result = await loadWorkbenchConfig();
+
+    expect(result.config.baseUrl).toBe("https://ui.example.com");
+    expect(result.config.accessToken).toBe("token-on-login-host");
+    expect(result.missing.accessToken).toBe(false);
   });
 
   it("缺少 baseUrl 或 workspaceDir 不会在真实 token/appAgentId 存在时启用 mock", async () => {

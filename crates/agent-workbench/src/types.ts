@@ -1,3 +1,8 @@
+// ID convention: all IDs (agentId, conversationId, messageId, skillIds, modelId, sandboxId)
+// are strings at the workbench boundary. Conversion to/from nuwax API's numeric IDs
+// happens exclusively in src/adapters/idCoercion.ts via toApiId/fromApiId.
+// Do not introduce number-typed IDs in this file.
+
 import type { CSSProperties, ReactNode } from 'react';
 
 export type WorkbenchAdapterMode = 'web' | 'mock' | 'custom';
@@ -65,6 +70,10 @@ export interface WorkbenchVariable {
   systemVariable?: boolean;
   placeholder?: string;
   defaultValue?: string | number;
+  /** Optional. Defaults to 'Text' when absent. */
+  type?: WorkbenchVariableType;
+  /** Required for Select / MultipleSelect. */
+  selectConfig?: WorkbenchVariableSelectConfig;
 }
 
 export interface WorkbenchAgentDetail {
@@ -83,6 +92,15 @@ export interface WorkbenchAgentDetail {
   hasPermission?: boolean;
   allowCopy?: boolean | number | string;
   allowOtherModel?: boolean | number | string;
+  /**
+   * Whether @-skill mention is enabled for this agent.
+   *
+   * Mirrors nuwax `AgentDetail.allowAtSkill`, which arrives over the wire as
+   * either the string enum `'Yes' | 'No'` or a boolean. The adapter normalizes
+   * both shapes to a boolean here; consumers should treat `undefined` as
+   * "use the host default" (matches nuwax behavior when the field is absent).
+   */
+  allowAtSkill?: boolean;
   sandboxId?: string;
   raw?: unknown;
 }
@@ -98,6 +116,8 @@ export interface WorkbenchStreamEvent {
   type: WorkbenchStreamEventType;
   conversationId?: string;
   messageId?: string;
+  /** nuwax SSE ConversationChatResponse.requestId，用于 stop 接口 */
+  requestId?: string;
   content?: string;
   error?: string;
   permission?: WorkbenchPermissionRequest;
@@ -107,6 +127,40 @@ export interface WorkbenchStreamEvent {
 export interface WorkbenchConversationMessages {
   conversation: WorkbenchConversation;
   messages: WorkbenchMessage[];
+  /** 是否还有更早的消息可加载 */
+  hasMore?: boolean;
+}
+
+export interface WorkbenchGetConversationOptions {
+  /** 消息游标 index，用于向上分页加载历史 */
+  index?: number;
+  size?: number;
+}
+
+/** 与 nuwax AttachmentFile 对齐的上传结果（发送 chat 前需同时具备 key 与 url） */
+export interface WorkbenchUploadedAttachment {
+  url: string;
+  key?: string;
+  fileName?: string;
+  mimeType?: string;
+}
+
+export interface WorkbenchListConversationsOptions {
+  /** 上一页最后一条会话 id，用于翻页 */
+  lastId?: number | string | null;
+  /** 返回条数；OpenApp 侧栏默认 8 */
+  limit?: number;
+  /** 主题模糊搜索 */
+  topic?: string;
+}
+
+export type WorkbenchSkillListTab = 'all' | 'collect' | 'recent';
+
+export interface WorkbenchSkillOption {
+  id: string;
+  name: string;
+  description?: string;
+  icon?: string;
 }
 
 export interface WorkbenchSendMessageRequest {
@@ -118,7 +172,7 @@ export interface WorkbenchSendMessageRequest {
   variableParams?: Record<string, unknown>;
   modelId?: string;
   agentMode?: 'ask' | 'yolo';
-  attachments?: unknown[];
+  attachments?: WorkbenchUploadedFile[];
   skillIds?: string[];
   sandboxId?: string;
 }
@@ -134,11 +188,15 @@ export interface WorkbenchModelOption {
 
 export interface WorkbenchApiAdapter {
   getAgentDetail?(agentId: string): Promise<WorkbenchAgentDetail>;
-  listConversations(agentId: string): Promise<WorkbenchConversation[]>;
+  listConversations(
+    agentId: string,
+    options?: WorkbenchListConversationsOptions,
+  ): Promise<WorkbenchConversation[]>;
   createConversation(agentId: string, title?: string): Promise<WorkbenchConversation>;
   getConversation(
     agentId: string,
     conversationId: string,
+    options?: WorkbenchGetConversationOptions,
   ): Promise<WorkbenchConversationMessages>;
   updateConversation?(
     conversationId: string,
@@ -159,8 +217,62 @@ export interface WorkbenchApiAdapter {
     conversationId: string,
     agentId: string,
     variableParams?: Record<string, unknown>,
+    /** 最近用户消息，对齐 nuwax ConversationChatSuggestParams.message */
+    lastMessage?: string,
   ): Promise<string[]>;
   getModelOptions?(agentId: string): Promise<WorkbenchModelOption[]>;
+  /** POST /api/file/upload — single file multipart. */
+  uploadFile?: (
+    file: File,
+    opts?: {
+      onProgress?: (p: WorkbenchUploadProgress) => void;
+      signal?: AbortSignal;
+    },
+  ) => Promise<WorkbenchUploadedFile>;
+  /**
+   * Multiplexed skill listing (back-compat).
+   *
+   * Dispatches to one of three nuwax endpoints based on `tab`:
+   * - 'all'     → POST /api/published/skill/list-for-at      (paginated)
+   * - 'collect' → POST /api/published/skill/collect/list     (full list)
+   * - 'recent'  → POST /api/published/skill/recentlyUsed/list (full list)
+   *
+   * Returns a flat `WorkbenchSkillOption[]` for back-compat with the current
+   * NuwaxOpenApp call site. Phase B will migrate callers to the dedicated
+   * methods below (`listRecentSkills` / `listCollectedSkills` /
+   * `listSkillsForAtPaged`) which expose pagination metadata.
+   */
+  listSkillsForAt?(
+    agentId: string,
+    options?: {
+      keyword?: string;
+      /** 对齐 nuwax SkillListForAtParams.page */
+      page?: number;
+      pageSize?: number;
+      /** 全部 / 收藏 / 最近使用 */
+      tab?: WorkbenchSkillListTab;
+    },
+  ): Promise<WorkbenchSkillOption[]>;
+  /**
+   * POST /api/published/skill/list-for-at — paginated/search skill list.
+   * Mirrors nuwax `apiSkillListForAt`; returns the full envelope so callers
+   * can paginate and surface total counts.
+   */
+  listSkillsForAtPaged?: (
+    params: WorkbenchSkillListParams,
+  ) => Promise<WorkbenchSkillListResult>;
+  /**
+   * POST /api/published/skill/recentlyUsed/list — recently used skills.
+   * Mirrors nuwax `apiSkillRecentlyUsedListForAt`; the response is the full
+   * list (no pagination), filtered locally by the caller.
+   */
+  listRecentSkills?: (agentId: string) => Promise<WorkbenchSkillOption[]>;
+  /**
+   * POST /api/published/skill/collect/list — collected/favorited skills.
+   * Mirrors nuwax `apiSkillCollectListForAt`; the response is the full list
+   * (no pagination), filtered locally by the caller.
+   */
+  listCollectedSkills?: (agentId: string) => Promise<WorkbenchSkillOption[]>;
 }
 
 export interface WorkbenchHostBridge {
@@ -171,6 +283,16 @@ export interface WorkbenchHostBridge {
   onExit?: () => void | Promise<void>;
   onNavigate?: (path: string) => void | Promise<void>;
   onError?: (error: Error, context?: Record<string, unknown>) => void;
+  /** Electron 宿主在加载页面预览前同步 ticket cookie（与 defaultSession 共享） */
+  onBeforePreviewLoad?: (url: string) => void | Promise<void>;
+  /** 可选：为 electron-webview 设置 userAgent */
+  getPreviewUserAgent?: () => string | Promise<string>;
+  /** Returns absolute path to webview preload script. Optional. */
+  getPreviewPreloadPath?: () => string | undefined | Promise<string | undefined>;
+  /** Called when webview triggers a download. */
+  onPreviewDownload?: (info: { url: string; filename?: string }) => void;
+  /** Called when webview attempts to open a new window. */
+  onPreviewNewWindow?: (url: string) => 'allow' | 'deny' | 'open-external';
 }
 
 export interface AgentWorkbenchConfig {
@@ -202,4 +324,118 @@ export interface AgentWorkbenchProps {
   config?: AgentWorkbenchConfig;
   className?: string;
   style?: CSSProperties;
+}
+
+/**
+ * Request params for the @-skill list endpoints.
+ *
+ * Aligns with nuwax `SkillListForAtParams` (atSkill.ts) but uses workbench
+ * naming (`keyword` instead of `kw`). The adapter layer is responsible for
+ * mapping `keyword` → `kw` when calling the real API. `agentId` is kept on
+ * the params even though nuwax's endpoint is global, so adapters that want
+ * to filter by agent (or audit which agent issued the call) can do so.
+ */
+export interface WorkbenchSkillListParams {
+  agentId: string;
+  /** Search keyword; mapped to nuwax `kw` field at the adapter boundary. */
+  keyword?: string;
+  /** 1-based page index; nuwax default is 1. */
+  page?: number;
+  /** Page size; nuwax MentionPopup default is 20. */
+  pageSize?: number;
+  /**
+   * Restrict to specific usage scenarios (Agent type filter).
+   * Mirrors nuwax `usageScenarios` (AgentTypeEnum[]).
+   */
+  usageScenarios?: string[];
+}
+
+/**
+ * Paginated result for `listSkillsForAt`.
+ *
+ * Normalizes nuwax `Page<SkillInfoForAt>` (records + total) into a
+ * workbench-shaped envelope. `hasMore` is derived at the adapter layer so
+ * UI code does not need to know about page math.
+ */
+export interface WorkbenchSkillListResult {
+  items: WorkbenchSkillOption[];
+  total: number;
+  hasMore: boolean;
+}
+
+/**
+ * Result of a successful single-file upload via `uploadFile`.
+ *
+ * Mirrors nuwax `/api/file/upload` response shape: `{ url, key, fileName }`.
+ * `size` and `mimeType` are populated from the local `File` when the server
+ * does not echo them. The adapter is responsible for normalizing field aliases
+ * (`fileUrl`, `file_url`, `link`, etc.) before returning.
+ *
+ * `fileName` is typed as optional to stay structurally compatible with the
+ * legacy `WorkbenchUploadedAttachment` shape used by `NuwaxOpenApp`'s upload
+ * pipeline. The adapter implementation always populates it (falling back to
+ * the local `File.name`) so callers can rely on it being present in practice.
+ */
+export interface WorkbenchUploadedFile {
+  url: string;
+  key?: string;
+  fileName?: string;
+  size?: number;
+  mimeType?: string;
+}
+
+/**
+ * Upload progress event for `uploadFile.onProgress`.
+ *
+ * `loaded` and `total` are in bytes. Progress is best-effort: native `fetch`
+ * does not expose upload progress, so adapters that only have `fetch` may
+ * never invoke the callback. Use `loaded === total` as the completion marker.
+ */
+export interface WorkbenchUploadProgress {
+  loaded: number;
+  total: number;
+}
+
+/**
+ * Variable input type discriminator. Mirrors nuwax `InputTypeEnum`
+ * (src/types/enums/agent.ts) — only the user-facing variants are exposed
+ * here; HTTP plugin types (Query/Body/Header/Path) live outside the
+ * workbench variable form contract.
+ */
+export type WorkbenchVariableType =
+  | 'Text'
+  | 'Paragraph'
+  | 'Number'
+  | 'Select'
+  | 'MultipleSelect'
+  | 'AutoRecognition';
+
+/**
+ * `selectConfig.mode` for Select / MultipleSelect variables.
+ *
+ * - `MANUAL`: option tree is bundled with the variable definition.
+ * - `PLUGIN`: option tree must be resolved at runtime via the host bridge
+ *   (see `VariableFormProps.resolvePluginOptions`).
+ */
+export type WorkbenchSelectConfigMode = 'MANUAL' | 'PLUGIN';
+
+/**
+ * Tree node for cascader-style selects. Aligns with antd's Cascader option
+ * shape used by nuwax `BindConfigWithSub.selectConfig.options`.
+ */
+export interface WorkbenchCascaderOption {
+  value: string | number;
+  label: string;
+  children?: WorkbenchCascaderOption[];
+}
+
+/**
+ * Configuration for Select / MultipleSelect variables.
+ */
+export interface WorkbenchVariableSelectConfig {
+  mode: WorkbenchSelectConfigMode;
+  /** For MANUAL: hard-coded option tree. */
+  options?: WorkbenchCascaderOption[];
+  /** For PLUGIN: identifier the host adapter can resolve to dynamic data. */
+  pluginId?: string;
 }

@@ -3,8 +3,11 @@ import {
   getDomainTokenKey,
   getWorkbenchAccessTokenKey,
 } from "@shared/utils/domain";
+import { recoverWorkbenchAccessToken } from "./workbenchToken";
 
 export const WORKBENCH_APP_AGENT_ID_SETTING_KEY = "workbench.app_agent_id";
+/** 设置页保存 appAgentId 后派发，供 App.tsx 在 Agent Mode 打开时重载配置 */
+export const WORKBENCH_CONFIG_CHANGED_EVENT = "workbench:config-changed";
 export const WORKBENCH_PREVIEW_CONTAINER = "electron-webview" as const;
 export const WORKBENCH_LOCALE_SETTING_KEY = "i18n.active_lang";
 export const DEFAULT_WORKBENCH_LOCALE = "en-us";
@@ -41,6 +44,7 @@ interface Step1ConfigLike {
 
 interface AuthUserInfoLike {
   currentDomain?: unknown;
+  accessToken?: unknown;
   token?: unknown;
   appAgentId?: unknown;
   app_agent_id?: unknown;
@@ -118,25 +122,58 @@ export function getAppAgentIdFromUserInfo(
   );
 }
 
+function uniqueDomainCandidates(...values: unknown[]): string[] {
+  const seen = new Set<string>();
+  const domains: string[] = [];
+  for (const value of values) {
+    const normalized = normalizeBaseUrl(value);
+    if (!normalized || seen.has(normalized)) continue;
+    seen.add(normalized);
+    domains.push(normalized);
+  }
+  return domains;
+}
+
+/** 按域名读取 workbench / auth 缓存 token */
+async function readTokenForDomain(domain: string): Promise<string | null> {
+  const workbenchToken = getNonEmptyString(
+    await readSetting(getWorkbenchAccessTokenKey(domain)),
+  );
+  if (workbenchToken) return workbenchToken;
+
+  const domainToken = getNonEmptyString(
+    await readSetting(getDomainTokenKey(domain)),
+  );
+  if (domainToken) return domainToken;
+
+  return null;
+}
+
+/**
+ * 解析 Agent Mode 用的 Bearer token。
+ * 顺序：one-shot → userInfo.accessToken → 各候选域名的 workbench/domain 缓存。
+ */
 async function resolveAccessToken(
   baseUrl: string | null,
   userInfo: AuthUserInfoLike | null,
+  extraDomains: string[] = [],
 ): Promise<string | null> {
   const oneShotToken = getNonEmptyString(
     await readSetting(AUTH_KEYS.AUTH_TOKEN),
   );
   if (oneShotToken) return oneShotToken;
 
-  if (baseUrl) {
-    const workbenchToken = getNonEmptyString(
-      await readSetting(getWorkbenchAccessTokenKey(baseUrl)),
-    );
-    if (workbenchToken) return workbenchToken;
+  const explicitUserToken = getNonEmptyString(userInfo?.accessToken);
+  if (explicitUserToken) return explicitUserToken;
 
-    const domainToken = getNonEmptyString(
-      await readSetting(getDomainTokenKey(baseUrl)),
-    );
-    if (domainToken) return domainToken;
+  const domains = uniqueDomainCandidates(
+    baseUrl,
+    userInfo?.currentDomain,
+    ...extraDomains,
+  );
+  for (const domain of domains) {
+    const cached = await readTokenForDomain(domain);
+    if (cached) return cached;
   }
 
   return getNonEmptyString(userInfo?.token);
@@ -160,20 +197,37 @@ function collectMissingKeys(
 }
 
 export async function loadWorkbenchConfig(): Promise<LoadWorkbenchConfigResult> {
-  const [userInfo, step1Config, settingAppAgentId, settingLocale] =
-    await Promise.all([
-      readSetting<AuthUserInfoLike>(AUTH_KEYS.USER_INFO),
-      readSetting<Step1ConfigLike>(STORAGE_KEYS.STEP1_CONFIG),
-      readSetting<string>(WORKBENCH_APP_AGENT_ID_SETTING_KEY),
-      readSetting<string>(WORKBENCH_LOCALE_SETTING_KEY),
-    ]);
+  const [
+    userInfo,
+    step1Config,
+    settingAppAgentId,
+    settingLocale,
+    lanproxyHost,
+  ] = await Promise.all([
+    readSetting<AuthUserInfoLike>(AUTH_KEYS.USER_INFO),
+    readSetting<Step1ConfigLike>(STORAGE_KEYS.STEP1_CONFIG),
+    readSetting<string>(WORKBENCH_APP_AGENT_ID_SETTING_KEY),
+    readSetting<string>(WORKBENCH_LOCALE_SETTING_KEY),
+    readSetting<string>(AUTH_KEYS.LANPROXY_SERVER_HOST),
+  ]);
 
   const baseUrl =
     normalizeBaseUrl(userInfo?.currentDomain) ??
     normalizeBaseUrl(step1Config?.serverHost) ??
     "";
-  const accessToken =
-    (await resolveAccessToken(baseUrl || null, userInfo)) ?? "";
+  const domainCandidates = [
+    baseUrl,
+    userInfo?.currentDomain,
+    getNonEmptyString(step1Config?.serverHost),
+    getNonEmptyString(lanproxyHost),
+  ].filter(Boolean) as string[];
+
+  let accessToken =
+    (await resolveAccessToken(baseUrl || null, userInfo, domainCandidates)) ??
+    "";
+  if (!accessToken) {
+    accessToken = (await recoverWorkbenchAccessToken(domainCandidates)) ?? "";
+  }
   const appAgentId =
     getAppAgentIdFromUserInfo(userInfo) ??
     getNonEmptyString(settingAppAgentId) ??

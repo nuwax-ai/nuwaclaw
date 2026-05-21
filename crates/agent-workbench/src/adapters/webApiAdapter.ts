@@ -1,14 +1,25 @@
 import { parseSseStream } from '../sse';
+import { fromApiId, toApiId } from './idCoercion';
 import type {
   WorkbenchApiAdapter,
   WorkbenchAgentDetail,
   WorkbenchCustomPageNavItem,
   WorkbenchConversation,
   WorkbenchConversationMessages,
+  WorkbenchGetConversationOptions,
+  WorkbenchListConversationsOptions,
   WorkbenchMessage,
+  WorkbenchMessageRole,
   WorkbenchModelOption,
   WorkbenchSendMessageRequest,
+  WorkbenchSkillListParams,
+  WorkbenchSkillListResult,
+  WorkbenchSkillListTab,
+  WorkbenchSkillOption,
   WorkbenchStreamEvent,
+  WorkbenchUploadedAttachment,
+  WorkbenchUploadedFile,
+  WorkbenchUploadProgress,
 } from '../types';
 
 export interface WebApiAdapterOptions {
@@ -19,11 +30,18 @@ export interface WebApiAdapterOptions {
 }
 
 interface JsonEnvelope<T> {
+  code?: string | number;
   data?: T;
   success?: boolean;
   message?: string;
   error?: string;
 }
+
+/** nuwax 业务成功码，见 codes.constants SUCCESS_CODE */
+const NUWAX_SUCCESS_CODE = '0000';
+
+/** OpenApp 侧栏历史会话条数，见 BaseTemplate runHistory({ limit: 8 }) */
+const OPENAPP_SIDEBAR_CONVERSATION_LIMIT = 8;
 
 function normalizeBaseUrl(baseUrl: string): string {
   return baseUrl.trim().replace(/\/+$/, '');
@@ -46,6 +64,23 @@ function unwrapData<T>(payload: unknown): T {
     return payload.data as T;
   }
   return payload as T;
+}
+
+/**
+ * 解析 nuwax RequestResponse：HTTP 200 时仍可能 code !== 0000。
+ */
+function assertBusinessSuccess(payload: unknown, httpStatus: number): void {
+  if (!isRecord(payload) || !('code' in payload)) return;
+  const code = payload.code;
+  if (code === undefined || code === null) return;
+  const normalized = String(code);
+  if (normalized === NUWAX_SUCCESS_CODE) return;
+  const envelope = payload as JsonEnvelope<unknown>;
+  throw new Error(
+    envelope.message ??
+      envelope.error ??
+      `Request failed with business code: ${normalized} (HTTP ${httpStatus})`,
+  );
 }
 
 function createFallbackId(prefix: string): string {
@@ -77,18 +112,20 @@ function readCollection(value: unknown): unknown[] {
 
 function normalizeConversation(raw: unknown, agentId: string): WorkbenchConversation {
   const item = isRecord(raw) ? raw : {};
-  const id = String(
+  const rawId =
     item.id ??
-      item.conversationId ??
-      item.conversation_id ??
-      item.sessionId ??
-      item.session_id ??
-      createFallbackId('conv'),
-  );
+    item.conversationId ??
+    item.conversation_id ??
+    item.sessionId ??
+    item.session_id;
+  const id =
+    fromApiId(rawId as number | string | null | undefined) || createFallbackId('conv');
   const now = new Date().toISOString();
   return {
     id,
-    agentId: String(item.agentId ?? item.agent_id ?? agentId),
+    agentId:
+      fromApiId((item.agentId ?? item.agent_id) as number | string | null | undefined) ||
+      agentId,
     title: String(
       item.title ??
         item.name ??
@@ -136,9 +173,50 @@ function normalizeCustomPageMenus(raw: unknown): WorkbenchCustomPageNavItem[] {
     .filter((item) => item.name);
 }
 
+/**
+ * Normalize a `GuidQuestion` payload from nuwax into the workbench shape.
+ *
+ * Nuwax has sent this field in two distinct shapes over time:
+ *   - `string[]` — bare list of questions
+ *   - `Array<{ question?: string; content?: string; title?: string; info?: string; id?: string | number }>` —
+ *     object list (current `guidQuestionDtos` shape)
+ *
+ * Field-name variants seen on the wire: `guidQuestionDtos`, `guidQuestions`,
+ * `guide_questions`. The adapter accepts all of them; consumers always see
+ * `WorkbenchGuidQuestion[]`.
+ */
+function normalizeGuidQuestionDtos(raw: unknown): WorkbenchAgentDetail['guidQuestionDtos'] {
+  if (!Array.isArray(raw)) return [];
+  const result: NonNullable<WorkbenchAgentDetail['guidQuestionDtos']> = [];
+  for (const entry of raw) {
+    if (typeof entry === 'string') {
+      const text = entry.trim();
+      if (text) result.push({ question: text });
+      continue;
+    }
+    if (!isRecord(entry)) continue;
+    const question = readString(entry, ['question', 'content', 'title', 'info', 'text']);
+    if (!question) continue;
+    const rawId = entry.id;
+    const id =
+      typeof rawId === 'string' || typeof rawId === 'number' ? rawId : undefined;
+    result.push({
+      ...(id !== undefined ? { id } : {}),
+      question,
+      ...(typeof entry.content === 'string' ? { content: entry.content } : {}),
+      ...(typeof entry.title === 'string' ? { title: entry.title } : {}),
+      ...(typeof entry.info === 'string' ? { info: entry.info } : {}),
+    });
+  }
+  return result;
+}
+
 function normalizeAgentDetail(raw: unknown, agentId: string): WorkbenchAgentDetail {
   const item = isRecord(raw) ? raw : {};
-  const id = String(item.agentId ?? item.id ?? item.agent_id ?? agentId);
+  const id =
+    fromApiId(
+      (item.agentId ?? item.id ?? item.agent_id) as number | string | null | undefined,
+    ) || agentId;
   return {
     agentId: id,
     name:
@@ -149,11 +227,9 @@ function normalizeAgentDetail(raw: unknown, agentId: string): WorkbenchAgentDeta
     openingChatMsg: readString(item, ['openingChatMsg', 'opening_chat_msg']),
     conversationId: readString(item, ['conversationId', 'conversation_id']),
     customPageMenus: normalizeCustomPageMenus(item.customPageMenus ?? item.custom_page_menus),
-    guidQuestionDtos: Array.isArray(item.guidQuestionDtos)
-      ? (item.guidQuestionDtos as WorkbenchAgentDetail['guidQuestionDtos'])
-      : Array.isArray(item.guidQuestions)
-        ? (item.guidQuestions as WorkbenchAgentDetail['guidQuestionDtos'])
-        : [],
+    guidQuestionDtos: normalizeGuidQuestionDtos(
+      item.guidQuestionDtos ?? item.guidQuestions ?? item.guide_questions,
+    ),
     variables: Array.isArray(item.variables)
       ? (item.variables as WorkbenchAgentDetail['variables'])
       : [],
@@ -163,14 +239,69 @@ function normalizeAgentDetail(raw: unknown, agentId: string): WorkbenchAgentDeta
     hasPermission: normalizeBooleanLike(item.hasPermission ?? item.has_permission),
     allowCopy: item.allowCopy as WorkbenchAgentDetail['allowCopy'],
     allowOtherModel: item.allowOtherModel as WorkbenchAgentDetail['allowOtherModel'],
+    // nuwax sends `allowAtSkill` as 'Yes' | 'No' (string enum) or a boolean.
+    // `normalizeBooleanLike` already maps both shapes (it accepts 'yes'/'no'
+    // case-insensitively and passes booleans through unchanged).
+    allowAtSkill: normalizeBooleanLike(item.allowAtSkill ?? item.allow_at_skill),
     sandboxId: readString(item, ['sandboxId', 'sandbox_id']),
     raw: item,
   };
 }
 
+const MESSAGE_PAGE_SIZE = 10;
+
+function normalizeSkillOption(raw: unknown): WorkbenchSkillOption | null {
+  const item = isRecord(raw) ? raw : {};
+  const id = fromApiId(
+    (item.id ?? item.skillId ?? item.skill_id) as number | string | null | undefined,
+  );
+  if (!id) return null;
+  return {
+    id,
+    name: readString(item, ['name', 'skillName', 'skill_name', 'title']) ?? id,
+    description: readString(item, ['description', 'desc', 'summary']),
+    icon: readString(item, ['icon', 'avatar', 'logo']),
+  };
+}
+
+/**
+ * Normalize the `/api/file/upload` response into a `WorkbenchUploadedFile`.
+ *
+ * Falls back to the local `File` for `fileName`, `mimeType`, and `size` when
+ * the server response omits them. Server field aliases handled: `url` /
+ * `fileUrl` / `file_url` / `link`, `key` / `fileKey` / `file_key`,
+ * `fileName` / `file_name` / `name`, `mimeType` / `mime_type` / `type`.
+ */
+function normalizeUploadedFile(raw: unknown, file: File): WorkbenchUploadedFile {
+  const item = isRecord(raw) ? raw : {};
+  const url = readString(item, ['url', 'fileUrl', 'file_url', 'link']) ?? '';
+  const sizeRaw = item.size ?? item.fileSize ?? item.file_size;
+  const size =
+    typeof sizeRaw === 'number'
+      ? sizeRaw
+      : typeof sizeRaw === 'string' && sizeRaw.trim() !== ''
+        ? Number(sizeRaw)
+        : file.size;
+  return {
+    url,
+    key: readString(item, ['key', 'fileKey', 'file_key']),
+    fileName: readString(item, ['fileName', 'file_name', 'name']) ?? file.name,
+    size: Number.isFinite(size) ? size : file.size,
+    mimeType:
+      readString(item, ['mimeType', 'mime_type', 'type']) ??
+      (file.type ? file.type : undefined),
+  };
+}
+
 function normalizeModelOption(raw: unknown): WorkbenchModelOption {
   const item = isRecord(raw) ? raw : {};
-  const id = String(item.id ?? item.modelId ?? item.model_id ?? item.value ?? '');
+  const id = fromApiId(
+    (item.id ?? item.modelId ?? item.model_id ?? item.value) as
+      | number
+      | string
+      | null
+      | undefined,
+  );
   return {
     id,
     name: readString(item, ['name', 'modelName', 'model_name', 'label']) ?? id,
@@ -181,30 +312,121 @@ function normalizeModelOption(raw: unknown): WorkbenchModelOption {
   };
 }
 
+function normalizeMessageRole(raw: unknown): WorkbenchMessageRole {
+  const value = String(raw ?? '').toUpperCase();
+  if (value === 'USER') return 'user';
+  if (value === 'SYSTEM') return 'system';
+  if (value === 'ASSISTANT') return 'assistant';
+  const lower = value.toLowerCase();
+  if (lower === 'user') return 'user';
+  if (lower === 'system') return 'system';
+  return 'assistant';
+}
+
 function normalizeMessage(raw: unknown, conversationId: string): WorkbenchMessage {
   const item = isRecord(raw) ? raw : {};
-  const id = String(
-    item.id ?? item.messageId ?? item.message_id ?? createFallbackId('msg'),
-  );
+  const id =
+    fromApiId(
+      (item.id ?? item.messageId ?? item.message_id) as number | string | null | undefined,
+    ) || createFallbackId('msg');
   const now = new Date().toISOString();
-  const rawRole = String(item.role ?? item.sender ?? item.type ?? '').toLowerCase();
-  const role = rawRole === 'user' || rawRole === 'system' ? rawRole : 'assistant';
+  const role = normalizeMessageRole(item.role ?? item.sender);
+  const thinkText = readString(item, ['think']);
+  const text = readString(item, ['text', 'content', 'message', 'answer', 'question']) ?? '';
   const kind =
     item.kind === 'thought' || item.kind === 'permission' || item.kind === 'error'
       ? item.kind
-      : 'text';
+      : thinkText && !text
+        ? 'thought'
+        : 'text';
   return {
     id,
-    conversationId: String(item.conversationId ?? item.conversation_id ?? conversationId),
+    conversationId:
+      fromApiId(
+        (item.conversationId ?? item.conversation_id) as
+          | number
+          | string
+          | null
+          | undefined,
+      ) || conversationId,
     role,
     kind,
-    content: String(
-      item.content ?? item.text ?? item.message ?? item.answer ?? item.question ?? '',
-    ),
+    content: text || thinkText || '',
     createdAt: String(item.createdAt ?? item.created_at ?? item.createTime ?? now),
     status: item.status === 'streaming' || item.status === 'error' ? item.status : 'complete',
     metadata: item,
   };
+}
+
+/** nuwax AttachmentFile，见 conversationInfo.AttachmentFile */
+interface NuwaxAttachmentFile {
+  fileKey: string;
+  fileUrl: string;
+  fileName: string;
+  mimeType: string;
+}
+
+function toNuwaxAttachment(
+  item: WorkbenchUploadedAttachment,
+  fallbackMime?: string,
+): NuwaxAttachmentFile | null {
+  const fileKey = item.key?.trim();
+  const fileUrl = item.url?.trim();
+  if (!fileKey || !fileUrl) return null;
+  return {
+    fileKey,
+    fileUrl,
+    fileName: item.fileName?.trim() || 'attachment',
+    mimeType: item.mimeType?.trim() || fallbackMime || 'application/octet-stream',
+  };
+}
+
+/**
+ * 对齐 nuwax ConversationChatParams（OpenApp onMessageSend）。
+ */
+function toNuwaxChatBody(request: WorkbenchSendMessageRequest): Record<string, unknown> {
+  const attachments = (Array.isArray(request.attachments) ? request.attachments : [])
+    .map((raw) => {
+      if (!isRecord(raw)) {
+        const uploaded = raw as WorkbenchUploadedAttachment;
+        return toNuwaxAttachment(uploaded);
+      }
+      const uploaded: WorkbenchUploadedAttachment = {
+        url: readString(raw, ['url', 'fileUrl', 'file_url', 'link']) ?? '',
+        key: readString(raw, ['key', 'fileKey', 'file_key']),
+        fileName: readString(raw, ['fileName', 'file_name', 'name']),
+        mimeType: readString(raw, ['mimeType', 'mime_type', 'type']),
+      };
+      return toNuwaxAttachment(uploaded);
+    })
+    .filter((item): item is NuwaxAttachmentFile => Boolean(item));
+
+  const skillIds = request.skillIds
+    ?.map((id) => toApiId(id))
+    .filter((id) => (typeof id === 'number' ? Number.isFinite(id) : id !== ''));
+
+  const body: Record<string, unknown> = {
+    conversationId: toApiId(request.conversationId),
+    message: request.content,
+    attachments,
+    selectedComponents: [],
+    debug: false,
+  };
+
+  if (request.variableParams && Object.keys(request.variableParams).length > 0) {
+    body.variableParams = request.variableParams;
+  }
+  if (skillIds && skillIds.length > 0) {
+    body.skillIds = skillIds;
+  }
+  if (request.modelId) {
+    body.modelId = toApiId(request.modelId);
+  }
+  if (request.sandboxId) {
+    body.sandboxId = request.sandboxId;
+  }
+
+  return body;
 }
 
 async function readJsonSafely(response: Response): Promise<unknown> {
@@ -217,11 +439,17 @@ async function readJsonSafely(response: Response): Promise<unknown> {
   }
 }
 
-function createHeaders(accessToken: string, body?: unknown): HeadersInit {
+function createHeaders(
+  accessToken: string,
+  init?: { body?: unknown; accept?: string },
+): HeadersInit {
   const headers: Record<string, string> = {
     Authorization: `Bearer ${accessToken}`,
   };
-  if (body !== undefined) {
+  if (init?.accept) {
+    headers.Accept = init.accept;
+  }
+  if (init?.body !== undefined) {
     headers['Content-Type'] = 'application/json';
   }
   return headers;
@@ -237,7 +465,7 @@ export function createWebApiAdapter(options: WebApiAdapterOptions): WorkbenchApi
   ): Promise<T> {
     const response = await fetcher(joinUrl(options.baseUrl, path), {
       ...init,
-      headers: createHeaders(options.accessToken, init.body),
+      headers: createHeaders(options.accessToken, { body: init.body }),
       body: init.body === undefined ? undefined : JSON.stringify(init.body),
     });
 
@@ -248,7 +476,24 @@ export function createWebApiAdapter(options: WebApiAdapterOptions): WorkbenchApi
         envelope?.error ?? envelope?.message ?? `Request failed: ${response.status}`,
       );
     }
+    assertBusinessSuccess(payload, response.status);
     return unwrapData<T>(payload);
+  }
+
+  /** POST 无 body（如 chat/stop），与 nuwax apiAgentConversationChatStop 一致 */
+  async function requestPostNoBody(path: string): Promise<void> {
+    const response = await fetcher(joinUrl(options.baseUrl, path), {
+      method: 'POST',
+      headers: createHeaders(options.accessToken),
+    });
+    const payload = await readJsonSafely(response);
+    if (!response.ok) {
+      const envelope = payload as JsonEnvelope<unknown>;
+      throw new Error(
+        envelope?.error ?? envelope?.message ?? `Request failed: ${response.status}`,
+      );
+    }
+    assertBusinessSuccess(payload, response.status);
   }
 
   function apiPath(path: string): string {
@@ -269,12 +514,23 @@ export function createWebApiAdapter(options: WebApiAdapterOptions): WorkbenchApi
       return normalizeAgentDetail(data, agentId);
     },
 
-    async listConversations(agentId) {
+    async listConversations(agentId, listOptions?: WorkbenchListConversationsOptions) {
+      const listBody: Record<string, unknown> = {
+        agentId: toApiId(agentId),
+        limit: listOptions?.limit ?? OPENAPP_SIDEBAR_CONVERSATION_LIMIT,
+      };
+      if (listOptions?.lastId !== undefined && listOptions.lastId !== null) {
+        listBody.lastId = toApiId(String(listOptions.lastId));
+      }
+      if (listOptions?.topic) {
+        listBody.topic = listOptions.topic;
+      }
+
       const [publishedAgent, data] = await Promise.all([
         getPublishedAgent(agentId).catch(() => ({})),
         requestJson<unknown>(apiPath('/agent/conversation/list'), {
           method: 'POST',
-          body: { agentId },
+          body: listBody,
         }),
       ]);
       const items = readCollection(data);
@@ -305,7 +561,7 @@ export function createWebApiAdapter(options: WebApiAdapterOptions): WorkbenchApi
     async createConversation(agentId, title) {
       const data = await requestJson<unknown>(apiPath('/agent/conversation/create'), {
         method: 'POST',
-        body: { agentId, title },
+        body: { agentId: toApiId(agentId), title },
       });
       return normalizeConversation(data, agentId);
     },
@@ -330,12 +586,24 @@ export function createWebApiAdapter(options: WebApiAdapterOptions): WorkbenchApi
       );
     },
 
-    async getConversation(agentId, conversationId): Promise<WorkbenchConversationMessages> {
+    async getConversation(
+      agentId,
+      conversationId,
+      options?: WorkbenchGetConversationOptions,
+    ): Promise<WorkbenchConversationMessages> {
+      const size = options?.size ?? MESSAGE_PAGE_SIZE;
+      const body: Record<string, unknown> = {
+        conversationId: toApiId(conversationId),
+        size,
+      };
+      if (options?.index !== undefined) {
+        body.index = options.index;
+      }
       const data = await requestJson<unknown>(
         apiPath('/agent/conversation/message/list'),
         {
           method: 'POST',
-          body: { agentId, conversationId },
+          body,
         },
       );
       const record = isRecord(data) ? data : {};
@@ -344,37 +612,34 @@ export function createWebApiAdapter(options: WebApiAdapterOptions): WorkbenchApi
         agentId,
       );
       const rawMessages = readCollection(data);
+      const messages = rawMessages.map((message) =>
+        normalizeMessage(message, conversation.id),
+      );
+      const hasMoreFlag = record.hasMore ?? record.has_more;
+      const hasMore =
+        typeof hasMoreFlag === 'boolean'
+          ? hasMoreFlag
+          : messages.length >= size;
       return {
         conversation,
-        messages: rawMessages.map((message) => normalizeMessage(message, conversation.id)),
+        messages,
+        hasMore,
       };
     },
 
     async *sendMessage(
       request: WorkbenchSendMessageRequest,
     ): AsyncGenerator<WorkbenchStreamEvent> {
+      const chatBody = toNuwaxChatBody(request);
       const response = await fetcher(
         joinUrl(options.baseUrl, apiPath('/agent/conversation/chat')),
         {
           method: 'POST',
-          headers: createHeaders(options.accessToken, request),
-          body: JSON.stringify({
-            agentId: request.agentId,
-            conversationId: request.conversationId,
-            content: request.content,
-            message: request.content,
-            prompt: request.content,
-            requestId: request.requestId,
-            metadata: request.metadata,
-            variableParams: request.variableParams,
-            modelId: request.modelId,
-            agent_config: request.agentMode
-              ? { agent_server: { agent_mode: request.agentMode } }
-              : undefined,
-            attachments: request.attachments,
-            skillIds: request.skillIds,
-            sandboxId: request.sandboxId,
+          headers: createHeaders(options.accessToken, {
+            body: chatBody,
+            accept: 'application/json, text/plain, */*',
           }),
+          body: JSON.stringify(chatBody),
         },
       );
 
@@ -404,7 +669,7 @@ export function createWebApiAdapter(options: WebApiAdapterOptions): WorkbenchApi
           streamUrl.startsWith('http') ? streamUrl : joinUrl(options.baseUrl, streamUrl),
           {
             method: 'GET',
-            headers: createHeaders(options.accessToken),
+            headers: createHeaders(options.accessToken, {}),
           },
         );
         if (!streamResponse.ok || !streamResponse.body) {
@@ -428,18 +693,13 @@ export function createWebApiAdapter(options: WebApiAdapterOptions): WorkbenchApi
       }
     },
 
-    async stopChat(requestIdOrConversationId, context) {
-      const stopId = requestIdOrConversationId || context.conversationId;
-      await requestJson(
+    async stopChat(requestIdOrConversationId) {
+      const stopId = requestIdOrConversationId?.trim();
+      if (!stopId) {
+        throw new Error('stopChat requires requestId from SSE stream');
+      }
+      await requestPostNoBody(
         apiPath(`/agent/conversation/chat/stop/${encodeURIComponent(stopId)}`),
-        {
-          method: 'POST',
-          body: {
-            agentId: context.agentId,
-            conversationId: context.conversationId,
-            requestId: requestIdOrConversationId,
-          },
-        },
       );
     },
 
@@ -459,12 +719,21 @@ export function createWebApiAdapter(options: WebApiAdapterOptions): WorkbenchApi
       );
     },
 
-    async getSuggestQuestions(conversationId, agentId, variableParams) {
+    async getSuggestQuestions(conversationId, _agentId, variableParams, lastMessage) {
       const data = await requestJson<unknown>(
         apiPath('/agent/conversation/chat/suggest'),
         {
           method: 'POST',
-          body: { conversationId, agentId, variableParams },
+          body: {
+            conversationId: toApiId(conversationId),
+            message: lastMessage ?? '',
+            attachments: [],
+            selectedComponents: [],
+            debug: false,
+            ...(variableParams && Object.keys(variableParams).length > 0
+              ? { variableParams }
+              : {}),
+          },
         },
       );
       if (Array.isArray(data)) return data.map(String);
@@ -480,6 +749,143 @@ export function createWebApiAdapter(options: WebApiAdapterOptions): WorkbenchApi
       );
       const items = Array.isArray(data) ? data : readCollection(data);
       return items.map(normalizeModelOption);
+    },
+
+    async uploadFile(
+      file: File,
+      uploadOpts?: {
+        onProgress?: (p: WorkbenchUploadProgress) => void;
+        signal?: AbortSignal;
+      },
+    ): Promise<WorkbenchUploadedFile> {
+      const formData = new FormData();
+      formData.append('file', file, file.name);
+      // nuwax ChatInputHome / OpenApp 上传临时文件
+      formData.append('type', 'tmp');
+
+      // NOTE: progress is best-effort. The injectable `fetcher` (native fetch)
+      // does not expose upload progress events; only XMLHttpRequest does. To
+      // keep the adapter test-injectable through `fetcher`, we skip progress
+      // wiring here and emit a terminal 100% callback on completion so
+      // callers always see a final state. TODO: gate behind a custom XHR
+      // adapter when streamed progress becomes a hard requirement.
+      const response = await fetcher(joinUrl(options.baseUrl, apiPath('/file/upload')), {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${options.accessToken}`,
+        },
+        body: formData,
+        signal: uploadOpts?.signal,
+      });
+      const payload = await readJsonSafely(response);
+      if (!response.ok) {
+        const envelope = payload as JsonEnvelope<unknown>;
+        throw new Error(
+          envelope?.error ?? envelope?.message ?? `Upload failed: ${response.status}`,
+        );
+      }
+      assertBusinessSuccess(payload, response.status);
+      const data = unwrapData<unknown>(payload);
+      const uploaded = normalizeUploadedFile(data, file);
+      if (uploadOpts?.onProgress) {
+        const total = file.size;
+        uploadOpts.onProgress({ loaded: total, total });
+      }
+      return uploaded;
+    },
+
+    async listSkillsForAt(_agentId, listOptions) {
+      const tab: WorkbenchSkillListTab = listOptions?.tab ?? 'all';
+      const baseParams = {
+        page: listOptions?.page ?? 1,
+        pageSize: listOptions?.pageSize ?? 20,
+        kw: listOptions?.keyword ?? '',
+        targetType: 'Skill',
+      };
+
+      const pathByTab: Record<WorkbenchSkillListTab, string> = {
+        all: '/published/skill/list-for-at',
+        collect: '/published/skill/collect/list',
+        recent: '/published/skill/recentlyUsed/list',
+      };
+
+      const data = await requestJson<unknown>(apiPath(pathByTab[tab]), {
+        method: 'POST',
+        body: baseParams,
+      });
+      const items = readCollection(data);
+      return items
+        .map(normalizeSkillOption)
+        .filter((item): item is WorkbenchSkillOption => Boolean(item));
+    },
+
+    async listSkillsForAtPaged(
+      params: WorkbenchSkillListParams,
+    ): Promise<WorkbenchSkillListResult> {
+      const page = params.page ?? 1;
+      const pageSize = params.pageSize ?? 20;
+      // nuwax SkillListForAtParams: kw + targetType + usageScenarios + page/pageSize
+      const body: Record<string, unknown> = {
+        page,
+        pageSize,
+        kw: params.keyword ?? '',
+        targetType: 'Skill',
+      };
+      if (params.usageScenarios && params.usageScenarios.length > 0) {
+        body.usageScenarios = params.usageScenarios;
+      }
+
+      const data = await requestJson<unknown>(
+        apiPath('/published/skill/list-for-at'),
+        { method: 'POST', body },
+      );
+
+      // nuwax returns Page<SkillInfoForAt> = { records, total, ... }
+      const records = readCollection(data);
+      const totalRaw = isRecord(data) ? data.total : undefined;
+      const total =
+        typeof totalRaw === 'number'
+          ? totalRaw
+          : typeof totalRaw === 'string'
+            ? Number(totalRaw) || records.length
+            : records.length;
+      const items = records
+        .map(normalizeSkillOption)
+        .filter((item): item is WorkbenchSkillOption => Boolean(item));
+      // Mirror nuwax MentionPopup.loadAllTabData hasMore logic
+      const hasMore =
+        total > 0 ? page * pageSize < total : items.length >= pageSize;
+      return { items, total, hasMore };
+    },
+
+    async listRecentSkills(_agentId: string): Promise<WorkbenchSkillOption[]> {
+      // nuwax MentionPopup.loadRecentTabData → POST with targetType only.
+      const data = await requestJson<unknown>(
+        apiPath('/published/skill/recentlyUsed/list'),
+        {
+          method: 'POST',
+          body: { targetType: 'Skill' },
+        },
+      );
+      const items = readCollection(data);
+      return items
+        .map(normalizeSkillOption)
+        .filter((item): item is WorkbenchSkillOption => Boolean(item));
+    },
+
+    async listCollectedSkills(_agentId: string): Promise<WorkbenchSkillOption[]> {
+      // nuwax MentionPopup.loadFavoriteTabData → POST with targetType only.
+      const data = await requestJson<unknown>(
+        apiPath('/published/skill/collect/list'),
+        {
+          method: 'POST',
+          body: { targetType: 'Skill' },
+        },
+      );
+      const items = readCollection(data);
+      return items
+        .map(normalizeSkillOption)
+        .filter((item): item is WorkbenchSkillOption => Boolean(item));
     },
   };
 }

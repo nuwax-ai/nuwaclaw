@@ -102,7 +102,32 @@ function readPermission(value: unknown): WorkbenchPermissionRequest | undefined 
   };
 }
 
+/**
+ * nuwax OpenApp SSE：ConversationChatResponse.eventType
+ * 可用值 PROCESSING | MESSAGE | FINAL_RESULT | ERROR
+ */
+function inferNuwaxEnvelopeType(payload: unknown): WorkbenchStreamEventType | null {
+  const record = getRecord(payload);
+  if (!record) return null;
+  const eventType = readString(record, [['eventType'], ['event_type']])?.toUpperCase();
+  if (!eventType) return null;
+
+  if (eventType === 'PROCESSING') return 'thought';
+  if (eventType === 'FINAL_RESULT') return 'final';
+  if (eventType === 'ERROR') return 'error';
+  if (eventType === 'MESSAGE') {
+    const data = getRecord(record.data) ?? record;
+    const messageMode = readString(data, [['type']])?.toUpperCase();
+    if (messageMode === 'THINK') return 'thought';
+    return 'chunk';
+  }
+  return null;
+}
+
 function inferType(eventName: string | undefined, payload: unknown): WorkbenchStreamEventType {
+  const nuwaxType = inferNuwaxEnvelopeType(payload);
+  if (nuwaxType) return nuwaxType;
+
   const normalized = eventName?.trim().toLowerCase().replace(/[.-]/g, '_') ?? '';
   if (
     ['thought', 'thinking', 'reasoning', 'agent_thought'].includes(normalized)
@@ -152,6 +177,13 @@ function inferType(eventName: string | undefined, payload: unknown): WorkbenchSt
 
 function contentFromPayload(payload: unknown): string | undefined {
   if (typeof payload === 'string') return payload;
+  const record = getRecord(payload);
+  const data = getRecord(record?.data) ?? record;
+  const fromNuwax =
+    readString(data, [['text'], ['outputText'], ['output_text']]) ??
+    readString(record, [['text'], ['outputText'], ['output_text']]);
+  if (fromNuwax) return fromNuwax;
+
   return readString(payload, [
     ['content'],
     ['text'],
@@ -166,7 +198,11 @@ function contentFromPayload(payload: unknown): string | undefined {
   ]);
 }
 
-function idsFromPayload(payload: unknown): Pick<WorkbenchStreamEvent, 'conversationId' | 'messageId'> {
+function idsFromPayload(
+  payload: unknown,
+): Pick<WorkbenchStreamEvent, 'conversationId' | 'messageId' | 'requestId'> {
+  const record = getRecord(payload);
+  const data = getRecord(record?.data) ?? record;
   return {
     conversationId: readString(payload, [
       ['conversationId'],
@@ -182,7 +218,8 @@ function idsFromPayload(payload: unknown): Pick<WorkbenchStreamEvent, 'conversat
       ['id'],
       ['data', 'messageId'],
       ['data', 'id'],
-    ]),
+    ]) ?? readString(data, [['id']]),
+    requestId: readString(payload, [['requestId'], ['request_id']]),
   };
 }
 
@@ -214,6 +251,8 @@ export function normalizeSseMessage(message: RawSseMessage): WorkbenchStreamEven
   }
 
   if (type === 'error') {
+    const record = getRecord(payload);
+    const data = getRecord(record?.data) ?? record;
     return {
       type,
       error:
@@ -222,7 +261,11 @@ export function normalizeSseMessage(message: RawSseMessage): WorkbenchStreamEven
           ['message'],
           ['data', 'error'],
           ['data', 'message'],
-        ]) ?? contentFromPayload(payload) ?? 'Unknown stream error',
+        ]) ??
+        readString(data, [['error'], ['message']]) ??
+        readString(record, [['error']]) ??
+        contentFromPayload(payload) ??
+        'Unknown stream error',
       raw: payload,
       ...ids,
     };

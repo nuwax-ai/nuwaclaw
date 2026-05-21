@@ -51,6 +51,7 @@ import {
 import {
   APP_DISPLAY_NAME,
   AUTH_KEYS,
+  I18N_KEYS,
   normalizeAgentEngine,
 } from "@shared/constants";
 import type { QuickInitConfig } from "@shared/types/quickInit";
@@ -60,6 +61,7 @@ import {
   loadWorkbenchConfig,
   type AgentWorkbenchConfig as ResolvedWorkbenchConfig,
 } from "./services/workbenchConfig";
+import { syncSessionCookie } from "./services/utils/sessionUrl";
 import SetupWizard from "./components/setup/SetupWizard";
 import SetupDependencies from "./components/setup/SetupDependencies";
 import ClientPage from "./components/pages/ClientPage";
@@ -144,8 +146,8 @@ const HEADER_SIMULATED_PROGRESS_CAP = 90;
 const HEADER_SIMULATED_PROGRESS_INTERVAL_MS = 500;
 const HEADER_SIMULATED_DURATION_MS = 45_000;
 const WORKBENCH_MOCK_APP_AGENT_ID = "mock-app-agent";
+/** 仅当显式开启时才允许 mock；开发环境默认走真实远端 API */
 const WORKBENCH_MOCK_ENABLED =
-  import.meta.env.DEV ||
   import.meta.env.VITE_NUWAX_ENABLE_WORKBENCH_MOCK === "true";
 
 // 服务状态接口（与 ClientPage 共享）
@@ -176,10 +178,51 @@ type WorkbenchConfigState =
   | { status: "error"; error: string };
 
 function createWorkbenchHostBridge(
-  workspaceDir: string,
+  resolved: ResolvedWorkbenchConfig,
   onExit: () => void,
 ): WorkbenchHostBridge {
+  const { workspaceDir, baseUrl, accessToken } = resolved;
   return {
+    onBeforePreviewLoad: async (url: string) => {
+      if (!baseUrl || !accessToken) return;
+      const previewOrigin = (() => {
+        try {
+          return new URL(url).origin;
+        } catch {
+          return baseUrl;
+        }
+      })();
+      await syncSessionCookie(previewOrigin || baseUrl, accessToken);
+    },
+    getPreviewUserAgent: async () => {
+      try {
+        const version = await window.electronAPI?.app?.getVersion();
+        if (version) {
+          return `${navigator.userAgent} ${APP_DISPLAY_NAME}/${version}`;
+        }
+      } catch {
+        // ignore
+      }
+      return navigator.userAgent;
+    },
+    getPreviewPreloadPath: async () => {
+      try {
+        const result =
+          await window.electronAPI?.workbench?.getPreviewPreloadPath?.();
+        if (result?.success && typeof result.path === "string") {
+          // Electron <webview preload> 接受绝对路径 / file URL；优先返回 url 形式跨平台更稳。
+          return result.url ?? result.path;
+        }
+      } catch (error) {
+        console.warn("[AgentMode] getPreviewPreloadPath failed:", error);
+      }
+      return undefined;
+    },
+    onPreviewDownload: (info) => {
+      if (!info?.url) return;
+      void window.electronAPI?.shell?.openExternal(info.url);
+    },
+    onPreviewNewWindow: () => "open-external",
     onOpenEditor: async () => {
       if (!workspaceDir) {
         throw new Error("workspaceDir is required");
@@ -473,9 +516,15 @@ function App() {
       setWorkbenchConfigState({ status: "loading" });
       try {
         let result = await loadWorkbenchConfig();
+        if (!WORKBENCH_MOCK_ENABLED && result.missing.accessToken) {
+          await syncConfigToServer({ suppressToast: true });
+          if (cancelled) return;
+          result = await loadWorkbenchConfig();
+        }
         if (
           !WORKBENCH_MOCK_ENABLED &&
-          (result.missing.accessToken || result.missing.appAgentId)
+          result.missing.appAgentId &&
+          !result.missing.accessToken
         ) {
           await syncConfigToServer({ suppressToast: true });
           if (cancelled) return;
@@ -515,26 +564,32 @@ function App() {
           appAgentId === result.config.appAgentId
             ? result.config
             : createMockWorkbenchConfig(result.config);
-        const hostBridge = createWorkbenchHostBridge(
-          resolvedConfig.workspaceDir,
-          () => {
-            setAgentModeEnabled(false);
-            setWorkbenchUseMockAppAgentId(false);
-          },
+        const hasRealRemoteCredentials = Boolean(
+          resolvedConfig.baseUrl &&
+          resolvedConfig.accessToken &&
+          appAgentId &&
+          appAgentId !== WORKBENCH_MOCK_APP_AGENT_ID,
         );
+        const useMock = workbenchUseMockAppAgentId
+          ? true
+          : hasRealRemoteCredentials
+            ? false
+            : WORKBENCH_MOCK_ENABLED && result.useMock;
+        const hostBridge = createWorkbenchHostBridge(resolvedConfig, () => {
+          setAgentModeEnabled(false);
+          setWorkbenchUseMockAppAgentId(false);
+        });
         const config: AgentWorkbenchConfig = {
           agentId: appAgentId,
           baseUrl: resolvedConfig.baseUrl,
           accessToken: resolvedConfig.accessToken,
+          workspaceDir: resolvedConfig.workspaceDir,
+          locale: resolvedConfig.locale,
+          previewContainer: resolvedConfig.previewContainer,
           hostBridge,
           initialPath: `/app/${encodeURIComponent(appAgentId)}`,
           title: `Agent ${appAgentId}`,
-          useMock:
-            WORKBENCH_MOCK_ENABLED &&
-            (result.useMock ||
-              workbenchUseMockAppAgentId ||
-              !resolvedConfig.baseUrl ||
-              !resolvedConfig.accessToken),
+          useMock,
           mockLatencyMs: 140,
         };
 
@@ -564,6 +619,22 @@ function App() {
     i18nLang,
     authRefreshTrigger,
   ]);
+
+  useEffect(() => {
+    const onWorkbenchConfigChanged = () => {
+      setWorkbenchConfigReloadKey((value) => value + 1);
+    };
+    window.addEventListener(
+      "workbench:config-changed",
+      onWorkbenchConfigChanged,
+    );
+    return () => {
+      window.removeEventListener(
+        "workbench:config-changed",
+        onWorkbenchConfigChanged,
+      );
+    };
+  }, []);
 
   // ============================================
   // 检查初始化向导状态（每次启动优先读取 quick init 配置）
@@ -1295,23 +1366,49 @@ function App() {
       return (
         <div className={styles.agentModeState}>
           <Spin size="large" />
-          <div className={styles.agentModeStateText}>Loading Agent Mode...</div>
+          <div className={styles.agentModeStateText}>
+            {t(I18N_KEYS.AgentMode.LOADING)}
+          </div>
         </div>
       );
     }
 
     if (workbenchConfigState.status === "error") {
+      const needsAuthResync =
+        workbenchConfigState.error?.includes("accessToken") ?? false;
       return (
         <div className={styles.agentModeState}>
           <Alert
             type="error"
             showIcon
-            message="Agent Mode failed to load"
-            description={workbenchConfigState.error}
+            message={t(I18N_KEYS.AgentMode.LOAD_FAILED)}
+            description={
+              needsAuthResync
+                ? `${workbenchConfigState.error}\n${t("Claw.AgentMode.missingAccessTokenHint")}`
+                : workbenchConfigState.error
+            }
           />
-          <Button onClick={() => setWorkbenchConfigReloadKey((v) => v + 1)}>
-            Retry
-          </Button>
+          <div className={styles.agentModeStateActions}>
+            {needsAuthResync && (
+              <Button
+                icon={<ReloadOutlined />}
+                type="primary"
+                onClick={async () => {
+                  await syncConfigToServer({ suppressToast: true });
+                  setAuthRefreshTrigger((v) => v + 1);
+                  setWorkbenchConfigReloadKey((v) => v + 1);
+                }}
+              >
+                {t("Claw.AgentMode.resyncAuth")}
+              </Button>
+            )}
+            <Button onClick={() => setWorkbenchConfigReloadKey((v) => v + 1)}>
+              {t(I18N_KEYS.Common.RETRY)}
+            </Button>
+            <Button onClick={handleExitAgentMode}>
+              {t(I18N_KEYS.AgentMode.EXIT)}
+            </Button>
+          </div>
         </div>
       );
     }
@@ -1322,66 +1419,89 @@ function App() {
           <Alert
             type="warning"
             showIcon
-            message="Missing appAgentId"
+            message={t(I18N_KEYS.AgentMode.MISSING_APP_AGENT_ID)}
             description={
               <div className={styles.agentModeMissingDescription}>
+                <div>{t(I18N_KEYS.AgentMode.MISSING_DESCRIPTION)}</div>
                 <div>
-                  Agent Mode needs an appAgentId from auth user info, settings,
-                  or VITE env fallback before it can connect to a real app
-                  agent.
-                </div>
-                <div>
-                  Current baseUrl:{" "}
+                  {t("Claw.AgentMode.currentBaseUrl")}:{" "}
                   <code>
-                    {workbenchConfigState.config.baseUrl || "not set"}
+                    {workbenchConfigState.config.baseUrl ||
+                      t("Claw.AgentMode.notSet")}
                   </code>
                 </div>
                 <div>
-                  Current workspaceDir:{" "}
+                  {t("Claw.AgentMode.currentWorkspaceDir")}:{" "}
                   <code>
-                    {workbenchConfigState.config.workspaceDir || "not set"}
+                    {workbenchConfigState.config.workspaceDir ||
+                      t("Claw.AgentMode.notSet")}
                   </code>
                 </div>
                 <div>
-                  Access token cache:{" "}
+                  {t("Claw.AgentMode.accessTokenCache")}:{" "}
                   <code>
                     {workbenchConfigState.config.accessToken
-                      ? "available"
-                      : "missing"}
+                      ? t("Claw.AgentMode.available")
+                      : t("Claw.AgentMode.missing")}
                   </code>
                 </div>
                 <div>
-                  Missing keys:{" "}
+                  {t("Claw.AgentMode.missingKeys")}:{" "}
                   <code>{workbenchConfigState.missingKeys.join(", ")}</code>
                 </div>
               </div>
             }
           />
           <div className={styles.agentModeStateActions}>
+            <Button
+              icon={<ReloadOutlined />}
+              onClick={async () => {
+                await syncConfigToServer({ suppressToast: true });
+                setAuthRefreshTrigger((v) => v + 1);
+                setWorkbenchConfigReloadKey((v) => v + 1);
+              }}
+            >
+              {t("Claw.AgentMode.resyncAuth")}
+            </Button>
             {WORKBENCH_MOCK_ENABLED && (
               <Button
                 type="primary"
                 icon={<RobotOutlined />}
                 onClick={() => setWorkbenchUseMockAppAgentId(true)}
               >
-                Use mock appAgentId
+                {t(I18N_KEYS.AgentMode.USE_MOCK)}
               </Button>
             )}
-            <Button onClick={handleExitAgentMode}>Exit Agent Mode</Button>
+            <Button onClick={handleExitAgentMode}>
+              {t(I18N_KEYS.AgentMode.EXIT)}
+            </Button>
           </div>
         </div>
       );
     }
 
     if (workbenchConfigState.status === "ready") {
+      const remoteBaseUrl = workbenchConfigState.config.baseUrl;
       return (
         <div className={styles.agentModeWorkbench}>
+          {!workbenchConfigState.usingMock && remoteBaseUrl && (
+            <Alert
+              type="success"
+              showIcon
+              banner
+              message={t("Claw.AgentMode.remoteBanner", remoteBaseUrl)}
+              description={t(
+                "Claw.AgentMode.remoteBannerDesc",
+                workbenchConfigState.config.agentId ?? "",
+              )}
+            />
+          )}
           {workbenchConfigState.usingMock && (
             <Alert
               type="info"
               showIcon
               banner
-              message="Using mock workbench fallback for integration testing"
+              message={t(I18N_KEYS.AgentMode.MOCK_BANNER)}
             />
           )}
           <AgentWorkbenchProvider config={workbenchConfigState.config}>
@@ -1394,7 +1514,7 @@ function App() {
     return (
       <div className={styles.agentModeState}>
         <Button type="primary" onClick={handleEnterAgentMode}>
-          Load Agent Mode
+          {t(I18N_KEYS.AgentMode.ENTER)}
         </Button>
       </div>
     );
@@ -1597,7 +1717,9 @@ function App() {
                       : handleEnterAgentMode
                   }
                 >
-                  {agentModeEnabled ? "Exit Agent Mode" : "Agent Mode"}
+                  {agentModeEnabled
+                    ? t(I18N_KEYS.AgentMode.EXIT)
+                    : t(I18N_KEYS.AgentMode.ENTER)}
                 </Button>
                 {username && (
                   <span className={styles.username}>{username}</span>

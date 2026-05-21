@@ -64,6 +64,35 @@ describe('SSE parser', () => {
     ]);
   });
 
+  it('parses nuwax ConversationChatResponse eventType envelopes', () => {
+    const events = parseSseText(
+      [
+        'data: {"eventType":"PROCESSING","data":{"text":"working"}}',
+        '',
+        'data: {"eventType":"MESSAGE","data":{"type":"THINK","text":"reason"}}',
+        '',
+        'data: {"eventType":"MESSAGE","data":{"type":"CHAT","text":"answer"}}',
+        '',
+        'data: {"eventType":"FINAL_RESULT","requestId":"req-9","data":{"outputText":"done"}}',
+        '',
+        'data: {"eventType":"ERROR","error":"failed"}',
+        '',
+      ].join('\n'),
+    );
+
+    expect(events.map((event) => event.type)).toEqual([
+      'thought',
+      'thought',
+      'chunk',
+      'final',
+      'error',
+    ]);
+    expect(events[2].content).toBe('answer');
+    expect(events[3].requestId).toBe('req-9');
+    expect(events[3].content).toBe('done');
+    expect(events[4].error).toBe('failed');
+  });
+
   it('handles BOM, CRLF, comments, and multi-line data blocks', () => {
     const events = parseSseText(
       [

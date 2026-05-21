@@ -27,6 +27,7 @@ import {
   normalizeDomainForTokenKey,
 } from "@shared/utils/domain";
 import { t } from "./i18n";
+import { WORKBENCH_APP_AGENT_ID_SETTING_KEY } from "../workbenchConfig";
 
 // ========== 类型定义 ===
 export interface AuthUserInfo {
@@ -37,7 +38,13 @@ export interface AuthUserInfo {
   email?: string;
   phone?: string;
   currentDomain?: string;
-  appAgentId?: number | string;
+  /**
+   * Workbench 内部所有 ID 均为 string，与 agent-workbench/src/types.ts 一致。
+   * reg 接口可能返回 number/string 任一形式，统一在 pickAppAgentIdFromResponse 内归一为 string。
+   */
+  appAgentId?: string;
+  /** reg 返回的 Bearer token，供 Agent Mode 远端 API 使用（与 webview cookie 分离兜底） */
+  accessToken?: string;
 }
 
 // ========== 存储辅助函数 ===
@@ -152,9 +159,31 @@ async function clearAuthInfo(): Promise<void> {
   // 不清除 savedKey，跨登录会话持久化
 }
 
+/**
+ * reg 返回 appAgentId 时写入设置兜底（不覆盖用户手动配置）。
+ * 调用方负责将 number/string 归一为 string，传入此处的必须是已归一值。
+ */
+async function persistAppAgentIdFallback(
+  appAgentId: string | undefined,
+): Promise<void> {
+  if (appAgentId === undefined || appAgentId === null || appAgentId === "") {
+    return;
+  }
+  const existing = await settingsGet<string>(
+    WORKBENCH_APP_AGENT_ID_SETTING_KEY,
+  );
+  if (existing && String(existing).trim()) return;
+  await settingsSet(WORKBENCH_APP_AGENT_ID_SETTING_KEY, appAgentId);
+}
+
+/**
+ * 从 reg 响应解析 appAgentId。
+ * 内部接受 number | string | undefined 的入参（后端 schema 不稳定），
+ * 但**始终返回 string | undefined**，保证 workbench 侧只看到 string。
+ */
 function pickAppAgentIdFromResponse(
   response: ClientRegisterResponse,
-): number | string | undefined {
+): string | undefined {
   const aliases = response as ClientRegisterResponse & {
     app_agent_id?: unknown;
     appAgentID?: unknown;
@@ -167,7 +196,7 @@ function pickAppAgentIdFromResponse(
     aliases.appAgentID ??
     aliases.appAgent?.id ??
     aliases.app_agent?.id;
-  if (typeof raw === "number" && Number.isFinite(raw)) return raw;
+  if (typeof raw === "number" && Number.isFinite(raw)) return String(raw);
   if (typeof raw === "string" && raw.trim()) return raw.trim();
   return undefined;
 }
@@ -210,6 +239,18 @@ async function cacheAndSyncToken(
 
   const workbenchTokenKey = getWorkbenchAccessTokenKey(domain);
   await settingsSet(workbenchTokenKey, token);
+
+  // 写入 userInfo，避免仅配置 appAgentId 时 Agent Mode 读不到 accessToken
+  try {
+    const userInfo = await getUserInfo();
+    await setUserInfo({
+      ...(userInfo ?? { username: (await getUsername()) || "" }),
+      accessToken: token,
+      currentDomain: userInfo?.currentDomain || domain,
+    });
+  } catch (e) {
+    logger.warn("Failed to persist accessToken on userInfo", logTag, e);
+  }
 
   logger.info("Login token cache written", logTag, {
     domain,
@@ -365,13 +406,15 @@ export async function loginAndRegister(
     await setConfigKey(response.configKey);
     await setSavedKey(response.configKey, domain, username);
 
+    const appAgentId = pickAppAgentIdFromResponse(response);
     await setUserInfo({
       id: response.id,
       username,
       displayName: response.name,
       currentDomain: domain,
-      appAgentId: pickAppAgentIdFromResponse(response),
+      appAgentId,
     });
+    await persistAppAgentIdFallback(appAgentId);
 
     await setOnlineStatus(response.online);
 
@@ -524,14 +567,16 @@ export async function reRegisterClient(): Promise<ClientRegisterResponse | null>
     await setSavedKey(response.configKey, domain, username || undefined);
     await setOnlineStatus(response.online);
     const currentUserInfo = await getUserInfo();
+    const appAgentId = pickAppAgentIdFromResponse(response);
     await setUserInfo({
       ...currentUserInfo,
       id: response.id,
       username: username || "",
       displayName: response.name,
       currentDomain: domain || currentUserInfo?.currentDomain,
-      appAgentId: pickAppAgentIdFromResponse(response),
+      appAgentId,
     } as AuthUserInfo);
+    await persistAppAgentIdFallback(appAgentId);
 
     // 持久化 token（用于 webview cookie 同步）
     // 尝试立即同步，成功后清除；失败时保留给后续页面打开时重试
@@ -660,14 +705,16 @@ export async function syncConfigToServer(options?: {
     // - 当本次同步拿不到明确业务域名（domain 为空）时，保留已有 currentDomain，避免被代理地址"间接覆盖"。
     const preservedCurrentDomain =
       domain || currentUserInfo?.currentDomain || undefined;
+    const appAgentId = pickAppAgentIdFromResponse(response);
     await setUserInfo({
       ...currentUserInfo,
       id: response.id,
       username: username || "",
       displayName: response.name,
       currentDomain: preservedCurrentDomain,
-      appAgentId: pickAppAgentIdFromResponse(response),
+      appAgentId,
     } as AuthUserInfo);
+    await persistAppAgentIdFallback(appAgentId);
 
     if (!suppressToast) {
       message.success({

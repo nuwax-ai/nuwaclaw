@@ -1,2 +1,365 @@
-export { ChatInputHome } from '../NuwaxOpenApp';
+import {
+  FormEvent,
+  KeyboardEvent,
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+} from 'react';
+import type {
+  WorkbenchApiAdapter,
+  WorkbenchModelOption,
+  WorkbenchSkillOption,
+  WorkbenchUploadedFile,
+} from '../../types';
+// Phase B final round: Icon now lives in `OpenApp/icons.tsx` and the label
+// dictionary in `OpenApp/labels.ts`. Both imports below are forward
+// dependencies (ChatInputHome → OpenApp), which fully breaks the previous
+// `ChatInputHome ↔ NuwaxOpenApp` circular import.
+import { Icon } from '../OpenApp/icons';
+import { zh } from '../OpenApp/labels';
+import { ChatUploadFile, usePasteUpload } from '../ChatUploadFile';
+import type { UploadEntry } from '../ChatUploadFile/types';
+import { generateUploadId } from '../ChatUploadFile/utils';
+import { MentionPopup } from '../MentionPopup';
 
+export interface ChatInputHomeProps {
+  value: string;
+  disabled: boolean;
+  streaming: boolean;
+  labels: typeof zh;
+  agentMode: 'ask' | 'yolo';
+  selectedModelId?: string;
+  modelOptions: WorkbenchModelOption[];
+  showModelDropdown: boolean;
+  selectedSkillIds: string[];
+  /**
+   * Optional cache of skill metadata for the currently-selected skill ids so
+   * the chips can show readable names instead of raw ids. The parent typically
+   * updates this whenever `onSelectedSkillsChange` fires.
+   */
+  selectedSkills?: WorkbenchSkillOption[];
+  onChange: (value: string) => void;
+  /**
+   * Called when the user submits. Receives the list of already-uploaded files
+   * collected from the embedded ChatUploadFile entries (status === 'done').
+   * The parent should pass these directly to `sendMessage.attachments`
+   * without re-uploading.
+   */
+  onSubmit: (uploaded?: WorkbenchUploadedFile[]) => void;
+  onStop: () => void;
+  onModeChange: (mode: 'ask' | 'yolo') => void;
+  onModelSelect: (modelId: string) => void;
+  onToggleModelDropdown: () => void;
+  onSkillIdsChange: (ids: string[]) => void;
+  /** Mirror of `onSkillIdsChange` that also exposes the picked skill objects. */
+  onSelectedSkillsChange?: (skills: WorkbenchSkillOption[]) => void;
+  /** Adapter for MentionPopup and ChatUploadFile. */
+  adapter: WorkbenchApiAdapter;
+  /** Required for MentionPopup's skill listings. */
+  agentId: string;
+  /**
+   * Whether the @-skill mention trigger + popup should be rendered. Mirrors
+   * nuwax `AgentDetail.allowAtSkill`. Treated as enabled by default to keep
+   * call sites that don't yet thread the agent detail through unchanged.
+   */
+  allowAtSkill?: boolean;
+}
+
+export function ChatInputHome({
+  value,
+  disabled,
+  streaming,
+  labels,
+  agentMode,
+  selectedModelId,
+  modelOptions,
+  showModelDropdown,
+  selectedSkillIds,
+  selectedSkills,
+  onChange,
+  onSubmit,
+  onStop,
+  onModeChange,
+  onModelSelect,
+  onToggleModelDropdown,
+  onSkillIdsChange,
+  onSelectedSkillsChange,
+  adapter,
+  agentId,
+  allowAtSkill = true,
+}: ChatInputHomeProps) {
+  const textareaRef = useRef<HTMLTextAreaElement | null>(null);
+  const [mentionOpen, setMentionOpen] = useState(false);
+  const [uploadEntries, setUploadEntries] = useState<UploadEntry[]>([]);
+
+  // Submit guard: don't allow send while any upload is still in flight or
+  // queued. Errors are tolerated — the user can either remove them or send
+  // anyway (we filter to `done` before passing to the parent).
+  const uploadsBusy = uploadEntries.some(
+    (e) => e.status === 'pending' || e.status === 'uploading',
+  );
+  const hasContent =
+    value.trim().length > 0 ||
+    uploadEntries.some((e) => e.status === 'done');
+  const canSend = !streaming && !disabled && !uploadsBusy && hasContent;
+
+  const collectUploaded = useCallback((): WorkbenchUploadedFile[] => {
+    const out: WorkbenchUploadedFile[] = [];
+    for (const entry of uploadEntries) {
+      if (entry.status === 'done' && entry.uploaded) {
+        out.push(entry.uploaded);
+      }
+    }
+    return out;
+  }, [uploadEntries]);
+
+  const handleSubmit = useCallback(() => {
+    if (!canSend) return;
+    const uploaded = collectUploaded();
+    onSubmit(uploaded.length > 0 ? uploaded : undefined);
+    // Reset upload list after submit so the user starts fresh for the next
+    // turn. Mirrors the parent clearing `value` synchronously.
+    setUploadEntries([]);
+  }, [canSend, collectUploaded, onSubmit]);
+
+  const onKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
+    if (event.nativeEvent.isComposing) return;
+    if (event.key === 'Enter' && !event.shiftKey) {
+      event.preventDefault();
+      if (streaming) return;
+      handleSubmit();
+    }
+  };
+
+  const selectedModel = modelOptions.find((m) => m.id === selectedModelId);
+
+  // Hook up clipboard paste — pasted images become pending UploadEntry rows
+  // that ChatUploadFile's internal scheduler will pick up automatically.
+  const handlePastedFiles = useCallback((files: File[]) => {
+    setUploadEntries((prev) => [
+      ...prev,
+      ...files.map<UploadEntry>((file) => ({
+        id: generateUploadId(),
+        localFile: file,
+        status: 'pending',
+        progress: 0,
+      })),
+    ]);
+  }, []);
+
+  usePasteUpload({
+    targetRef: textareaRef,
+    onFiles: handlePastedFiles,
+    disabled: streaming,
+  });
+
+  // Resolve skill chip labels: prefer the parent-supplied metadata map, fall
+  // back to the raw id if no metadata is available.
+  const skillNameById = useCallback(
+    (id: string): string => {
+      const hit = selectedSkills?.find((s) => s.id === id);
+      return hit?.name ?? id;
+    },
+    [selectedSkills],
+  );
+
+  const removeSkill = useCallback(
+    (id: string) => {
+      const nextIds = selectedSkillIds.filter((s) => s !== id);
+      onSkillIdsChange(nextIds);
+      if (onSelectedSkillsChange && selectedSkills) {
+        onSelectedSkillsChange(selectedSkills.filter((s) => s.id !== id));
+      }
+    },
+    [
+      onSelectedSkillsChange,
+      onSkillIdsChange,
+      selectedSkillIds,
+      selectedSkills,
+    ],
+  );
+
+  const handleMentionSelect = useCallback(
+    (skill: WorkbenchSkillOption) => {
+      if (!selectedSkillIds.includes(skill.id)) {
+        onSkillIdsChange([...selectedSkillIds, skill.id]);
+      }
+      if (onSelectedSkillsChange) {
+        const existing = selectedSkills ?? [];
+        if (!existing.some((s) => s.id === skill.id)) {
+          onSelectedSkillsChange([...existing, skill]);
+        }
+      }
+      setMentionOpen(false);
+      // Restore focus to the textarea so the user can continue typing.
+      textareaRef.current?.focus();
+    },
+    [
+      onSelectedSkillsChange,
+      onSkillIdsChange,
+      selectedSkillIds,
+      selectedSkills,
+    ],
+  );
+
+  // Close mention popup automatically while streaming so users can't pick a
+  // new skill mid-stream and end up with a confusing send.
+  useEffect(() => {
+    if (streaming) setMentionOpen(false);
+  }, [streaming]);
+
+  return (
+    <form
+      className="open-app-chat-input-home"
+      onSubmit={(event: FormEvent) => {
+        event.preventDefault();
+        if (streaming) onStop();
+        else handleSubmit();
+      }}
+    >
+      <div className="open-app-input-topbar">
+        <div style={{ position: 'relative' }}>
+          <button
+            className="open-app-model-chip"
+            type="button"
+            disabled={disabled || streaming}
+            onClick={onToggleModelDropdown}
+          >
+            <span>{selectedModel?.name ?? labels.model}</span>
+          </button>
+          {showModelDropdown && modelOptions.length > 0 && (
+            <div className="open-app-model-dropdown">
+              {modelOptions.map((model) => (
+                <button
+                  key={model.id}
+                  type="button"
+                  className={model.id === selectedModelId ? 'active' : ''}
+                  onClick={() => {
+                    onModelSelect(model.id);
+                    onToggleModelDropdown();
+                  }}
+                >
+                  {model.name}
+                </button>
+              ))}
+            </div>
+          )}
+          {showModelDropdown && modelOptions.length === 0 && (
+            <div className="open-app-model-dropdown">
+              <div className="open-app-model-empty">{labels.noModels}</div>
+            </div>
+          )}
+        </div>
+        <div className="open-app-mode-segment" aria-label={labels.agentMode}>
+          <button
+            type="button"
+            className={agentMode === 'ask' ? 'active' : ''}
+            disabled={disabled || streaming}
+            onClick={() => onModeChange('ask')}
+          >
+            {labels.askMode}
+          </button>
+          <button
+            type="button"
+            className={agentMode === 'yolo' ? 'active' : ''}
+            disabled={disabled || streaming}
+            onClick={() => onModeChange('yolo')}
+          >
+            {labels.yoloMode}
+          </button>
+        </div>
+      </div>
+      <textarea
+        ref={textareaRef}
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+        onKeyDown={onKeyDown}
+        disabled={streaming}
+        placeholder={labels.inputPlaceholder}
+      />
+      {selectedSkillIds.length > 0 && (
+        <div className="open-app-skill-chips">
+          {selectedSkillIds.map((id) => (
+            <span key={id} className="open-app-skill-chip">
+              @{skillNameById(id)}
+              <button
+                type="button"
+                onClick={() => removeSkill(id)}
+                disabled={streaming}
+              >
+                &times;
+              </button>
+            </span>
+          ))}
+        </div>
+      )}
+      <div className="open-app-input-footer">
+        <div className="open-app-input-tools">
+          {allowAtSkill && (
+            <div style={{ position: 'relative' }}>
+              <button
+                type="button"
+                title={labels.mentionSkill}
+                disabled={disabled || streaming}
+                onClick={() => setMentionOpen((v) => !v)}
+                data-testid="open-app-mention-trigger"
+              >
+                @
+              </button>
+              {mentionOpen && (
+                <div
+                  style={{
+                    position: 'absolute',
+                    bottom: '100%',
+                    left: 0,
+                    marginBottom: 4,
+                  }}
+                >
+                  <MentionPopup
+                    open={mentionOpen}
+                    agentId={agentId}
+                    adapter={adapter}
+                    onSelect={handleMentionSelect}
+                    onClose={() => setMentionOpen(false)}
+                    labels={{
+                      tabAll: labels.skillTabAll,
+                      tabRecent: labels.skillTabRecent,
+                      tabCollect: labels.skillTabCollect,
+                      empty: labels.noSkills,
+                      loading: labels.loadingMoreMessages,
+                      loadingMore: labels.loadingMoreMessages,
+                    }}
+                  />
+                </div>
+              )}
+            </div>
+          )}
+          <ChatUploadFile
+            adapter={adapter}
+            entries={uploadEntries}
+            onEntriesChange={setUploadEntries}
+            maxFileSize={50 * 1024 * 1024}
+            multiple
+            disabled={disabled || streaming}
+            labels={{
+              upload: labels.uploadAttachment,
+              uploading: labels.uploadAttachment,
+            }}
+          />
+          <button type="button" title={labels.enableTools} disabled={disabled || streaming}>
+            <Icon name="tools" />
+          </button>
+        </div>
+        <button
+          className={streaming ? 'open-app-send-button streaming' : 'open-app-send-button'}
+          type="submit"
+          title={streaming ? labels.stop : labels.send}
+          disabled={!streaming && !canSend}
+        >
+          <Icon name={streaming ? 'stop' : 'send'} />
+        </button>
+      </div>
+    </form>
+  );
+}

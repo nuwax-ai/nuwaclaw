@@ -1,6 +1,28 @@
 import './styles.css';
 
 export { AgentWorkbench } from './components/AgentWorkbench';
+export { VariableForm } from './components/VariableForm';
+export type { VariableFormProps } from './components/VariableForm/types';
+export { MentionPopup } from './components/MentionPopup';
+export type {
+  MentionPopupProps,
+  MentionPopupTab,
+  MentionPopupLabels,
+} from './components/MentionPopup/types';
+export {
+  ChatUploadFile,
+  UploadList as ChatUploadList,
+  usePasteUpload,
+  extractClipboardFiles,
+  formatFileSize as formatUploadFileSize,
+  inferFileIcon as inferUploadFileIcon,
+} from './components/ChatUploadFile';
+export type {
+  ChatUploadFileProps,
+  ChatUploadFileLabels,
+  UploadEntry,
+  UploadEntryStatus,
+} from './components/ChatUploadFile/types';
 export {
   AgentWorkbenchProvider,
   useAgentWorkbenchContext,
@@ -39,7 +61,16 @@ export type {
   WorkbenchPermissionChoice,
   WorkbenchPermissionRequest,
   WorkbenchSendMessageRequest,
+  WorkbenchSkillOption,
   WorkbenchStreamEvent,
   WorkbenchStreamEventType,
+  WorkbenchUploadedAttachment,
   WorkbenchVariable,
+  WorkbenchVariableType,
+  WorkbenchVariableSelectConfig,
+  WorkbenchSelectConfigMode,
+  WorkbenchCascaderOption,
+  WorkbenchGetConversationOptions,
+  WorkbenchListConversationsOptions,
+  WorkbenchSkillListTab,
 } from './types';
