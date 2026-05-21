@@ -1,28 +1,9 @@
 /**
- * MentionPopup
- *
- * Standalone @-mention skill picker for the agent workbench. Mirrors the
- * three-tab UX of nuwax's `ChatInputHome/MentionPopup` (see
- * `nuwax/src/components/ChatInputHome/MentionPopup/index.tsx`):
- *
- * - **Three tabs**: `all` (paginated server search), `recent`, `collect`.
- * - **Search box** at the top — server-side filter on the `all` tab,
- *   client-side filter on `recent` / `collect` (the underlying endpoints do
- *   not accept a keyword).
- * - **Keyboard navigation**: ArrowUp / ArrowDown move the active row,
- *   Enter selects, Esc closes.
- * - **Outside-click dismiss**: a document-level mousedown listener calls
- *   `onClose` when the click lands outside the popup root.
- * - **Load more on scroll**: when the `all` tab nears its scroll bottom,
- *   the next page is requested.
- *
- * The component does *not* manage its own caret/anchor positioning — the
- * caller (e.g. ChatInputHome) is responsible for placing the popup near the
- * caret. This keeps the component portable: the same popup works inside
- * Electron, in storybook, or in a standalone demo.
- *
- * This component is intentionally **not** wired into NuwaxOpenApp. Phase B
- * will adopt it once the editor integration is built.
+ * MentionPopup — @-mention skill picker for the agent workbench.
+ * Three tabs: all (server search), recent, collect. Keyboard navigation
+ * (ArrowUp/Down/Enter/Esc). Load more on scroll for the `all` tab.
+ * Does not manage caret/anchor — caller controls position, portable
+ * across Electron, storybook, and standalone demos.
  */
 import {
   useCallback,
@@ -263,11 +244,9 @@ export function MentionPopup(props: MentionPopupProps): JSX.Element | null {
         {TAB_ORDER.map((key) => {
           const isActive = tab === key;
           const tabLabel =
-            key === 'all'
-              ? labels.tabAll
-              : key === 'recent'
-                ? labels.tabRecent
-                : labels.tabCollect;
+            key === 'all' ? labels.tabAll :
+            key === 'recent' ? labels.tabRecent :
+            labels.tabCollect;
           const className =
             'mention-popup-tab' +
             (isActive ? ' mention-popup-tab--active' : '');

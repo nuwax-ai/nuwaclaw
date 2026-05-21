@@ -67,23 +67,9 @@ export interface ChatAreaProps {
 }
 
 /**
- * Chat-area subtree of the OpenApp BaseTemplate.
- *
- * Renders, in order:
- * - the transcript (scrollable, with a load-more sentinel and a load-more
- *   button when older history exists),
- * - the empty/welcome state and recommend list when no messages yet,
- * - the permission card (when the server requests user approval mid-stream),
- * - the variable form (when the agent declares required variables and the
- *   user has not provided them yet),
- * - the suggest-question chips (after a stream completes),
- * - the embedded `ChatInputHome` for composing the next prompt,
- * - the AI-generated content notice.
- *
- * This component is intentionally stateless: it owns no `useState` of its
- * own, deferring all conversation/input state to the parent (`NuwaxOpenApp`).
- * The IntersectionObserver that drives `onLoadMoreMessages` is also kept in
- * the parent to avoid leaking observer lifecycle into this UI shell.
+ * ChatArea — transcript, empty/welcome, permission card, variable form,
+ * suggest chips, and ChatInputHome in the BaseTemplate. Intentionally
+ * stateless; conversation/input state owned by parent (NuwaxOpenApp).
  */
 export function ChatArea(props: ChatAreaProps): JSX.Element {
   const {

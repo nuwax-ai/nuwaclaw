@@ -393,6 +393,8 @@ export function NuwaxOpenApp() {
 
   useEffect(() => {
     if (!agentId) return;
+    // Skip if same agent already loaded to avoid redundant fetch
+    if ((agent?.agentId ?? null) === agentId) return;
     setLoadingDetail(true);
     setError(null);
     (adapter.getAgentDetail?.(agentId) ?? Promise.resolve(fallbackAgent(agentId)))

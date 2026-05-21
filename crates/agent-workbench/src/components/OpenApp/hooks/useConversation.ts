@@ -1,33 +1,18 @@
 /**
  * useConversation — message / conversation state hub for OpenApp.
  *
- * Phase B step 5 of the NuwaxOpenApp split. This hook owns the slice of
- * state that NuwaxOpenApp currently stores inline (messages, active
- * conversation, streaming flag, active request id, permission request,
- * pagination cursor). It is *not* wired into NuwaxOpenApp yet — Phase B
- * later steps will swap the inline state for this hook in a single PR so
- * the diff against the legacy component is reviewable as one move.
- *
- * Design choices:
- *   - State is consolidated under a single useReducer. The reducer
- *     (`messagesReducer`) is exported so it can be unit-tested without
- *     React.
- *   - The SSE event → reducer-action mapping is extracted as
- *     `streamEventToAction`, also exported, so the wire-protocol → UI
- *     translation can be tested in isolation.
- *   - Adapter calls go through useCallback wrappers that read the latest
- *     reducer state via a ref. This avoids stale closures during
- *     long-running `sendPrompt` loops where the user might interleave
- *     `stopStream` / `answerPermission` mid-flight.
+ * State consolidated under useReducer (messagesReducer, exported).
+ * SSE events mapped via streamEventToAction (exported).
+ * Adapter calls wrapped in useCallback with ref-based getState to avoid
+ * stale closures during long-running sendPrompt loops where stopStream /
+ * answerPermission may interleave.
  *
  * Parity with nuwax `src/models/conversationInfo.ts`:
- *   - fields: activeConversation, messages, streaming, activeRequestId,
- *     permissionRequest, hasMoreMessages, loadingMoreMessages
- *   - actions: loadConversation, createConversation, sendPrompt,
- *     stopStream, answerPermission, loadMoreMessages, reset
- *   - The nuwax model also tracks conversation lists / suggest questions /
- *     model options. Those are owned by the parent component for now;
- *     this hook is intentionally scoped to the message/stream lifecycle.
+ *   fields: activeConversation, messages, streaming, activeRequestId,
+ *   permissionRequest, hasMoreMessages, loadingMoreMessages
+ *   actions: loadConversation, createConversation, sendPrompt,
+ *   stopStream, answerPermission, loadMoreMessages, reset
+ *   (conversation list / suggest / model options owned by parent)
  */
 
 import { useCallback, useEffect, useMemo, useReducer, useRef } from 'react';
@@ -299,7 +284,7 @@ type GetState = () => ConversationState;
 type Dispatch = (action: ConversationAction) => void;
 
 export async function loadConversationAction(
-  getState: GetState,
+  _getState: GetState,
   dispatch: Dispatch,
   deps: ActionDeps,
   conversation: WorkbenchConversation,
@@ -319,8 +304,6 @@ export async function loadConversationAction(
       conversationId: conversation.id,
     });
   }
-  // silence unused-getState warning — kept for symmetry / future use
-  void getState;
 }
 
 export async function createConversationAction(

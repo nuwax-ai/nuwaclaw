@@ -12,10 +12,7 @@ import type {
   WorkbenchSkillOption,
   WorkbenchUploadedFile,
 } from '../../types';
-// Phase B final round: Icon now lives in `OpenApp/icons.tsx` and the label
-// dictionary in `OpenApp/labels.ts`. Both imports below are forward
-// dependencies (ChatInputHome → OpenApp), which fully breaks the previous
-// `ChatInputHome ↔ NuwaxOpenApp` circular import.
+// Icons and labels live in OpenApp subdirectory.
 import { Icon } from '../OpenApp/icons';
 import { zh } from '../OpenApp/labels';
 import { ChatUploadFile, usePasteUpload } from '../ChatUploadFile';
@@ -219,15 +216,15 @@ export function ChatInputHome({
       }}
     >
       <div className="open-app-input-topbar">
-        <div style={{ position: 'relative' }}>
-          <button
-            className="open-app-model-chip"
-            type="button"
-            disabled={disabled || streaming}
-            onClick={onToggleModelDropdown}
-          >
-            <span>{selectedModel?.name ?? labels.model}</span>
-          </button>
+        <button
+          className="open-app-model-chip"
+          type="button"
+          style={{ position: 'relative' }}
+          disabled={disabled || streaming}
+          onClick={onToggleModelDropdown}
+        >
+          <span>{selectedModel?.name ?? labels.model}</span>
+        </button>
           {showModelDropdown && modelOptions.length > 0 && (
             <div className="open-app-model-dropdown">
               {modelOptions.map((model) => (
@@ -250,7 +247,6 @@ export function ChatInputHome({
               <div className="open-app-model-empty">{labels.noModels}</div>
             </div>
           )}
-        </div>
         <div className="open-app-mode-segment" aria-label={labels.agentMode}>
           <button
             type="button"
