@@ -173,6 +173,26 @@ describe("McpProxyManager", () => {
       config = mcpProxyManager.getConfig();
       expect(config.mcpServers["new-server"]).toBeUndefined();
     });
+
+    it("ask-question 即使未显式 persistent，也应被识别为持久化 server", async () => {
+      const { mcpProxyManager } = await import("./mcp");
+
+      mcpProxyManager.setConfig({
+        mcpServers: {
+          "ask-question": {
+            command: "node",
+            args: ["/mock/nuwax-ask-question-mcp/dist/index.js"],
+          },
+        },
+      });
+
+      const persistentServers = mcpProxyManager.getPersistentServers();
+      expect(persistentServers["ask-question"]).toMatchObject({
+        command: "node",
+        args: ["/mock/nuwax-ask-question-mcp/dist/index.js"],
+        persistent: true,
+      });
+    });
   });
 
   describe("getStatus", () => {
@@ -379,6 +399,48 @@ describe("McpProxyManager", () => {
       expect(mockWriteFileSync).toHaveBeenCalled();
     });
 
+    it("ask-question 未显式 persistent 时，bridge 运行中也应通过 bridge URL 注入给 agent", async () => {
+      vi.doMock("./persistentMcpBridge", () => ({
+        persistentMcpBridge: {
+          start: vi.fn().mockResolvedValue(undefined),
+          stop: vi.fn().mockResolvedValue(undefined),
+          isRunning: vi.fn(() => true),
+          getBridgeUrl: vi.fn((name: string) =>
+            name === "ask-question"
+              ? "http://127.0.0.1:12345/mcp/ask-question"
+              : null,
+          ),
+          isServerHealthy: vi.fn(() => true),
+        },
+      }));
+      vi.resetModules();
+
+      const { mcpProxyManager } = await import("./mcp");
+
+      mcpProxyManager.setConfig({
+        mcpServers: {
+          "ask-question": {
+            command: "node",
+            args: ["/mock/nuwax-ask-question-mcp/dist/index.js"],
+          },
+        },
+      });
+
+      await mcpProxyManager.start();
+      const mcpConfig = mcpProxyManager.getAgentMcpConfig();
+
+      expect(mcpConfig?.["ask-question"]).toBeDefined();
+      expect(mcpConfig?.["ask-question"].args).toContain("--config-file");
+      expect(mockWriteFileSync).toHaveBeenCalledTimes(1);
+
+      const configJson = JSON.parse(
+        mockWriteFileSync.mock.calls[0][1] as string,
+      );
+      expect(configJson.mcpServers["ask-question"]).toEqual({
+        url: "http://127.0.0.1:12345/mcp/ask-question",
+      });
+    });
+
     it("混合临时和持久化 server 应该聚合到同一个 proxy", async () => {
       vi.doMock("./persistentMcpBridge", () => ({
         persistentMcpBridge: {
@@ -531,7 +593,7 @@ describe("McpProxyManager", () => {
       const result = await mcpProxyManager.start();
 
       expect(result.success).toBe(false);
-      expect(result.error).toContain("未安装");
+      expect(result.error).toMatch(/未安装|Claw\.MCP\.notInstalled/);
     });
   });
 
@@ -1143,6 +1205,34 @@ describe("syncMcpConfigToProxyAndReload - bridge 重启", () => {
     expect(Object.keys(startArg)).toContain("chrome-devtools");
     // 不包含动态 MCP（因为传入为空）
     expect(Object.keys(startArg).length).toBe(1);
+  });
+
+  it("ask-question MCP 应作为 persistent server 启动，避免每个 ACP session 重复占用固定响应端口", async () => {
+    const { syncMcpConfigToProxyAndReload, mcpProxyManager } =
+      await import("./mcp");
+    const { persistentMcpBridge } = await import("./persistentMcpBridge");
+
+    await syncMcpConfigToProxyAndReload({
+      "ask-question": {
+        command: "node",
+        args: ["/mock/nuwax-ask-question-mcp/dist/index.js"],
+        env: {
+          NUWAX_ASK_MCP_PORT: "63334",
+          NUWAX_ASK_MCP_SECRET: "change-me",
+        },
+      },
+    });
+
+    const config = mcpProxyManager.getConfig();
+    expect(config.mcpServers["ask-question"]).toMatchObject({
+      command: "node",
+      args: ["/mock/nuwax-ask-question-mcp/dist/index.js"],
+      persistent: true,
+    });
+
+    const startArg = (persistentMcpBridge.start as ReturnType<typeof vi.fn>)
+      .mock.calls[0][0] as Record<string, unknown>;
+    expect(Object.keys(startArg)).toContain("ask-question");
   });
 
   it("bridge 重启失败不应阻断同步流程", async () => {

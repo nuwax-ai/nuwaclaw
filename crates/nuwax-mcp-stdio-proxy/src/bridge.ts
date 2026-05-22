@@ -22,12 +22,14 @@ import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/
 import {
   ListToolsRequestSchema,
   CallToolRequestSchema,
+  CallToolResultSchema,
 } from '@modelcontextprotocol/sdk/types.js';
 import type { Tool } from '@modelcontextprotocol/sdk/types.js';
 import { CustomStdioClientTransport } from './customStdio.js';
 import { ResilientTransportWrapper } from './resilient.js';
 import type { StdioServerEntry } from './types.js';
 import { MCP_SESSION_ID_HEADER } from './constants.js';
+import { getToolCallRequestOptions } from './toolCallTimeout.js';
 
 const LOG_TAG = '[McpProxy] [PersistentMcpBridge]';
 const BASE_RESTART_COOLDOWN_MS = 5_000;
@@ -519,10 +521,14 @@ export class PersistentMcpBridge {
       }
 
       try {
-        const result = await serverEntry.client.callTool({
-          name: request.params.name,
-          arguments: request.params.arguments,
-        });
+        const result = await serverEntry.client.callTool(
+          {
+            name: request.params.name,
+            arguments: request.params.arguments,
+          },
+          CallToolResultSchema,
+          getToolCallRequestOptions({ serverId, toolName: request.params.name }),
+        );
         return result as { content: Array<{ type: string; text?: string }>; isError?: boolean };
       } catch (e: unknown) {
         const msg = e instanceof Error ? e.message : String(e);

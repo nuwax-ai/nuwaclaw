@@ -16,6 +16,7 @@ import { discoverTools, createToolProxyServer, setupGracefulShutdown } from '../
 import { filterTools } from '../filter.js';
 import type { ToolFilter } from '../filter.js';
 import { detectProtocol } from '../detect.js';
+import { getToolCallRequestOptions } from '../toolCallTimeout.js';
 
 export async function runStdio(
   config: McpServersConfig,
@@ -148,6 +149,10 @@ export async function runStdio(
   const { server } = await createToolProxyServer({
     tools: filteredTools,
     resolveClient: (name) => filteredNames.has(name) ? toolToClient.get(name) : undefined,
+    requestOptionsForTool: (name) => getToolCallRequestOptions({
+      serverId: toolToServer.get(name),
+      toolName: name,
+    }),
     errorLabel: (name) => `"${name}" (server: "${toolToServer.get(name) || 'unknown'}")`,
   });
 

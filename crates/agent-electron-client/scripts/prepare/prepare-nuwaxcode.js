@@ -145,6 +145,16 @@ function ensureModelJson(destDir, version) {
  */
 const FORCE_REFRESH_ON_MATCH = false;
 
+function getGithubToken() {
+  return process.env.GITHUB_TOKEN || process.env.GH_TOKEN || '';
+}
+
+function formatGithubRateLimitReset(value) {
+  const seconds = Number(value);
+  if (!Number.isFinite(seconds) || seconds <= 0) return null;
+  return new Date(seconds * 1000).toISOString();
+}
+
 // ==================== 模式 1: 本地 dist 复制 ====================
 
 function findDistSourceBinary(nuwaxcodeDist, distName, key) {
@@ -273,7 +283,7 @@ function copyFromDist(key) {
 
 /**
  * 检查 GitHub 是否存在目标 Release tag（避免目标版本未发版时反复 404）。
- * @returns {Promise<{ ok: boolean, latestTag?: string, status?: number }>}
+ * @returns {Promise<{ ok: boolean, latestTag?: string, status?: number, unverified?: boolean, reason?: string }>}
  */
 function checkGithubReleaseTag() {
   return new Promise((resolve) => {
@@ -283,8 +293,9 @@ function checkGithubReleaseTag() {
       'User-Agent': 'NuwaClaw-Build',
       Accept: 'application/vnd.github+json',
     };
-    if (process.env.GITHUB_TOKEN) {
-      headers.Authorization = `Bearer ${process.env.GITHUB_TOKEN}`;
+    const githubToken = getGithubToken();
+    if (githubToken) {
+      headers.Authorization = `Bearer ${githubToken}`;
     }
 
     let attempts = 0;
@@ -306,8 +317,32 @@ function checkGithubReleaseTag() {
               resolve({ ok: true });
               return;
             }
+            let message = '';
+            try {
+              message = JSON.parse(body).message || '';
+            } catch (_) {}
+            const rateLimitRemaining = res.headers['x-ratelimit-remaining'];
+            const rateLimitReset = formatGithubRateLimitReset(res.headers['x-ratelimit-reset']);
+            const isRateLimited =
+              res.statusCode === 403 &&
+              (rateLimitRemaining === '0' || /rate limit/i.test(message));
+
+            if (isRateLimited) {
+              console.warn(
+                `[prepare-nuwaxcode] GitHub API 匿名限流，跳过 Release 预检查并直接尝试下载资产`
+                + (rateLimitReset ? `（重置时间: ${rateLimitReset}）` : ''),
+              );
+              resolve({
+                ok: true,
+                status: res.statusCode,
+                unverified: true,
+                reason: 'github_api_rate_limited',
+              });
+              return;
+            }
+
             console.warn(
-              `[prepare-nuwaxcode] Release ${tag} 检查失败: HTTP ${res.statusCode}${res.statusCode === 403 ? ' (rate limit or auth issue)' : ''}`,
+              `[prepare-nuwaxcode] Release ${tag} 检查失败: HTTP ${res.statusCode}${res.statusCode === 403 ? ' (auth issue)' : ''}${message ? `: ${message}` : ''}`,
             );
             if (attempts < maxAttempts) {
               console.log(`[prepare-nuwaxcode] 1s 后重试...`);
@@ -327,7 +362,7 @@ function checkGithubReleaseTag() {
                   try {
                     latestTag = JSON.parse(body2).tag_name;
                   } catch (_) {}
-                  resolve({ ok: false, latestTag, status: res.statusCode });
+                  resolve({ ok: false, latestTag, status: res.statusCode, reason: message });
                 });
               })
               .on('error', () => resolve({ ok: false, status: res.statusCode }));
@@ -375,8 +410,9 @@ function download(url, preferredFilename, options = {}) {
     }
 
     const headers = { 'User-Agent': 'NuwaClaw-Build' };
-    if (process.env.GITHUB_TOKEN) {
-      headers['Authorization'] = `Bearer ${process.env.GITHUB_TOKEN}`;
+    const githubToken = getGithubToken();
+    if (githubToken) {
+      headers.Authorization = `Bearer ${githubToken}`;
     }
 
     fs.mkdirSync(cacheDir, { recursive: true });
@@ -719,8 +755,13 @@ async function main() {
     const releaseCheck = await checkGithubReleaseTag();
     if (!releaseCheck.ok) {
       console.error(
-        `[prepare-nuwaxcode] GitHub Release 不存在: https://github.com/${NUWAXCODE_REPO}/releases/tag/v${NUWAXCODE_VERSION}`,
+        `[prepare-nuwaxcode] 无法确认 GitHub Release: https://github.com/${NUWAXCODE_REPO}/releases/tag/v${NUWAXCODE_VERSION}`,
       );
+      if (releaseCheck.status) {
+        console.error(
+          `[prepare-nuwaxcode] GitHub API 状态: HTTP ${releaseCheck.status}${releaseCheck.reason ? ` (${releaseCheck.reason})` : ''}`,
+        );
+      }
       if (releaseCheck.latestTag) {
         console.error(
           `[prepare-nuwaxcode] 当前远端最新 Release: ${releaseCheck.latestTag}（与 prepare 脚本 NUWAXCODE_VERSION=${NUWAXCODE_VERSION} 不一致）`,
@@ -738,9 +779,15 @@ async function main() {
       );
       process.exit(1);
     }
-    console.log(
-      `[prepare-nuwaxcode] GitHub Release v${NUWAXCODE_VERSION} 已存在`,
-    );
+    if (releaseCheck.unverified) {
+      console.log(
+        `[prepare-nuwaxcode] GitHub Release v${NUWAXCODE_VERSION} 预检查被跳过，将以资产下载结果为准`,
+      );
+    } else {
+      console.log(
+        `[prepare-nuwaxcode] GitHub Release v${NUWAXCODE_VERSION} 已存在`,
+      );
+    }
   }
 
   if (!allPlatforms && !PLATFORM_MAP[keys[0]]) {

@@ -196,12 +196,7 @@ function writeMcpStdioMessage(
   stdin: { write: (chunk: string | Buffer) => void },
   payload: unknown,
 ): void {
-  // MCP stdio uses Content-Length framing (like LSP):
-  //   Content-Length: <bytes>\r\n\r\n<json>
-  const json = JSON.stringify(payload);
-  const body = Buffer.from(json, "utf8");
-  const header = Buffer.from(`Content-Length: ${body.length}\r\n\r\n`, "utf8");
-  stdin.write(Buffer.concat([header, body]));
+  stdin.write(`${JSON.stringify(payload)}\n`);
 }
 
 /**
@@ -479,6 +474,40 @@ function injectBaseEnvToMcpServers(
   return result;
 }
 
+function isAskQuestionMcpServer(
+  name: string,
+  entry: McpServerEntry,
+): entry is StdioMcpServerEntry {
+  if (isRemoteEntry(entry)) return false;
+
+  const normalizedName = name.trim().toLowerCase();
+  if (
+    normalizedName === "ask-question" ||
+    normalizedName === "nuwax-ask-question" ||
+    normalizedName === "nuwaclaw-ask-question"
+  ) {
+    return true;
+  }
+
+  const command = entry.command.toLowerCase();
+  const args = (entry.args || []).join(" ").toLowerCase();
+  return (
+    command.includes("nuwax-ask-question-mcp") ||
+    args.includes("nuwax-ask-question-mcp")
+  );
+}
+
+function shouldRunPersistently(
+  name: string,
+  entry: McpServerEntry,
+): entry is StdioMcpServerEntry {
+  return (
+    !isRemoteEntry(entry) &&
+    ((entry as StdioMcpServerEntry).persistent ||
+      isAskQuestionMcpServer(name, entry))
+  );
+}
+
 /** stdio 类型 MCP Server 配置 */
 export interface StdioMcpServerEntry {
   command: string;
@@ -708,7 +737,9 @@ class McpProxyManager {
   getPersistentServers(): Record<string, StdioMcpServerEntry> {
     const result: Record<string, StdioMcpServerEntry> = {};
     for (const [name, entry] of Object.entries(this.config.mcpServers)) {
-      if (!isRemoteEntry(entry) && entry.persistent) result[name] = entry;
+      if (shouldRunPersistently(name, entry)) {
+        result[name] = { ...entry, persistent: true };
+      }
     }
     return result;
   }
@@ -1393,7 +1424,7 @@ async function withSyncMcpLock<T>(fn: () => Promise<T>): Promise<T> {
   }
 }
 
-/** 比较两个 stdio 配置是否相等（忽略 env 中的临时变量） */
+/** 比较两个 stdio 配置是否相等 */
 function configsEqual(
   a: Record<string, StdioMcpServerEntry>,
   b: Record<string, StdioMcpServerEntry> | null,
@@ -1409,6 +1440,8 @@ function configsEqual(
     const entryB = b[key];
     if (entryA.command !== entryB.command) return false;
     if (JSON.stringify(entryA.args) !== JSON.stringify(entryB.args))
+      return false;
+    if (JSON.stringify(entryA.env || {}) !== JSON.stringify(entryB.env || {}))
       return false;
     // persistent 标志必须一致
     if (entryA.persistent !== entryB.persistent) return false;
@@ -1449,6 +1482,7 @@ export async function syncMcpConfigToProxyAndReload(
           command: entry.command,
           args: Array.isArray(entry.args) ? entry.args : [],
           env: entry.env,
+          ...(shouldRunPersistently(name, entry) ? { persistent: true } : {}),
           ...(entry.allowTools ? { allowTools: entry.allowTools } : {}),
           ...(entry.denyTools ? { denyTools: entry.denyTools } : {}),
         };
@@ -1474,8 +1508,8 @@ export async function syncMcpConfigToProxyAndReload(
     // Bridge 只管理 persistent 服务（如 chrome-devtools），动态 MCP 不进 bridge。
     // 变更检测和重启均只针对 persistent servers，避免动态 MCP 变化时重启 chrome-devtools。
     const persistentOnly = Object.fromEntries(
-      Object.entries(mergedWithEnv).filter(
-        ([, e]) => !isRemoteEntry(e) && (e as StdioMcpServerEntry).persistent,
+      Object.entries(mergedWithEnv).filter(([name, e]) =>
+        shouldRunPersistently(name, e),
       ),
     ) as Record<string, StdioMcpServerEntry>;
     const resolvedPersistent = resolveServersConfig(persistentOnly) as Record<

@@ -14,6 +14,7 @@ import { filterTools } from '../filter.js';
 import type { ToolFilter } from '../filter.js';
 import { detectProtocol } from '../detect.js';
 import { discoverTools, createToolProxyServer, setupGracefulShutdown } from '../shared/index.js';
+import { getToolCallRequestOptions } from '../toolCallTimeout.js';
 
 export interface ConvertArgs {
   url?: string;
@@ -120,6 +121,7 @@ export async function runConvert(args: ConvertArgs): Promise<void> {
   const { server } = await createToolProxyServer({
     tools: filteredTools,
     resolveClient: (name) => filteredNames.has(name) ? remoteClient : undefined,
+    requestOptionsForTool: (name) => getToolCallRequestOptions({ toolName: name }),
   });
 
   logInfo('Convert proxy running on stdio');

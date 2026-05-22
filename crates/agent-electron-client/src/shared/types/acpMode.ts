@@ -31,7 +31,7 @@ export function resolveEffectiveMode(agentMode?: string | null): {
   mode: AcpMode;
   isFallback: boolean;
 } {
-  if (!agentMode) return { mode: "ask", isFallback: false };
+  if (!agentMode) return { mode: "yolo", isFallback: false };
   if (agentMode === "ask" || agentMode === "yolo") {
     return { mode: agentMode, isFallback: false };
   }

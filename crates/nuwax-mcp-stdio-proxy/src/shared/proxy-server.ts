@@ -8,8 +8,10 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import {
   ListToolsRequestSchema,
   CallToolRequestSchema,
+  CallToolResultSchema,
 } from '@modelcontextprotocol/sdk/types.js';
 import type { Tool } from '@modelcontextprotocol/sdk/types.js';
+import type { RequestOptions } from '@modelcontextprotocol/sdk/shared/protocol.js';
 
 import { logError } from '../logger.js';
 import { PKG_NAME, PKG_VERSION } from '../constants.js';
@@ -19,12 +21,15 @@ import { PKG_NAME, PKG_VERSION } from '../constants.js';
  * Returns undefined if the tool is unknown or filtered.
  */
 export type ToolResolver = (toolName: string) => Client | undefined;
+export type ToolRequestOptionsResolver = (toolName: string) => RequestOptions | undefined;
 
 export interface ToolProxyServerOptions {
   /** Tools to expose via ListTools */
   tools: Tool[];
   /** Resolves a tool name to the upstream client */
   resolveClient: ToolResolver;
+  /** Optional per-tool request options for upstream callTool */
+  requestOptionsForTool?: ToolRequestOptionsResolver;
   /** Optional label for error logging (e.g. server name) */
   errorLabel?: (toolName: string) => string;
 }
@@ -38,7 +43,7 @@ export interface ToolProxyServerOptions {
 export async function createToolProxyServer(
   opts: ToolProxyServerOptions,
 ): Promise<{ server: Server; transport: StdioServerTransport }> {
-  const { tools, resolveClient, errorLabel } = opts;
+  const { tools, resolveClient, requestOptionsForTool, errorLabel } = opts;
 
   const server = new Server(
     { name: PKG_NAME, version: PKG_VERSION },
@@ -61,7 +66,11 @@ export async function createToolProxyServer(
     }
 
     try {
-      const result = await client.callTool({ name, arguments: toolArgs });
+      const result = await client.callTool(
+        { name, arguments: toolArgs },
+        CallToolResultSchema,
+        requestOptionsForTool?.(name),
+      );
       return result;
     } catch (e) {
       const label = errorLabel ? errorLabel(name) : `"${name}"`;
