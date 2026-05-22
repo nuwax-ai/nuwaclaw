@@ -474,40 +474,6 @@ function injectBaseEnvToMcpServers(
   return result;
 }
 
-function isAskQuestionMcpServer(
-  name: string,
-  entry: McpServerEntry,
-): entry is StdioMcpServerEntry {
-  if (isRemoteEntry(entry)) return false;
-
-  const normalizedName = name.trim().toLowerCase();
-  if (
-    normalizedName === "ask-question" ||
-    normalizedName === "nuwax-ask-question" ||
-    normalizedName === "nuwaclaw-ask-question"
-  ) {
-    return true;
-  }
-
-  const command = entry.command.toLowerCase();
-  const args = (entry.args || []).join(" ").toLowerCase();
-  return (
-    command.includes("nuwax-ask-question-mcp") ||
-    args.includes("nuwax-ask-question-mcp")
-  );
-}
-
-function shouldRunPersistently(
-  name: string,
-  entry: McpServerEntry,
-): entry is StdioMcpServerEntry {
-  return (
-    !isRemoteEntry(entry) &&
-    ((entry as StdioMcpServerEntry).persistent ||
-      isAskQuestionMcpServer(name, entry))
-  );
-}
-
 /** stdio 类型 MCP Server 配置 */
 export interface StdioMcpServerEntry {
   command: string;
@@ -737,9 +703,7 @@ class McpProxyManager {
   getPersistentServers(): Record<string, StdioMcpServerEntry> {
     const result: Record<string, StdioMcpServerEntry> = {};
     for (const [name, entry] of Object.entries(this.config.mcpServers)) {
-      if (shouldRunPersistently(name, entry)) {
-        result[name] = { ...entry, persistent: true };
-      }
+      if (!isRemoteEntry(entry) && entry.persistent) result[name] = entry;
     }
     return result;
   }
@@ -1482,7 +1446,7 @@ export async function syncMcpConfigToProxyAndReload(
           command: entry.command,
           args: Array.isArray(entry.args) ? entry.args : [],
           env: entry.env,
-          ...(shouldRunPersistently(name, entry) ? { persistent: true } : {}),
+          ...(entry.persistent ? { persistent: true } : {}),
           ...(entry.allowTools ? { allowTools: entry.allowTools } : {}),
           ...(entry.denyTools ? { denyTools: entry.denyTools } : {}),
         };
@@ -1508,8 +1472,8 @@ export async function syncMcpConfigToProxyAndReload(
     // Bridge 只管理 persistent 服务（如 chrome-devtools），动态 MCP 不进 bridge。
     // 变更检测和重启均只针对 persistent servers，避免动态 MCP 变化时重启 chrome-devtools。
     const persistentOnly = Object.fromEntries(
-      Object.entries(mergedWithEnv).filter(([name, e]) =>
-        shouldRunPersistently(name, e),
+      Object.entries(mergedWithEnv).filter(
+        ([, e]) => !isRemoteEntry(e) && (e as StdioMcpServerEntry).persistent,
       ),
     ) as Record<string, StdioMcpServerEntry>;
     const resolvedPersistent = resolveServersConfig(persistentOnly) as Record<

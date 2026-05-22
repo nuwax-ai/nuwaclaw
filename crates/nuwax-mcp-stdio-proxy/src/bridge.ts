@@ -15,23 +15,21 @@
  *   MCP Server (tool handlers → Client.callTool)
  */
 
-import * as http from 'http';
-import { Client } from '@modelcontextprotocol/sdk/client/index.js';
-import { Server } from '@modelcontextprotocol/sdk/server/index.js';
-import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
+import * as http from "http";
+import { Client } from "@modelcontextprotocol/sdk/client/index.js";
+import { Server } from "@modelcontextprotocol/sdk/server/index.js";
+import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import {
   ListToolsRequestSchema,
   CallToolRequestSchema,
-  CallToolResultSchema,
-} from '@modelcontextprotocol/sdk/types.js';
-import type { Tool } from '@modelcontextprotocol/sdk/types.js';
-import { CustomStdioClientTransport } from './customStdio.js';
-import { ResilientTransportWrapper } from './resilient.js';
-import type { StdioServerEntry } from './types.js';
-import { MCP_SESSION_ID_HEADER } from './constants.js';
-import { getToolCallRequestOptions } from './toolCallTimeout.js';
+} from "@modelcontextprotocol/sdk/types.js";
+import type { Tool } from "@modelcontextprotocol/sdk/types.js";
+import { CustomStdioClientTransport } from "./customStdio.js";
+import { ResilientTransportWrapper } from "./resilient.js";
+import type { StdioServerEntry } from "./types.js";
+import { MCP_SESSION_ID_HEADER } from "./constants.js";
 
-const LOG_TAG = '[McpProxy] [PersistentMcpBridge]';
+const LOG_TAG = "[McpProxy] [PersistentMcpBridge]";
 const BASE_RESTART_COOLDOWN_MS = 5_000;
 const MAX_RESTART_ATTEMPTS = 5;
 const MAX_BODY_SIZE = 10 * 1024 * 1024; // 10 MB
@@ -84,14 +82,19 @@ export class PersistentMcpBridge {
    * @param servers - Map of server ID to stdio config
    * @param options - Optional settings (e.g. port to listen on)
    */
-  async start(servers: Record<string, StdioServerEntry>, options?: { port?: number }): Promise<void> {
+  async start(
+    servers: Record<string, StdioServerEntry>,
+    options?: { port?: number },
+  ): Promise<void> {
     if (this.running) {
       this.log.warn(`${LOG_TAG} Already running, stopping first`);
       await this.stop();
     }
 
     const serverCount = Object.keys(servers).length;
-    this.log.info(`${LOG_TAG} Starting with ${serverCount} persistent servers (parallel)`);
+    this.log.info(
+      `${LOG_TAG} Starting with ${serverCount} persistent servers (parallel)`,
+    );
 
     // 1. 并行启动 HTTP server 和所有 MCP server 子进程。
     //    两者完全独立：HTTP server 在请求时才查询 this.servers，
@@ -102,7 +105,9 @@ export class PersistentMcpBridge {
     //    await Promise.allSettled(serverPromises) 等所有 spawnAndConnect 跑完
     //    （保证 entry.client / entry.transport 已赋值），再调用 stopServer，
     //    才能可靠关闭子进程，防止孤儿进程残留。
-    const serverPromises = Object.entries(servers).map(([id, config]) => this.startServer(id, config));
+    const serverPromises = Object.entries(servers).map(([id, config]) =>
+      this.startServer(id, config),
+    );
 
     try {
       await Promise.all([
@@ -110,10 +115,15 @@ export class PersistentMcpBridge {
         ...serverPromises,
       ]);
     } catch (e) {
-      this.log.error(`${LOG_TAG} Start failed, cleaning spawned child processes:`, e);
+      this.log.error(
+        `${LOG_TAG} Start failed, cleaning spawned child processes:`,
+        e,
+      );
       // 等待所有 spawnAndConnect 完成，确保 entry.client/transport 已赋值后再清理
       await Promise.allSettled(serverPromises);
-      await Promise.all(Array.from(this.servers.keys()).map((id) => this.stopServer(id)));
+      await Promise.all(
+        Array.from(this.servers.keys()).map((id) => this.stopServer(id)),
+      );
       this.servers.clear();
       throw e;
     }
@@ -121,9 +131,14 @@ export class PersistentMcpBridge {
     this.running = true;
 
     // 2. Start periodic session cleanup
-    this.sessionCleanupTimer = setInterval(() => this.cleanupStaleSessions(), SESSION_CLEANUP_INTERVAL_MS);
+    this.sessionCleanupTimer = setInterval(
+      () => this.cleanupStaleSessions(),
+      SESSION_CLEANUP_INTERVAL_MS,
+    );
 
-    this.log.info(`${LOG_TAG} Bridge ready on port ${this.port} (${serverCount} servers)`);
+    this.log.info(
+      `${LOG_TAG} Bridge ready on port ${this.port} (${serverCount} servers)`,
+    );
   }
 
   /**
@@ -196,7 +211,10 @@ export class PersistentMcpBridge {
 
   // ==================== Internal: Server Lifecycle ====================
 
-  private async startServer(id: string, config: StdioServerEntry): Promise<void> {
+  private async startServer(
+    id: string,
+    config: StdioServerEntry,
+  ): Promise<void> {
     const entry: PersistentServerEntry = {
       config,
       client: null,
@@ -212,9 +230,14 @@ export class PersistentMcpBridge {
     await this.spawnAndConnect(id, entry);
   }
 
-  private async spawnAndConnect(id: string, entry: PersistentServerEntry): Promise<void> {
+  private async spawnAndConnect(
+    id: string,
+    entry: PersistentServerEntry,
+  ): Promise<void> {
     try {
-      this.log.info(`${LOG_TAG} Spawning server "${id}": ${entry.config.command} ${(entry.config.args || []).join(' ')}`);
+      this.log.info(
+        `${LOG_TAG} Spawning server "${id}": ${entry.config.command} ${(entry.config.args || []).join(" ")}`,
+      );
 
       // Create MCP Client + ResilientTransportWrapper
       const wrapper = new ResilientTransportWrapper({
@@ -225,10 +248,10 @@ export class PersistentMcpBridge {
             command: entry.config.command,
             args: entry.config.args || [],
             env: entry.config.env,
-            stderr: 'pipe',
+            stderr: "pipe",
           });
           if (t.stderr) {
-            t.stderr.on('data', (chunk: Buffer) => {
+            t.stderr.on("data", (chunk: Buffer) => {
               const text = chunk.toString().trim();
               if (text) this.log.info(`${LOG_TAG} [${id}:stderr] ${text}`);
             });
@@ -239,7 +262,7 @@ export class PersistentMcpBridge {
       });
 
       const client = new Client(
-        { name: 'nuwax-persistent-bridge', version: '1.0.0' },
+        { name: "nuwax-persistent-bridge", version: "1.0.0" },
         { capabilities: {} },
       );
 
@@ -250,7 +273,10 @@ export class PersistentMcpBridge {
       };
 
       wrapper.onerror = (err: Error) => {
-        this.log.error(`${LOG_TAG} Server "${id}" transport error:`, err.message);
+        this.log.error(
+          `${LOG_TAG} Server "${id}" transport error:`,
+          err.message,
+        );
       };
 
       // Handle reconnect → re-establish MCP session
@@ -260,7 +286,9 @@ export class PersistentMcpBridge {
         // Track reconnect attempts for this server
         entry.restartCount++;
         if (entry.restartCount > MAX_RESTART_ATTEMPTS) {
-          this.log.warn(`${LOG_TAG} Server "${id}" failed ${entry.restartCount - 1} reconnect attempts, giving up (max ${MAX_RESTART_ATTEMPTS})`);
+          this.log.warn(
+            `${LOG_TAG} Server "${id}" failed ${entry.restartCount - 1} reconnect attempts, giving up (max ${MAX_RESTART_ATTEMPTS})`,
+          );
           // Close the wrapper to stop further reconnect attempts
           await wrapper.close();
           return;
@@ -269,12 +297,16 @@ export class PersistentMcpBridge {
         try {
           // Close old client if exists
           if (entry.client) {
-            try { await entry.client.close(); } catch { /* ignore */ }
+            try {
+              await entry.client.close();
+            } catch {
+              /* ignore */
+            }
           }
 
           // Create new client and connect
           const newClient = new Client(
-            { name: 'nuwax-persistent-bridge', version: '1.0.0' },
+            { name: "nuwax-persistent-bridge", version: "1.0.0" },
             { capabilities: {} },
           );
           await newClient.connect(wrapper);
@@ -286,9 +318,14 @@ export class PersistentMcpBridge {
           entry.healthy = true;
           entry.restartCount = 0; // reset on success
 
-          this.log.info(`${LOG_TAG} Server "${id}" reconnected with ${entry.tools.length} tools`);
+          this.log.info(
+            `${LOG_TAG} Server "${id}" reconnected with ${entry.tools.length} tools`,
+          );
         } catch (err) {
-          this.log.error(`${LOG_TAG} Server "${id}" reconnect failed (attempt ${entry.restartCount}/${MAX_RESTART_ATTEMPTS}):`, err);
+          this.log.error(
+            `${LOG_TAG} Server "${id}" reconnect failed (attempt ${entry.restartCount}/${MAX_RESTART_ATTEMPTS}):`,
+            err,
+          );
           throw err; // Re-throw to let ResilientTransportWrapper trigger another reconnect
         }
       };
@@ -306,7 +343,9 @@ export class PersistentMcpBridge {
       entry.healthy = true;
       entry.restartCount = 0; // reset on success
 
-      this.log.info(`${LOG_TAG} Server "${id}" ready with ${entry.tools.length} tools: ${entry.tools.map((t) => t.name).join(', ')}`);
+      this.log.info(
+        `${LOG_TAG} Server "${id}" ready with ${entry.tools.length} tools: ${entry.tools.map((t) => t.name).join(", ")}`,
+      );
     } catch (e) {
       this.log.error(`${LOG_TAG} Failed to start server "${id}":`, e);
       entry.healthy = false;
@@ -321,15 +360,20 @@ export class PersistentMcpBridge {
 
     entry.restartCount++;
     if (entry.restartCount > MAX_RESTART_ATTEMPTS) {
-      this.log.warn(`${LOG_TAG} Server "${id}" failed ${entry.restartCount - 1} times, giving up (max ${MAX_RESTART_ATTEMPTS})`);
+      this.log.warn(
+        `${LOG_TAG} Server "${id}" failed ${entry.restartCount - 1} times, giving up (max ${MAX_RESTART_ATTEMPTS})`,
+      );
       entry.restarting = false;
       return;
     }
 
     entry.restarting = true;
     // Exponential backoff: 5s, 10s, 20s, 40s, 80s
-    const delay = BASE_RESTART_COOLDOWN_MS * Math.pow(2, entry.restartCount - 1);
-    this.log.info(`${LOG_TAG} Scheduling restart for "${id}" in ${delay}ms (attempt ${entry.restartCount}/${MAX_RESTART_ATTEMPTS})`);
+    const delay =
+      BASE_RESTART_COOLDOWN_MS * Math.pow(2, entry.restartCount - 1);
+    this.log.info(
+      `${LOG_TAG} Scheduling restart for "${id}" in ${delay}ms (attempt ${entry.restartCount}/${MAX_RESTART_ATTEMPTS})`,
+    );
 
     entry.restartTimer = setTimeout(async () => {
       entry.restartTimer = null;
@@ -339,14 +383,20 @@ export class PersistentMcpBridge {
       // Clean up old resources
       try {
         if (entry.client) await entry.client.close();
-      } catch { /* ignore */ }
+      } catch {
+        /* ignore */
+      }
       try {
         if (entry.transport) await entry.transport.close();
-      } catch { /* ignore */ }
+      } catch {
+        /* ignore */
+      }
       entry.client = null;
       entry.transport = null;
 
-      this.log.info(`${LOG_TAG} Restarting server "${id}"... (attempt ${entry.restartCount}/${MAX_RESTART_ATTEMPTS})`);
+      this.log.info(
+        `${LOG_TAG} Restarting server "${id}"... (attempt ${entry.restartCount}/${MAX_RESTART_ATTEMPTS})`,
+      );
       await this.spawnAndConnect(id, entry);
     }, delay);
   }
@@ -387,59 +437,68 @@ export class PersistentMcpBridge {
         this.handleHttpRequest(req, res).catch((e) => {
           this.log.error(`${LOG_TAG} HTTP request error:`, e);
           if (!res.headersSent) {
-            res.writeHead(500, { 'Content-Type': 'application/json' });
-            res.end(JSON.stringify({ error: 'Internal server error' }));
+            res.writeHead(500, { "Content-Type": "application/json" });
+            res.end(JSON.stringify({ error: "Internal server error" }));
           }
         });
       });
 
       // Listen on specified port or random port (0)
-      server.listen(listenPort ?? 0, '127.0.0.1', () => {
+      server.listen(listenPort ?? 0, "127.0.0.1", () => {
         const addr = server.address();
-        if (addr && typeof addr === 'object') {
+        if (addr && typeof addr === "object") {
           this.port = addr.port;
         }
         this.httpServer = server;
-        this.log.info(`${LOG_TAG} HTTP server listening on 127.0.0.1:${this.port}`);
+        this.log.info(
+          `${LOG_TAG} HTTP server listening on 127.0.0.1:${this.port}`,
+        );
         resolve();
       });
 
-      server.on('error', (err) => {
+      server.on("error", (err) => {
         this.log.error(`${LOG_TAG} HTTP server error:`, err);
         reject(err);
       });
     });
   }
 
-  private async handleHttpRequest(req: http.IncomingMessage, res: http.ServerResponse): Promise<void> {
-    const url = new URL(req.url || '/', `http://127.0.0.1:${this.port}`);
-    const pathParts = url.pathname.split('/').filter(Boolean);
+  private async handleHttpRequest(
+    req: http.IncomingMessage,
+    res: http.ServerResponse,
+  ): Promise<void> {
+    const url = new URL(req.url || "/", `http://127.0.0.1:${this.port}`);
+    const pathParts = url.pathname.split("/").filter(Boolean);
 
     // Route: /mcp/<serverId>
-    if (pathParts.length !== 2 || pathParts[0] !== 'mcp') {
-      res.writeHead(404, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ error: 'Not found. Use /mcp/<serverId>' }));
+    if (pathParts.length !== 2 || pathParts[0] !== "mcp") {
+      res.writeHead(404, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ error: "Not found. Use /mcp/<serverId>" }));
       return;
     }
 
     const serverId = pathParts[1];
     const serverEntry = this.servers.get(serverId);
     if (!serverEntry || !serverEntry.healthy || !serverEntry.client) {
-      res.writeHead(503, { 'Content-Type': 'application/json' });
+      res.writeHead(503, { "Content-Type": "application/json" });
       res.end(JSON.stringify({ error: `Server "${serverId}" not available` }));
       return;
     }
 
     // Handle DELETE → terminate session
-    if (req.method === 'DELETE') {
-      const sessionId = req.headers[MCP_SESSION_ID_HEADER] as string | undefined;
+    if (req.method === "DELETE") {
+      const sessionId = req.headers[MCP_SESSION_ID_HEADER] as
+        | string
+        | undefined;
       if (sessionId) {
         const key = `${serverId}:${sessionId}`;
         const session = this.httpSessions.get(key);
         if (session) {
           try {
             await session.transport.close();
-          } catch { /* ignore */ }
+          } catch {
+            /* ignore */
+          }
           this.httpSessions.delete(key);
         }
       }
@@ -449,15 +508,17 @@ export class PersistentMcpBridge {
     }
 
     // POST or GET → route to session
-    if (req.method === 'POST' || req.method === 'GET') {
-      const sessionId = req.headers[MCP_SESSION_ID_HEADER] as string | undefined;
+    if (req.method === "POST" || req.method === "GET") {
+      const sessionId = req.headers[MCP_SESSION_ID_HEADER] as
+        | string
+        | undefined;
 
       // Try to find existing session
       if (sessionId) {
         const key = `${serverId}:${sessionId}`;
         const session = this.httpSessions.get(key);
         if (session) {
-          if (req.method === 'POST') {
+          if (req.method === "POST") {
             const body = await this.readBody(req);
             await session.transport.handleRequest(req, res, body);
           } else {
@@ -468,7 +529,7 @@ export class PersistentMcpBridge {
       }
 
       // New session: only for POST (initialize request)
-      if (req.method === 'POST') {
+      if (req.method === "POST") {
         const body = await this.readBody(req);
         const session = this.createHttpSession(serverId, serverEntry);
         await session.transport.handleRequest(req, res, body);
@@ -484,8 +545,12 @@ export class PersistentMcpBridge {
       }
 
       // GET without session → 400
-      res.writeHead(400, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ error: `Missing ${MCP_SESSION_ID_HEADER} header for GET` }));
+      res.writeHead(400, { "Content-Type": "application/json" });
+      res.end(
+        JSON.stringify({
+          error: `Missing ${MCP_SESSION_ID_HEADER} header for GET`,
+        }),
+      );
       return;
     }
 
@@ -493,13 +558,17 @@ export class PersistentMcpBridge {
     res.end();
   }
 
-  private createHttpSession(serverId: string, serverEntry: PersistentServerEntry): HttpSession {
+  private createHttpSession(
+    serverId: string,
+    serverEntry: PersistentServerEntry,
+  ): HttpSession {
     const transport = new StreamableHTTPServerTransport({
-      sessionIdGenerator: () => `${serverId}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      sessionIdGenerator: () =>
+        `${serverId}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
     });
 
     const mcpServer = new Server(
-      { name: `nuwax-bridge-${serverId}`, version: '1.0.0' },
+      { name: `nuwax-bridge-${serverId}`, version: "1.0.0" },
       {
         capabilities: {
           tools: {},
@@ -512,32 +581,38 @@ export class PersistentMcpBridge {
       return { tools: serverEntry.tools };
     });
 
-    mcpServer.setRequestHandler(CallToolRequestSchema, async (request: { params: { name: string; arguments?: Record<string, unknown> } }) => {
-      if (!serverEntry.client || !serverEntry.healthy) {
-        return {
-          content: [{ type: 'text', text: `Server "${serverId}" is not available` }],
-          isError: true,
-        };
-      }
+    mcpServer.setRequestHandler(
+      CallToolRequestSchema,
+      async (request: {
+        params: { name: string; arguments?: Record<string, unknown> };
+      }) => {
+        if (!serverEntry.client || !serverEntry.healthy) {
+          return {
+            content: [
+              { type: "text", text: `Server "${serverId}" is not available` },
+            ],
+            isError: true,
+          };
+        }
 
-      try {
-        const result = await serverEntry.client.callTool(
-          {
+        try {
+          const result = await serverEntry.client.callTool({
             name: request.params.name,
             arguments: request.params.arguments,
-          },
-          CallToolResultSchema,
-          getToolCallRequestOptions({ serverId, toolName: request.params.name }),
-        );
-        return result as { content: Array<{ type: string; text?: string }>; isError?: boolean };
-      } catch (e: unknown) {
-        const msg = e instanceof Error ? e.message : String(e);
-        return {
-          content: [{ type: 'text', text: `Tool call failed: ${msg}` }],
-          isError: true,
-        };
-      }
-    });
+          });
+          return result as {
+            content: Array<{ type: string; text?: string }>;
+            isError?: boolean;
+          };
+        } catch (e: unknown) {
+          const msg = e instanceof Error ? e.message : String(e);
+          return {
+            content: [{ type: "text", text: `Tool call failed: ${msg}` }],
+            isError: true,
+          };
+        }
+      },
+    );
 
     // Clean up on close
     transport.onclose = () => {
@@ -578,7 +653,7 @@ export class PersistentMcpBridge {
     return new Promise((resolve, reject) => {
       const chunks: Buffer[] = [];
       let totalSize = 0;
-      req.on('data', (chunk: Buffer) => {
+      req.on("data", (chunk: Buffer) => {
         totalSize += chunk.length;
         if (totalSize > MAX_BODY_SIZE) {
           req.destroy();
@@ -587,15 +662,15 @@ export class PersistentMcpBridge {
         }
         chunks.push(chunk);
       });
-      req.on('end', () => {
+      req.on("end", () => {
         try {
-          const raw = Buffer.concat(chunks).toString('utf-8');
+          const raw = Buffer.concat(chunks).toString("utf-8");
           resolve(JSON.parse(raw));
         } catch (e) {
           reject(e);
         }
       });
-      req.on('error', reject);
+      req.on("error", reject);
     });
   }
 }

@@ -5,18 +5,31 @@
  * into a single stdio MCP endpoint.
  */
 
-import { Client } from '@modelcontextprotocol/sdk/client/index.js';
-import type { Tool } from '@modelcontextprotocol/sdk/types.js';
+import { Client } from "@modelcontextprotocol/sdk/client/index.js";
+import type { Tool } from "@modelcontextprotocol/sdk/types.js";
 
-import type { McpServersConfig } from '../types.js';
-import { isSseEntry, isStreamableEntry, needsProtocolDetection } from '../types.js';
-import { logInfo, logWarn, logError } from '../logger.js';
-import { buildBaseEnv, connectStdio, connectStreamable, connectSse, buildRequestHeaders } from '../transport/index.js';
-import { discoverTools, createToolProxyServer, setupGracefulShutdown } from '../shared/index.js';
-import { filterTools } from '../filter.js';
-import type { ToolFilter } from '../filter.js';
-import { detectProtocol } from '../detect.js';
-import { getToolCallRequestOptions } from '../toolCallTimeout.js';
+import type { McpServersConfig } from "../types.js";
+import {
+  isSseEntry,
+  isStreamableEntry,
+  needsProtocolDetection,
+} from "../types.js";
+import { logInfo, logWarn, logError } from "../logger.js";
+import {
+  buildBaseEnv,
+  connectStdio,
+  connectStreamable,
+  connectSse,
+  buildRequestHeaders,
+} from "../transport/index.js";
+import {
+  discoverTools,
+  createToolProxyServer,
+  setupGracefulShutdown,
+} from "../shared/index.js";
+import { filterTools } from "../filter.js";
+import type { ToolFilter } from "../filter.js";
+import { detectProtocol } from "../detect.js";
 
 export async function runStdio(
   config: McpServersConfig,
@@ -26,12 +39,12 @@ export async function runStdio(
   const entries = Object.entries(config.mcpServers);
 
   if (entries.length === 0) {
-    logError('No MCP servers configured in mcpServers');
+    logError("No MCP servers configured in mcpServers");
     process.exit(1);
   }
 
   logInfo(
-    `Starting proxy with ${entries.length} server(s): ${entries.map(([id]) => id).join(', ')}`,
+    `Starting proxy with ${entries.length} server(s): ${entries.map(([id]) => id).join(", ")}`,
   );
 
   // ---- Phase 1: Connect to all MCP servers (stdio + streamable + sse) ----
@@ -47,7 +60,9 @@ export async function runStdio(
   // Filter out persistent entries (handled by PersistentMcpBridge, not this proxy)
   const connectableEntries = entries.filter(([id, entry]) => {
     if ((entry as any).persistent) {
-      logWarn(`Skipping persistent server "${id}" (handled by PersistentMcpBridge)`);
+      logWarn(
+        `Skipping persistent server "${id}" (handled by PersistentMcpBridge)`,
+      );
       return false;
     }
     return true;
@@ -65,9 +80,12 @@ export async function runStdio(
           connected = await connectStreamable(id, entry);
         } else if (needsProtocolDetection(entry)) {
           // No explicit transport — probe the URL to determine protocol
-          const detected = await detectProtocol(entry.url, buildRequestHeaders(entry));
-          if (detected === 'sse') {
-            connected = await connectSse(id, { ...entry, transport: 'sse' });
+          const detected = await detectProtocol(
+            entry.url,
+            buildRequestHeaders(entry),
+          );
+          if (detected === "sse") {
+            connected = await connectSse(id, { ...entry, transport: "sse" });
           } else {
             connected = await connectStreamable(id, entry);
           }
@@ -83,7 +101,7 @@ export async function runStdio(
   );
 
   for (const result of results) {
-    if (result.status === 'rejected') {
+    if (result.status === "rejected") {
       logError(`Failed to connect: ${result.reason}`);
       continue;
     }
@@ -103,12 +121,14 @@ export async function runStdio(
       const before = serverTools.length;
       serverTools = filterTools(serverTools, perFilter);
       if (serverTools.length !== before) {
-        logInfo(`Server "${id}": filtered ${before} → ${serverTools.length} tool(s)`);
+        logInfo(
+          `Server "${id}": filtered ${before} → ${serverTools.length} tool(s)`,
+        );
       }
     }
 
     logInfo(
-      `Server "${id}": ${serverTools.length} tool(s)${serverTools.length > 0 ? ' — ' + serverTools.map((t) => t.name).join(', ') : ''}`,
+      `Server "${id}": ${serverTools.length} tool(s)${serverTools.length > 0 ? " — " + serverTools.map((t) => t.name).join(", ") : ""}`,
     );
 
     for (const tool of serverTools) {
@@ -124,12 +144,14 @@ export async function runStdio(
   }
 
   if (clients.size === 0) {
-    logError('Failed to connect to any MCP server');
+    logError("Failed to connect to any MCP server");
     process.exit(1);
   }
 
   const aggregatedTools = Array.from(toolsByName.values());
-  logInfo(`Aggregated ${aggregatedTools.length} unique tool(s) from ${clients.size} server(s)`);
+  logInfo(
+    `Aggregated ${aggregatedTools.length} unique tool(s) from ${clients.size} server(s)`,
+  );
 
   // ---- Phase 1.5: Apply tool filtering (allow/deny) ----
 
@@ -141,22 +163,22 @@ export async function runStdio(
   const filteredNames = new Set(filteredTools.map((t) => t.name));
 
   if (filteredTools.length !== aggregatedTools.length) {
-    logInfo(`After filtering: ${filteredTools.length} tool(s) — ${filteredTools.map((t) => t.name).join(', ')}`);
+    logInfo(
+      `After filtering: ${filteredTools.length} tool(s) — ${filteredTools.map((t) => t.name).join(", ")}`,
+    );
   }
 
   // ---- Phase 2: Create the aggregating MCP server ----
 
   const { server } = await createToolProxyServer({
     tools: filteredTools,
-    resolveClient: (name) => filteredNames.has(name) ? toolToClient.get(name) : undefined,
-    requestOptionsForTool: (name) => getToolCallRequestOptions({
-      serverId: toolToServer.get(name),
-      toolName: name,
-    }),
-    errorLabel: (name) => `"${name}" (server: "${toolToServer.get(name) || 'unknown'}")`,
+    resolveClient: (name) =>
+      filteredNames.has(name) ? toolToClient.get(name) : undefined,
+    errorLabel: (name) =>
+      `"${name}" (server: "${toolToServer.get(name) || "unknown"}")`,
   });
 
-  logInfo('Proxy server running on stdio');
+  logInfo("Proxy server running on stdio");
 
   // ---- Graceful shutdown ----
 
