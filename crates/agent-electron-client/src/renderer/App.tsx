@@ -1481,21 +1481,8 @@ function App() {
     }
 
     if (workbenchConfigState.status === "ready") {
-      const remoteBaseUrl = workbenchConfigState.config.baseUrl;
       return (
         <div className={styles.agentModeWorkbench}>
-          {!workbenchConfigState.usingMock && remoteBaseUrl && (
-            <Alert
-              type="success"
-              showIcon
-              banner
-              message={t("Claw.AgentMode.remoteBanner", remoteBaseUrl)}
-              description={t(
-                "Claw.AgentMode.remoteBannerDesc",
-                workbenchConfigState.config.agentId ?? "",
-              )}
-            />
-          )}
           {workbenchConfigState.usingMock && (
             <Alert
               type="info"

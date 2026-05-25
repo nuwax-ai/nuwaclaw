@@ -205,7 +205,6 @@ describe('chat lifecycle integration', () => {
       expect(step.step.status).toBe('done');
       expect(step.step.name).toBe('Reading files');
     }
-    // Surrounding markdown must survive intact.
     const markdown = segments
       .filter((segment) => segment.kind === 'markdown')
       .map((segment) =>

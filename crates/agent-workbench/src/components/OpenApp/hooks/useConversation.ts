@@ -135,7 +135,16 @@ export function messagesReducer(
     case 'reset':
       return initialConversationState;
     case 'setActiveConversation':
-      return { ...state, activeConversation: action.conversation };
+      return {
+        ...state,
+        activeConversation: action.conversation,
+        messages: [],
+        hasMoreMessages: false,
+        permissionRequest: null,
+        loadingMoreMessages: false,
+        streaming: false,
+        activeRequestId: null,
+      };
     case 'loadConversationSuccess':
       return {
         ...state,

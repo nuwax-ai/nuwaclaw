@@ -29,7 +29,10 @@ export function AgentWorkbench(props: AgentWorkbenchProps) {
   }
 
   return (
-    <div className={props.className} style={props.style}>
+    <div
+      className={props.className}
+      style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', ...props.style }}
+    >
       <NuwaxOpenApp />
     </div>
   );

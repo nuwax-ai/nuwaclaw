@@ -387,9 +387,10 @@ export function NuwaxOpenApp() {
     try {
       await createConversation(labels.newConversation);
     } catch (cause) {
+      console.error('[NuwaxOpenApp] createConversation failed:', cause);
       reportError(cause, 'Failed to create conversation', { phase: 'createConversation' });
     }
-  }, [createConversation, labels.newConversation, reportError]);
+  }, [agentId, createConversation, labels.newConversation, reportError]);
 
   useEffect(() => {
     if (!agentId) return;
@@ -661,6 +662,13 @@ export function NuwaxOpenApp() {
     });
   }, [activeConversation?.id, agentId, config.hostBridge]);
 
+  const handleFilePreview = useCallback(
+    (fileId: string, context?: { conversationId?: string }) => {
+      void config.hostBridge?.onFilePreview?.(fileId, context);
+    },
+    [config.hostBridge],
+  );
+
   const renameConversation = useCallback(
     async (conversation: WorkbenchConversation) => {
       const nextTitle = window.prompt(labels.renamePrompt, conversation.title)?.trim();
@@ -837,6 +845,8 @@ export function NuwaxOpenApp() {
                   onCancelVariableForm={() => setShowVariableForm(false)}
                   transcriptRef={transcriptRef}
                   loadMoreSentinelRef={loadMoreSentinelRef}
+                  onFilePreview={handleFilePreview}
+                  conversationId={activeConversation?.id}
                   labels={labels}
                 />
                 <PreviewPane

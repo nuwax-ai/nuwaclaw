@@ -293,6 +293,8 @@ export interface WorkbenchHostBridge {
   onPreviewDownload?: (info: { url: string; filename?: string }) => void;
   /** Called when webview attempts to open a new window. */
   onPreviewNewWindow?: (url: string) => 'allow' | 'deny' | 'open-external';
+  /** Called when user clicks a task-result file card in chat. */
+  onFilePreview?: (fileId: string, context?: { conversationId?: string }) => void | Promise<void>;
 }
 
 export interface AgentWorkbenchConfig {

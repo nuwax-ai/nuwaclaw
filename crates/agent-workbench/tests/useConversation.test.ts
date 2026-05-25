@@ -107,18 +107,24 @@ describe('messagesReducer', () => {
     });
   });
 
-  it('sets active conversation without clobbering messages', () => {
+  it('clears messages and flags when switching active conversation', () => {
     const before: ConversationState = {
       ...initialConversationState,
-      messages: [makeMessage({ id: 'm-keep' })],
+      messages: [makeMessage({ id: 'm-old' })],
+      permissionRequest: { id: 'p1', title: 'old' },
+      streaming: true,
+      activeRequestId: 'req-1',
     };
     const after = messagesReducer(before, {
       type: 'setActiveConversation',
       conversation: makeConversation({ id: 'conv-2' }),
     });
     expect(after.activeConversation?.id).toBe('conv-2');
-    expect(after.messages).toHaveLength(1);
-    expect(after.messages[0].id).toBe('m-keep');
+    expect(after.messages).toHaveLength(0);
+    expect(after.hasMoreMessages).toBe(false);
+    expect(after.permissionRequest).toBeNull();
+    expect(after.streaming).toBe(false);
+    expect(after.activeRequestId).toBeNull();
   });
 
   it('loadConversationSuccess replaces messages and clears permission', () => {

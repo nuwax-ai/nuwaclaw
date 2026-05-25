@@ -293,8 +293,7 @@ describe('component matrix integration', () => {
     expect(finalEvent).toBeDefined();
     const content = finalEvent?.content ?? '';
 
-    // Sanity check the parser before rendering — locks the renderer +
-    // parser composition.
+    // Sanity check the parser before rendering.
     const segments = parseSegments(content);
     expect(segments.some((segment) => segment.kind === 'runover-step')).toBe(true);
 

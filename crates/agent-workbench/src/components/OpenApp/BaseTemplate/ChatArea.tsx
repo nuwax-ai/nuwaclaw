@@ -62,6 +62,10 @@ export interface ChatAreaProps {
   transcriptRef: RefObject<HTMLDivElement>;
   loadMoreSentinelRef: RefObject<HTMLDivElement>;
 
+  // file preview
+  onFilePreview?: (fileId: string, context?: { conversationId?: string }) => void;
+  conversationId?: string;
+
   // labels (the shared zh-shaped label dictionary; parent picks zh or en)
   labels: ChatAreaLabels;
 }
@@ -76,6 +80,7 @@ export function ChatArea(props: ChatAreaProps): JSX.Element {
     agent,
     agentId,
     adapter,
+    activeConversation,
     messages,
     streaming,
     permissionRequest,
@@ -105,6 +110,8 @@ export function ChatArea(props: ChatAreaProps): JSX.Element {
     onCancelVariableForm,
     transcriptRef,
     loadMoreSentinelRef,
+    onFilePreview,
+    conversationId,
     labels,
   } = props;
 
@@ -124,11 +131,19 @@ export function ChatArea(props: ChatAreaProps): JSX.Element {
         )}
         {messages.length > 0 ? (
           messages.map((message) => (
-            <ChatMessage key={message.id} message={message} agent={agent} />
+            <ChatMessage key={message.id} message={message} agent={agent} onFilePreview={onFilePreview} conversationId={conversationId} />
           ))
-        ) : (
+        ) : activeConversation && !streaming ? (
+          <div className="open-app-loading-indicator">
+            <div className="open-app-loading-dots">
+              <span />
+              <span />
+              <span />
+            </div>
+          </div>
+        ) : !activeConversation ? (
           <AgentChatEmpty agent={agent} labels={labels} agentId={agentId} />
-        )}
+        ) : null}
         {agent?.guidQuestionDtos && agent.guidQuestionDtos.length > 0 && messages.length === 0 && (
           <div className="open-app-recommend-list">
             {agent.guidQuestionDtos.map((item, index) => {

@@ -38,9 +38,13 @@ import { applyTemplate, formatTime, questionText } from './utils';
 export function ChatMessage({
   message,
   agent,
+  onFilePreview,
+  conversationId,
 }: {
   message: WorkbenchMessage;
   agent: WorkbenchAgentDetail | null;
+  onFilePreview?: (fileId: string, context?: { conversationId?: string }) => void;
+  conversationId?: string;
 }): JSX.Element {
   const isUser = message.role === 'user';
   // TODO(types): extend WorkbenchMessage / WorkbenchMessageMetadata with
@@ -81,8 +85,16 @@ export function ChatMessage({
           {!message.content &&
             !thinking &&
             (!runOverSteps || runOverSteps.length === 0) &&
-            message.status === 'streaming' &&
-            'Streaming...'}
+            message.status === 'streaming' && (
+              <span className="open-app-streaming-indicator">
+                <span className="open-app-streaming-text">Thinking</span>
+                <span className="md-thinking-dots">
+                  <span className="md-thinking-dot" />
+                  <span className="md-thinking-dot" />
+                  <span className="md-thinking-dot" />
+                </span>
+              </span>
+            )}
           {message.content && isUser && <span>{message.content}</span>}
           {!isUser && (message.content || thinking || runOverSteps) && (
             <MarkdownRenderer
@@ -91,6 +103,8 @@ export function ChatMessage({
               thinkingStreaming={thinkingStreaming}
               runOverSteps={runOverSteps}
               runOverStatus={runOverStatus}
+              onFilePreview={onFilePreview}
+              conversationId={conversationId}
             />
           )}
         </div>

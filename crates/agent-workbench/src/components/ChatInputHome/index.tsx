@@ -215,57 +215,6 @@ export function ChatInputHome({
         else handleSubmit();
       }}
     >
-      <div className="open-app-input-topbar">
-        <button
-          className="open-app-model-chip"
-          type="button"
-          style={{ position: 'relative' }}
-          disabled={disabled || streaming}
-          onClick={onToggleModelDropdown}
-        >
-          <span>{selectedModel?.name ?? labels.model}</span>
-        </button>
-          {showModelDropdown && modelOptions.length > 0 && (
-            <div className="open-app-model-dropdown">
-              {modelOptions.map((model) => (
-                <button
-                  key={model.id}
-                  type="button"
-                  className={model.id === selectedModelId ? 'active' : ''}
-                  onClick={() => {
-                    onModelSelect(model.id);
-                    onToggleModelDropdown();
-                  }}
-                >
-                  {model.name}
-                </button>
-              ))}
-            </div>
-          )}
-          {showModelDropdown && modelOptions.length === 0 && (
-            <div className="open-app-model-dropdown">
-              <div className="open-app-model-empty">{labels.noModels}</div>
-            </div>
-          )}
-        <div className="open-app-mode-segment" aria-label={labels.agentMode}>
-          <button
-            type="button"
-            className={agentMode === 'ask' ? 'active' : ''}
-            disabled={disabled || streaming}
-            onClick={() => onModeChange('ask')}
-          >
-            {labels.askMode}
-          </button>
-          <button
-            type="button"
-            className={agentMode === 'yolo' ? 'active' : ''}
-            disabled={disabled || streaming}
-            onClick={() => onModeChange('yolo')}
-          >
-            {labels.yoloMode}
-          </button>
-        </div>
-      </div>
       <textarea
         ref={textareaRef}
         value={value}
@@ -346,6 +295,55 @@ export function ChatInputHome({
           <button type="button" title={labels.enableTools} disabled={disabled || streaming}>
             <Icon name="tools" />
           </button>
+        </div>
+        <div className="open-app-mode-segment" aria-label={labels.agentMode}>
+          <button
+            type="button"
+            className={agentMode === 'ask' ? 'active' : ''}
+            disabled={disabled || streaming}
+            onClick={() => onModeChange('ask')}
+          >
+            {labels.askMode}
+          </button>
+          <button
+            type="button"
+            className={agentMode === 'yolo' ? 'active' : ''}
+            disabled={disabled || streaming}
+            onClick={() => onModeChange('yolo')}
+          >
+            {labels.yoloMode}
+          </button>
+        </div>
+        <div className="open-app-model-chip-wrapper">
+          <button
+            className="open-app-model-chip"
+            type="button"
+            disabled={disabled || streaming}
+            onClick={onToggleModelDropdown}
+          >
+            <span>{selectedModel?.name ?? labels.model}</span>
+          </button>
+          {showModelDropdown && (
+            <div className="open-app-model-dropdown">
+              {modelOptions.length > 0 ? (
+                modelOptions.map((model) => (
+                  <button
+                    key={model.id}
+                    type="button"
+                    className={model.id === selectedModelId ? 'active' : ''}
+                    onClick={() => {
+                      onModelSelect(model.id);
+                      onToggleModelDropdown();
+                    }}
+                  >
+                    {model.name}
+                  </button>
+                ))
+              ) : (
+                <div className="open-app-model-empty">{labels.noModels}</div>
+              )}
+            </div>
+          )}
         </div>
         <button
           className={streaming ? 'open-app-send-button streaming' : 'open-app-send-button'}
