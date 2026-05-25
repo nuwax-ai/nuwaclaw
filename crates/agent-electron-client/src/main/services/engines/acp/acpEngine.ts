@@ -88,6 +88,7 @@ import { resolveEffectiveMode, type AcpMode } from "@shared/types/acpMode";
 import {
   approvalInterventionService,
   isRcoderNotifyResolvedRequest,
+  toRcoderPermissionProgressData,
 } from "../../intervention";
 import type {
   NotifyResolvedRequest,
@@ -1755,7 +1756,7 @@ export class AcpEngine extends EventEmitter {
         });
       }
 
-      if (session.acpSessionId && !isFallback) {
+      if (session.acpSessionId) {
         this.setEffectiveMode(session.acpSessionId, effectiveMode);
       }
 
@@ -2259,31 +2260,11 @@ User question: ${request.prompt}`;
       acpSessionId,
       messageType: "acpRequestPermission",
       subType: "request_permission",
-      data: {
-        request_permission_request: {
-          session_id: acpSessionId,
-          tool_call: {
-            tool_call_id: params.toolCall.toolCallId,
-            kind: params.toolCall.kind ?? undefined,
-            status: (params.toolCall as any).status ?? "pending",
-            title: params.toolCall.title ?? undefined,
-            content: (params.toolCall as any).content ?? [],
-            raw_input: params.toolCall.rawInput ?? {},
-            _meta: {},
-          },
-          options: params.options.map((o) => ({
-            option_id: o.optionId,
-            name: o.name,
-            kind: o.kind,
-            _meta: {},
-          })),
-          _meta: {},
-        },
-        tool_call_id: params.toolCall.toolCallId,
-        save_rule: null,
-        _intervention: interventionRequest,
-        _engine: this.engineName,
-      },
+      data: toRcoderPermissionProgressData({
+        acpRequest: params,
+        interventionId: interventionRequest.id,
+        revision: interventionRequest.revision,
+      }),
       timestamp: new Date().toISOString(),
     });
 

@@ -103,6 +103,31 @@ describe("rcoderPermissionProtocol", () => {
     });
   });
 
+  it("passes reject option_id through as selected response", () => {
+    const parsed = parseRcoderNotifyResolvedRequest({
+      permission_resolve_request: {
+        request_permission_response: {
+          outcome: {
+            Selected: { option_id: "reject_once" },
+          },
+        },
+        session_id: "session_789",
+        tool_call_id: "tool_001",
+        save_rule: false,
+      },
+    });
+
+    expect(parsed).toMatchObject({
+      ok: true,
+      command: {
+        acpResponse: {
+          outcome: { outcome: "selected", optionId: "reject_once" },
+        },
+        saveRule: false,
+      },
+    });
+  });
+
   it("maps RCoder Cancelled outcome to ACP cancelled response", () => {
     const parsed = parseRcoderNotifyResolvedRequest({
       permission_resolve_request: {

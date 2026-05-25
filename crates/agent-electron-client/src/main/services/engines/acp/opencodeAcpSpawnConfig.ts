@@ -6,11 +6,11 @@ import type { SandboxProcessConfig } from "@shared/types/sandbox";
 import type { ApplyOpencodeSandboxConfigResult } from "./opencodeAcpSandbox";
 
 export const DEFAULT_OPENCODE_ACP_PERMISSION: Record<string, string> = {
-  edit: "allow",
-  bash: "allow",
-  webfetch: "allow",
-  doom_loop: "allow",
-  external_directory: "allow",
+  edit: "ask",
+  bash: "ask",
+  webfetch: "ask",
+  doom_loop: "ask",
+  external_directory: "ask",
   question: "deny",
 };
 

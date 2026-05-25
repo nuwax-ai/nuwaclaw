@@ -511,6 +511,89 @@ describe("AcpEngine.createSession", () => {
 });
 
 describe("AcpEngine.handlePermissionRequest(strict)", () => {
+  it("ask 模式发出 RCoder request_permission SSE payload", async () => {
+    const { engine, sessionId } = setupEngine("nuwaxcode");
+    (engine as any).setEffectiveMode(sessionId, "ask");
+    const onProgress = vi.fn();
+    engine.on("computer:progress", onProgress);
+
+    const responsePromise = (engine as any).handlePermissionRequest({
+      sessionId,
+      toolCall: {
+        toolCallId: "tool-call-ask",
+        kind: "execute",
+        title: "Run command",
+        status: "pending",
+        rawInput: { command: "cargo test" },
+        content: [],
+      },
+      options: [
+        {
+          optionId: "reject-once",
+          kind: "reject_once",
+          name: "拒绝本次",
+        },
+        {
+          optionId: "allow-once",
+          kind: "allow_once",
+          name: "允许本次",
+        },
+      ],
+    });
+
+    expect(onProgress).toHaveBeenCalledTimes(1);
+    const event = onProgress.mock.calls[0][0];
+    expect(event).toMatchObject({
+      sessionId,
+      acpSessionId: sessionId,
+      messageType: "acpRequestPermission",
+      subType: "request_permission",
+      data: {
+        request_permission_request: {
+          session_id: sessionId,
+          tool_call: {
+            tool_call_id: "tool-call-ask",
+            kind: "execute",
+            status: "pending",
+            title: "Run command",
+            raw_input: { command: "cargo test" },
+          },
+          options: [
+            {
+              option_id: "reject-once",
+              kind: "reject_once",
+              name: "拒绝本次",
+            },
+            {
+              option_id: "allow-once",
+              kind: "allow_once",
+              name: "允许本次",
+            },
+          ],
+        },
+        tool_call_id: "tool-call-ask",
+      },
+    });
+    expect(event.data._intervention).toBeUndefined();
+    expect(event.data._engine).toBeUndefined();
+
+    const result = (engine as any).resolvePermissionIntervention({
+      permission_resolve_request: {
+        request_permission_response: {
+          outcome: { Selected: { option_id: "reject-once" } },
+        },
+        session_id: sessionId,
+        tool_call_id: "tool-call-ask",
+        save_rule: false,
+      },
+    });
+
+    expect(result).toMatchObject({ ok: true, hostStatus: "resolved" });
+    await expect(responsePromise).resolves.toEqual({
+      outcome: { outcome: "selected", optionId: "reject-once" },
+    });
+  });
+
   it("strict 下 workspace 内写入仅放行 allow_once", async () => {
     const { engine, sessionId } = setupEngine("nuwaxcode");
     (engine as any).config = { engine: "nuwaxcode", workspaceDir: "/tmp/ws" };
