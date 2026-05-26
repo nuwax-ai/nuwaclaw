@@ -1,3 +1,6 @@
+# Git 提交无 TTY；pnpm 依赖检查可能触发 install 并询问是否清理 node_modules
+export CI=true
+
 pnpm exec lint-staged
 
 # 运行 Electron 客户端单元测试

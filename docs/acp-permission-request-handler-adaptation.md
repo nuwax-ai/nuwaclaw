@@ -1,8 +1,10 @@
 # ACP Permission Request Handler 适配说明
 
-更新时间：2026-05-14
+更新时间：2026-05-26
 
-本文记录 NuwaClaw 对 RCoder permission request handler 协议的落地方式。原始 RCoder 设计稿见 `docs/permission-request-handler-design.md`。
+本文记录 NuwaClaw 对 RCoder permission request handler 协议的落地方式。
+
+字段格式以 `docs/permission-request-handler-design.md` 为唯一来源。本文只说明 NuwaClaw 侧适配边界，不重新定义协议。
 
 ## 支持范围
 
@@ -27,18 +29,17 @@ YOLO 模式按以下优先级选择 ACP Agent 提供的 option：
 
 ASK 模式下，NuwaClaw 推送：
 
-- `messageType`: `acpRequestPermission`
-- `subType`: `request_permission`
-- `data`: RCoder `request_permission_request` payload
+- `message_type`: `acpRequestPermission`
+- `sub_type`: `request_permission`
+- `data.request_permission_request`: RCoder `RequestPermissionRequest` payload
 
 示例：
 
 ```json
 {
-  "sessionId": "session_789",
-  "acpSessionId": "session_789",
-  "messageType": "acpRequestPermission",
-  "subType": "request_permission",
+  "session_id": "session_789",
+  "message_type": "acpRequestPermission",
+  "sub_type": "request_permission",
   "data": {
     "request_permission_request": {
       "session_id": "session_789",
@@ -68,17 +69,13 @@ ASK 模式下，NuwaClaw 推送：
       "suggested_pattern": "^cargo\\s+build",
       "rule_type": "allow",
       "tool_name": "terminal"
-    },
-    "_meta": {
-      "nuwaclaw_intervention_id": "itv_xxx",
-      "nuwaclaw_revision": 1
     }
   },
   "timestamp": "2026-05-14T13:30:00.000Z"
 }
 ```
 
-`option_id` 由 ACP Agent 生成，NuwaClaw 不解析语义，只校验它是否属于当前 pending request 的 options。
+`option_id` 由 ACP Agent 生成，NuwaClaw 不解析语义，只校验它是否属于当前 pending request 的 options。前端选择拒绝本次时，也必须回传对应 reject option 的 `option_id`。
 
 ## notify-resolved 回调
 
@@ -103,7 +100,7 @@ ASK 模式下，NuwaClaw 推送：
 }
 ```
 
-取消示例：
+会话取消或 pending 清理示例：
 
 ```json
 {
@@ -120,7 +117,7 @@ ASK 模式下，NuwaClaw 推送：
 }
 ```
 
-NuwaClaw 使用 `(session_id, tool_call_id)` 定位 pending permission。这里的 `session_id` 是 ACP session id，不是额外生成的 intervention id。
+NuwaClaw 使用 `(session_id, tool_call_id)` 定位 pending permission。这里的 `session_id` 是 ACP session id，不是额外生成的 intervention id。`Cancelled` 只用于会话取消或 pending 清理，不用于用户点击拒绝。
 
 响应使用 rcoder `HttpResult<T>`：
 
@@ -146,31 +143,7 @@ NuwaClaw 使用 `(session_id, tool_call_id)` 定位 pending permission。这里�
 - `ERR_PERMISSION_EXPIRED`
 - `ERR_CONTAINER_ERROR`
 
-## 兼容策略
-
-`/computer/notify-resolved` 仍兼容旧 NuwaClaw intervention body：
-
-```json
-{
-  "interventionId": "itv_xxx",
-  "revision": 1,
-  "source": "acp_permission",
-  "protocol": "acp",
-  "action": "submit",
-  "acpResponse": {
-    "outcome": {
-      "outcome": "selected",
-      "optionId": "allow"
-    }
-  }
-}
-```
-
-旧协议仍返回原始 `{ ok, hostStatus, error }`，避免打断旧 UI 或测试调用方。
-
 ## 认证策略
-
-旧 intervention 协议继续要求 `X-Nuwax-Internal-Secret`。
 
 RCoder 新协议支持两种路径：
 
@@ -181,17 +154,23 @@ RCoder 新协议支持两种路径：
 
 ## Cancel 行为
 
-当会话取消时，NuwaClaw 会把该 ACP session 下所有 pending permission resolve 为：
+当会话取消时，NuwaClaw 会把该 ACP session 下所有 pending permission 以 `Cancelled` 清理：
 
 ```json
 {
-  "outcome": {
-    "outcome": "cancelled"
+  "permission_resolve_request": {
+    "request_permission_response": {
+      "outcome": {
+        "Cancelled": {}
+      }
+    },
+    "session_id": "session_789",
+    "tool_call_id": "tool_001"
   }
 }
 ```
 
-同时清理 intervention id 索引和 `(session_id, tool_call_id)` 索引，避免后续 callback 命中已过期 permission。
+同时清理 `(session_id, tool_call_id)` pending 索引，避免后续 callback 命中已过期 permission。
 
 ## 测试
 

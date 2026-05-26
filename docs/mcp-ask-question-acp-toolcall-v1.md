@@ -1,73 +1,72 @@
-# MCP Ask / Question over ACP ToolCall 实施方案 v1
+# MCP Ask / Question over ACP ToolCall
 
-| 项 | 内容 |
-|---|---|
-| 状态 | **v1 草案** |
-| 版本 | v1(2026-05-13) |
-| 关联主文档 | [`acp-mode-and-intervention-cross-end-v3.md`](./acp-mode-and-intervention-cross-end-v3.md) |
-| UI schema | [`interaction-ui-schema-v1.md`](./interaction-ui-schema-v1.md) |
-| ACP schema | <https://github.com/agentclientprotocol/agent-client-protocol/blob/main/schema/schema.json> |
-| 覆盖范围 | Nuwax Web、Nuwax Mobile、Backend、MCP ask server、nuwaclaw/rcoder ACP progress bridge |
-
----
+| 项       | 内容                                                 |
+| -------- | ---------------------------------------------------- |
+| 状态     | v1 可提测                                            |
+| 版本     | v1.1 (2026-05-26)                                    |
+| 覆盖范围 | Nuwax Web、Backend、NuwaClaw、nuwax-ask-question-mcp |
 
 ## 1. 结论
 
-Ask/question 不走 ACP `session/request_permission`,也不走 `/computer/notify-resolved`。它由 MCP ask server 实现 pending/response/tool result,但前端下发复用 ACP 官方工具调用事件:
+Ask/question 与 ACP 权限审批是两条独立链路：
 
-- `session/update` + `SessionUpdate.sessionUpdate = "tool_call"`
-- `session/update` + `SessionUpdate.sessionUpdate = "tool_call_update"`
+- MCP Ask 不走 ACP `session/request_permission`。
+- MCP Ask 不调用 NuwaClaw `/computer/notify-resolved`。
+- MCP Ask 通过普通 ACP `session/update` 工具事件下发给前端。
+- MCP 工具当前采用 stdio 模式，调用后立即返回，并提示 Agent 停止当前轮。
+- 用户填写表单后，Nuwax Web 将答案格式化为下一条普通用户消息，下一轮 Agent 从消息中读取答案继续执行。
 
-nuwaclaw/rcoder 只把 ACP `session/update` 桥接到现有 `/computer/progress/{session_id}`:
+禁止新增 `mcpAskQuestion` / `mcpAskQuestionUpdate` 自定义 progress message。
 
-```ts
-interface AgentSessionUpdateProgressMessage extends UnifiedSessionMessage {
-  messageType: "agentSessionUpdate";
-  subType: "tool_call" | "tool_call_update";
-  data: (ToolCall & { sessionUpdate: "tool_call" })
-    | (ToolCallUpdate & { sessionUpdate: "tool_call_update" });
-}
-```
+## 2. 与权限审批的边界
 
-禁止新增 `mcpAskQuestion` / `mcpAskQuestionUpdate` 自定义 message type。
+| 场景         | 下发事件                                                                        | 用户响应路径                                                             |
+| ------------ | ------------------------------------------------------------------------------- | ------------------------------------------------------------------------ |
+| ACP 权限审批 | `message_type="acpRequestPermission"` + `sub_type="request_permission"`         | Backend 转发 `permission_resolve_request` 到 `/computer/notify-resolved` |
+| MCP Ask      | `messageType="agentSessionUpdate"` + `subType="tool_call"` / `tool_call_update` | 前端发送普通聊天消息                                                     |
 
----
+权限审批字段格式以 `docs/permission-request-handler-design.md` 为唯一来源。MCP Ask 不复用 `permission_resolve_request`、`Selected`、`Cancelled` 等权限审批回执字段。
 
-## 2. 端到端流程
+## 3. 端到端流程
 
 ```mermaid
 flowchart LR
-  Agent -- "MCP tool call: nuwax_ask_user" --> MCP["Ask MCP server"]
-  Agent -- "ACP session/update tool_call" --> Host["nuwaclaw / rcoder ACP bridge"]
-  Agent -- "ACP session/update tool_call_update" --> Host
-  Host -- "/computer/progress agentSessionUpdate/tool_call" --> Web[Nuwax Web]
-  Host -- "/computer/progress agentSessionUpdate/tool_call_update" --> Mobile[Nuwax Mobile]
-  Web -- "POST /respond { toolCallId, formData }" --> BE
-  Mobile -- "POST /respond { toolCallId, formData }" --> BE
-  BE -- "resolve ask pending" --> MCP
-  MCP -- "MCP tool result" --> Agent
+  Agent["Agent"] -- "MCP tool call: nuwax_ask_question" --> MCP["nuwax-ask-question-mcp"]
+  MCP -- "tool result: stop current turn" --> Agent
+  Agent -- "ACP session/update tool_call" --> Host["NuwaClaw / RCoder bridge"]
+  Host -- "progress: agentSessionUpdate/tool_call" --> Web["Nuwax Web"]
+  Web -- "render rawInput.ui form" --> User["User"]
+  User -- "submit/cancel/skip" --> Web
+  Web -- "normal chat message with form answer" --> Backend["Backend chat"]
+  Backend -- "next prompt" --> Agent
 ```
 
-边界:
+## 4. MCP 工具
 
-| 项 | 结论 |
-|---|---|
-| 触发源 | Agent 调用 MCP ask 工具 |
-| MCP 协议 | MCP tool call/tool result |
-| ACP 下发 | ACP `session/update` 的 `tool_call` / `tool_call_update` |
-| pending owner | MCP ask server / Backend |
-| Host 职责 | 只桥接 progress,不创建 pending,不 resolve |
-| UI schema | 放在 MCP 工具输入,即 ACP `ToolCall.rawInput.ui` |
-| 回答回流 | Web/Mobile -> Backend -> MCP ask server -> Agent |
+主工具名：
 
----
+- `nuwax_ask_question`
 
-## 3. MCP Ask 工具输入
+兼容工具名：
 
-ACP `ToolCall.rawInput` 是工具原始输入参数,可以承载我们自定义的业务字段。Ask 工具必须把识别字段和交互式 UI schema 放在 `rawInput` 中,不要依赖 ACP `_meta`。
+- `nuwax_ask_user`
+- `nuwaclaw_ask_user`
+
+Codex 中 MCP server key 为 `ask-question` 时，工具名通常暴露为：
+
+```text
+mcp__ask_question__nuwax_ask_question
+```
+
+## 5. 工具输入
+
+ACP `ToolCall.rawInput` 必须包含识别字段和 UI schema。不要依赖 `_meta` 识别。
 
 ```ts
-type McpAskToolName = "nuwaclaw_ask_user" | "nuwax_ask_user";
+type McpAskToolName =
+  | "nuwax_ask_question"
+  | "nuwax_ask_user"
+  | "nuwaclaw_ask_user";
 
 interface McpAskUserToolInput {
   toolName: McpAskToolName;
@@ -82,157 +81,134 @@ interface McpAskUserToolInput {
   timeoutMs?: number;
   priority?: "normal" | "high";
 }
+```
 
-interface McpAskUserToolResult {
-  status: "answered" | "cancelled" | "skipped" | "expired";
-  formData?: Record<string, unknown>;
-  answeredBy?: {
-    kind: "web" | "mobile";
-    userId?: string;
-    clientId?: string;
-  };
-  answeredAt?: number;
+约束：
+
+- `schemaVersion` 固定为 `"nuwaclaw.mcp_ask.v1"`。
+- `ui.version` 固定为 `"nuwaclaw.interaction.v1"`。
+- `requestId + revision` 标识一次可交互问题。
+- `business` 只放业务上下文，不得放 token、secret、完整 env 或未脱敏敏感内容。
+
+## 6. UI Schema 示例
+
+```json
+{
+  "toolName": "nuwax_ask_question",
+  "schemaVersion": "nuwaclaw.mcp_ask.v1",
+  "requestId": "ask_123",
+  "revision": 1,
+  "sessionId": "session_123",
+  "title": "请选择继续方式",
+  "description": "Agent 需要你的决定后继续。",
+  "ui": {
+    "version": "nuwaclaw.interaction.v1",
+    "presentation": "inline",
+    "title": "请选择继续方式",
+    "schema": {
+      "type": "object",
+      "properties": {
+        "choice": {
+          "type": "string",
+          "title": "选项",
+          "enum": ["deploy", "test", "cancel"]
+        }
+      },
+      "required": ["choice"]
+    },
+    "uiSchema": {
+      "choice": {
+        "ui:widget": "radio",
+        "ui:options": {
+          "enumNames": ["直接部署", "先跑测试", "取消任务"]
+        }
+      },
+      "ui:options": {
+        "allowSkip": true,
+        "skipLabel": "跳过"
+      }
+    },
+    "submitLabel": "提交",
+    "cancelLabel": "取消"
+  },
+  "timeoutMs": 1800000
 }
 ```
 
-约束:
+## 7. 工具返回
 
-- `rawInput.schemaVersion` 固定为 `"nuwaclaw.mcp_ask.v1"`。
-- `rawInput.ui.version` 本期固定为 `"nuwaclaw.interaction.v1"`。
-- `rawInput.business` 只放业务上下文,不得放 secret、token、完整 env 或未经脱敏的敏感文件内容。
-- MCP ask server 不接收 ACP `RequestPermissionRequest`。
-- Agent 要问用户问题时调用 MCP ask 工具,不要伪造 ACP permission。
+`nuwax-ask-question-mcp` 当前不启动 HTTP 服务、不持有 pending、不提供 `/respond` sidecar。工具只返回一个让 Agent 停止当前轮的结果：
 
----
-
-## 4. 交互式 UI Schema
-
-`InteractionUISchema` 是 Nuwax Web/Mobile 渲染会话交互组件的内部 schema,由 MCP ask 工具输入携带。
-
-`InteractionUISchema` 的唯一权威定义见 [`interaction-ui-schema-v1.md`](./interaction-ui-schema-v1.md)。MCP ask 工具只在 `ToolCall.rawInput.ui` 中携带该 schema。
-
-渲染规则:
-
-- `presentation="inline"`:会话内卡片。
-- `presentation="modal"`:端上可弹窗时弹窗,否则降级 inline。
-- `presentation="wizard"`:按 `steps` 分步。
-- `presentation="table"`:按 `table.columns` / `table.rows` 渲染交互式表格。
-- 未知 `ui.version`:显示 fallback,不要提交猜测数据。
-- Mobile M2 只承诺单选、多选、短文本;复杂 schema 或表格编辑可 fallback 到 `webUrl`。
-
----
-
-## 5. Progress 识别与渲染
-
-Web/Mobile 只从 `/computer/progress/{session_id}` 读取标准 ACP tool call / update:
-
-```ts
-type AcpToolCallSessionUpdate =
-  | (ToolCall & { sessionUpdate: "tool_call" })
-  | (ToolCallUpdate & { sessionUpdate: "tool_call_update" });
+```json
+{
+  "status": "pending",
+  "requestId": "ask_123",
+  "revision": 1,
+  "message": "The question has been presented to the user. Stop this turn now. When the user submits the form, their answer will arrive as a new user message."
+}
 ```
 
-识别 question 的条件:
+这里的 `status: "pending"` 只是给 Agent 的工具结果信号，表示问题已经交给前端展示；MCP server 不保存 pending，也不会等待用户回调。
 
-`tool_call`:
+## 8. Progress 识别
+
+前端只从标准工具事件识别 ask：
+
+```ts
+type McpAskProgress =
+  | {
+      messageType: "agentSessionUpdate";
+      subType: "tool_call";
+      data: {
+        sessionUpdate: "tool_call";
+        toolCallId: string;
+        rawInput: McpAskUserToolInput;
+      };
+    }
+  | {
+      messageType: "agentSessionUpdate";
+      subType: "tool_call_update";
+      data: {
+        sessionUpdate: "tool_call_update";
+        toolCallId: string;
+        rawInput?: McpAskUserToolInput;
+        status?: string;
+        rawOutput?: unknown;
+      };
+    };
+```
+
+识别条件：
 
 1. `messageType === "agentSessionUpdate"`。
-2. `subType === "tool_call"`。
-3. `data.toolCallId` 存在。
+2. `subType === "tool_call"` 或 `"tool_call_update"`。
+3. `data.toolCallId` 非空。
 4. `data.rawInput.schemaVersion === "nuwaclaw.mcp_ask.v1"`。
-5. `data.rawInput.toolName` 是 `nuwaclaw_ask_user` 或 `nuwax_ask_user`。
+5. `data.rawInput.toolName` 是主工具名或兼容工具名。
 6. `data.rawInput.ui.version === "nuwaclaw.interaction.v1"`。
 
-`tool_call_update`:
+缺少 `rawInput.ui` 时按普通工具调用展示，不猜测为 question。
 
-1. `messageType === "agentSessionUpdate"`。
-2. `subType === "tool_call_update"`。
-3. `data.toolCallId` 已在本地 ask tool call map 中。
-4. 如果 update 自带 `rawInput`,也可以按 `schemaVersion/toolName/ui.version` 补建映射。
+## 9. 用户响应消息
 
-处理规则:
+Web 端响应不直接调用 MCP server，也不调用 `/computer/notify-resolved`。响应会被构造成普通用户消息。
 
-- `tool_call`:创建或更新 question 卡片,`interventionId = rawInput.requestId`,保存 `toolCallId`。
-- `tool_call_update`:按 `toolCallId` 更新卡片状态、content、rawOutput。
-- `status = completed | failed`:卡片进入 terminal UI。
-- `rawOutput.status` 如存在,展示业务状态:`answered` / `cancelled` / `skipped` / `expired`。
-- 缺少 `rawInput.ui` 时,按普通工具调用展示,不得猜测为 question。
+消息内容应使用表单字段 label 与用户可读选项文案，避免直接发送 JSON：
 
----
+```text
+我已填写「请选择继续方式」，表单内容如下：
 
-## 6. 用户响应
-
-Web/Mobile 对 question 的响应走 Backend,不调用 Host `/computer/notify-resolved`。
-
-```ts
-interface McpAskRespondRequest {
-  interventionId: string; // rawInput.requestId
-  toolCallId: string;
-  revision: number;
-  source: "mcp_ask";
-  protocol: "mcp";
-  action: "submit" | "cancel" | "skip" | "timeout";
-  formData?: Record<string, unknown>;
-}
+选项：先跑测试
+补充说明：先跑关键链路
 ```
 
-Backend 处理:
+`cancel` / `skip` / `timeout` 同样作为普通消息传给下一轮 Agent，由 Agent 根据 `action` 决定后续行为。
 
-1. 校验用户有权限操作该 session/project。
-2. 校验 `interventionId`、`toolCallId`、`revision`、pending 状态。
-3. 用 `InteractionUISchema.schema` 校验 `formData`。
-4. first-writer-wins 写入 terminal 状态。
-5. 把结果回给 MCP ask server 的 pending tool call。
-6. 后续卡片状态优先通过 ACP `tool_call_update` 同步;额外多端广播不能替代 `tool_call_update` 契约。
+## 10. 验收标准
 
----
-
-## 7. MCP Ask Pending 状态机
-
-```ts
-interface PendingMcpAsk {
-  interventionId: string; // requestId
-  toolCallId?: string;
-  revision: number;
-  sessionId: string;
-  ui: InteractionUISchema;
-  status: "pending" | "answered" | "cancelled" | "skipped" | "expired";
-  resolve: (result: McpAskUserToolResult) => void;
-  timer?: NodeJS.Timeout;
-  createdAt: number;
-}
-```
-
-| 输入 | pending 状态 | MCP tool result |
-|---|---|---|
-| `submit` | `answered` | `{ status: "answered", formData }` |
-| `cancel` | `cancelled` | `{ status: "cancelled" }` |
-| `skip` | `skipped` | `{ status: "skipped" }` |
-| timeout | `expired` | `{ status: "expired" }` |
-
-幂等规则:
-
-- 同一 `interventionId + revision` 只接受第一次 terminal response。
-- 已 terminal 后相同 response 可返回当前状态。
-- 已 terminal 后不同 response 返回 `superseded`。
-
----
-
-## 8. 失败处理
-
-- Backend 找不到 MCP ask pending:返回 `gone`,Web/Mobile 禁用卡片。
-- MCP ask server 超时:resolve MCP tool result `{ status: "expired" }`,Agent/Host 后续通过 ACP `tool_call_update` 同步 terminal 状态。
-- Agent session cancel:所有关联 question pending resolve `{ status: "cancelled" }`。
-- Backend 与 MCP ask server 连接中断:保留 pending,恢复后按 `interventionId` / `toolCallId` 对账;超时后统一 expired。
-
----
-
-## 9. 验收
-
-- 不存在 `mcpAskQuestion` / `mcpAskQuestionUpdate` 自定义 progress message。
-- Question 下发只走 `agentSessionUpdate/tool_call` 与 `agentSessionUpdate/tool_call_update`。
-- `rawInput.schemaVersion`、`rawInput.toolName`、`rawInput.requestId`、`rawInput.revision`、`rawInput.ui` 都存在。
-- Web/Mobile 能从 `rawInput.ui` 渲染 inline/modal/wizard/table。
-- Web/Mobile 响应只 POST Backend,不直接调用 MCP ask server 或 ACP Host。
-- `/computer/notify-resolved` 不处理 question。
-- Terminal 状态通过 MCP tool result 与 ACP `tool_call_update` 闭环。
+- MCP Ask 不出现 `acpRequestPermission`。
+- MCP Ask 不调用 `/computer/notify-resolved`。
+- 下发事件只使用 `agentSessionUpdate/tool_call` 与 `agentSessionUpdate/tool_call_update`。
+- `rawInput.schemaVersion`、`rawInput.toolName`、`rawInput.requestId`、`rawInput.revision`、`rawInput.ui.version` 必须存在。
+- Web 能从 `rawInput.ui` 渲染 inline / wizard 表单；不支持的复杂 schema 显示 fallback。
+- 用户响应作为下一条普通聊天消息发送，Agent 下一轮读取答案继续。
