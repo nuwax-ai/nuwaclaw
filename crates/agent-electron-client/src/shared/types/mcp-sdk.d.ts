@@ -8,8 +8,8 @@
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
-declare module '@modelcontextprotocol/sdk/client' {
-  import type { Readable, Writable } from 'stream';
+declare module "@modelcontextprotocol/sdk/client" {
+  import type { Readable, Writable } from "stream";
 
   export interface Implementation {
     name: string;
@@ -29,20 +29,27 @@ declare module '@modelcontextprotocol/sdk/client' {
     constructor(clientInfo: Implementation, options?: ClientOptions);
     connect(transport: any, options?: RequestOptions): Promise<void>;
     close(): Promise<void>;
-    listTools(params?: any, options?: RequestOptions): Promise<{ tools: any[] }>;
-    callTool(params: { name: string; arguments?: Record<string, unknown> }, resultSchema?: any, options?: RequestOptions): Promise<any>;
+    listTools(
+      params?: any,
+      options?: RequestOptions,
+    ): Promise<{ tools: any[] }>;
+    callTool(
+      params: { name: string; arguments?: Record<string, unknown> },
+      resultSchema?: any,
+      options?: RequestOptions,
+    ): Promise<any>;
     getServerCapabilities(): any;
   }
 }
 
-declare module '@modelcontextprotocol/sdk/client/stdio.js' {
-  import type { Readable } from 'stream';
+declare module "@modelcontextprotocol/sdk/client/stdio.js" {
+  import type { Readable } from "stream";
 
   export interface StdioServerParameters {
     command: string;
     args?: string[];
     env?: Record<string, string>;
-    stderr?: 'pipe' | 'inherit' | 'ignore';
+    stderr?: "pipe" | "inherit" | "ignore";
     cwd?: string;
   }
 
@@ -60,7 +67,7 @@ declare module '@modelcontextprotocol/sdk/client/stdio.js' {
   }
 }
 
-declare module '@modelcontextprotocol/sdk/server' {
+declare module "@modelcontextprotocol/sdk/server" {
   export interface Implementation {
     name: string;
     version: string;
@@ -79,13 +86,16 @@ declare module '@modelcontextprotocol/sdk/server' {
     constructor(serverInfo: Implementation, options?: ServerOptions);
     connect(transport: any): Promise<void>;
     close(): Promise<void>;
-    setRequestHandler(schema: any, handler: (request: any, extra?: any) => any): void;
+    setRequestHandler(
+      schema: any,
+      handler: (request: any, extra?: any) => any,
+    ): void;
     registerCapabilities(capabilities: any): void;
   }
 }
 
-declare module '@modelcontextprotocol/sdk/server/streamableHttp.js' {
-  import type { IncomingMessage, ServerResponse } from 'http';
+declare module "@modelcontextprotocol/sdk/server/streamableHttp.js" {
+  import type { IncomingMessage, ServerResponse } from "http";
 
   export interface StreamableHTTPServerTransportOptions {
     sessionIdGenerator?: (() => string) | undefined;
@@ -97,7 +107,11 @@ declare module '@modelcontextprotocol/sdk/server/streamableHttp.js' {
     start(): Promise<void>;
     close(): Promise<void>;
     send(message: any, options?: any): Promise<void>;
-    handleRequest(req: IncomingMessage, res: ServerResponse, parsedBody?: unknown): Promise<void>;
+    handleRequest(
+      req: IncomingMessage,
+      res: ServerResponse,
+      parsedBody?: unknown,
+    ): Promise<void>;
     get sessionId(): string | undefined;
     set onclose(handler: (() => void) | undefined);
     set onerror(handler: ((error: Error) => void) | undefined);
@@ -108,8 +122,8 @@ declare module '@modelcontextprotocol/sdk/server/streamableHttp.js' {
   }
 }
 
-declare module '@modelcontextprotocol/sdk/server/stdio.js' {
-  import type { Readable, Writable } from 'stream';
+declare module "@modelcontextprotocol/sdk/server/stdio.js" {
+  import type { Readable, Writable } from "stream";
 
   export class StdioServerTransport {
     constructor(stdin?: Readable, stdout?: Writable);
@@ -122,8 +136,25 @@ declare module '@modelcontextprotocol/sdk/server/stdio.js' {
   }
 }
 
-declare module '@modelcontextprotocol/sdk/client/streamableHttp.js' {
+declare module "@modelcontextprotocol/sdk/client/sse.js" {
+  export interface SSEClientTransportOptions {
+    requestInit?: { headers?: Record<string, string> };
+  }
+
+  export class SSEClientTransport {
+    constructor(url: URL, opts?: SSEClientTransportOptions);
+    start(): Promise<void>;
+    close(): Promise<void>;
+    send(message: any, options?: any): Promise<void>;
+    onclose?: () => void;
+    onerror?: (error: Error) => void;
+    onmessage?: (message: any) => void;
+  }
+}
+
+declare module "@modelcontextprotocol/sdk/client/streamableHttp.js" {
   export interface StreamableHTTPClientTransportOptions {
+    requestInit?: { headers?: Record<string, string> };
     reconnectionOptions?: {
       maxReconnectionDelay?: number;
       initialReconnectionDelay?: number;
@@ -145,7 +176,7 @@ declare module '@modelcontextprotocol/sdk/client/streamableHttp.js' {
   }
 }
 
-declare module '@modelcontextprotocol/sdk/types.js' {
+declare module "@modelcontextprotocol/sdk/types.js" {
   export interface Tool {
     name: string;
     description?: string;

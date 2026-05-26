@@ -19,30 +19,11 @@ import {
 } from "../services/packages/windowsMcp";
 import { isWindows } from "../services/system/shellEnv";
 import { FEATURES } from "@shared/featureFlags";
-import { readSetting, writeSetting } from "../db";
-
-/** 从 step1_config 读取 guiMcpEnabled 运行时开关 */
-function getGuiMcpEnabled(): boolean {
-  try {
-    const config = readSetting("step1_config") as {
-      guiMcpEnabled?: boolean;
-    } | null;
-    // 兼容老配置：历史 step1_config 可能没有 guiMcpEnabled 字段。
-    // 缺省按“关闭”处理，设置页初始开关默认关闭。
-    return config?.guiMcpEnabled ?? false;
-  } catch {
-    return false;
-  }
-}
-
-/** 写入 guiMcpEnabled 到 step1_config */
-function setGuiMcpEnabled(enabled: boolean): void {
-  const existing = readSetting("step1_config") as Record<
-    string,
-    unknown
-  > | null;
-  writeSetting("step1_config", { ...(existing || {}), guiMcpEnabled: enabled });
-}
+import {
+  getGuiMcpEnabled,
+  setGuiMcpEnabledFlag,
+  syncGuiAgentLocalMcpConfig,
+} from "../services/packages/guiMcpLocalConfig";
 
 export function registerGuiServerHandlers(): void {
   // ===== guiServer:isEnabled =====
@@ -58,6 +39,7 @@ export function registerGuiServerHandlers(): void {
     if (!FEATURES.ENABLE_GUI_AGENT_SERVER) {
       return { success: false, error: "GUI Agent Server is not available" };
     }
+    const previousEnabled = getGuiMcpEnabled();
     try {
       // 先停服务
       if (isWindows()) {
@@ -65,17 +47,22 @@ export function registerGuiServerHandlers(): void {
       } else {
         await stopGuiAgentServer();
       }
-      // 保存开关状态
-      setGuiMcpEnabled(enabled);
-      // 如果是启用，则重新启动
-      if (enabled) {
-        if (isWindows()) {
-          return await startWindowsMcp();
-        } else {
-          return await startGuiAgentServer();
-        }
+      // 保存开关状态，并同步本地 MCP 管理中的 gui-agent 条目
+      setGuiMcpEnabledFlag(enabled);
+      syncGuiAgentLocalMcpConfig(enabled);
+      if (!enabled) {
+        return { success: true };
       }
-      return { success: true };
+
+      const startResult = isWindows()
+        ? await startWindowsMcp()
+        : await startGuiAgentServer();
+      if (!startResult.success) {
+        // 启动失败时回滚开关与本地 MCP 条目，避免配置与运行态不一致
+        setGuiMcpEnabledFlag(previousEnabled);
+        syncGuiAgentLocalMcpConfig(previousEnabled);
+      }
+      return startResult;
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       log.error("[IPC] guiServer:setEnabled error:", msg);
@@ -149,6 +136,13 @@ export function registerGuiServerHandlers(): void {
       return { running: false, error: msg };
     }
   });
+
+  // 启动时修复历史配置：guiMcpEnabled 与 mcp_local_config 中 gui-agent 保持一致
+  try {
+    syncGuiAgentLocalMcpConfig(getGuiMcpEnabled());
+  } catch (e) {
+    log.warn("[IPC] guiServer initial local MCP sync failed:", e);
+  }
 
   log.info("[IPC] guiServer handlers registered");
 }

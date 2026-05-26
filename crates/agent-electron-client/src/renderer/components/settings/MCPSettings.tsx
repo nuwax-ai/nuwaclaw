@@ -39,6 +39,7 @@ import type {
   McpProxyStatus,
   McpServerEntry,
 } from "@shared/types/electron";
+import { isGuiMcpManagedServerId } from "@shared/guiMcp";
 import { t } from "../../services/core/i18n";
 import MCPServerEditor from "./MCPServerEditor";
 
@@ -339,7 +340,19 @@ function MCPSettings({ isOpen = true }: MCPSettingsProps) {
     ([, entry]) => !!entry.enabled,
   ).length;
 
+  const warnIfGuiManaged = (serverId: string): boolean => {
+    if (isGuiMcpManagedServerId(serverId)) {
+      message.warning(t("Claw.MCP.list.guiAgentManaged"));
+      return true;
+    }
+    return false;
+  };
+
   const handleToggleServerEnabled = (serverId: string, enabled: boolean) => {
+    if (isGuiMcpManagedServerId(serverId) && !enabled) {
+      message.warning(t("Claw.MCP.list.guiAgentManaged"));
+      return;
+    }
     const latest = getCurrentConfigForUi();
     if (!latest) {
       message.error(t("Claw.MCP.message.invalidJson"));
@@ -368,6 +381,11 @@ function MCPSettings({ isOpen = true }: MCPSettingsProps) {
     }
     const nextServers: Record<string, McpServerEntry> = {};
     for (const [serverId, entry] of Object.entries(latest.mcpServers)) {
+      // gui-agent 由设置页 GUI MCP 开关托管，不参与「全部停用」
+      if (isGuiMcpManagedServerId(serverId)) {
+        nextServers[serverId] = { ...entry, enabled: true };
+        continue;
+      }
       nextServers[serverId] = { ...entry, enabled: false };
     }
     updateConfigFromUi({ ...latest, mcpServers: nextServers });
@@ -375,6 +393,7 @@ function MCPSettings({ isOpen = true }: MCPSettingsProps) {
   };
 
   const handleDeleteServer = (serverId: string) => {
+    if (warnIfGuiManaged(serverId)) return;
     const latest = getCurrentConfigForUi();
     if (!latest) {
       message.error(t("Claw.MCP.message.invalidJson"));
@@ -422,6 +441,7 @@ function MCPSettings({ isOpen = true }: MCPSettingsProps) {
   };
 
   const handleOpenEditorEdit = (serverId: string) => {
+    if (warnIfGuiManaged(serverId)) return;
     setEditorMode("edit");
     setEditingServerId(serverId);
     setPageMode("editor");
@@ -612,6 +632,7 @@ function MCPSettings({ isOpen = true }: MCPSettingsProps) {
                   <List
                     dataSource={serverEntries}
                     renderItem={([serverId, entry]) => {
+                      const isManagedGui = isGuiMcpManagedServerId(serverId);
                       const isStdio = "command" in entry;
                       const summary = isStdio
                         ? `${entry.command} ${(entry.args ?? []).join(" ")}`
@@ -621,7 +642,8 @@ function MCPSettings({ isOpen = true }: MCPSettingsProps) {
                           actions={[
                             <Switch
                               key="enabled"
-                              checked={!!entry.enabled}
+                              checked={isManagedGui ? true : !!entry.enabled}
+                              disabled={isManagedGui}
                               checkedChildren={t("Claw.MCP.switch.enable")}
                               unCheckedChildren={t("Claw.MCP.switch.disable")}
                               onChange={(checked) =>
@@ -646,6 +668,7 @@ function MCPSettings({ isOpen = true }: MCPSettingsProps) {
                                 size="small"
                                 type="text"
                                 icon={<EditOutlined />}
+                                disabled={isManagedGui}
                                 onClick={() => handleOpenEditorEdit(serverId)}
                               />
                               <Button
@@ -654,6 +677,7 @@ function MCPSettings({ isOpen = true }: MCPSettingsProps) {
                                 danger
                                 type="text"
                                 loading={deletingServerId === serverId}
+                                disabled={isManagedGui}
                                 icon={<DeleteOutlined />}
                                 onClick={() => handleDeleteServer(serverId)}
                               />
@@ -667,6 +691,11 @@ function MCPSettings({ isOpen = true }: MCPSettingsProps) {
                                 <Tag color={isStdio ? "blue" : "purple"}>
                                   {isStdio ? "stdio" : "remote"}
                                 </Tag>
+                                {isManagedGui ? (
+                                  <Tag color="gold">
+                                    {t("Claw.MCP.list.guiAgentManagedTag")}
+                                  </Tag>
+                                ) : null}
                               </Space>
                             }
                             description={

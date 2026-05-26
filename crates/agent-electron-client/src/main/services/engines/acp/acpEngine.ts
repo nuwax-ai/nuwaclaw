@@ -14,7 +14,11 @@ import * as fs from "fs";
 import log from "electron-log";
 import type { ChildProcess } from "child_process";
 import { FEATURES } from "@shared/featureFlags";
-import { ACP_SESSION_CANCELLED_ERROR_CODE } from "@shared/constants";
+import {
+  ACP_SESSION_CANCELLED_ERROR_CODE,
+  GUI_MCP_SERVER_ID,
+} from "@shared/constants";
+import { isGuiMcpManagedServerId } from "@shared/guiMcp";
 import { getGuiAgentServerUrl } from "@main/services/packages/guiAgentServer";
 import { getWindowsMcpUrl } from "@main/services/packages/windowsMcp";
 import { isWindows } from "@main/services/system/shellEnv";
@@ -108,15 +112,10 @@ function safeStringify(obj: unknown): string {
 const MCP_RETRY_DELAY_MS = 1200;
 const MCP_RECONNECT_WINDOW_MS = 4000;
 const COMPAT_MCP_WARMUP_DELAY_MS = 1200;
-const GUI_MCP_NAME = "gui-agent";
 // 该文案会透传到上层调用方/界面，必须走 i18n，避免在非英文语言下出现硬编码英文提示。
 // 使用函数延迟求值，避免模块加载时 t() 在 initI18n() 之前执行
 function getMcpReconnectPromptMessage(): string {
   return t("Claw.Errors.mcpReconnectRetryLater");
-}
-
-function isGuiMcpName(name: string): boolean {
-  return name.trim().toLowerCase() === GUI_MCP_NAME;
 }
 const NUWAX_MCP_INIT_POLICY_DEFAULT: NonNullable<
   PromptOptions["mcpInitPolicy"]
@@ -548,7 +547,7 @@ export class AcpEngine extends EventEmitter {
           if (injectedConfig.mcp) {
             let removed = 0;
             for (const key of Object.keys(injectedConfig.mcp)) {
-              if (isGuiMcpName(key)) {
+              if (isGuiMcpManagedServerId(key)) {
                 delete injectedConfig.mcp[key];
                 removed += 1;
               }
@@ -911,7 +910,7 @@ export class AcpEngine extends EventEmitter {
     if (sandboxEnabled) {
       const before = mcpServers.length;
       const filtered = mcpServers.filter(
-        (server) => !isGuiMcpName(server.name),
+        (server) => !isGuiMcpManagedServerId(server.name),
       );
       const removed = before - filtered.length;
       if (removed > 0) {
@@ -932,14 +931,14 @@ export class AcpEngine extends EventEmitter {
     if (
       FEATURES.INJECT_GUI_MCP &&
       !sandboxEnabled &&
-      !mcpServers.some((m) => isGuiMcpName(m.name))
+      !mcpServers.some((m) => isGuiMcpManagedServerId(m.name))
     ) {
       const guiMcpUrl = isWindows()
         ? getWindowsMcpUrl()
         : getGuiAgentServerUrl();
       if (guiMcpUrl) {
         mcpServers.push({
-          name: GUI_MCP_NAME,
+          name: GUI_MCP_SERVER_ID,
           url: guiMcpUrl,
           headers: [],
           type: "http",

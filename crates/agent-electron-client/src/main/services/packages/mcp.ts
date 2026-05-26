@@ -38,6 +38,11 @@ import { resolveNpmPackageEntry } from "../utils/spawnNoWindow";
 import { APP_DATA_DIR_NAME } from "../constants";
 import { isWindows } from "../system/shellEnv";
 import { persistentMcpBridge } from "./persistentMcpBridge";
+import { discoverRemoteMcpTools } from "./discoverRemoteMcpTools";
+import { isGuiMcpManagedServerId } from "@shared/guiMcp";
+import { getGuiMcpEnabled } from "./guiMcpLocalConfig";
+import { getGuiAgentServerUrl } from "./guiAgentServer";
+import { getWindowsMcpUrl } from "./windowsMcp";
 
 type PerfValue = string | number | boolean | null | undefined;
 
@@ -479,6 +484,8 @@ export interface StdioMcpServerEntry {
   command: string;
   args: string[];
   env?: Record<string, string>;
+  /** 本地 MCP 管理：是否参与 Agent 会话（缺省由调用方按 false 处理） */
+  enabled?: boolean;
   /** 标记为持久化 server（生命周期由 PersistentMcpBridge 管理，而非跟随 ACP session） */
   persistent?: boolean;
   /** 工具白名单（只暴露指定工具） */
@@ -493,6 +500,8 @@ export interface RemoteMcpServerEntry {
   transport?: "streamable-http" | "sse";
   headers?: Record<string, string>;
   authToken?: string;
+  /** 本地 MCP 管理：是否参与 Agent 会话（缺省由调用方按 false 处理） */
+  enabled?: boolean;
   /** 工具白名单（只暴露指定工具） */
   allowTools?: string[];
   /** 工具黑名单（排除指定工具） */
@@ -1116,16 +1125,30 @@ class McpProxyManager {
         // 解析失败时 servers 保持为空
       }
     }
-    const entry = servers[serverId];
+    let entry = servers[serverId];
     if (!entry) {
       throw new Error(`MCP server not found: ${serverId}`);
     }
 
-    // 远程类型暂不支持工具发现（需要 MCP SDK 支持）
     if (isRemoteEntry(entry)) {
-      throw new Error(
-        "Tool discovery not supported for remote MCP servers yet",
-      );
+      if (isGuiMcpManagedServerId(serverId)) {
+        if (!getGuiMcpEnabled()) {
+          throw new Error(t("Claw.MCP.list.guiMcpDisabledForTest"));
+        }
+        const liveUrl = isWindows()
+          ? getWindowsMcpUrl()
+          : getGuiAgentServerUrl();
+        if (!liveUrl) {
+          throw new Error(t("Claw.MCP.list.guiMcpNotRunning"));
+        }
+        entry = { ...entry, url: liveUrl };
+      }
+      try {
+        return await discoverRemoteMcpTools(entry);
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        throw new Error(t("Claw.MCP.list.testFailed", msg));
+      }
     }
 
     // 解析命令和环境变量

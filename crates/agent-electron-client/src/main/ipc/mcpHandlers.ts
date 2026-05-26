@@ -6,6 +6,10 @@ import {
   discoverMcpTools,
 } from "../services/packages/mcp";
 import type { McpServersConfig } from "../services/packages/mcp";
+import {
+  applyGuiMcpLocalConfigPolicy,
+  getGuiMcpEnabled,
+} from "../services/packages/guiMcpLocalConfig";
 import log from "electron-log";
 import * as fs from "fs";
 import * as path from "path";
@@ -52,7 +56,11 @@ export function registerMcpHandlers(): void {
   ipcMain.handle("mcp:setConfig", async (_, config: McpServersConfig) => {
     try {
       const db = getDb();
-      const configJson = JSON.stringify(config);
+      const normalized = applyGuiMcpLocalConfigPolicy(
+        config,
+        getGuiMcpEnabled(),
+      );
+      const configJson = JSON.stringify(normalized);
       db?.prepare(
         "INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)",
       ).run("mcp_local_config", configJson);

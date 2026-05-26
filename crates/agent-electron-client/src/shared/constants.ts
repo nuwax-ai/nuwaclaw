@@ -44,6 +44,9 @@ export const DEFAULT_LANPROXY_PORT = 60002;
 /** GUI Agent MCP 默认端口 */
 export const DEFAULT_GUI_MCP_PORT = 60008;
 
+/** 本地 MCP 管理中 GUI MCP 条目的固定 Server ID（与 ACP 注入名一致） */
+export const GUI_MCP_SERVER_ID = "gui-agent";
+
 /** Admin Server 默认端口（管理接口） */
 export const DEFAULT_ADMIN_SERVER_PORT = 60007;
 
