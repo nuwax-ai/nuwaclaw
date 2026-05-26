@@ -74,6 +74,10 @@ crates/agent-electron-client/sources/
 # Windows 专用 sandbox helper：build:sandbox-helper 生成，不入库
 crates/agent-electron-client/resources/sandbox-helper/*.exe
 
+# Bundled sandbox runtime：prepare:sandbox-runtime 同步产物与 resolved-manifest，不入库
+crates/agent-electron-client/resources/sandbox-runtime/bin/
+crates/agent-electron-client/resources/sandbox-runtime/resolved-manifest.json
+
 # Prepare 脚本的临时下载缓存（不入库）
 crates/agent-electron-client/scripts/resources/
 
