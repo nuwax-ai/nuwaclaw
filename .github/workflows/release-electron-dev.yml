@@ -432,24 +432,43 @@ jobs:
             done
           fi
 
+          blockmap_size_for() {
+            local installer="$1"
+            local bm="${ASSETS_DIR}/${installer}.blockmap"
+            if [ -f "$bm" ]; then
+              stat -c%s "$bm" 2>/dev/null || stat -f%z "$bm"
+            fi
+          }
+
           gen_yml() {
             local channel="$1"
             local keys="$2"
-            local first_key first_file
+            local first_key first_file blockmap_size k fname sig size bms
             first_key=$(echo "$PLATFORMS" | jq -r --argjson keys "$keys" 'limit(1; $keys[] as $k | select(.[$k] != null) | $k)')
             [ -z "$first_key" ] || [ "$first_key" = "null" ] && return 0
             first_file=$(echo "$PLATFORMS" | jq -r --arg k "$first_key" '.[$k].url' | sed 's|.*/||')
+            blockmap_size=$(blockmap_size_for "$first_file")
             {
               echo "version: $VERSION"
               echo "path: $first_file"
               echo "sha512: $(echo "$PLATFORMS" | jq -r --arg k "$first_key" '.[$k].signature')"
               echo "releaseDate: $PUB_DATE"
+              if [ -n "$blockmap_size" ]; then
+                echo "blockMapSize: $blockmap_size"
+              fi
               echo "files:"
-              echo "$PLATFORMS" | jq -r --argjson keys "$keys" '
-                [ $keys[] as $k | select(.[$k] != null) | .[$k] |
-                  "  - url: " + (.url | split("/") | last) + "\n    sha512: " + .signature + "\n    size: " + (.size | tostring)
-                ] | join("\n")
-              '
+              while IFS= read -r k; do
+                fname=$(echo "$PLATFORMS" | jq -r --arg k "$k" '.[$k].url' | sed 's|.*/||')
+                sig=$(echo "$PLATFORMS" | jq -r --arg k "$k" '.[$k].signature')
+                size=$(echo "$PLATFORMS" | jq -r --arg k "$k" '.[$k].size')
+                echo "  - url: $fname"
+                echo "    sha512: $sig"
+                echo "    size: $size"
+                bms=$(blockmap_size_for "$fname")
+                if [ -n "$bms" ]; then
+                  echo "    blockMapSize: $bms"
+                fi
+              done < <(echo "$PLATFORMS" | jq -r --argjson keys "$keys" '$keys[] as $k | select(.[$k] != null) | $k')
             } > "${ASSETS_DIR}/${channel}.yml"
             echo "  Generated ${channel}.yml (primary: $first_file)"
           }

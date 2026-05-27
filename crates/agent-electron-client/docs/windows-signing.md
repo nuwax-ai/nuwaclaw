@@ -11,6 +11,8 @@
 | 文件 | 说明 |
 |------|------|
 | [sign-release-win.sh](./sign-release-win.sh) | 完整签名流程脚本 |
+| [sign-release-win-v2.sh](./sign-release-win-v2.sh) | v2 签名流程（含 zip 下载优化） |
+| [generate-blockmap.js](./generate-blockmap.js) | 对已签名 exe 生成差分更新 blockmap |
 | [sign-win.js](./sign-win.js) | 签名工具模块 |
 
 ## 签名流程概览
@@ -27,13 +29,13 @@
 │                                                                            │
 │   本地手签                                                                 │
 │   ┌─────────┐    ┌─────────┐    ┌─────────┐    ┌─────────┐              │
-│   │Download │───▶│  Sign   │───▶│ Verify  │───▶│ Upload  │              │
-│   │ (gh cli)│    │(signtool)│    │(signtool)│    │ (gh cli)│              │
-│   └─────────┘    └─────────┘    └─────────┘    └─────────┘              │
-│        │              │              │              │                     │
-│        ▼              ▼              ▼              ▼                     │
-│    unsigned/      unsigned/      signed/       GitHub Release            │
-│                                  (copy)        (已签名)                  │
+│   │Download │───▶│  Sign   │───▶│ Verify  │───▶│Blockmap │───▶│ Upload  │ │
+│   │ (gh cli)│    │(signtool)│    │(signtool)│    │(app-bldr)│    │ (gh cli)│ │
+│   └─────────┘    └─────────┘    └─────────┘    └─────────┘    └─────────┘ │
+│        │              │              │              │              │          │
+│        ▼              ▼              ▼              ▼              ▼          │
+│    unsigned/      unsigned/      signed/       signed/       GitHub Release │
+│                                  (copy)      (.exe.blockmap)  (已签名)    │
 │                                                                            │
 └──────────────────────────────────────────────────────────────────────────┘
 ```
@@ -217,16 +219,21 @@ C:\tmp\nuwaclaw-sign\
 │   └── NuwaClaw-0.9.2-unsigned.msi
 │
 └── signed/                                # 已签名文件（重命名为正式名称）
-    ├── NuwaClaw-Setup-0.9.2.exe
-    └── NuwaClaw-0.9.2.msi
+    ├── NuwaClaw.Setup.0.9.2.exe
+    ├── NuwaClaw.Setup.0.9.2.exe.blockmap
+    └── NuwaClaw.0.9.2.msi
 ```
 
-## 文件命名规则
+## 文件命名规则（Stable / `electron-v*`）
 
-| 阶段 | EXE 文件名 | MSI 文件名 |
-|------|-----------|-----------|
-| CI 构建 | `NuwaClaw-Setup-{version}-unsigned.exe` | `NuwaClaw-{version}-unsigned.msi` |
-| 本地签名后 | `NuwaClaw-Setup-{version}.exe` | `NuwaClaw-{version}.msi` |
+| 阶段 | EXE 文件名 | blockmap | MSI 文件名 |
+|------|-----------|----------|-----------|
+| CI 构建 | `NuwaClaw-Setup-{version}-unsigned.exe` | `...-unsigned.exe.blockmap` | `NuwaClaw-{version}-unsigned.msi` |
+| 本地签名后 | `NuwaClaw.Setup.{version}.exe` | `NuwaClaw.Setup.{version}.exe.blockmap`（签名后重新生成） | `NuwaClaw.{version}.msi` |
+
+> **Beta / `prerelease-v*`**：不做 Windows 签名，CI 直接发布 `NuwaClaw-Setup-{version}-unsigned.exe` 及同名 `.blockmap`，由 [release-electron-dev.yml](../../.github/workflows/release-electron-dev.yml) 同步到 OSS。请勿对 unsigned blockmap 重命名后当作已签名包使用。
+
+签名会改变 exe 字节内容，**不能**将 CI 的 `-unsigned.exe.blockmap` 重命名后上传；须对**已签名** exe 运行 `node scripts/build/generate-blockmap.js`。
 
 ## 流程步骤说明
 
@@ -236,7 +243,10 @@ C:\tmp\nuwaclaw-sign\
 | Sign | `signtool sign` | 使用证书进行代码签名（需要 SimplySign token） |
 | Verify | `signtool verify` | 验证签名有效性 |
 | Copy | `cp` | 复制已签名文件到 `signed/` |
-| Upload | `gh release upload` | 上传到 GitHub Release（覆盖未签名文件） |
+| Blockmap | `generate-blockmap.js` | 对已签名 exe 生成差分更新 blockmap |
+| Upload | `gh release upload` | 上传已签名 exe、msi、blockmap；删除 Release 上的 unsigned 产物 |
+
+**OSS 同步顺序（Stable）**：完成签名并上传 Release 后，再执行 `./scripts/sync-oss.sh electron-v{x.y.z}`，以便 `latest.yml` 含 `blockMapSize` 且指向已签名安装包。
 
 ## 手动签名（可选）
 
@@ -305,5 +315,6 @@ Get-ChildItem Cert:\CurrentUser\My | Where-Object { $_.EnhancedKeyUsageList -mat
 
 | 日期 | 说明 |
 |------|------|
+| 2026-05-27 | 签名后生成并上传 blockmap，支持 electron-updater 差分更新 |
 | 2026-03-26 | 添加签名状态检查和多次构建/签名场景说明 |
 | 2026-03-26 | 创建签名流程文档，明确仅支持本地手签方案 |

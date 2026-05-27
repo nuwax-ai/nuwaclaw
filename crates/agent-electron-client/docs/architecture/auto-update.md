@@ -124,7 +124,18 @@ function detectInstallerType(): InstallerType {
 
 **数据源规则**：OSS 上**只**维护并信任 `latest.json`（含 version、notes、pub_date、platforms 多架构与完整 OSS 下载地址）。Release 流程（`.github/workflows/release-electron.yml`）**必须**根据该 `latest.json` 的 `platforms` 生成 electron-updater 所需的 `latest-mac.yml`、`latest-linux.yml`、`latest.yml`，并写入 release-assets 后一并上传；**禁止**使用或上传 GitHub 自带的 yml；yml 内下载地址为相对路径（相对 feed 基地址即 OSS 版本化路径）。
 
-本地触发 OSS 同步时，可在本 crate 下执行 `scripts/sync-oss.sh <tag>`（如 `electron-v0.8.0`），会触发上述 workflow 并轮询直至完成；依赖 `gh`、`jq`。
+### Windows 差分更新（blockmap）
+
+electron-updater 在 `latest.yml` 含 `blockMapSize` 且 OSS 同目录存在 `{path}.blockmap` 时启用差分下载。
+
+| 通道 | feed 路径 | Windows 安装包 | blockmap |
+|------|-----------|----------------|----------|
+| **stable** | `nuwaclaw-electron/electron-v{version}/` | `NuwaClaw.Setup.{version}.exe`（本地签名后） | 签名后由 `generate-blockmap.js` 生成 |
+| **beta** | `nuwaclaw-electron/beta-build/prerelease-v{version}/` | `NuwaClaw-Setup-{version}-unsigned.exe`（不签名） | CI 产物，文件名与 exe 一致 |
+
+Stable：须先完成 [windows-signing.md](../windows-signing.md) 手签并上传 Release，再 sync OSS。Beta：`prerelease-v*` 构建后由 `release-electron-dev.yml` 自动 sync。
+
+本地触发 OSS 同步时，可在本 crate 下执行 `scripts/sync-oss.sh <tag> [channel]`（如 `electron-v0.8.0` 或 `prerelease-v0.11.34 beta`），会触发上述 workflow 并轮询直至完成；依赖 `gh`、`jq`。
 
 ## 自定义更新源
 
