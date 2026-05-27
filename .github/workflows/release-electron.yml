@@ -255,6 +255,7 @@ jobs:
         working-directory: crates/agent-electron-client
         env:
           TARGET_ARCH: ${{ matrix.arch }}
+          SKIP_PREPARE: "1"  # Step 14 已执行 prepare:all，避免重复（含 git clone/pull）
           APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
           CSC_NAME: ${{ secrets.APPLE_SIGNING_IDENTITY }}
         run: |
