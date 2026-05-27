@@ -38,6 +38,7 @@ import { resolveNpmPackageEntry } from "../utils/spawnNoWindow";
 import { APP_DATA_DIR_NAME } from "../constants";
 import { isWindows } from "../system/shellEnv";
 import { persistentMcpBridge } from "./persistentMcpBridge";
+import { discoverRemoteMcpTools } from "./discoverRemoteMcpTools";
 
 type PerfValue = string | number | boolean | null | undefined;
 
@@ -196,12 +197,8 @@ function writeMcpStdioMessage(
   stdin: { write: (chunk: string | Buffer) => void },
   payload: unknown,
 ): void {
-  // MCP stdio uses Content-Length framing (like LSP):
-  //   Content-Length: <bytes>\r\n\r\n<json>
-  const json = JSON.stringify(payload);
-  const body = Buffer.from(json, "utf8");
-  const header = Buffer.from(`Content-Length: ${body.length}\r\n\r\n`, "utf8");
-  stdin.write(Buffer.concat([header, body]));
+  // Most stdio MCP servers expect newline-delimited JSON on stdin.
+  stdin.write(`${JSON.stringify(payload)}\n`);
 }
 
 /**
@@ -1126,11 +1123,8 @@ class McpProxyManager {
       throw new Error(`MCP server not found: ${serverId}`);
     }
 
-    // 远程类型暂不支持工具发现（需要 MCP SDK 支持）
     if (isRemoteEntry(entry)) {
-      throw new Error(
-        "Tool discovery not supported for remote MCP servers yet",
-      );
+      return discoverRemoteMcpTools(entry);
     }
 
     // 解析命令和环境变量
