@@ -44,6 +44,9 @@ export const DEFAULT_LANPROXY_PORT = 60002;
 /** GUI Agent MCP 默认端口 */
 export const DEFAULT_GUI_MCP_PORT = 60008;
 
+/** 本地 MCP 管理中 GUI MCP 条目的固定 Server ID（与 ACP 注入名一致） */
+export const GUI_MCP_SERVER_ID = "gui-agent";
+
 /** Admin Server 默认端口（管理接口） */
 export const DEFAULT_ADMIN_SERVER_PORT = 60007;
 
@@ -78,6 +81,7 @@ export const DEFAULT_AI_ENGINE: AgentEngineType = "claude-code";
 export const SUPPORTED_AGENT_ENGINES = [
   "claude-code",
   "nuwaxcode",
+  "codex-cli",
 ] as const satisfies readonly AgentEngineType[];
 
 export function isAgentEngineType(value: unknown): value is AgentEngineType {
@@ -432,6 +436,7 @@ export const I18N_KEYS = {
       DEP_FILE_SERVER: "Claw.Pages.Dependencies.dep.fileServer",
       DEP_MCP_PROXY: "Claw.Pages.Dependencies.dep.mcpProxy",
       DEP_NUWAXCODE: "Claw.Pages.Dependencies.dep.nuwaxcode",
+      DEP_CODEX_ACP: "Claw.Pages.Dependencies.dep.codexAcp",
 
       // 依赖描述
       DESC_UV: "Claw.Pages.Dependencies.desc.uv",
@@ -441,6 +446,7 @@ export const I18N_KEYS = {
       DESC_FILE_SERVER: "Claw.Pages.Dependencies.desc.fileServer",
       DESC_MCP_PROXY: "Claw.Pages.Dependencies.desc.mcpProxy",
       DESC_NUWAXCODE: "Claw.Pages.Dependencies.desc.nuwaxcode",
+      DESC_CODEX_ACP: "Claw.Pages.Dependencies.desc.codexAcp",
 
       // 版本要求
       REQ_NODE_VERSION: "Claw.Pages.Dependencies.reqNodeVersion",

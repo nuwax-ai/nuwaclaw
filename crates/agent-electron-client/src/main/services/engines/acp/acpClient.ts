@@ -24,6 +24,7 @@ import log from "electron-log";
 import {
   getAppEnv,
   getNuwaxcodeBundledBinPath,
+  getCodexAcpBundledBinPath,
   getNodeBinPathWithFallback,
   getClaudeCodeAcpBundledDir,
 } from "../../system/dependencies";
@@ -38,6 +39,10 @@ import { perfEmitter } from "../perf/perfEmitter";
 import { firstTokenTrace } from "../perf/firstTokenTrace";
 import { buildSandboxedSpawnArgs } from "../../sandbox/sandboxProcessWrapper";
 import type { SandboxProcessConfig } from "@shared/types/sandbox";
+import {
+  applyOpenAICompatibleEnv,
+  resolveOpenAICompatModel,
+} from "./openAICompatRouting";
 
 function extractSessionIdFromLine(line: string): string | undefined {
   try {
@@ -207,6 +212,10 @@ export interface AcpClientSideConnection {
     agentCapabilities?: Record<string, unknown>;
   }>;
 
+  authenticate?(params: {
+    methodId: string;
+  }): Promise<{ _meta?: Record<string, unknown> } | void>;
+
   newSession(params: {
     cwd: string;
     mcpServers: Array<AcpMcpServer>;
@@ -225,6 +234,11 @@ export interface AcpClientSideConnection {
   }): Promise<{ stopReason: string }>;
 
   cancel(params: { sessionId: string }): Promise<void>;
+
+  setSessionMode?(params: {
+    sessionId: string;
+    modeId: string;
+  }): Promise<{ _meta?: Record<string, unknown> } | void>;
 
   closed: Promise<void>;
 }
@@ -387,7 +401,7 @@ export interface AcpConnectionConfig {
   apiProtocol?: string;
   env?: Record<string, string>;
   /** Engine type for process registry tracking */
-  engineType?: "claude-code" | "nuwaxcode";
+  engineType?: "claude-code" | "nuwaxcode" | "codex" | "codex-cli";
   /** Purpose of this process (for process registry) */
   purpose?: "engine";
   /** Sandbox wrapping configuration (omit to disable) */
@@ -493,7 +507,9 @@ function getNuwaxcodePersistentLogDir(): string {
  * Returns `isNative: true` when the binary should be spawned directly
  * (not via `node`).
  */
-export function resolveAcpBinary(engine: "claude-code" | "nuwaxcode"): {
+export function resolveAcpBinary(
+  engine: "claude-code" | "nuwaxcode" | "codex" | "codex-cli",
+): {
   binPath: string;
   binArgs: string[];
   isNative: boolean;
@@ -510,30 +526,70 @@ export function resolveAcpBinary(engine: "claude-code" | "nuwaxcode"): {
     };
   }
 
-  // nuwaxcode: resolve platform-specific native binary directly
-  const nativePath = resolveNuwaxcodeNativeBinary();
-  if (nativePath) {
-    log.info(`[AcpClient] nuwaxcode: using native binary: ${nativePath}`);
+  if (engine === "nuwaxcode") {
+    // nuwaxcode: resolve platform-specific native binary directly
+    const nativePath = resolveNuwaxcodeNativeBinary();
+    if (nativePath) {
+      log.info(`[AcpClient] nuwaxcode: using native binary: ${nativePath}`);
+      return {
+        binPath: nativePath,
+        binArgs: ["acp"],
+        isNative: true,
+      };
+    }
+
+    // Fallback: use JS wrapper (will have Windows popup issue)
+    log.warn(
+      "[AcpClient] nuwaxcode: native binary not found, falling back to JS wrapper",
+    );
+    const packageDir = getAcpPackageDir("nuwaxcode");
+    const entryPath = packageDir
+      ? resolveNpmPackageEntry(packageDir, "nuwaxcode")
+      : null;
     return {
-      binPath: nativePath,
+      binPath: entryPath || "",
       binArgs: ["acp"],
-      isNative: true,
+      isNative: false,
     };
   }
 
-  // Fallback: use JS wrapper (will have Windows popup issue)
-  log.warn(
-    "[AcpClient] nuwaxcode: native binary not found, falling back to JS wrapper",
-  );
-  const packageDir = getAcpPackageDir("nuwaxcode");
-  const entryPath = packageDir
-    ? resolveNpmPackageEntry(packageDir, "nuwaxcode")
-    : null;
-  return {
-    binPath: entryPath || "",
-    binArgs: ["acp"],
-    isNative: false,
-  };
+  // -- codex / codex-cli (backward compat) --
+
+  if (engine === "codex" || engine === "codex-cli") {
+    const overridePath = (
+      process.env.NUWACLAW_CODEX_ACP_BIN ||
+      process.env.CODEX_ACP_BIN ||
+      ""
+    ).trim();
+    if (overridePath && fs.existsSync(overridePath)) {
+      log.info(`[AcpClient] codex: using env override binary: ${overridePath}`);
+      return { binPath: overridePath, binArgs: [], isNative: true };
+    }
+
+    // 优先使用应用内打包的二进制
+    const bundledPath = getCodexAcpBundledBinPath();
+    if (bundledPath) {
+      log.info(`[AcpClient] codex: using bundled binary: ${bundledPath}`);
+      return { binPath: bundledPath, binArgs: [], isNative: true };
+    }
+    // 回退：npm 全局安装
+    const binName = isWindows() ? "nuwax-codex-acp.cmd" : "nuwax-codex-acp";
+    const localPath = path.join(
+      app.getPath("home"),
+      APP_DATA_DIR_NAME,
+      "node_modules",
+      ".bin",
+      binName,
+    );
+    if (fs.existsSync(localPath)) {
+      log.info(`[AcpClient] codex: using npm binary: ${localPath}`);
+      return { binPath: localPath, binArgs: [], isNative: true };
+    }
+    return { binPath: "nuwax-codex-acp", binArgs: [], isNative: true };
+  }
+
+  // Should not reach here — all engine types handled above
+  throw new Error(`Unknown engine type: ${engine}`);
 }
 
 /**
@@ -675,33 +731,52 @@ export async function createAcpConnection(
   if (config.env) Object.assign(env, config.env);
 
   // nuwaxcode runs on opencode and prefers OPENCODE_MODEL.
-  // For openai-compatible models, OPENAI_* creds are required for provider autoload.
+  // Keep this assignment before OpenAI compatibility injection so model-based
+  // detection can use OPENCODE_MODEL when present.
   if (isNuwaxcodeEngine) {
     if (config.model && !env.OPENCODE_MODEL) {
       env.OPENCODE_MODEL = config.model;
     }
+  }
 
-    const effectiveModel = env.OPENCODE_MODEL || config.model || "";
-    const apiProtocol = (config.apiProtocol || "").toLowerCase();
-    const isOpenAICompatible =
-      apiProtocol === "openai" ||
-      effectiveModel.startsWith("openai-compatible/");
+  // codex-cli: inject CODEX_* env vars for nuwax-codex-acp binary
+  // nuwax-codex-acp reads these to override config.toml (CODEX_BASE_URL, CODEX_API_KEY, CODEX_MODEL)
+  const codexResolvedModel = resolveOpenAICompatModel({
+    model: config.model,
+    envModel: env.OPENCODE_MODEL || env.ANTHROPIC_MODEL || env.CODEX_MODEL,
+  });
+  applyOpenAICompatibleEnv(config, env);
 
-    if (isOpenAICompatible) {
-      if (config.apiKey && !env.OPENAI_API_KEY) {
-        env.OPENAI_API_KEY = config.apiKey;
-      }
-      if (config.baseUrl && !env.OPENAI_BASE_URL) {
-        env.OPENAI_BASE_URL = config.baseUrl;
-      }
+  if (config.engineType === "codex" || config.engineType === "codex-cli") {
+    if (config.apiKey) {
+      env.CODEX_API_KEY = config.apiKey;
+      env.OPENAI_API_KEY = config.apiKey;
+    } else if (env.OPENAI_API_KEY) {
+      env.CODEX_API_KEY = env.OPENAI_API_KEY;
+    }
+    if (codexResolvedModel?.providerModel) {
+      env.CODEX_MODEL = codexResolvedModel.providerModel;
+    }
+    const finalBaseUrl = env.OPENAI_BASE_URL || config.baseUrl;
+    if (finalBaseUrl) {
+      env.CODEX_BASE_URL = finalBaseUrl;
+    }
+    env.CODEX_PROVIDER_ID = "zhipu-glm-5";
+    // codex-acp uses Responses API by default; domestic providers often only support Chat API.
+    // Setting CODEX_WIRE_API=chat forces codex-acp to translate Chat API → Responses upstream.
+    env.CODEX_WIRE_API = "chat";
+    env.CODEX_MODEL_CONTEXT_WINDOW = "200000";
+    env.CODEX_LOG_DIR = "/Users/apple/workspace/nuwaclaw/logs";
+    env.RUST_LOG = "debug";
+  }
 
-      // Compatibility aliases used by some opencode paths.
-      if (env.OPENAI_API_KEY && !env.OPENCODE_OPENAI_API_KEY) {
-        env.OPENCODE_OPENAI_API_KEY = env.OPENAI_API_KEY;
-      }
-      if (env.OPENAI_BASE_URL && !env.OPENCODE_OPENAI_API_BASE) {
-        env.OPENCODE_OPENAI_API_BASE = env.OPENAI_BASE_URL;
-      }
+  if (isNuwaxcodeEngine) {
+    // Compatibility aliases used by opencode paths (nuwaxcode only).
+    if (env.OPENAI_API_KEY && !env.OPENCODE_OPENAI_API_KEY) {
+      env.OPENCODE_OPENAI_API_KEY = env.OPENAI_API_KEY;
+    }
+    if (env.OPENAI_BASE_URL && !env.OPENCODE_OPENAI_API_BASE) {
+      env.OPENCODE_OPENAI_API_BASE = env.OPENAI_BASE_URL;
     }
   }
 
@@ -750,6 +825,19 @@ export async function createAcpConnection(
       ? env.OPENCODE_OPENAI_API_KEY.slice(
           0,
           Math.min(8, Math.floor(env.OPENCODE_OPENAI_API_KEY.length / 2)),
+        ) + "..."
+      : "(not set)",
+    CODEX_MODEL: env.CODEX_MODEL || "(not set)",
+    CODEX_BASE_URL: env.CODEX_BASE_URL || "(not set)",
+    CODEX_PROVIDER_ID: env.CODEX_PROVIDER_ID || "(not set)",
+    CODEX_WIRE_API: env.CODEX_WIRE_API || "(not set)",
+    CODEX_MODEL_CONTEXT_WINDOW: env.CODEX_MODEL_CONTEXT_WINDOW || "(not set)",
+    CODEX_LOG_DIR: env.CODEX_LOG_DIR || "(not set)",
+    RUST_LOG: env.RUST_LOG || "(not set)",
+    CODEX_API_KEY: env.CODEX_API_KEY
+      ? env.CODEX_API_KEY.slice(
+          0,
+          Math.min(8, Math.floor(env.CODEX_API_KEY.length / 2)),
         ) + "..."
       : "(not set)",
   });

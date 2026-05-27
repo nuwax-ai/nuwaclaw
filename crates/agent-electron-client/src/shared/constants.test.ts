@@ -98,15 +98,19 @@ describe("Constants", () => {
   describe("AI Configuration", () => {
     it("should have valid AI engine type", () => {
       expect(["claude-code", "nuwaxcode"]).toContain(DEFAULT_AI_ENGINE);
-      expect(SUPPORTED_AGENT_ENGINES).toEqual(["claude-code", "nuwaxcode"]);
+      expect(SUPPORTED_AGENT_ENGINES).toEqual([
+        "claude-code",
+        "nuwaxcode",
+        "codex",
+      ]);
     });
 
     it("should normalize legacy or invalid AI engine values", () => {
       expect(isAgentEngineType("claude-code")).toBe(true);
       expect(isAgentEngineType("nuwaxcode")).toBe(true);
-      expect(isAgentEngineType("hermes-agent")).toBe(false);
+      expect(isAgentEngineType("codex")).toBe(true);
       expect(normalizeAgentEngine("nuwaxcode")).toBe("nuwaxcode");
-      expect(normalizeAgentEngine("hermes-agent")).toBe(DEFAULT_AI_ENGINE);
+      expect(normalizeAgentEngine("unknown-engine")).toBe(DEFAULT_AI_ENGINE);
       expect(normalizeAgentEngine(undefined)).toBe(DEFAULT_AI_ENGINE);
     });
 

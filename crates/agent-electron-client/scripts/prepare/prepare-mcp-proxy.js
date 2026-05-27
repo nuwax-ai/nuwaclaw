@@ -18,7 +18,13 @@
 
 const path = require('path');
 const fs = require('fs');
+const crypto = require('crypto');
 const { getProjectRoot } = require('../utils/project-paths');
+
+function sha256File(filePath) {
+  const data = fs.readFileSync(filePath);
+  return crypto.createHash('sha256').update(data).digest('hex');
+}
 
 const projectRoot = getProjectRoot();
 const srcDir = path.join(projectRoot, 'node_modules', 'nuwax-mcp-stdio-proxy');
@@ -51,8 +57,9 @@ function main() {
     process.exit(1);
   }
 
-  // 3. 检查目标是否已是最新版本
+  // 3. 检查目标是否已是最新版本（版本 + 文件存在 + lib 源码 hash）
   const destPkgPath = path.join(destDir, 'package.json');
+  const libHashMarker = path.join(destDir, '.lib-src-hash');
   if (fs.existsSync(destPkgPath)) {
     try {
       const destPkg = JSON.parse(fs.readFileSync(destPkgPath, 'utf8'));
@@ -60,8 +67,16 @@ function main() {
         const destIndexJs = path.join(destDir, 'dist', 'index.js');
         const destLibJs = path.join(destDir, 'dist', 'lib.bundle.js');
         if (fs.existsSync(destIndexJs) && fs.existsSync(destLibJs)) {
-          console.log(`[prepare-mcp-proxy] ${srcPkg.version} 已是最新，跳过`);
-          return;
+          // 检查 lib.js 源码是否变化（用上次保存的 hash 比对，避免源码更新但版本号未变的情况）
+          const srcLibHash = sha256File(srcLibJs);
+          if (fs.existsSync(libHashMarker)) {
+            const savedHash = fs.readFileSync(libHashMarker, 'utf-8').trim();
+            if (savedHash === srcLibHash) {
+              console.log(`[prepare-mcp-proxy] ${srcPkg.version} 已是最新，跳过`);
+              return;
+            }
+          }
+          console.log(`[prepare-mcp-proxy] lib 源码已变化，需重建`);
         }
       }
     } catch {
@@ -132,6 +147,9 @@ function main() {
   };
   fs.writeFileSync(destPkgPath, JSON.stringify(slimPkg, null, 2) + '\n');
   console.log('  package.json (slim)');
+
+  // 保存 lib 源码 hash，下次可精确跳过 esbuild 重建
+  fs.writeFileSync(libHashMarker, sha256File(srcLibJs), 'utf-8');
 
   console.log(`[prepare-mcp-proxy] ✓ resources/nuwax-mcp-stdio-proxy/ (${srcPkg.version})`);
 }

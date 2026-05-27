@@ -14,7 +14,11 @@ import * as fs from "fs";
 import log from "electron-log";
 import type { ChildProcess } from "child_process";
 import { FEATURES } from "@shared/featureFlags";
-import { ACP_SESSION_CANCELLED_ERROR_CODE } from "@shared/constants";
+import {
+  ACP_SESSION_CANCELLED_ERROR_CODE,
+  GUI_MCP_SERVER_ID,
+} from "@shared/constants";
+import { isGuiMcpManagedServerId } from "@shared/guiMcp";
 import { getGuiAgentServerUrl } from "@main/services/packages/guiAgentServer";
 import { getWindowsMcpUrl } from "@main/services/packages/windowsMcp";
 import { isWindows } from "@main/services/system/shellEnv";
@@ -77,11 +81,24 @@ import {
 } from "../../utils/processTree";
 import { processRegistry } from "../../system/processRegistry";
 import { t } from "../../i18n";
+import { resolveComputerProjectWorkspaceDir } from "../../workspacePaths";
+import type { AgentEngineType } from "../types";
 import type { DetailedSession } from "@shared/types/sessions";
 import { ACP_ABORT_TIMEOUT } from "@shared/constants";
 import { APP_DATA_DIR_NAME } from "../../constants";
 import { perfEmitter } from "../perf/perfEmitter";
 import { firstTokenTrace } from "../perf/firstTokenTrace";
+import { resolveEffectiveMode, type AcpMode } from "@shared/types/acpMode";
+import {
+  approvalInterventionService,
+  isRcoderNotifyResolvedRequest,
+  toRcoderPermissionProgressData,
+} from "../../intervention";
+import type {
+  NotifyResolvedRequest,
+  NotifyResolvedResponse,
+  RcoderNotifyResolvedRequest,
+} from "@shared/types/intervention";
 
 /** Safe JSON.stringify that handles circular references */
 function safeStringify(obj: unknown): string {
@@ -95,15 +112,10 @@ function safeStringify(obj: unknown): string {
 const MCP_RETRY_DELAY_MS = 1200;
 const MCP_RECONNECT_WINDOW_MS = 4000;
 const COMPAT_MCP_WARMUP_DELAY_MS = 1200;
-const GUI_MCP_NAME = "gui-agent";
 // 该文案会透传到上层调用方/界面，必须走 i18n，避免在非英文语言下出现硬编码英文提示。
 // 使用函数延迟求值，避免模块加载时 t() 在 initI18n() 之前执行
 function getMcpReconnectPromptMessage(): string {
   return t("Claw.Errors.mcpReconnectRetryLater");
-}
-
-function isGuiMcpName(name: string): boolean {
-  return name.trim().toLowerCase() === GUI_MCP_NAME;
 }
 const NUWAX_MCP_INIT_POLICY_DEFAULT: NonNullable<
   PromptOptions["mcpInitPolicy"]
@@ -149,15 +161,25 @@ export class AcpEngine extends EventEmitter {
       options: AcpPermissionOption[];
     }
   >();
+  private effectiveModes = new Map<string, AcpMode>();
+
+  setEffectiveMode(acpSessionId: string, mode: AcpMode): void {
+    this.effectiveModes.set(acpSessionId, mode);
+  }
+
+  private getEffectiveMode(acpSessionId: string): AcpMode {
+    return this.effectiveModes.get(acpSessionId) ?? "yolo";
+  }
+
   private activePromptSessions = new Set<string>();
   private activePromptRejects = new Map<string, (reason: Error) => void>();
   private strictPermissionSnapshotLoggedSessions = new Set<string>();
   private static readonly MAX_SNAPSHOT_LOGGED_SESSIONS = 500;
   private logTag: string;
 
-  private readonly _engineName: "claude-code" | "nuwaxcode";
+  private readonly _engineName: AgentEngineType;
 
-  constructor(engineName: "claude-code" | "nuwaxcode" = "claude-code") {
+  constructor(engineName: AgentEngineType = "claude-code") {
     super();
     this._engineName = engineName;
     this.logTag = `[AcpEngine:${engineName}]`;
@@ -168,7 +190,7 @@ export class AcpEngine extends EventEmitter {
   }
 
   /** Engine type (claude-code | nuwaxcode), used by UnifiedAgent for provider detection */
-  get engineName(): "claude-code" | "nuwaxcode" {
+  get engineName(): AgentEngineType {
     return this._engineName;
   }
 
@@ -375,6 +397,42 @@ export class AcpEngine extends EventEmitter {
     );
   }
 
+  private resolveCodexAuthMethod(
+    config: AgentConfig,
+    spawnEnv: Record<string, string>,
+  ): "codex-api-key" | "openai-api-key" | null {
+    if (this.engineName !== "codex-cli") return null;
+
+    const hasCodexApiKey = !!(
+      config.apiKey?.trim() || spawnEnv.CODEX_API_KEY?.trim()
+    );
+    if (hasCodexApiKey) return "codex-api-key";
+
+    const hasOpenAIApiKey = !!spawnEnv.OPENAI_API_KEY?.trim();
+    if (hasOpenAIApiKey) return "openai-api-key";
+
+    return null;
+  }
+
+  private async authenticateCodexWithEnv(
+    connection: AcpClientSideConnection,
+    config: AgentConfig,
+    spawnEnv: Record<string, string>,
+  ): Promise<void> {
+    const methodId = this.resolveCodexAuthMethod(config, spawnEnv);
+    if (!methodId) return;
+
+    if (typeof connection.authenticate !== "function") {
+      log.warn(
+        `${this.logTag} ACP connection does not expose authenticate(); env API key may not be activated`,
+      );
+      return;
+    }
+
+    await connection.authenticate({ methodId });
+    log.info(`${this.logTag} ACP env auth activated`, { methodId });
+  }
+
   /** Get the PID of the underlying ACP process (for process registry) */
   getProcessPid(): number | undefined {
     return this.acpProcess?.pid;
@@ -489,7 +547,7 @@ export class AcpEngine extends EventEmitter {
           if (injectedConfig.mcp) {
             let removed = 0;
             for (const key of Object.keys(injectedConfig.mcp)) {
-              if (isGuiMcpName(key)) {
+              if (isGuiMcpManagedServerId(key)) {
                 delete injectedConfig.mcp[key];
                 removed += 1;
               }
@@ -618,6 +676,7 @@ export class AcpEngine extends EventEmitter {
           terminal: true, // Enable ACP Terminal API (terminal/create, etc.)
         },
       });
+      await this.authenticateCodexWithEnv(connection, config, spawnEnv);
 
       handshakeTimer.end("acp.init.handshake", { engine: this.engineName });
 
@@ -754,6 +813,8 @@ export class AcpEngine extends EventEmitter {
     this.activePromptSessions.clear();
     this.activePromptRejects.clear();
     this.strictPermissionSnapshotLoggedSessions.clear();
+    this.effectiveModes.clear();
+    approvalInterventionService.destroy();
     this.config = null;
     this._ready = false;
     log.info(`${this.logTag} Destroyed`);
@@ -849,7 +910,7 @@ export class AcpEngine extends EventEmitter {
     if (sandboxEnabled) {
       const before = mcpServers.length;
       const filtered = mcpServers.filter(
-        (server) => !isGuiMcpName(server.name),
+        (server) => !isGuiMcpManagedServerId(server.name),
       );
       const removed = before - filtered.length;
       if (removed > 0) {
@@ -870,14 +931,14 @@ export class AcpEngine extends EventEmitter {
     if (
       FEATURES.INJECT_GUI_MCP &&
       !sandboxEnabled &&
-      !mcpServers.some((m) => isGuiMcpName(m.name))
+      !mcpServers.some((m) => isGuiMcpManagedServerId(m.name))
     ) {
       const guiMcpUrl = isWindows()
         ? getWindowsMcpUrl()
         : getGuiAgentServerUrl();
       if (guiMcpUrl) {
         mcpServers.push({
-          name: GUI_MCP_NAME,
+          name: GUI_MCP_SERVER_ID,
           url: guiMcpUrl,
           headers: [],
           type: "http",
@@ -989,6 +1050,7 @@ export class AcpEngine extends EventEmitter {
     log.info(
       `${this.logTag} ✅ ACP newSession completed (${createMs}ms), acpSessionId=${acpResult.sessionId}`,
     );
+
     firstTokenTrace.trace(
       "acp.new_session.done",
       {
@@ -1092,6 +1154,9 @@ export class AcpEngine extends EventEmitter {
       }
 
       this.activePromptSessions.delete(sessionId);
+
+      approvalInterventionService.cancelByAcpSession(sessionId);
+      this.effectiveModes.delete(sessionId);
 
       // 2. Send cancel to ACP binary
       let timer: ReturnType<typeof setTimeout> | undefined;
@@ -1521,7 +1586,7 @@ export class AcpEngine extends EventEmitter {
 
     const apiKey = mp.api_key || "";
     const baseUrl = mp.base_url || "";
-    const model = mp.model || "";
+    const model = mp.model || mp.default_model || "";
 
     if (!apiKey && !baseUrl && !model) return false;
 
@@ -1557,6 +1622,14 @@ export class AcpEngine extends EventEmitter {
     }
 
     try {
+      const { mode: effectiveMode, isFallback } = resolveEffectiveMode(
+        request.agent_config?.agent_server?.agent_mode,
+      );
+      if (isFallback) {
+        log.warn(
+          `${this.logTag} Unknown agent_mode "${request.agent_config?.agent_server?.agent_mode}", fail-safe to "ask"`,
+        );
+      }
       const envModel =
         this.config.env?.OPENCODE_MODEL || this.config.env?.ANTHROPIC_MODEL;
       log.info(`${this.logTag} 📨 chat() request received`, {
@@ -1597,7 +1670,10 @@ export class AcpEngine extends EventEmitter {
             ...this.config,
             apiKey: request.model_provider.api_key || this.config.apiKey,
             baseUrl: request.model_provider.base_url || this.config.baseUrl,
-            model: request.model_provider.model || this.config.model,
+            model:
+              request.model_provider.model ||
+              request.model_provider.default_model ||
+              this.config.model,
             apiProtocol:
               request.model_provider.api_protocol || this.config.apiProtocol,
           };
@@ -1629,9 +1705,8 @@ export class AcpEngine extends EventEmitter {
       if (!session) {
         isNewSession = true;
         const projectId = request.project_id || `proj-${Date.now()}`;
-        const projectDir = path.join(
+        const projectDir = resolveComputerProjectWorkspaceDir(
           this.config.workspaceDir,
-          "computer-project-workspace",
           request.user_id,
           projectId,
         );
@@ -1678,6 +1753,10 @@ export class AcpEngine extends EventEmitter {
           projectId: request.project_id,
           engine: this.engineName,
         });
+      }
+
+      if (session.acpSessionId) {
+        this.setEffectiveMode(session.acpSessionId, effectiveMode);
       }
 
       timer.end("acp.chat.sessionSetup", {
@@ -2031,7 +2110,6 @@ User question: ${request.prompt}`;
       return { outcome: { outcome: "cancelled" } };
     }
 
-    // Deny question-type requests (interactive prompts that would block the agent)
     if (params.toolCall.kind === "question") {
       log.info(
         `${this.logTag} 🚫 Denying question-type request: tool=${params.toolCall.title}`,
@@ -2061,7 +2139,6 @@ User question: ${request.prompt}`;
           this.strictPermissionSnapshotLoggedSessions.size >=
           AcpEngine.MAX_SNAPSHOT_LOGGED_SESSIONS
         ) {
-          // Evict oldest entry (Set iteration order is insertion order)
           const oldest = this.strictPermissionSnapshotLoggedSessions
             .values()
             .next().value;
@@ -2107,46 +2184,98 @@ User question: ${request.prompt}`;
       return { outcome: { outcome: "cancelled" } };
     }
 
-    const strictWriteMode = strictEnabled && strictCheck.isWriteRequest;
-    const selected = strictWriteMode
-      ? params.options.find((o) => o.kind === "allow_once")
-      : params.options.find((o) => o.kind === "allow_always") ||
-        params.options.find((o) => o.kind === "allow_once") ||
-        params.options[0];
+    const effectiveMode = this.getEffectiveMode(acpSessionId);
 
-    if (strictWriteMode && !selected) {
-      log.debug(
-        `${this.logTag} strict write permission blocked (allow_once option missing)`,
-        {
-          toolKind: params.toolCall.kind,
-          toolTitle: params.toolCall.title,
-        },
+    if (effectiveMode === "yolo") {
+      const strictWriteMode = strictEnabled && strictCheck.isWriteRequest;
+      const selected = strictWriteMode
+        ? params.options.find((o) => o.kind === "allow_once")
+        : params.options.find((o) => o.kind === "allow_always") ||
+          params.options.find((o) => o.kind === "allow_once") ||
+          params.options[0];
+
+      if (strictWriteMode && !selected) {
+        log.debug(
+          `${this.logTag} strict write permission blocked (allow_once option missing)`,
+          {
+            toolKind: params.toolCall.kind,
+            toolTitle: params.toolCall.title,
+          },
+        );
+        return { outcome: { outcome: "cancelled" } };
+      }
+
+      if (selected) {
+        if (
+          selected.kind !== "allow_always" &&
+          selected.kind !== "allow_once"
+        ) {
+          log.warn(`${this.logTag} yolo fallback selected non-allow option`, {
+            kind: selected.kind,
+            optionId: selected.optionId,
+            toolTitle: params.toolCall.title,
+          });
+        }
+        if (strictWriteMode) {
+          log.debug(`${this.logTag} strict write permission allowed_once`, {
+            toolKind: params.toolCall.kind,
+            toolTitle: params.toolCall.title,
+            optionId: selected.optionId,
+            candidatePaths: strictCheck.candidatePaths,
+            resolvedPaths: strictCheck.resolvedPaths,
+          });
+        } else {
+          log.info(
+            `${this.logTag} 🔓 Permission auto-approved (yolo): tool=${params.toolCall.title}, kind=${selected.kind}, optionId=${selected.optionId}`,
+          );
+        }
+        return {
+          outcome: { outcome: "selected", optionId: selected.optionId },
+        };
+      }
+
+      log.warn(
+        `${this.logTag} ⚠️ No selectable options; cancelling: tool=${params.toolCall.title}`,
       );
       return { outcome: { outcome: "cancelled" } };
     }
 
-    if (selected) {
-      if (strictWriteMode) {
-        log.debug(`${this.logTag} strict write permission allowed_once`, {
-          toolKind: params.toolCall.kind,
-          toolTitle: params.toolCall.title,
-          optionId: selected.optionId,
-          candidatePaths: strictCheck.candidatePaths,
-          resolvedPaths: strictCheck.resolvedPaths,
-        });
-      } else {
-        log.info(
-          `${this.logTag} 🔓 Permission auto-approved: tool=${params.toolCall.title}, kind=${selected.kind}, optionId=${selected.optionId}`,
-        );
-      }
-      return {
-        outcome: { outcome: "selected", optionId: selected.optionId },
-      };
-    }
+    const appSessionId = acpSessionId;
 
-    log.warn(
-      `${this.logTag} ⚠️ Permission request has no selectable options; cancelling: tool=${params.toolCall.title}`,
+    const { interventionRequest, acpResponsePromise } =
+      approvalInterventionService.createPending({
+        engine: this.engineName,
+        appSessionId,
+        acpSessionId,
+        acpRequest: params,
+      });
+
+    log.info(
+      `${this.logTag} 📋 Permission pending (ask mode): id=${interventionRequest.id} tool=${params.toolCall.title}`,
     );
-    return { outcome: { outcome: "cancelled" } };
+
+    this.emit("computer:progress", {
+      sessionId: appSessionId,
+      acpSessionId,
+      messageType: "acpRequestPermission",
+      subType: "request_permission",
+      data: toRcoderPermissionProgressData({
+        acpRequest: params,
+        interventionId: interventionRequest.id,
+        revision: interventionRequest.revision,
+      }),
+      timestamp: new Date().toISOString(),
+    });
+
+    return acpResponsePromise;
+  }
+
+  resolvePermissionIntervention(
+    payload: NotifyResolvedRequest | RcoderNotifyResolvedRequest,
+  ): NotifyResolvedResponse {
+    if (isRcoderNotifyResolvedRequest(payload)) {
+      return approvalInterventionService.resolveFromRcoderCallback(payload);
+    }
+    return approvalInterventionService.resolveFromCallback(payload);
   }
 }

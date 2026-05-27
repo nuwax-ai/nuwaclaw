@@ -27,6 +27,7 @@ export interface ChatContextServerConfig {
 export interface ChatAgentConfig {
   agent_server?: {
     agent_id?: string;
+    agent_mode?: "ask" | "yolo";
     command?: string;
     args?: string[];
     env?: Record<string, string>;
@@ -92,7 +93,8 @@ export interface UnifiedSessionMessage {
     | "sessionPromptStart"
     | "sessionPromptEnd"
     | "agentSessionUpdate"
-    | "heartbeat";
+    | "heartbeat"
+    | "acpRequestPermission";
   subType: string;
   data: unknown;
   timestamp: string;

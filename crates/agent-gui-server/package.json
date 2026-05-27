@@ -3,9 +3,6 @@
   "version": "0.1.0",
   "description": "GUI Agent MCP Server — desktop automation via screenshot recognition + keyboard/mouse simulation",
   "type": "module",
-  "bin": {
-    "agent-gui-server": "dist/index.js"
-  },
   "main": "./dist/lib.js",
   "types": "./dist/lib.d.ts",
   "files": [
@@ -17,8 +14,7 @@
     "build:tsc": "tsc",
     "test": "npm run build:tsc && vitest",
     "test:run": "npm run build:tsc && vitest run",
-    "test:coverage": "npm run build:tsc && vitest run --coverage",
-    "prepublishOnly": "npm run build"
+    "test:coverage": "npm run build:tsc && vitest run --coverage"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.27.1",

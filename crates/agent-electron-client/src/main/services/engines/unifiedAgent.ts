@@ -22,6 +22,7 @@ export { mapAgentCommand, resolveAgentEnv } from "./agentHelpers";
 
 import { AcpEngine } from "./acp/acpEngine";
 import { loadAcpSdk } from "./acp/acpClient";
+import { resolveOpenAICompatModel } from "./acp/openAICompatRouting";
 import { mapAgentCommand, resolveAgentEnv } from "./agentHelpers";
 import { EngineWarmup } from "./engineWarmup";
 import { buildSandboxPolicyFingerprint } from "./sandboxPolicyFingerprint";
@@ -57,9 +58,35 @@ import {
   rawMcpServersEqual,
 } from "../packages/mcpHelpers";
 import { getCachedSandboxPolicy } from "../sandbox/policyCache";
+import { resolveComputerProjectWorkspaceDir } from "../workspacePaths";
 
 /** 环境变量记录类型 */
 type EnvRecord = Record<string, string | undefined>;
+
+function maskUrlForLog(raw: string | undefined): string {
+  if (!raw) return "(not set)";
+  try {
+    const parsed = new URL(raw);
+    return `${parsed.protocol}//${parsed.host}${parsed.pathname}`;
+  } catch {
+    return "(invalid-url)";
+  }
+}
+
+function shouldNormalizeCodexModelToOpenAICompat(args: {
+  engine: AgentEngineType | null | undefined;
+  apiProtocol?: string | null;
+  baseUrl?: string | null;
+  model?: string | null;
+}): boolean {
+  if (args.engine !== "codex-cli") return false;
+  const model = (args.model || "").trim();
+  if (!model || model.includes("/")) return false;
+  const protocol = (args.apiProtocol || "").trim().toLowerCase();
+  if (protocol !== "anthropic") return false;
+  const baseUrl = (args.baseUrl || "").trim().toLowerCase();
+  return baseUrl.includes("open.bigmodel.cn/api/anthropic");
+}
 
 // ==================== Types ====================
 
@@ -735,6 +762,8 @@ export class UnifiedAgentService extends EventEmitter {
   private async loadLocalMcpConfig(): Promise<Record<string, McpServerEntry>> {
     try {
       const { getDb } = await import("../../db");
+      const { applyGuiMcpLocalConfigPolicy } =
+        await import("../packages/guiMcpLocalConfig");
       const db = getDb();
       const saved = db
         ?.prepare("SELECT value FROM settings WHERE key = ?")
@@ -742,7 +771,9 @@ export class UnifiedAgentService extends EventEmitter {
 
       if (saved) {
         const config = JSON.parse(saved.value) as McpServersConfig;
-        return config.mcpServers || {};
+        return applyGuiMcpLocalConfigPolicy({
+          mcpServers: config.mcpServers || {},
+        }).mcpServers;
       }
     } catch (e) {
       log.warn("[UnifiedAgent] Failed to load local MCP config:", e);
@@ -837,8 +868,80 @@ export class UnifiedAgentService extends EventEmitter {
       t1 = Date.now();
     }
 
+    // Dev mode: force engine type for testing, bypasses agent_server.command
+    if (
+      process.env.NUWACLAW_FORCE_ENGINE &&
+      process.env.NODE_ENV === "development"
+    ) {
+      if (!request.agent_config) {
+        request.agent_config = {
+          agent_server: { command: process.env.NUWACLAW_FORCE_ENGINE },
+        };
+      } else if (!request.agent_config.agent_server) {
+        request.agent_config.agent_server = {
+          command: process.env.NUWACLAW_FORCE_ENGINE,
+        };
+      } else {
+        request.agent_config.agent_server.command =
+          process.env.NUWACLAW_FORCE_ENGINE;
+      }
+      log.info(
+        `[UnifiedAgent] Dev mode: forcing engine to "${process.env.NUWACLAW_FORCE_ENGINE}"`,
+      );
+    }
+
+    // Dev mode: when agent_config.type differs from request's agent_server.command,
+    // override the remote command to respect local dev settings
+    if (
+      process.env.NODE_ENV === "development" &&
+      this.engineType &&
+      request.agent_config?.agent_server?.command &&
+      mapAgentCommand(request.agent_config.agent_server.command) !==
+        this.engineType
+    ) {
+      log.info(
+        `[UnifiedAgent] Dev mode: overriding remote engine "${request.agent_config.agent_server.command}" → "${this.engineType}"`,
+      );
+      request.agent_config.agent_server.command = this.engineType;
+    }
+
     const agentServer = request.agent_config?.agent_server;
     const mp = request.model_provider;
+    const requiredEngine = agentServer?.command
+      ? mapAgentCommand(agentServer.command)
+      : this.engineType;
+    const resolvedEnv = agentServer?.env
+      ? resolveAgentEnv(agentServer.env, mp)
+      : undefined;
+    const resolvedOpenAICompatModel = resolveOpenAICompatModel({
+      model: mp?.model,
+      defaultModel: mp?.default_model,
+      envModel:
+        resolvedEnv?.OPENCODE_MODEL ||
+        resolvedEnv?.ANTHROPIC_MODEL ||
+        resolvedEnv?.CODEX_MODEL,
+    });
+    let requestedModel =
+      resolvedOpenAICompatModel?.rawModel ||
+      mp?.model ||
+      mp?.default_model ||
+      resolvedEnv?.OPENCODE_MODEL ||
+      resolvedEnv?.ANTHROPIC_MODEL ||
+      resolvedEnv?.CODEX_MODEL ||
+      this.baseConfig?.model;
+    if (
+      shouldNormalizeCodexModelToOpenAICompat({
+        engine: requiredEngine,
+        apiProtocol: mp?.api_protocol,
+        baseUrl: mp?.base_url,
+        model: requestedModel,
+      })
+    ) {
+      requestedModel = `openai-compatible/${requestedModel}`;
+      log.info(
+        `[UnifiedAgent] normalized codex model to OpenAI-compatible variant: ${requestedModel}`,
+      );
+    }
 
     // 性能优化：快速路径检测
     const existingEngine = this.getEngineForProject(engineKey);
@@ -847,9 +950,6 @@ export class UnifiedAgentService extends EventEmitter {
     const storedRawMcp = this.engineRawMcpServers.get(registryKey);
     const requestMcpFiltered = filterBridgeEntries(requestMcpServersEarly);
     const mcpChanged = !rawMcpServersEqual(requestMcpFiltered, storedRawMcp);
-    const requiredEngine = agentServer?.command
-      ? mapAgentCommand(agentServer.command)
-      : this.engineType;
     const requestMcpServersRuntime = requestMcpServersEarly;
 
     // 快速路径：已有就绪引擎 + 无配置变更
@@ -930,17 +1030,8 @@ export class UnifiedAgentService extends EventEmitter {
     }
     t2 = t2 || t1;
 
-    // Resolve env template variables
-    const resolvedEnv = agentServer?.env
-      ? resolveAgentEnv(agentServer.env, mp)
-      : undefined;
-
     // Extract final model
-    let model = mp?.model;
-    if (!model && resolvedEnv) {
-      model = resolvedEnv.OPENCODE_MODEL || resolvedEnv.ANTHROPIC_MODEL;
-    }
-    model = model || this.baseConfig?.model;
+    let model = requestedModel;
 
     // Check if existing engine needs to be replaced (config changed)
     if (existingEngine && existingEngine.isReady) {
@@ -1092,6 +1183,24 @@ export class UnifiedAgentService extends EventEmitter {
       env: mergedEnv,
       mcpServers: freshMcpServers,
     };
+
+    // nuwax-codex-acp ignores ACP session cwd, so we must spawn the process
+    // directly in the project workspace to ensure correct working directory
+    if (
+      requiredEngine === "codex-cli" &&
+      request.project_id &&
+      request.user_id
+    ) {
+      effectiveConfig.workspaceDir = resolveComputerProjectWorkspaceDir(
+        effectiveConfig.workspaceDir,
+        request.user_id,
+        request.project_id,
+      );
+      fs.mkdirSync(effectiveConfig.workspaceDir, { recursive: true });
+      log.info(
+        `[UnifiedAgent] 🎯 codex-cli workspaceDir overridden to: ${effectiveConfig.workspaceDir}`,
+      );
+    }
 
     log.info(
       `[UnifiedAgent] 📌 Engine config for project ${engineKey}:\n` +

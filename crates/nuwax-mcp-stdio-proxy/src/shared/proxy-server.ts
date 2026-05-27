@@ -2,17 +2,17 @@
  * Tool proxy server creation
  */
 
-import { Server } from '@modelcontextprotocol/sdk/server/index.js';
-import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
-import { Client } from '@modelcontextprotocol/sdk/client/index.js';
+import { Server } from "@modelcontextprotocol/sdk/server/index.js";
+import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
+import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import {
   ListToolsRequestSchema,
   CallToolRequestSchema,
-} from '@modelcontextprotocol/sdk/types.js';
-import type { Tool } from '@modelcontextprotocol/sdk/types.js';
+} from "@modelcontextprotocol/sdk/types.js";
+import type { Tool } from "@modelcontextprotocol/sdk/types.js";
 
-import { logError } from '../logger.js';
-import { PKG_NAME, PKG_VERSION } from '../constants.js';
+import { logError } from "../logger.js";
+import { PKG_NAME, PKG_VERSION } from "../constants.js";
 
 /**
  * Callback that resolves a tool name to the client that owns it.
@@ -55,7 +55,7 @@ export async function createToolProxyServer(
 
     if (!client) {
       return {
-        content: [{ type: 'text' as const, text: `Unknown tool: "${name}"` }],
+        content: [{ type: "text" as const, text: `Unknown tool: "${name}"` }],
         isError: true,
       };
     }
@@ -67,7 +67,7 @@ export async function createToolProxyServer(
       const label = errorLabel ? errorLabel(name) : `"${name}"`;
       logError(`Tool ${label} call failed: ${e}`);
       return {
-        content: [{ type: 'text' as const, text: `Tool call failed: ${e}` }],
+        content: [{ type: "text" as const, text: `Tool call failed: ${e}` }],
         isError: true,
       };
     }

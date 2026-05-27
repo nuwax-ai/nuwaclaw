@@ -31,6 +31,7 @@ import { firstTokenTrace } from "./engines/perf/firstTokenTrace";
 import { checkFileServerHealth } from "./packages/fileServerHealth";
 import { LOCALHOST_HOSTNAME } from "./constants";
 import { getConfiguredPorts } from "./startupPorts";
+import { killProcessTreesListeningOnTcpPort } from "./utils/processTree";
 import type {
   ComputerChatRequest,
   HttpResult,
@@ -42,10 +43,25 @@ import type {
 } from "@shared/types/computerTypes";
 import { redactForLog, redactStringForLog } from "./utils/logRedact";
 import { DEFAULT_SSE_HEARTBEAT_INTERVAL } from "@shared/constants";
+import type {
+  NotifyResolvedRequest,
+  NotifyResolvedResponse,
+  RcoderNotifyResolvedRequest,
+} from "@shared/types/intervention";
+import {
+  verifyInternalCallback,
+  validateNotifyResolvedRequest,
+  validateRcoderNotifyResolvedRequest,
+  statusFromNotifyResolvedResult,
+  getOrCreateInternalSecret,
+  isRcoderNotifyResolvedRequest,
+} from "./intervention";
 
 let server: http.Server | null = null;
 let sseClients: Map<string, http.ServerResponse[]> = new Map();
 let lastError: string | null = null;
+let interventionSecret: string | null = null;
+let runningPort: number | null = null;
 
 /** 每个 sessionId 最多缓冲的早期 SSE 事件条数，防止内存泄漏 */
 const SSE_EVENT_BUFFER_MAX = 50;
@@ -340,7 +356,7 @@ function sendJson(res: http.ServerResponse, statusCode: number, data: unknown) {
     "Content-Type": "application/json",
     "Access-Control-Allow-Origin": "*",
     "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
-    "Access-Control-Allow-Headers": "Content-Type",
+    "Access-Control-Allow-Headers": "Content-Type, X-Nuwax-Internal-Secret",
   });
   res.end(json);
 }
@@ -912,6 +928,118 @@ async function handleRequest(
       return;
     }
 
+    // POST /computer/notify-resolved — Backend → Host callback for approval intervention
+    if (pathname === "/computer/notify-resolved" && method === "POST") {
+      const body = (await parseBody(req)) as
+        | NotifyResolvedRequest
+        | RcoderNotifyResolvedRequest;
+      const isRcoderPermissionResolve = isRcoderNotifyResolvedRequest(body);
+      const hasInternalSecretHeader =
+        typeof req.headers["x-nuwax-internal-secret"] === "string";
+
+      if (!interventionSecret && !isRcoderPermissionResolve) {
+        sendJson(res, 500, {
+          ok: false,
+          error: {
+            code: "internal_error",
+            message: "intervention secret not initialized",
+          },
+        });
+        return;
+      }
+
+      const auth = interventionSecret
+        ? verifyInternalCallback(req, interventionSecret)
+        : { ok: false };
+      if (!auth.ok) {
+        const { readSetting: _readSetting } = await import("../db");
+        const configKey = _readSetting("auth.config_key") as string | null;
+        if (
+          configKey &&
+          typeof req.headers["x-nuwax-internal-secret"] === "string" &&
+          req.headers["x-nuwax-internal-secret"] === configKey
+        ) {
+          log.info("[HTTP] Accepted notify-resolved with configKey auth");
+        } else if (!isRcoderPermissionResolve || hasInternalSecretHeader) {
+          const payload = isRcoderPermissionResolve
+            ? httpError("ERR_VALIDATION", "invalid internal secret")
+            : {
+                ok: false,
+                error: {
+                  code: "unauthorized",
+                  message: "invalid internal secret",
+                },
+              };
+          sendJson(res, 401, payload);
+          return;
+        }
+        log.warn(
+          "[HTTP] Accepting RCoder permission resolve without internal secret; enable X-Nuwax-Internal-Secret once RCoder supports it",
+        );
+      }
+
+      const validation = isRcoderPermissionResolve
+        ? validateRcoderNotifyResolvedRequest(body)
+        : validateNotifyResolvedRequest(body);
+      if (!validation.ok) {
+        if (isRcoderPermissionResolve) {
+          sendJson(res, 400, httpError("ERR_VALIDATION", validation.message));
+        } else {
+          sendJson(res, 400, {
+            ok: false,
+            error: {
+              code: "invalid_acp_response",
+              message: validation.message,
+            },
+          });
+        }
+        return;
+      }
+
+      const projectId = isRcoderPermissionResolve ? body.project_id : undefined;
+      const acpEngine =
+        (projectId ? agentService.getEngineForProject(projectId) : null) ||
+        agentService.getAcpEngine();
+      if (!acpEngine) {
+        if (isRcoderPermissionResolve) {
+          sendJson(
+            res,
+            404,
+            httpError("ERR_SESSION_NOT_FOUND", "ACP engine not running"),
+          );
+        } else {
+          sendJson(res, 404, {
+            ok: false,
+            hostStatus: "gone",
+            error: { code: "not_found", message: "ACP engine not running" },
+          });
+        }
+        return;
+      }
+
+      const result: NotifyResolvedResponse = (
+        acpEngine as any
+      ).resolvePermissionIntervention(body);
+      const status = statusFromNotifyResolvedResult(result);
+      if (isRcoderPermissionResolve) {
+        if (result.ok) {
+          sendJson(res, status, httpResult(result));
+        } else {
+          sendJson(
+            res,
+            status,
+            httpError(
+              result.error?.code ?? "ERR_PERMISSION_RESOLVE_FAILED",
+              result.error?.message ?? "permission resolve failed",
+            ),
+          );
+        }
+      } else {
+        sendJson(res, status, result);
+      }
+      return;
+    }
+
     // POST /computer/gui-agent/vision-model — 保存 GUI Agent 视觉模型配置
     if (pathname === "/computer/gui-agent/vision-model" && method === "POST") {
       const body = await parseBody(req);
@@ -1155,9 +1283,18 @@ export function pushSseEvent(
 /**
  * 启动 Computer HTTP Server
  */
-export function startComputerServer(
+export async function startComputerServer(
   port: number,
 ): Promise<{ success: boolean; error?: string }> {
+  if (!server) {
+    try {
+      log.info(`[ComputerServer] Pre-start port sweep for ${port}`);
+      await killProcessTreesListeningOnTcpPort(port);
+    } catch (error) {
+      log.warn("[ComputerServer] Pre-start port sweep failed:", error);
+    }
+  }
+
   return new Promise((resolve) => {
     if (server) {
       lastError = null;
@@ -1167,12 +1304,30 @@ export function startComputerServer(
 
     server = http.createServer(handleRequest);
 
+    // 初始化 intervention internal secret
+    (async () => {
+      try {
+        const { readSetting, writeSetting } = await import("../db");
+        interventionSecret = await getOrCreateInternalSecret(
+          (key) => Promise.resolve(readSetting(key) as string | null),
+          (key, value) =>
+            Promise.resolve(writeSetting(key, value)).then(() => {}),
+        );
+      } catch (err) {
+        log.warn(
+          "[HTTP] Failed to initialize intervention secret:",
+          (err as Error).message,
+        );
+      }
+    })();
+
     server.on("error", (err: NodeJS.ErrnoException) => {
       log.error("❌ [ComputerServer] Server error:", err);
       const errorMsg =
         err.code === "EADDRINUSE" ? `Port ${port} already in use` : err.message;
       lastError = errorMsg;
       server = null;
+      runningPort = null;
       resolve({ success: false, error: errorMsg });
     });
 
@@ -1182,6 +1337,7 @@ export function startComputerServer(
         `✅ [ComputerServer] Listening on 0.0.0.0:${port} (aligned with rcoder /computer/* API)`,
       );
       lastError = null;
+      runningPort = port;
       resolve({ success: true });
     });
   });
@@ -1192,9 +1348,15 @@ export function startComputerServer(
  */
 export function stopComputerServer(): Promise<void> {
   return new Promise((resolve) => {
+    const portToSweep = runningPort ?? getConfiguredPorts().agent;
     if (!server) {
       lastError = null;
-      resolve();
+      runningPort = null;
+      killProcessTreesListeningOnTcpPort(portToSweep)
+        .catch((error) => {
+          log.warn("[ComputerServer] Stop port sweep failed:", error);
+        })
+        .finally(() => resolve());
       return;
     }
     // 关闭所有 SSE 连接
@@ -1217,7 +1379,12 @@ export function stopComputerServer(): Promise<void> {
       log.info("[ComputerServer] Stopped");
       server = null;
       lastError = null;
-      resolve();
+      runningPort = null;
+      killProcessTreesListeningOnTcpPort(portToSweep)
+        .catch((error) => {
+          log.warn("[ComputerServer] Stop port sweep failed:", error);
+        })
+        .finally(() => resolve());
     });
   });
 }
@@ -1376,6 +1543,89 @@ async function handleAdminRequest(
           log.error("[AdminServer] Delayed restart error:", e);
         }
       }, 2000);
+      return;
+    }
+
+    // POST /admin/acp-mode — 设置 ACP 模式（调试用）
+    if (pathname === "/admin/acp-mode" && method === "POST") {
+      const body = (await parseBody(req)) as {
+        acpSessionId?: string;
+        mode?: string;
+      };
+      const acpEngine = agentService.getAcpEngine();
+      if (!acpEngine) {
+        sendJson(404, {
+          code: "404",
+          message: "ACP engine not running",
+        });
+        return;
+      }
+      if (!body.mode || (body.mode !== "ask" && body.mode !== "yolo")) {
+        sendJson(400, {
+          code: "400",
+          message: 'mode must be "ask" or "yolo"',
+        });
+        return;
+      }
+      if (body.acpSessionId) {
+        (acpEngine as any).setEffectiveMode(body.acpSessionId, body.mode);
+        log.info(
+          `[AdminServer] ACP mode set to "${body.mode}" for session ${body.acpSessionId}`,
+        );
+      } else {
+        const sessions = (acpEngine as any).sessions as Map<
+          string,
+          { acpSessionId?: string }
+        >;
+        for (const [, session] of sessions) {
+          if (session.acpSessionId) {
+            (acpEngine as any).setEffectiveMode(
+              session.acpSessionId,
+              body.mode,
+            );
+          }
+        }
+        log.info(
+          `[AdminServer] ACP mode set to "${body.mode}" for all ${sessions.size} session(s)`,
+        );
+      }
+      sendJson(200, {
+        code: "0000",
+        message: `ACP mode set to "${body.mode}"`,
+        data: { mode: body.mode, acpSessionId: body.acpSessionId || "all" },
+      });
+      return;
+    }
+
+    // GET /admin/acp-mode — 查询 ACP 模式
+    if (pathname === "/admin/acp-mode" && method === "GET") {
+      const acpEngine = agentService.getAcpEngine();
+      if (!acpEngine) {
+        sendJson(404, {
+          code: "404",
+          message: "ACP engine not running",
+        });
+        return;
+      }
+      const modes: Record<string, string> = {};
+      const sessions = (acpEngine as any).sessions as Map<
+        string,
+        { acpSessionId?: string }
+      >;
+      const effectiveModes = (acpEngine as any).effectiveModes as Map<
+        string,
+        string
+      >;
+      for (const [, session] of sessions) {
+        if (session.acpSessionId) {
+          modes[session.acpSessionId] =
+            effectiveModes.get(session.acpSessionId) ?? "yolo (default)";
+        }
+      }
+      sendJson(200, {
+        code: "0000",
+        data: modes,
+      });
       return;
     }
 

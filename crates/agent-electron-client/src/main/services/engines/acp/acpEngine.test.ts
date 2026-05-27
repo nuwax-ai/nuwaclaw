@@ -14,6 +14,16 @@ import * as dependencies from "@main/services/system/dependencies";
 import * as sandboxPolicy from "@main/services/sandbox/policy";
 import * as opencodeAcpSandbox from "./opencodeAcpSandbox";
 
+vi.mock("electron", () => ({
+  app: {
+    getPath: vi.fn((name: string) =>
+      name === "home" ? "/mock/home" : "/mock/appdata",
+    ),
+    getVersion: vi.fn(() => "0.0.0-test"),
+    isPackaged: false,
+  },
+}));
+
 vi.mock("electron-log", () => ({
   default: {
     info: vi.fn(),
@@ -501,6 +511,89 @@ describe("AcpEngine.createSession", () => {
 });
 
 describe("AcpEngine.handlePermissionRequest(strict)", () => {
+  it("ask 模式发出 RCoder request_permission SSE payload", async () => {
+    const { engine, sessionId } = setupEngine("nuwaxcode");
+    (engine as any).setEffectiveMode(sessionId, "ask");
+    const onProgress = vi.fn();
+    engine.on("computer:progress", onProgress);
+
+    const responsePromise = (engine as any).handlePermissionRequest({
+      sessionId,
+      toolCall: {
+        toolCallId: "tool-call-ask",
+        kind: "execute",
+        title: "Run command",
+        status: "pending",
+        rawInput: { command: "cargo test" },
+        content: [],
+      },
+      options: [
+        {
+          optionId: "reject-once",
+          kind: "reject_once",
+          name: "拒绝本次",
+        },
+        {
+          optionId: "allow-once",
+          kind: "allow_once",
+          name: "允许本次",
+        },
+      ],
+    });
+
+    expect(onProgress).toHaveBeenCalledTimes(1);
+    const event = onProgress.mock.calls[0][0];
+    expect(event).toMatchObject({
+      sessionId,
+      acpSessionId: sessionId,
+      messageType: "acpRequestPermission",
+      subType: "request_permission",
+      data: {
+        request_permission_request: {
+          session_id: sessionId,
+          tool_call: {
+            tool_call_id: "tool-call-ask",
+            kind: "execute",
+            status: "pending",
+            title: "Run command",
+            raw_input: { command: "cargo test" },
+          },
+          options: [
+            {
+              option_id: "reject-once",
+              kind: "reject_once",
+              name: "拒绝本次",
+            },
+            {
+              option_id: "allow-once",
+              kind: "allow_once",
+              name: "允许本次",
+            },
+          ],
+        },
+        tool_call_id: "tool-call-ask",
+      },
+    });
+    expect(event.data._intervention).toBeUndefined();
+    expect(event.data._engine).toBeUndefined();
+
+    const result = (engine as any).resolvePermissionIntervention({
+      permission_resolve_request: {
+        request_permission_response: {
+          outcome: { Selected: { option_id: "reject-once" } },
+        },
+        session_id: sessionId,
+        tool_call_id: "tool-call-ask",
+        save_rule: false,
+      },
+    });
+
+    expect(result).toMatchObject({ ok: true, hostStatus: "resolved" });
+    await expect(responsePromise).resolves.toEqual({
+      outcome: { outcome: "selected", optionId: "reject-once" },
+    });
+  });
+
   it("strict 下 workspace 内写入仅放行 allow_once", async () => {
     const { engine, sessionId } = setupEngine("nuwaxcode");
     (engine as any).config = { engine: "nuwaxcode", workspaceDir: "/tmp/ws" };
@@ -637,6 +730,52 @@ describe("AcpEngine.init", () => {
     expect(injected.mcp).toBeDefined();
     expect(injected.mcp["chrome-devtools"]).toBeDefined();
     expect(injected.permission.question).toBe("deny");
+
+    await engine.destroy();
+  });
+
+  it("codex-cli 使用 env API key 时应在建会话前激活 ACP auth", async () => {
+    const engine = new AcpEngine("codex-cli");
+    const authenticate = vi.fn().mockResolvedValue({});
+
+    const mockConnection = {
+      initialize: vi.fn().mockResolvedValue({ protocolVersion: "1.0.0" }),
+      authenticate,
+    } as any;
+
+    const mockProcess = {
+      pid: 12346,
+      on: vi.fn(),
+      stdout: { removeAllListeners: vi.fn() },
+      stderr: { removeAllListeners: vi.fn() },
+      stdin: { removeAllListeners: vi.fn() },
+      removeAllListeners: vi.fn(),
+      kill: vi.fn(),
+    } as any;
+
+    vi.spyOn(acpClient, "resolveAcpBinary").mockReturnValue({
+      binPath: "nuwax-codex-acp",
+      binArgs: [],
+      isNative: true,
+    });
+    vi.spyOn(acpClient, "createAcpConnection").mockResolvedValue({
+      connection: mockConnection,
+      process: mockProcess,
+      isolatedHome: null,
+      cleanup: vi.fn(),
+    } as any);
+    vi.spyOn(acpClient, "loadAcpSdk").mockResolvedValue({
+      PROTOCOL_VERSION: "1.0.0",
+    } as any);
+
+    const ok = await engine.init({
+      engine: "codex-cli",
+      workspaceDir: "/tmp",
+      apiKey: "ak-test",
+    } as any);
+
+    expect(ok).toBe(true);
+    expect(authenticate).toHaveBeenCalledWith({ methodId: "codex-api-key" });
 
     await engine.destroy();
   });
@@ -780,6 +919,53 @@ describe("AcpEngine.chat", () => {
       sessionId,
       [{ type: "text", text: "hello trace" }],
       { messageID: "rid-chat-claude-001" },
+    );
+  });
+
+  it("codex-cli: config.workspaceDir 已是项目目录时不重复拼接 cwd", async () => {
+    const engine = new AcpEngine("codex-cli");
+    const projectDir = path.join(
+      "/tmp/workspace",
+      "computer-project-workspace",
+      "user-1",
+      "project-codex",
+    );
+    (engine as any).config = {
+      engine: "codex-cli",
+      workspaceDir: projectDir,
+      mcpServers: {},
+    };
+    (engine as any).acpConnection = {} as any;
+
+    const createSessionSpy = vi
+      .spyOn(engine, "createSession")
+      .mockImplementation(async () => {
+        (engine as any).sessions.set("new-session-codex", {
+          id: "new-session-codex",
+          acpSessionId: "new-session-codex",
+          createdAt: Date.now(),
+          status: "idle",
+          mcpServerCount: 0,
+        });
+        return {
+          id: "new-session-codex",
+          title: "project-codex",
+          time: { created: Date.now() },
+        } as any;
+      });
+
+    vi.spyOn(engine, "promptAsync").mockResolvedValue(undefined);
+
+    const result = await engine.chat({
+      user_id: "user-1",
+      project_id: "project-codex",
+      request_id: "rid-chat-codex-001",
+      prompt: "hello codex",
+    } as any);
+
+    expect(result.success).toBe(true);
+    expect(createSessionSpy).toHaveBeenCalledWith(
+      expect.objectContaining({ cwd: projectDir }),
     );
   });
 

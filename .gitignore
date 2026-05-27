@@ -1,3 +1,4 @@
+.kilo/
 .idea/
 tmp/
 logs/
@@ -48,8 +49,18 @@ crates/agent-electron-client/resources/sandboxed-fs-mcp/.bundle-version
 # Bundled nuwaxcode: 构建时从 GitHub Release 下载，不入库
 crates/agent-electron-client/resources/nuwaxcode/
 
+# Bundled nuwax-codex-acp: 构建时从 GitHub Release 下载，不入库
+crates/agent-electron-client/resources/codex-acp/
+
 # Bundled windows-mcp: 构建时 prepare:windows-mcp 生成，不入库
 crates/agent-electron-client/resources/windows-mcp/
+
+# Bundled gateway: 构建时从源码 build 并集成（替代 chat2response）
+crates/agent-electron-client/resources/gateway/
+
+# gateway-server: 包含 .env 敏感配置，不入库
+crates/gateway-server/.env
+crates/gateway-server/node_modules/
 
 # Bundled nuwax-file-server: 构建时 prepare:nuwax-file-server 从 GitHub 克隆源码 build 并集成
 crates/agent-electron-client/resources/nuwax-file-server/
@@ -57,14 +68,15 @@ crates/agent-electron-client/resources/nuwax-file-server/
 # Bundled claude-code-acp-ts: 构建时 prepare:claude-code-acp-ts 从 GitHub 克隆源码 build 并集成
 crates/agent-electron-client/resources/claude-code-acp-ts/
 
-# Bundled codex-acp: 构建时 prepare:codex-acp 从 Release 下载，不入库
-crates/agent-electron-client/resources/codex-acp/
-
 # 源码克隆目录（prepare:nuwax-file-server / prepare:claude-code-acp-ts 使用）
 crates/agent-electron-client/sources/
 
 # Windows 专用 sandbox helper：build:sandbox-helper 生成，不入库
 crates/agent-electron-client/resources/sandbox-helper/*.exe
+
+# Bundled sandbox runtime：prepare:sandbox-runtime 同步产物与 resolved-manifest，不入库
+crates/agent-electron-client/resources/sandbox-runtime/bin/
+crates/agent-electron-client/resources/sandbox-runtime/resolved-manifest.json
 
 # Prepare 脚本的临时下载缓存（不入库）
 crates/agent-electron-client/scripts/resources/
@@ -83,4 +95,3 @@ crates/agent-electron-client/resources/gateway/
 crates/gateway-server/.env
 
 .kilo/
-

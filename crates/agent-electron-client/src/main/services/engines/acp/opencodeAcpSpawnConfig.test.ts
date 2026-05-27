@@ -48,4 +48,18 @@ describe("opencodeAcpSpawnConfig", () => {
       path: "opencode-config-sandbox",
     });
   });
+
+  it("buildOpencodeSpawnConfig routes mutable tools through ACP permission requests", () => {
+    const { configObj } = buildOpencodeSpawnConfig({
+      workspaceDir: "/ws",
+    });
+    expect(configObj.permission).toMatchObject({
+      bash: "ask",
+      edit: "ask",
+      webfetch: "ask",
+      external_directory: "ask",
+      doom_loop: "ask",
+      question: "deny",
+    });
+  });
 });

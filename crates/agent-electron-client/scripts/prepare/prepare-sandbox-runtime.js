@@ -123,6 +123,32 @@ function main() {
     }
   }
 
+  // 缓存检查：若 platform-key + 版本 + 文件 hash/大小均匹配，跳过复制
+  const platformKeyFile = path.join(targetBin, '.platform-key');
+  const resolvedManifestPath = path.join(targetRoot, 'resolved-manifest.json');
+  if (fs.existsSync(platformKeyFile) && fs.existsSync(resolvedManifestPath)) {
+    try {
+      const savedKey = fs.readFileSync(platformKeyFile, 'utf-8').trim();
+      const savedManifest = JSON.parse(fs.readFileSync(resolvedManifestPath, 'utf-8'));
+      const targetName = artifact.targetName || path.basename(sourcePath);
+      const targetPath = path.join(targetBin, targetName);
+      if (savedKey === key
+        && savedManifest.version === (manifest.version || 'unknown')
+        && fs.existsSync(targetPath)) {
+        if (artifact.sha256) {
+          const currentHash = sha256(targetPath);
+          if (currentHash === artifact.sha256) {
+            console.log(`[prepare-sandbox-runtime] ${key} ✓ (已是最新, SHA256 匹配)`);
+            return;
+          }
+        } else if (fs.statSync(sourcePath).size === fs.statSync(targetPath).size) {
+          console.log(`[prepare-sandbox-runtime] ${key} ✓ (已是最新, 大小匹配)`);
+          return;
+        }
+      }
+    } catch { /* 缓存文件损坏，继续执行 */ }
+  }
+
   ensureDir(targetBin);
   const targetName = artifact.targetName || path.basename(sourcePath);
   const targetPath = path.join(targetBin, targetName);

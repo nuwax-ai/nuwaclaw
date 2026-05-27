@@ -60,10 +60,16 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 function unwrapData<T>(payload: unknown): T {
-  if (isRecord(payload) && 'data' in payload) {
-    return payload.data as T;
+  let current = payload;
+  // Unwrap up to 2 levels of `{ data: … }` envelopes (nuwax sometimes nests).
+  for (let i = 0; i < 2; i++) {
+    if (isRecord(current) && 'data' in current) {
+      current = (current as Record<string, unknown>).data;
+    } else {
+      break;
+    }
   }
-  return payload as T;
+  return current as T;
 }
 
 /**
@@ -104,8 +110,12 @@ function readString(value: unknown, keys: string[]): string | undefined {
 function readCollection(value: unknown): unknown[] {
   if (Array.isArray(value)) return value;
   if (!isRecord(value)) return [];
-  for (const key of ['items', 'list', 'records', 'rows', 'conversations', 'messages', 'suggestions', 'questions']) {
+  for (const key of ['items', 'list', 'records', 'rows', 'conversations', 'messages', 'suggestions', 'questions', 'content', 'data', 'result']) {
     if (Array.isArray(value[key])) return value[key];
+  }
+  // Generic fallback: return the first array-valued field
+  for (const val of Object.values(value)) {
+    if (Array.isArray(val)) return val;
   }
   return [];
 }
@@ -533,6 +543,14 @@ export function createWebApiAdapter(options: WebApiAdapterOptions): WorkbenchApi
           body: listBody,
         }),
       ]);
+      console.warn('[agent-workbench] listConversations response:', {
+        agentId: toApiId(agentId),
+        limit: listBody.limit,
+        raw: data,
+        type: typeof data,
+        isArr: Array.isArray(data),
+        keys: isRecord(data) ? Object.keys(data) : undefined,
+      });
       const items = readCollection(data);
       const conversations = items.map((item) => normalizeConversation(item, agentId));
       const publishedConversationId = readString(publishedAgent, [

@@ -124,6 +124,10 @@ export default function DependenciesPage() {
     available: boolean;
     version?: string;
   } | null>(null);
+  const [codexAcpBundled, setCodexAcpBundled] = useState<{
+    available: boolean;
+    version?: string;
+  } | null>(null);
   const [fileServerBundled, setFileServerBundled] = useState<{
     available: boolean;
     version?: string;
@@ -204,6 +208,17 @@ export default function DependenciesPage() {
           ? { available: true, version: acpRes.version }
           : { available: false },
       );
+
+      // 应用包内集成的 nuwax-codex-acp
+      if (window.electronAPI?.dependencies.checkCodexAcpBundled) {
+        const codexAcpRes =
+          await window.electronAPI.dependencies.checkCodexAcpBundled();
+        setCodexAcpBundled(
+          codexAcpRes?.success && codexAcpRes.available
+            ? { available: true, version: codexAcpRes.version }
+            : { available: false },
+        );
+      }
 
       // 应用包内集成的 nuwax-file-server
       const fileServerRes =
@@ -835,6 +850,44 @@ export default function DependenciesPage() {
               }}
             >
               {claudeCodeAcpBundled?.available
+                ? t(I18N_KEYS.Pages.Dependencies.INTEGRATED)
+                : t(I18N_KEYS.Pages.Dependencies.NOT_INTEGRATED)}
+            </span>
+          </div>
+
+          {/* nuwax-codex-acp：应用包内集成 */}
+          <div className={styles.serviceRow}>
+            <div className={styles.serviceInfo}>
+              {codexAcpBundled?.available ? (
+                <CheckCircleOutlined
+                  style={{ color: "var(--color-success)", fontSize: 12 }}
+                />
+              ) : (
+                <ExclamationCircleOutlined
+                  style={{ color: "var(--color-warning)", fontSize: 12 }}
+                />
+              )}
+              <div>
+                <span className={styles.serviceLabel}>
+                  {t(I18N_KEYS.Pages.Dependencies.DEP_CODEX_ACP)}
+                </span>
+                {codexAcpBundled?.available && codexAcpBundled.version && (
+                  <span className={styles.serviceDescription}>
+                    {" "}
+                    {codexAcpBundled.version}
+                  </span>
+                )}
+              </div>
+            </div>
+            <span
+              style={{
+                fontSize: 12,
+                color: codexAcpBundled?.available
+                  ? "var(--color-success)"
+                  : "var(--color-text-tertiary)",
+              }}
+            >
+              {codexAcpBundled?.available
                 ? t(I18N_KEYS.Pages.Dependencies.INTEGRATED)
                 : t(I18N_KEYS.Pages.Dependencies.NOT_INTEGRATED)}
             </span>

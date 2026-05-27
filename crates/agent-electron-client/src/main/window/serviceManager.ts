@@ -40,6 +40,9 @@ import {
 } from "../services/packages/windowsMcp";
 import { stopAllEngines } from "../services/engines/engineManager";
 import { clearAllSseEventBuffers } from "../services/computerServer";
+import { killProcessTreesListeningOnTcpPort } from "../services/utils/processTree";
+import { shouldStartGuiMcpServices } from "../services/packages/guiMcpLocalConfig";
+import { isWindows } from "../services/system/shellEnv";
 
 export interface ServiceManagerContext {
   lanproxy: ManagedProcess;
@@ -69,6 +72,13 @@ export function createServiceManager(ctx: ServiceManagerContext) {
   const startFileServer = async (port: number): Promise<ServiceResult> => {
     if (ctx.fileServer.running) {
       return { success: true, message: "Already running" };
+    }
+
+    try {
+      log.info(`[ServiceManager] Pre-start FileServer port sweep for ${port}`);
+      await killProcessTreesListeningOnTcpPort(port);
+    } catch (e) {
+      log.warn("[ServiceManager] FileServer pre-start port sweep failed:", e);
     }
 
     const appDataDir = path.join(app.getPath("home"), APP_DATA_DIR_NAME);
@@ -185,6 +195,48 @@ export function createServiceManager(ctx: ServiceManagerContext) {
     });
   };
 
+  /** 按设置页开关启动 GUI MCP（macOS/Linux agent-gui-server + Windows MCP） */
+  const startGuiMcpServicesOnRestart = async (
+    results: Record<string, ServiceResult>,
+  ): Promise<void> => {
+    if (!shouldStartGuiMcpServices()) {
+      if (FEATURES.ENABLE_GUI_AGENT_SERVER) {
+        log.info(
+          "[ServiceManager] GUI MCP skipped on restart (disabled in settings)",
+        );
+      }
+      return;
+    }
+
+    if (isWindows()) {
+      try {
+        const winResult = await startWindowsMcp();
+        results.windowsMcp = winResult;
+        if (!winResult.success) {
+          log.warn(
+            `[ServiceManager] Windows MCP start failed: ${winResult.error}`,
+          );
+        }
+      } catch (e) {
+        results.windowsMcp = { success: false, error: String(e) };
+        log.warn("[ServiceManager] Windows MCP start exception:", e);
+      }
+    } else {
+      try {
+        const guiResult = await startGuiAgentServer();
+        results.guiAgentServer = guiResult;
+        if (!guiResult.success) {
+          log.warn(
+            `[ServiceManager] GUI Agent Server start failed: ${guiResult.error}`,
+          );
+        }
+      } catch (e) {
+        results.guiAgentServer = { success: false, error: String(e) };
+        log.warn("[ServiceManager] GUI Agent Server start exception:", e);
+      }
+    }
+  };
+
   /**
    * 重启所有服务
    */
@@ -208,8 +260,9 @@ export function createServiceManager(ctx: ServiceManagerContext) {
     } catch (e) {
       log.warn("[ServiceManager] Agent destroy error (ignored):", e);
     }
-    ctx.fileServer.stop();
-    ctx.lanproxy.stop();
+    await ctx.fileServer.stopAsync();
+    await killProcessTreesListeningOnTcpPort(getConfiguredPorts().fileServer);
+    await ctx.lanproxy.stopAsync();
     await mcpProxyManager.stop();
 
     // 2. 启动 MCP Proxy（必须先于 Agent：Agent 初始化时会连 MCP Proxy 注入 mcpServers）
@@ -232,37 +285,7 @@ export function createServiceManager(ctx: ServiceManagerContext) {
       log.error("[ServiceManager] MCP Proxy start failed:", e);
     }
 
-    // 2.5. 启动 GUI Agent Server（非 Windows 平台，提供 GUI 自动化 MCP tools）
-    if (FEATURES.ENABLE_GUI_AGENT_SERVER) {
-      try {
-        const guiResult = await startGuiAgentServer();
-        results.guiAgentServer = guiResult;
-        if (!guiResult.success) {
-          log.warn(
-            `[ServiceManager] GUI Agent Server start failed: ${guiResult.error}`,
-          );
-        }
-      } catch (e) {
-        results.guiAgentServer = { success: false, error: String(e) };
-        log.warn("[ServiceManager] GUI Agent Server start exception:", e);
-      }
-    }
-
-    // 2.6. 启动 Windows MCP（Windows 平台，提供 GUI 自动化 MCP tools）
-    if (FEATURES.ENABLE_GUI_AGENT_SERVER) {
-      try {
-        const winResult = await startWindowsMcp();
-        results.windowsMcp = winResult;
-        if (!winResult.success) {
-          log.warn(
-            `[ServiceManager] Windows MCP start failed: ${winResult.error}`,
-          );
-        }
-      } catch (e) {
-        results.windowsMcp = { success: false, error: String(e) };
-        log.warn("[ServiceManager] Windows MCP start exception:", e);
-      }
-    }
+    await startGuiMcpServicesOnRestart(results);
 
     // 3. 启动 Agent（依赖 MCP Proxy 已就绪以便 getAgentMcpConfig 对应进程可连）
     try {
@@ -280,6 +303,9 @@ export function createServiceManager(ctx: ServiceManagerContext) {
       const ok = await agentService.init(finalConfig);
       results.agent = { success: ok };
       log.info("[ServiceManager] Agent started");
+      if (ok) {
+        log.info("[ServiceManager] Agent started");
+      }
     } catch (e) {
       results.agent = { success: false, error: String(e) };
       log.error("[ServiceManager] Agent start failed:", e);
@@ -389,7 +415,8 @@ export function createServiceManager(ctx: ServiceManagerContext) {
     } catch (e) {
       log.warn("[ServiceManager] Agent destroy error (ignored):", e);
     }
-    ctx.fileServer.stop();
+    await ctx.fileServer.stopAsync();
+    await killProcessTreesListeningOnTcpPort(getConfiguredPorts().fileServer);
     // 不停止 lanproxy: ctx.lanproxy.stop();
     // 先停止 GUI agents（它们依赖 MCP Proxy，先停 MCP 再停 GUI）
     await mcpProxyManager.stop();
@@ -417,35 +444,7 @@ export function createServiceManager(ctx: ServiceManagerContext) {
       log.error("[ServiceManager] MCP Proxy start failed:", e);
     }
 
-    // 2.5. 启动 GUI Agent Server（非 Windows 平台）
-    if (FEATURES.ENABLE_GUI_AGENT_SERVER) {
-      try {
-        const guiResult = await startGuiAgentServer();
-        results.guiAgentServer = guiResult;
-        if (!guiResult.success) {
-          log.warn(
-            `[ServiceManager] GUI Agent Server start failed: ${guiResult.error}`,
-          );
-        }
-      } catch (e) {
-        results.guiAgentServer = { success: false, error: String(e) };
-        log.warn("[ServiceManager] GUI Agent Server start exception:", e);
-      }
-    }
-
-    // 2.6. 启动 Windows MCP（Windows 平台）
-    try {
-      const winResult = await startWindowsMcp();
-      results.windowsMcp = winResult;
-      if (!winResult.success) {
-        log.warn(
-          `[ServiceManager] Windows MCP start failed: ${winResult.error}`,
-        );
-      }
-    } catch (e) {
-      results.windowsMcp = { success: false, error: String(e) };
-      log.warn("[ServiceManager] Windows MCP start exception:", e);
-    }
+    await startGuiMcpServicesOnRestart(results);
 
     // 3. 启动 Agent（依赖 MCP Proxy 已就绪）
     try {
@@ -463,6 +462,9 @@ export function createServiceManager(ctx: ServiceManagerContext) {
       const ok = await agentService.init(finalConfig);
       results.agent = { success: ok };
       log.info("[ServiceManager] Agent started");
+      if (ok) {
+        log.info("[ServiceManager] Agent started");
+      }
     } catch (e) {
       results.agent = { success: false, error: String(e) };
       log.error("[ServiceManager] Agent start failed:", e);
@@ -511,7 +513,8 @@ export function createServiceManager(ctx: ServiceManagerContext) {
 
     // 停止文件服务器
     try {
-      ctx.fileServer.stop();
+      await ctx.fileServer.stopAsync();
+      await killProcessTreesListeningOnTcpPort(getConfiguredPorts().fileServer);
       results.fileServer = { success: true };
       log.info("[ServiceManager] FileServer stopped");
     } catch (e) {
@@ -520,7 +523,7 @@ export function createServiceManager(ctx: ServiceManagerContext) {
 
     // 停止 Lanproxy
     try {
-      ctx.lanproxy.stop();
+      await ctx.lanproxy.stopAsync();
       results.lanproxy = { success: true };
       log.info("[Lanproxy] Stopped");
     } catch (e) {

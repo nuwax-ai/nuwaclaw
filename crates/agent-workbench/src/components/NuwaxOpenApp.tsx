@@ -387,10 +387,9 @@ export function NuwaxOpenApp() {
     try {
       await createConversation(labels.newConversation);
     } catch (cause) {
-      console.error('[NuwaxOpenApp] createConversation failed:', cause);
       reportError(cause, 'Failed to create conversation', { phase: 'createConversation' });
     }
-  }, [agentId, createConversation, labels.newConversation, reportError]);
+  }, [createConversation, labels.newConversation, reportError]);
 
   useEffect(() => {
     if (!agentId) return;
@@ -473,8 +472,18 @@ export function NuwaxOpenApp() {
     if (target) {
       loadedConversationRef.current = view.conversationId;
       void loadConversation(target);
+    } else if (view.conversationId) {
+      loadedConversationRef.current = view.conversationId;
+      void conv.loadConversation({
+        id: view.conversationId,
+        agentId,
+        title: '',
+        createdAt: nowIso(),
+        updatedAt: nowIso(),
+        status: 'idle',
+      });
     }
-  }, [activeConversation?.id, conversations, loadConversation, messages.length, view]);
+  }, [activeConversation?.id, agentId, conv, conversations, loadConversation, messages.length, view]);
 
   useEffect(() => {
     transcriptRef.current?.scrollTo({

@@ -5,6 +5,8 @@ import { z } from "zod";
 import type { HandlerContext } from "@shared/types/ipc";
 import { createServiceManager } from "../window/serviceManager";
 import { checkLanproxyHealth } from "../services/packages/lanproxyHealth";
+import { getConfiguredPorts } from "../services/startupPorts";
+import { killProcessTreesListeningOnTcpPort } from "../services/utils/processTree";
 
 export const lanproxyConfigSchema = z.object({
   serverIp: z.string().min(1),
@@ -27,6 +29,18 @@ export const portSchema = z.number().int().positive();
 function invalidArgs(channel: string, issues: unknown) {
   log.warn(`[IPC] ${channel} invalid args:`, issues);
   return { success: false, error: `Invalid arguments for ${channel}` };
+}
+
+async function clearServicePort(
+  serviceName: string,
+  port: number,
+): Promise<void> {
+  try {
+    log.info(`[IPC] ${serviceName}: clearing TCP listeners on port ${port}`);
+    await killProcessTreesListeningOnTcpPort(port);
+  } catch (error) {
+    log.warn(`[IPC] ${serviceName}: port cleanup failed`, error);
+  }
 }
 
 /** 模块级 _serviceManager，供其他模块（如 computerServer）访问 */
@@ -53,6 +67,8 @@ export function registerProcessHandlers(ctx: HandlerContext): void {
   const startFileServerProcess = async (
     port: number,
   ): Promise<{ success: boolean; error?: string }> => {
+    await ctx.fileServer.stopAsync(3000);
+    await clearServicePort("fileServer:start", port);
     return sm.startFileServer(port);
   };
 
@@ -139,7 +155,7 @@ export function registerProcessHandlers(ctx: HandlerContext): void {
   );
 
   ipcMain.handle("lanproxy:stop", async () => {
-    return ctx.lanproxy.stop();
+    return ctx.lanproxy.stopAsync(3000);
   });
 
   ipcMain.handle("lanproxy:status", () => {
@@ -176,8 +192,10 @@ export function registerProcessHandlers(ctx: HandlerContext): void {
       const { getAppEnv } = await import("../services/system/dependencies");
 
       if (ctx.agentRunner.running) {
-        return { success: true, message: "Already running" };
+        await ctx.agentRunner.stopAsync(3000);
       }
+      await clearServicePort("agentRunner:start:backend", cfg.backendPort);
+      await clearServicePort("agentRunner:start:proxy", cfg.proxyPort);
 
       const args = [
         "--backend-port",
@@ -223,7 +241,12 @@ export function registerProcessHandlers(ctx: HandlerContext): void {
   );
 
   ipcMain.handle("agentRunner:stop", async () => {
-    const result = ctx.agentRunner.stop();
+    const ports = ctx.agentRunnerPorts;
+    const result = await ctx.agentRunner.stopAsync(3000);
+    if (ports) {
+      await clearServicePort("agentRunner:stop:backend", ports.backendPort);
+      await clearServicePort("agentRunner:stop:proxy", ports.proxyPort);
+    }
     ctx.setAgentRunnerPorts(null);
     return result;
   });
@@ -251,7 +274,9 @@ export function registerProcessHandlers(ctx: HandlerContext): void {
   });
 
   ipcMain.handle("fileServer:stop", async () => {
-    return ctx.fileServer.stop();
+    const result = await ctx.fileServer.stopAsync(3000);
+    await clearServicePort("fileServer:stop", getConfiguredPorts().fileServer);
+    return result;
   });
 
   ipcMain.handle("fileServer:status", () => {
@@ -267,19 +292,22 @@ export function registerProcessHandlers(ctx: HandlerContext): void {
 
   ipcMain.handle("computerServer:start", async (_, port?: number) => {
     const { startComputerServer } = await import("../services/computerServer");
-    const { getConfiguredPorts } = await import("../services/startupPorts");
     const resolvedPortRaw = port ?? getConfiguredPorts().agent;
     const parsed = portSchema.safeParse(resolvedPortRaw);
     if (!parsed.success) {
       return invalidArgs("computerServer:start", parsed.error.issues);
     }
     const resolvedPort = parsed.data;
+    const { stopComputerServer } = await import("../services/computerServer");
+    await stopComputerServer();
+    await clearServicePort("computerServer:start", resolvedPort);
     return startComputerServer(resolvedPort);
   });
 
   ipcMain.handle("computerServer:stop", async () => {
     const { stopComputerServer } = await import("../services/computerServer");
     await stopComputerServer();
+    await clearServicePort("computerServer:stop", getConfiguredPorts().agent);
     return { success: true };
   });
 
@@ -308,6 +336,10 @@ export function registerProcessHandlers(ctx: HandlerContext): void {
     try {
       const { stopComputerServer } = await import("../services/computerServer");
       await stopComputerServer();
+      await clearServicePort(
+        "computerServer:restartAll",
+        getConfiguredPorts().agent,
+      );
     } catch (e) {
       log.warn("[Services] ComputerServer stop error (ignored):", e);
     }
@@ -346,6 +378,10 @@ export function registerProcessHandlers(ctx: HandlerContext): void {
     try {
       const { stopComputerServer } = await import("../services/computerServer");
       await stopComputerServer();
+      await clearServicePort(
+        "computerServer:stopAll",
+        getConfiguredPorts().agent,
+      );
       results.computerServer = { success: true };
       log.info("[Services] ComputerServer stopped");
     } catch (e) {
@@ -370,8 +406,11 @@ export function registerProcessHandlers(ctx: HandlerContext): void {
     try {
       const { startComputerServer } =
         await import("../services/computerServer");
-      const { getConfiguredPorts } = await import("../services/startupPorts");
       const { agent: agentPort } = getConfiguredPorts();
+      await clearServicePort(
+        "computerServer:restartAllExceptLanproxy",
+        agentPort,
+      );
       results.computerServer = await startComputerServer(agentPort);
       log.info("[Services] ComputerServer started:", results.computerServer);
     } catch (e) {

@@ -19,12 +19,6 @@ import {
 } from "../constants";
 import { APP_NAME_IDENTIFIER, I18N_KEYS } from "@shared/constants";
 import { isWindows } from "./shellEnv";
-import {
-  spawnCrossPlatform,
-  getNpmCommand,
-  getNodeCommand,
-  getCommandChecker,
-} from "../utils/spawn";
 import { t } from "../i18n";
 // ==================== Types ====================
 
@@ -503,6 +497,53 @@ export function getNuwaxcodeBundledBinPath(): string | null {
     return bundledPath;
   }
 
+  return null;
+}
+
+/**
+ * 获取 nuwax-codex-acp bundled binary 路径
+ */
+export function getCodexAcpBundledBinPath(): string | null {
+  const platformMap: Record<string, string> = {
+    darwin: "darwin",
+    linux: "linux",
+    win32: "windows",
+  };
+  const archMap: Record<string, string> = {
+    x64: "x64",
+    arm64: "arm64",
+    arm: "arm",
+  };
+  const platform = platformMap[os.platform()] || os.platform();
+  const arch = archMap[os.arch()] || os.arch();
+  const binary =
+    platform === "windows" ? "nuwax-codex-acp.exe" : "nuwax-codex-acp";
+  const bundledPath = path.join(
+    getResourcesPath(),
+    "codex-acp",
+    `${platform}-${arch}`,
+    "bin",
+    binary,
+  );
+  if (fs.existsSync(bundledPath)) {
+    return bundledPath;
+  }
+  return null;
+}
+
+/**
+ * 获取应用内集成的 nuwax-codex-acp 目录
+ *
+ * 打包后: process.resourcesPath/codex-acp/
+ * 开发时: resources/codex-acp/
+ *
+ * @returns 目录路径（含 .version 文件），或 null
+ */
+export function getCodexAcpBundledDir(): string | null {
+  const bundledDir = path.join(getResourcesPath(), "codex-acp");
+  if (fs.existsSync(path.join(bundledDir, ".version"))) {
+    return bundledDir;
+  }
   return null;
 }
 
@@ -1177,6 +1218,15 @@ export function getSetupRequiredDependencies(): LocalDependencyConfig[] {
       binName: "claude-code-acp-ts",
       installVersion: "0.24.3",
     },
+    {
+      name: "codex-acp",
+      displayName: t(I18N_KEYS.Pages.Dependencies.DEP_CODEX_ACP),
+      type: "bundled",
+      description: t(I18N_KEYS.Pages.Dependencies.DESC_CODEX_ACP),
+      required: true,
+      binName: "nuwax-codex-acp",
+      installVersion: "0.15.11",
+    },
   ];
 }
 
@@ -1465,6 +1515,31 @@ export async function checkClaudeCodeAcpBundled(): Promise<{
     return { available: true, version };
   } catch (e) {
     log.warn("[checkClaudeCodeAcpBundled] Failed to read package.json:", e);
+    return { available: true };
+  }
+}
+
+/**
+ * 检测应用包内集成的 nuwax-codex-acp 是否可用
+ */
+export async function checkCodexAcpBundled(): Promise<{
+  available: boolean;
+  version?: string;
+}> {
+  const bundledDir = getCodexAcpBundledDir();
+  if (!bundledDir) {
+    log.info("[checkCodexAcpBundled] Bundled not found");
+    return { available: false };
+  }
+  const versionFile = path.join(bundledDir, ".version");
+  try {
+    const version = fs.readFileSync(versionFile, "utf-8").trim();
+    log.info(
+      `[checkCodexAcpBundled] Bundled available: ${bundledDir}, version=${version ?? "unknown"}`,
+    );
+    return { available: true, version };
+  } catch (e) {
+    log.warn("[checkCodexAcpBundled] Failed to read .version:", e);
     return { available: true };
   }
 }
@@ -1964,6 +2039,23 @@ export async function checkAllDependencies(options?: {
           }
           break;
         }
+        case "codex-acp": {
+          const bundledDir = getCodexAcpBundledDir();
+          if (bundledDir) {
+            const versionFile = path.join(bundledDir, ".version");
+            try {
+              const version = fs.readFileSync(versionFile, "utf-8").trim();
+              item.status = "bundled";
+              item.version = version;
+              item.binPath = bundledDir;
+            } catch {
+              item.status = "bundled";
+            }
+          } else {
+            item.status = "missing";
+          }
+          break;
+        }
         default: {
           item.status = "missing";
         }
@@ -2173,4 +2265,5 @@ export default {
   MIRROR_PRESETS,
   getNuwaxFileServerBundledDir,
   getClaudeCodeAcpBundledDir,
+  getCodexAcpBundledDir,
 };

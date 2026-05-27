@@ -38,6 +38,11 @@ import { resolveNpmPackageEntry } from "../utils/spawnNoWindow";
 import { APP_DATA_DIR_NAME } from "../constants";
 import { isWindows } from "../system/shellEnv";
 import { persistentMcpBridge } from "./persistentMcpBridge";
+import { discoverRemoteMcpTools } from "./discoverRemoteMcpTools";
+import { isGuiMcpManagedServerId } from "@shared/guiMcp";
+import { getGuiMcpEnabled } from "./guiMcpLocalConfig";
+import { getGuiAgentServerUrl } from "./guiAgentServer";
+import { getWindowsMcpUrl } from "./windowsMcp";
 
 type PerfValue = string | number | boolean | null | undefined;
 
@@ -196,12 +201,7 @@ function writeMcpStdioMessage(
   stdin: { write: (chunk: string | Buffer) => void },
   payload: unknown,
 ): void {
-  // MCP stdio uses Content-Length framing (like LSP):
-  //   Content-Length: <bytes>\r\n\r\n<json>
-  const json = JSON.stringify(payload);
-  const body = Buffer.from(json, "utf8");
-  const header = Buffer.from(`Content-Length: ${body.length}\r\n\r\n`, "utf8");
-  stdin.write(Buffer.concat([header, body]));
+  stdin.write(`${JSON.stringify(payload)}\n`);
 }
 
 /**
@@ -484,6 +484,8 @@ export interface StdioMcpServerEntry {
   command: string;
   args: string[];
   env?: Record<string, string>;
+  /** 本地 MCP 管理：是否参与 Agent 会话（缺省由调用方按 false 处理） */
+  enabled?: boolean;
   /** 标记为持久化 server（生命周期由 PersistentMcpBridge 管理，而非跟随 ACP session） */
   persistent?: boolean;
   /** 工具白名单（只暴露指定工具） */
@@ -498,6 +500,8 @@ export interface RemoteMcpServerEntry {
   transport?: "streamable-http" | "sse";
   headers?: Record<string, string>;
   authToken?: string;
+  /** 本地 MCP 管理：是否参与 Agent 会话（缺省由调用方按 false 处理） */
+  enabled?: boolean;
   /** 工具白名单（只暴露指定工具） */
   allowTools?: string[];
   /** 工具黑名单（排除指定工具） */
@@ -1121,16 +1125,30 @@ class McpProxyManager {
         // 解析失败时 servers 保持为空
       }
     }
-    const entry = servers[serverId];
+    let entry = servers[serverId];
     if (!entry) {
       throw new Error(`MCP server not found: ${serverId}`);
     }
 
-    // 远程类型暂不支持工具发现（需要 MCP SDK 支持）
     if (isRemoteEntry(entry)) {
-      throw new Error(
-        "Tool discovery not supported for remote MCP servers yet",
-      );
+      if (isGuiMcpManagedServerId(serverId)) {
+        if (!getGuiMcpEnabled()) {
+          throw new Error(t("Claw.MCP.list.guiMcpDisabledForTest"));
+        }
+        const liveUrl = isWindows()
+          ? getWindowsMcpUrl()
+          : getGuiAgentServerUrl();
+        if (!liveUrl) {
+          throw new Error(t("Claw.MCP.list.guiMcpNotRunning"));
+        }
+        entry = { ...entry, url: liveUrl };
+      }
+      try {
+        return await discoverRemoteMcpTools(entry);
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        throw new Error(t("Claw.MCP.list.testFailed", msg));
+      }
     }
 
     // 解析命令和环境变量
@@ -1393,7 +1411,7 @@ async function withSyncMcpLock<T>(fn: () => Promise<T>): Promise<T> {
   }
 }
 
-/** 比较两个 stdio 配置是否相等（忽略 env 中的临时变量） */
+/** 比较两个 stdio 配置是否相等 */
 function configsEqual(
   a: Record<string, StdioMcpServerEntry>,
   b: Record<string, StdioMcpServerEntry> | null,
@@ -1409,6 +1427,8 @@ function configsEqual(
     const entryB = b[key];
     if (entryA.command !== entryB.command) return false;
     if (JSON.stringify(entryA.args) !== JSON.stringify(entryB.args))
+      return false;
+    if (JSON.stringify(entryA.env || {}) !== JSON.stringify(entryB.env || {}))
       return false;
     // persistent 标志必须一致
     if (entryA.persistent !== entryB.persistent) return false;
@@ -1449,6 +1469,7 @@ export async function syncMcpConfigToProxyAndReload(
           command: entry.command,
           args: Array.isArray(entry.args) ? entry.args : [],
           env: entry.env,
+          ...(entry.persistent ? { persistent: true } : {}),
           ...(entry.allowTools ? { allowTools: entry.allowTools } : {}),
           ...(entry.denyTools ? { denyTools: entry.denyTools } : {}),
         };

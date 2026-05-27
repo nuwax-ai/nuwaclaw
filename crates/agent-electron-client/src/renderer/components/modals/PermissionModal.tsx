@@ -1,3 +1,9 @@
+/**
+ * @deprecated Legacy permission modal.
+ * ACP permission now uses the intervention system (v3).
+ * Approval UI is rendered by Nuwax Web/Mobile, not Electron.
+ * This component is retained for legacy compat only.
+ */
 import { useState, useEffect } from "react";
 import {
   permissionManager,

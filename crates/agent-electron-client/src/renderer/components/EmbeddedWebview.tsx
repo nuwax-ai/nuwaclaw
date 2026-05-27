@@ -9,7 +9,7 @@ import React, { useState, useEffect, useRef, useCallback } from "react";
 import { Button, Alert } from "antd";
 import { ArrowLeftOutlined, ReloadOutlined } from "@ant-design/icons";
 import { APP_DISPLAY_NAME } from "@shared/constants";
-import { t } from "../../services/core/i18n";
+import { t } from "@renderer/services/core/i18n";
 import styles from "../styles/components/EmbeddedWebview.module.css";
 
 interface EmbeddedWebviewProps {

@@ -2,6 +2,7 @@ import { spawn, ChildProcess } from "child_process";
 import log from "electron-log";
 import { PROCESS_KILL_ESCALATION_TIMEOUT } from "@shared/constants";
 import { t } from "./services/i18n";
+import { killProcessTreeGraceful } from "./services/utils/processTree";
 
 const STARTUP_STDERR_CAP = 8192;
 const STARTUP_STDERR_IN_ERROR = 1200;
@@ -171,13 +172,23 @@ export class ManagedProcess {
     this.lastError = null;
     if (this.process) {
       const proc = this.process;
+      const pid = proc.pid;
       this.process = null;
       // Remove all event listeners to prevent handle leaks (matching kill() behavior)
       proc.stdout?.removeAllListeners();
       proc.stderr?.removeAllListeners();
       proc.stdin?.removeAllListeners();
       proc.removeAllListeners();
-      proc.kill();
+      if (pid) {
+        void killProcessTreeGraceful(
+          pid,
+          PROCESS_KILL_ESCALATION_TIMEOUT,
+        ).catch((error) => {
+          log.warn(`[${this.name}] stop: process tree cleanup failed`, error);
+        });
+      } else {
+        proc.kill();
+      }
       return { success: true };
     }
     return { success: true, message: "Not running" };
@@ -193,6 +204,7 @@ export class ManagedProcess {
       return Promise.resolve({ success: true, message: "Not running" });
     }
     const proc = this.process;
+    const pid = proc.pid;
     this.process = null;
 
     // 与 kill() 保持一致：清理 stdio 监听器，防止 Windows 句柄泄漏。
@@ -220,7 +232,23 @@ export class ManagedProcess {
         resolve({ success: true });
       });
 
-      proc.kill();
+      if (pid) {
+        killProcessTreeGraceful(pid, timeoutMs)
+          .then(() => {
+            clearTimeout(timer);
+            resolve({ success: true });
+          })
+          .catch((error) => {
+            clearTimeout(timer);
+            log.warn(
+              `[${this.name}] stopAsync: process tree cleanup failed`,
+              error,
+            );
+            resolve({ success: true, message: String(error) });
+          });
+      } else {
+        proc.kill();
+      }
     });
   }
 
@@ -236,6 +264,7 @@ export class ManagedProcess {
   kill(): void {
     if (this.process) {
       const proc = this.process;
+      const pid = proc.pid;
       this.process = null;
       try {
         // 🔧 FIX: Remove all event listeners to prevent handle leaks
@@ -246,28 +275,23 @@ export class ManagedProcess {
         proc.stdin?.removeAllListeners();
         proc.removeAllListeners();
 
-        proc.kill();
-        log.info(`[Cleanup] ${this.name} sent SIGTERM`);
-
-        // Escalate to SIGKILL if process doesn't exit in time
-        const escalationTimer = setTimeout(() => {
-          try {
-            if (proc.pid) {
-              process.kill(proc.pid, "SIGKILL");
+        if (pid) {
+          void killProcessTreeGraceful(
+            pid,
+            PROCESS_KILL_ESCALATION_TIMEOUT,
+          ).then(
+            () => log.info(`[Cleanup] ${this.name} process tree exited`),
+            (error) =>
               log.warn(
-                `[Cleanup] ${this.name} escalated to SIGKILL after ${PROCESS_KILL_ESCALATION_TIMEOUT}ms`,
-              );
-            }
-          } catch {
-            // Process already exited, ignore
-          }
-        }, PROCESS_KILL_ESCALATION_TIMEOUT);
-
-        // Clear timer if process exits promptly
-        proc.once("exit", () => {
-          clearTimeout(escalationTimer);
-          log.info(`[Cleanup] ${this.name} exited`);
-        });
+                `[Cleanup] ${this.name} process tree cleanup failed`,
+                error,
+              ),
+          );
+          log.info(`[Cleanup] ${this.name} sent SIGTERM to process tree`);
+        } else {
+          proc.kill();
+          log.info(`[Cleanup] ${this.name} sent SIGTERM`);
+        }
       } catch (e) {
         log.error(`[Cleanup] ${this.name} stop error:`, e);
       }

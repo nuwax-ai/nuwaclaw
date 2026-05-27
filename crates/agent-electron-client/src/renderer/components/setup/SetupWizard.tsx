@@ -119,7 +119,7 @@ function SetupWizard({
           const state = await setupService.getSetupState();
           if (state.completed) {
             setCompleted(true);
-            onCompleteRef.current();
+            onComplete();
           } else {
             setCurrentStep(state.step1Completed ? 2 : 1);
           }

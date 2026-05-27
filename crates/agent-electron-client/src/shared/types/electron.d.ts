@@ -231,6 +231,13 @@ export interface DependenciesAPI {
     version?: string;
     error?: string;
   }>;
+  /** 应用包内集成的 nuwax-codex-acp */
+  checkCodexAcpBundled: () => Promise<{
+    success: boolean;
+    available?: boolean;
+    version?: string;
+    error?: string;
+  }>;
   /** 应用包内集成的 nuwax-file-server */
   checkNuwaxFileServerBundled: () => Promise<{
     success: boolean;
@@ -265,7 +272,7 @@ export interface DependenciesAPI {
   getRequiredList: () => Promise<LocalDependencyItem[]>;
 }
 
-export type AgentEngine = "claude-code" | "nuwaxcode";
+export type AgentEngine = "claude-code" | "nuwaxcode" | "codex";
 
 export interface EngineStartConfig {
   engine: AgentEngine;
@@ -307,7 +314,7 @@ export interface EngineAPI {
 }
 
 // SDK types (simplified for renderer use)
-export type AgentEngineType = "nuwaxcode" | "claude-code";
+export type AgentEngineType = "nuwaxcode" | "claude-code" | "codex-cli";
 
 export interface AgentInitConfig {
   engine: AgentEngineType;

@@ -1,6 +1,6 @@
 {
   "name": "@nuwax-ai/nuwaclaw",
-  "version": "0.9.7",
+  "version": "0.11.27",
   "description": "NuwaClaw",
   "main": "dist/main/main.js",
   "author": "Nuwax Team",
@@ -9,18 +9,19 @@
   "scripts": {
     "dev": "dotenv -e .env.development -- cross-env NODE_ENV=development concurrently \"npm run dev:vite\" \"npm run dev:electron\"",
     "dev:vite": "vite --force",
-    "dev:electron": "wait-on http://localhost:60173 && npm run build:main:dev && electron .",
+    "dev:electron": "wait-on http://localhost:60173 && npm run build:main:dev && dotenv -e .env.development -- cross-env NODE_ENV=development electron .",
     "build:main:dev": "dotenv -e .env.development -- cross-env NODE_ENV=development tsc -p tsconfig.main.json && tsc-alias -p tsconfig.main.json",
     "build:main": "dotenv -e .env.production -- cross-env NODE_ENV=production tsc -p tsconfig.main.json && tsc-alias -p tsconfig.main.json",
     "build:renderer": "vite build",
     "build": "dotenv -e .env.production -- cross-env NODE_ENV=production npm run build:main && npm run build:renderer",
     "test": "vitest",
     "test:run": "vitest run",
+    "test:scripts": "vitest run tests/scripts",
     "test:coverage": "vitest run --coverage",
     "sandbox:matrix:check": "vitest run tests/scripts/sandbox-matrix-consistency.test.ts",
     "sandbox:matrix:generate": "cross-env SANDBOX_MATRIX_WRITE=1 vitest run tests/scripts/sandbox-matrix-consistency.test.ts",
     "check:boundaries": "node scripts/tools/check-import-boundaries.js",
-    "test:integrated-node": "node scripts/tools/test-integrated-node.js",
+    "test:integrated-node": "node scripts/tools/test-integrated-node.js && npm run test:scripts",
     "prepare:uv": "node scripts/prepare/prepare-uv.js",
     "prepare:sign-uv": "node scripts/build/sign-uv-mac.js",
     "prepare:lanproxy": "node scripts/prepare/prepare-lanproxy.js",
@@ -32,10 +33,11 @@
     "prepare:sandboxed-mcp": "node scripts/prepare/prepare-sandboxed-mcp.js",
     "verify:sandboxed-mcp": "node scripts/verify-sandboxed-mcp-bundle.mjs",
     "prepare:nuwaxcode": "node scripts/prepare/prepare-nuwaxcode.js",
+    "prepare:codex-acp": "node scripts/prepare/prepare-codex-acp.js",
     "prepare:sandbox-runtime": "node scripts/prepare/prepare-sandbox-runtime.js",
     "build:sandbox-helper": "node scripts/prepare/build-sandbox-helper.js",
     "prepare:sandbox-helper-win": "node scripts/prepare/prepare-sandbox-helper-windows.js",
-    "prepare:all": "npm run prepare:uv && npm run prepare:sign-uv && npm run prepare:lanproxy && npm run prepare:node && npm run prepare:git && npm run prepare:mcp-proxy && npm run prepare:sandboxed-mcp && npm run prepare:nuwaxcode && npm run prepare:sandbox-helper-win && npm run prepare:sandbox-runtime && npm run prepare:gui-server && npm run prepare:windows-mcp && npm run prepare:nuwax-file-server && npm run prepare:claude-code-acp-ts",
+    "prepare:all": "node scripts/prepare/prepare-all.js",
     "prepare:nuwax-file-server": "node scripts/prepare/prepare-nuwax-file-server.js",
     "prepare:claude-code-acp-ts": "node scripts/prepare/prepare-claude-code-acp-ts.js",
     "prepare:gui-server": "node scripts/prepare/prepare-gui-server.js",
@@ -64,11 +66,11 @@
     "lint:fix": "eslint src --fix"
   },
   "dependencies": {
-    "@agentclientprotocol/sdk": "^0.14.1",
+    "@agentclientprotocol/sdk": "^0.21.1",
     "@ant-design/icons": "^5.6.1",
     "@anthropic-ai/sdk": "^0.39.0",
     "@modelcontextprotocol/sdk": "^1.27.1",
-    "@nuwax-ai/agent-workbench": "file:../agent-workbench",
+    "@nuwax-ai/agent-workbench": "workspace:*",
     "@uiw/react-json-view": "2.0.0-alpha.42",
     "@uiw/react-textarea-code-editor": "^3.1.1",
     "antd": "^5.29.3",
@@ -98,7 +100,7 @@
     "@types/react-dom": "^18.3.5",
     "@vitejs/plugin-react": "^4.3.4",
     "@vitest/coverage-v8": "^2.1.8",
-    "agent-gui-server": "file:../agent-gui-server",
+    "agent-gui-server": "workspace:*",
     "concurrently": "^9.1.2",
     "cross-env": "^7.0.3",
     "dotenv-cli": "^11.0.0",
@@ -109,7 +111,7 @@
     "eslint-config-prettier": "^10.1.8",
     "eslint-plugin-react-hooks": "^7.0.1",
     "eslint-plugin-react-refresh": "^0.5.0",
-    "nuwax-mcp-stdio-proxy": "file:../nuwax-mcp-stdio-proxy",
+    "nuwax-mcp-stdio-proxy": "workspace:*",
     "sharp": "^0.34.5",
     "tsc-alias": "^1.8.16",
     "typescript": "^5.7.3",
@@ -279,6 +281,15 @@
         "to": "claude-code-acp-ts",
         "filter": [
           "**/*"
+        ]
+      },
+      {
+        "from": "resources/codex-acp",
+        "to": "codex-acp",
+        "filter": [
+          "**/*",
+          "!*.cache",
+          "!.cache/**"
         ]
       }
     ],
