@@ -8,6 +8,7 @@ import { Client } from "@modelcontextprotocol/sdk/client";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import { SSEClientTransport } from "@modelcontextprotocol/sdk/client/sse.js";
 import type { RemoteMcpServerEntry } from "./mcp";
+import { withTimeout } from "./mcpDiscoverUtils";
 
 const DEFAULT_DISCOVER_TIMEOUT_MS = 30_000;
 
@@ -21,30 +22,6 @@ function buildRequestHeaders(
   return Object.keys(headers).length > 0 ? headers : undefined;
 }
 
-function withTimeout<T>(
-  promise: Promise<T>,
-  ms: number,
-  label: string,
-): Promise<T> {
-  return new Promise<T>((resolve, reject) => {
-    const timer = setTimeout(() => {
-      reject(new Error(`${label} timed out after ${ms}ms`));
-    }, ms);
-    promise
-      .then((value) => {
-        clearTimeout(timer);
-        resolve(value);
-      })
-      .catch((err) => {
-        clearTimeout(timer);
-        reject(err);
-      });
-  });
-}
-
-/**
- * 连接远程 MCP 并返回工具名称列表
- */
 function parseRemoteMcpUrl(rawUrl: string): URL {
   const trimmed = rawUrl.trim();
   if (!trimmed) {

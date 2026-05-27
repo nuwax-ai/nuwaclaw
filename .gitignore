@@ -84,3 +84,4 @@ crates/gateway-server/.env
 
 .kilo/
 
+crates/agent-electron-client/resources/sandbox-runtime/resolved-manifest.json
