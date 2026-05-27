@@ -17,6 +17,11 @@ import {
 import CodeEditor from "@uiw/react-textarea-code-editor";
 import type { McpServerEntry, McpServersConfig } from "@shared/types/electron";
 import { t } from "../../services/core/i18n";
+import {
+  parseServerFromJson,
+  resolveMcpEditorPayload,
+  serializeEntryToJson,
+} from "./mcpServerEditorUtils";
 
 const { Text } = Typography;
 
@@ -29,64 +34,6 @@ interface MCPServerEditorProps {
   fullConfig?: McpServersConfig;
   onSave: (serverId: string, entry: McpServerEntry) => void;
   onBack: () => void;
-}
-
-function serializeEntryToJson(serverId: string, entry: McpServerEntry): string {
-  const obj: Record<string, unknown> = {};
-  obj[serverId] = entry;
-  return JSON.stringify(obj, null, 2);
-}
-
-function parseServerFromJson(
-  text: string,
-):
-  | { ok: true; serverId: string; entry: McpServerEntry }
-  | { ok: false; error: string } {
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(text);
-  } catch (e) {
-    return { ok: false, error: e instanceof Error ? e.message : String(e) };
-  }
-
-  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
-    return { ok: false, error: t("Claw.MCP.message.invalidJson") };
-  }
-
-  const obj = parsed as Record<string, unknown>;
-
-  // 格式 B: {"mcpServers": {"server-name": {...}}}
-  if (
-    obj.mcpServers &&
-    typeof obj.mcpServers === "object" &&
-    !Array.isArray(obj.mcpServers)
-  ) {
-    const servers = obj.mcpServers as Record<string, unknown>;
-    const keys = Object.keys(servers);
-    for (const key of keys) {
-      const val = servers[key];
-      if (
-        val &&
-        typeof val === "object" &&
-        ("command" in val || "url" in val)
-      ) {
-        return { ok: true, serverId: key, entry: val as McpServerEntry };
-      }
-    }
-  }
-
-  // 格式 A: {"server-name": {command/url entry}}
-  const keys = Object.keys(obj);
-  for (const key of keys) {
-    if (key === "mcpServers" || key === "allowTools" || key === "denyTools")
-      continue;
-    const val = obj[key];
-    if (val && typeof val === "object" && ("command" in val || "url" in val)) {
-      return { ok: true, serverId: key, entry: val as McpServerEntry };
-    }
-  }
-
-  return { ok: false, error: t("Claw.MCP.message.invalidJson") };
 }
 
 function MCPServerEditor({
@@ -197,6 +144,22 @@ function MCPServerEditor({
     };
   };
 
+  const resolveEditorPayload = () =>
+    resolveMcpEditorPayload({
+      editorTab,
+      jsonText,
+      isEdit,
+      editingServerId,
+      formPayload: buildEntryFromForm,
+    });
+
+  const reportPayloadError = (error: string) => {
+    message.error(error);
+    if (editorTab === "json") {
+      setJsonError(error);
+    }
+  };
+
   const syncFormToJson = useCallback(() => {
     const result = buildEntryFromForm();
     if (result.ok) {
@@ -240,22 +203,23 @@ function MCPServerEditor({
   };
 
   const handleSave = () => {
-    const result = buildEntryFromForm();
+    const result = resolveEditorPayload();
     if (!result.ok) {
-      message.error(result.error);
+      reportPayloadError(result.error);
       return;
     }
     if (!isEdit && existingServerIds.includes(result.serverId)) {
       message.error(t("Claw.MCP.addServer.idDuplicate"));
       return;
     }
+    setJsonError("");
     onSave(result.serverId, result.entry);
   };
 
   const handleTest = async () => {
-    const result = buildEntryFromForm();
+    const result = resolveEditorPayload();
     if (!result.ok) {
-      message.error(result.error);
+      reportPayloadError(result.error);
       return;
     }
     if (!isEdit && existingServerIds.includes(result.serverId)) {
