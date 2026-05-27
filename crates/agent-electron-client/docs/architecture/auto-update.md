@@ -126,7 +126,26 @@ function detectInstallerType(): InstallerType {
 
 ### Windows 差分更新（blockmap）
 
-electron-updater 在 `latest.yml` 含 `blockMapSize` 且 OSS 同目录存在 `{path}.blockmap` 时启用差分下载。
+electron-updater 在 `latest.yml` 含 `blockMapSize` 且 OSS 同目录存在 `{path}.blockmap` 时**可**启用差分下载。
+
+**当前客户端默认关闭 Windows 差分**（MinIO/nginx 暂不支持多段 Range 所需的 `206 multipart/byteranges`，否则会尝试差分失败后 fallback 全量）。Release 仍生成 blockmap 与 `blockMapSize`，便于服务端就绪后一键验证。
+
+| 环境变量 | 行为 |
+|----------|------|
+| 未设置（默认） | Windows NSIS 全量下载，跳过 blockmap |
+| `NUWAX_DISABLE_DIFF_UPDATE=1` | 显式关闭差分（与默认相同） |
+| `NUWAX_DISABLE_DIFF_UPDATE=0` | 尝试差分下载（MinIO 修好后 QA 验证用） |
+
+> 注意：`NUWAX_DISABLE_DIFF_UPDATE=0` 表示**开启**差分（双重否定），仅 QA 验证时使用。
+
+Windows QA 验证差分示例（cmd）：
+
+```bat
+set NUWAX_DISABLE_DIFF_UPDATE=0
+NuwaClaw.exe
+```
+
+验证差分生效：启动日志应出现 `Differential download enabled`，更新时日志应出现 `To download: X KB (Y%)`，且**无** `Cannot download differentially, fallback to full download`。
 
 | 通道 | feed 路径 | Windows 安装包 | blockmap |
 |------|-----------|----------------|----------|

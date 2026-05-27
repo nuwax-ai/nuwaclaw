@@ -264,6 +264,41 @@ describe("autoUpdater - getInstallerType & canAutoUpdate", () => {
   });
 });
 
+describe("shouldDisableDifferentialDownload", () => {
+  it("win32 未设 env 时应关闭差分下载", async () => {
+    const { shouldDisableDifferentialDownload } = await importFresh();
+    expect(shouldDisableDifferentialDownload("win32", {})).toBe(true);
+  });
+
+  it("win32 设 NUWAX_DISABLE_DIFF_UPDATE=0 时应开启差分下载", async () => {
+    const { shouldDisableDifferentialDownload } = await importFresh();
+    expect(
+      shouldDisableDifferentialDownload("win32", {
+        NUWAX_DISABLE_DIFF_UPDATE: "0",
+      }),
+    ).toBe(false);
+  });
+
+  it("win32 设 NUWAX_DISABLE_DIFF_UPDATE=1 时应关闭差分下载", async () => {
+    const { shouldDisableDifferentialDownload } = await importFresh();
+    expect(
+      shouldDisableDifferentialDownload("win32", {
+        NUWAX_DISABLE_DIFF_UPDATE: "1",
+      }),
+    ).toBe(true);
+  });
+
+  it("darwin 不应强制关闭差分下载", async () => {
+    const { shouldDisableDifferentialDownload } = await importFresh();
+    expect(shouldDisableDifferentialDownload("darwin", {})).toBe(false);
+  });
+
+  it("linux 不应强制关闭差分下载", async () => {
+    const { shouldDisableDifferentialDownload } = await importFresh();
+    expect(shouldDisableDifferentialDownload("linux", {})).toBe(false);
+  });
+});
+
 // ── yml URL 处理逻辑测试 ──
 // 测试 electron-updater generic provider 的 URL 构造行为：
 // setFeedURL({ provider: "generic", url: "https://.../dir/" }) 会自动拼接 {channel}.yml
