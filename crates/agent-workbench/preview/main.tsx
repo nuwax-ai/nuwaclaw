@@ -532,6 +532,7 @@ const ANTD_DEFAULT_OVERRIDES: Record<string, string> = {
 function PreviewApp() {
   const [useAntdDefaults, setUseAntdDefaults] = useState(false);
   const [filter, setFilter] = useState('');
+  const [showFilePreview, setShowFilePreview] = useState(false);
 
   const filteredMessages = filter
     ? messages.filter((m) => m.label.toLowerCase().includes(filter.toLowerCase()))
@@ -575,6 +576,14 @@ function PreviewApp() {
             width: 200,
           }}
         />
+        <label style={{ display: 'flex', alignItems: 'center', gap: 4, cursor: 'pointer' }}>
+          <input
+            type="checkbox"
+            checked={showFilePreview}
+            onChange={(e) => setShowFilePreview(e.target.checked)}
+          />
+          显示文件预览面板
+        </label>
         <span style={{ color: '#999', marginLeft: 'auto' }}>
           {filteredMessages.length} / {messages.length} 条消息
         </span>
@@ -596,6 +605,8 @@ function PreviewApp() {
         </div>
       )}
 
+      {/* Main content: messages + optional file preview side panel */}
+      <div style={{ display: 'flex', flex: 1, minHeight: 0, overflow: 'hidden' }}>
       {/* Message list */}
       <div
         style={{
@@ -603,6 +614,7 @@ function PreviewApp() {
           overflow: 'auto',
           padding: '16px 0',
           background: 'var(--xagi-color-bg-layout, #f5f5f5)',
+          minWidth: 0,
         }}
       >
         <div style={{ maxWidth: 800, margin: '0 auto', padding: '0 20px' }}>
@@ -691,145 +703,202 @@ print("Hello from raw MarkdownRenderer!")
             </div>
           </div>
 
-          {/* File Preview Panel (mock) */}
-          <div style={{ marginBottom: 24 }}>
-            <div
-              style={{
-                fontSize: 11,
-                color: '#999',
-                marginBottom: 4,
-                paddingLeft: 4,
-                fontFamily: 'monospace',
-              }}
-            >
-              18. 文件预览面板 (File Preview Panel)
-            </div>
-            <div
-              style={{
-                border: '1px solid #e5e7eb',
-                borderRadius: 8,
-                overflow: 'hidden',
-                background: '#fff',
-              }}
-            >
-              {/* Header with tabs */}
-              <div
+        </div>
+      </div>
+
+      {/* File Preview Side Panel */}
+      {showFilePreview && (
+        <div
+          style={{
+            width: 450,
+            flexShrink: 0,
+            borderLeft: '1px solid rgba(5, 5, 5, 0.06)',
+            background: 'rgb(245, 245, 245)',
+            display: 'flex',
+            flexDirection: 'column',
+            overflow: 'hidden',
+          }}
+        >
+          {/* Header: filePathHeader */}
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 0,
+              height: 48,
+              padding: '0 8px 0 16px',
+              borderBottom: '0.5px solid rgba(5, 5, 5, 0.06)',
+              background: 'transparent',
+              flexShrink: 0,
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+              <span style={{ fontSize: 14, color: 'rgba(0, 0, 0, 0.88)' }}>
+                文件预览
+              </span>
+              <button
                 style={{
+                  width: 24,
+                  height: 24,
+                  border: 'none',
+                  background: 'transparent',
+                  color: 'rgba(0, 0, 0, 0.45)',
+                  cursor: 'pointer',
                   display: 'flex',
                   alignItems: 'center',
-                  gap: 0,
-                  borderBottom: '1px solid #e5e7eb',
-                  background: '#fafafa',
+                  justifyContent: 'center',
+                  padding: 0,
+                  fontSize: 16,
+                }}
+                onClick={() => setShowFilePreview(false)}
+              >
+                <svg viewBox="64 64 896 896" width="1em" height="1em" fill="currentColor">
+                  <path d="M909.1 209.3l-56.4 44.1C775.8 155.1 653.5 96 512 96 282.7 96 96.5 282.3 96 511.6 95.5 741.2 282.1 928 512 928c141.2 0 263.3-58.8 340.3-156.6l56.3 44.1C822.7 925.4 678.2 992 512 992 245.8 992 32 778.8 32 512S245.8 32 512 32c166.4 0 310.9 66.8 397.1 177.3zM192 512c0-176.7 143.3-320 320-320 88.4 0 168.4 35.9 226.3 93.7L192 512zm320 320c-88.4 0-168.4-35.9-226.3-93.7L832 512C832 688.7 688.7 832 512 832z" />
+                </svg>
+              </button>
+            </div>
+
+            <div style={{ marginLeft: 16, fontSize: 14, color: 'rgba(0, 0, 0, 0.65)' }}>
+              feature-doc.md
+            </div>
+
+            {/* Segmented control */}
+            <div
+              style={{
+                marginLeft: 12,
+                display: 'inline-flex',
+                background: 'rgba(12, 20, 102, 0.04)',
+                borderRadius: 6,
+                padding: 2,
+                gap: 0,
+              }}
+            >
+              <div
+                style={{
                   padding: '0 12px',
+                  height: 28,
+                  display: 'flex',
+                  alignItems: 'center',
+                  fontSize: 14,
+                  color: 'rgb(81, 71, 255)',
+                  background: '#fff',
+                  borderRadius: 4,
+                  cursor: 'pointer',
+                  boxShadow: '0 1px 2px rgba(0,0,0,0.04)',
                 }}
               >
-                <span
-                  style={{
-                    padding: '8px 16px',
-                    fontSize: 13,
-                    color: '#5147ff',
-                    borderBottom: '2px solid #5147ff',
-                    cursor: 'pointer',
-                  }}
-                >
-                  预览
-                </span>
-                <span
-                  style={{
-                    padding: '8px 16px',
-                    fontSize: 13,
-                    color: '#666',
-                    cursor: 'pointer',
-                  }}
-                >
-                  代码
-                </span>
-                <span
-                  style={{
-                    padding: '8px 16px',
-                    fontSize: 13,
-                    color: '#666',
-                    cursor: 'pointer',
-                  }}
-                >
-                  文件
-                </span>
+                预览
               </div>
-
-              {/* Body: file tree + preview */}
-              <div style={{ display: 'flex', minHeight: 280 }}>
-                {/* File tree sidebar */}
-                <div
-                  style={{
-                    width: 200,
-                    borderRight: '1px solid #e5e7eb',
-                    background: '#f9f9f9',
-                    padding: '8px 0',
-                    fontSize: 13,
-                    fontFamily:
-                      'ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace',
-                  }}
-                >
-                  <div style={{ padding: '4px 12px', color: '#999', fontSize: 11 }}>
-                    project-members/
-                  </div>
-                  <div style={{ padding: '4px 12px 4px 24px', color: '#333' }}>
-                    📁 docs/
-                  </div>
-                  <div
-                    style={{
-                      padding: '4px 12px 4px 36px',
-                      color: '#5147ff',
-                      background: '#f0eeff',
-                    }}
-                  >
-                    📄 feature-doc.md
-                  </div>
-                  <div style={{ padding: '4px 12px 4px 36px', color: '#333' }}>
-                    📄 manual-test-cases.md
-                  </div>
-                  <div style={{ padding: '4px 12px 4px 24px', color: '#333' }}>
-                    📁 src/
-                  </div>
-                  <div style={{ padding: '4px 12px 4px 36px', color: '#333' }}>
-                    📁 types/
-                  </div>
-                  <div style={{ padding: '4px 12px 4px 36px', color: '#333' }}>
-                    📁 api/
-                  </div>
-                  <div style={{ padding: '4px 12px 4px 36px', color: '#333' }}>
-                    📁 views/
-                  </div>
-                  <div style={{ padding: '4px 12px 4px 24px', color: '#333' }}>
-                    📄 package.json
-                  </div>
-                  <div style={{ padding: '4px 12px 4px 24px', color: '#333' }}>
-                    📄 README.md
-                  </div>
-                </div>
-
-                {/* Preview area */}
-                <div style={{ flex: 1, padding: 16, overflow: 'auto' }}>
-                  <h3 style={{ margin: '0 0 12px', fontSize: 16, fontWeight: 600 }}>
-                    功能文档
-                  </h3>
-                  <p style={{ margin: '0 0 8px', fontSize: 14, color: '#404040' }}>
-                    本文档描述了项目成员管理功能的完整需求和技术方案。
-                  </p>
-                  <h4 style={{ margin: '12px 0 8px', fontSize: 14, fontWeight: 600 }}>
-                    功能范围
-                  </h4>
-                  <ul style={{ margin: 0, paddingLeft: 20, fontSize: 14, color: '#404040' }}>
-                    <li>成员列表展示（筛选、分页）</li>
-                    <li>新增成员（表单校验、手机号唯一性）</li>
-                    <li>编辑成员（仅允许修改角色）</li>
-                    <li>删除成员（确认弹窗、不可恢复）</li>
-                  </ul>
-                </div>
+              <div
+                style={{
+                  padding: '0 12px',
+                  height: 28,
+                  display: 'flex',
+                  alignItems: 'center',
+                  fontSize: 14,
+                  color: 'rgba(0, 0, 0, 0.45)',
+                  background: 'transparent',
+                  borderRadius: 4,
+                  cursor: 'pointer',
+                }}
+              >
+                代码
               </div>
+            </div>
+
+            <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 0 }}>
+              <button
+                style={{
+                  width: 42,
+                  height: 32,
+                  border: 'none',
+                  background: 'transparent',
+                  color: 'rgba(0, 0, 0, 0.45)',
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  padding: 0,
+                  fontSize: 14,
+                }}
+                title="下载"
+              >
+                <svg viewBox="64 64 896 896" width="1em" height="1em" fill="currentColor">
+                  <path d="M505.7 661a8 8 0 0012.6 0l112-141.7c4.1-5.2.4-12.9-6.3-12.9h-74.1V168c0-4.4-3.6-8-8-8h-60c-4.4 0-8 3.6-8 8v338.3H400c-6.7 0-10.4 7.7-6.3 12.9l112 141.8zM878 626h-60c-4.4 0-8 3.6-8 8v154H214V634c0-4.4-3.6-8-8-8h-60c-4.4 0-8 3.6-8 8v198c0 17.7 14.3 32 32 32h684c17.7 0 32-14.3 32-32V634c0-4.4-3.6-8-8-8z" />
+                </svg>
+              </button>
+              <button
+                style={{
+                  width: 42,
+                  height: 32,
+                  border: 'none',
+                  background: 'transparent',
+                  color: 'rgba(0, 0, 0, 0.45)',
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  padding: 0,
+                  fontSize: 14,
+                }}
+                title="关闭"
+                onClick={() => setShowFilePreview(false)}
+              >
+                <svg viewBox="64 64 896 896" width="1em" height="1em" fill="currentColor">
+                  <path d="M563.8 512l262.5-312.9c4.4-5.2.7-13.1-6.1-13.1h-79.8c-4.7 0-9.2 2.1-12.3 5.7L511.6 449.8 295.1 191.7c-3-3.6-7.5-5.7-12.3-5.7H203c-6.8 0-10.5 7.9-6.1 13.1L459.4 512 196.9 824.9A7.95 7.95 0 00203 838h79.8c4.7 0 9.2-2.1 12.3-5.7l216.5-258.1 216.5 258.1c3 3.6 7.5 5.7 12.3 5.7h79.8c6.8 0 10.5-7.9 6.1-13.1L563.8 512z" />
+                </svg>
+              </button>
+            </div>
+          </div>
+
+          {/* Body: collapsed file tree + preview content */}
+          <div style={{ display: 'flex', flex: 1, minHeight: 0, background: 'rgb(245, 245, 245)' }}>
+            {/* Collapsed file tree sidebar */}
+            <div
+              style={{
+                width: 32,
+                flexShrink: 0,
+                borderRight: '1px solid rgba(5, 5, 5, 0.06)',
+                background: 'transparent',
+                display: 'flex',
+                flexDirection: 'column',
+                alignItems: 'center',
+                paddingTop: 8,
+              }}
+            >
+              <div
+                style={{
+                  writingMode: 'vertical-rl',
+                  fontSize: 12,
+                  color: 'rgba(0, 0, 0, 0.45)',
+                  letterSpacing: 2,
+                }}
+              >
+                文件
+              </div>
+            </div>
+
+            {/* Preview content area */}
+            <div style={{ flex: 1, padding: 16, overflow: 'auto', background: '#fff' }}>
+              <h3 style={{ margin: '0 0 12px', fontSize: 16, fontWeight: 600, color: 'rgba(0, 0, 0, 0.88)' }}>
+                功能文档
+              </h3>
+              <p style={{ margin: '0 0 8px', fontSize: 14, lineHeight: 1.6, color: 'rgba(0, 0, 0, 0.65)' }}>
+                本文档描述了项目成员管理功能的完整需求和技术方案。
+              </p>
+              <h4 style={{ margin: '12px 0 8px', fontSize: 14, fontWeight: 600, color: 'rgba(0, 0, 0, 0.88)' }}>
+                功能范围
+              </h4>
+              <ul style={{ margin: 0, paddingLeft: 20, fontSize: 14, lineHeight: 1.6, color: 'rgba(0, 0, 0, 0.65)' }}>
+                <li>成员列表展示（筛选、分页）</li>
+                <li>新增成员（表单校验、手机号唯一性）</li>
+                <li>编辑成员（仅允许修改角色）</li>
+                <li>删除成员（确认弹窗、不可恢复）</li>
+              </ul>
             </div>
           </div>
         </div>
+      )}
       </div>
 
       {/* Footer */}
