@@ -18,7 +18,10 @@ import { ACP_SESSION_CANCELLED_ERROR_CODE } from "@shared/constants";
 import { getGuiAgentServerUrl } from "@main/services/packages/guiAgentServer";
 import { getWindowsMcpUrl } from "@main/services/packages/windowsMcp";
 import { isWindows } from "@main/services/system/shellEnv";
-import { getResourcesPath } from "@main/services/system/dependencies";
+import {
+  getResourcesPath,
+  getRipgrepBinPath,
+} from "@main/services/system/dependencies";
 import type { SandboxProcessConfig } from "@shared/types/sandbox";
 import {
   getAcpEngineSandboxCapabilities,
@@ -949,6 +952,26 @@ export class AcpEngine extends EventEmitter {
           };
         }
       }
+
+      // Inject bundled ripgrep path into SDK sandbox config so GrepTool/GlobTool
+      // can find rg without relying on PATH inheritance in child shells.
+      try {
+        const rgPath = getRipgrepBinPath();
+        if (fs.existsSync(rgPath)) {
+          const cc = (meta.claudeCode ??= {}) as Record<string, unknown>;
+          const opts = (cc.options ??= {}) as Record<string, unknown>;
+          opts.sandbox = {
+            ...(opts.sandbox as Record<string, unknown> | undefined),
+            ripgrep: { command: rgPath },
+          };
+          log.info(
+            `${this.logTag} Injected bundled ripgrep into SDK sandbox config: ${rgPath}`,
+          );
+        }
+      } catch {
+        // bundled ripgrep optional
+      }
+
       return Object.keys(meta).length > 0 ? meta : undefined;
     })();
 

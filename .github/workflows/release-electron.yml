@@ -189,7 +189,13 @@ jobs:
           path: crates/agent-electron-client/resources/nuwaxcode
           key: bundled-nuwaxcode-v1-${{ matrix.platform }}-${{ matrix.arch }}-${{ hashFiles('crates/agent-electron-client/scripts/prepare/prepare-nuwaxcode.js') }}
 
-      - name: Prepare bundled resources (uv, node, git, nuwaxcode)
+      - name: Cache ripgrep
+        uses: actions/cache@v4
+        with:
+          path: crates/agent-electron-client/resources/ripgrep
+          key: bundled-ripgrep-v1-${{ matrix.platform }}-${{ matrix.arch }}-${{ hashFiles('crates/agent-electron-client/scripts/prepare/prepare-ripgrep.js') }}
+
+      - name: Prepare bundled resources (uv, node, git, nuwaxcode, ripgrep)
         working-directory: crates/agent-electron-client
         env:
           TARGET_ARCH: ${{ matrix.arch }}

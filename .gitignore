@@ -24,6 +24,9 @@ release/
 # Bundled uv: 构建时 prepare-uv 生成，或从 GitHub Release 下载缓存
 crates/agent-electron-client/resources/uv/
 
+# Bundled ripgrep: 构建时 prepare-ripgrep 下载
+crates/agent-electron-client/resources/ripgrep/
+
 # Bundled Node.js: 构建时 prepare-node 下载
 crates/agent-electron-client/resources/node/
 

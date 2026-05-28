@@ -26,6 +26,7 @@
     "prepare:lanproxy": "node scripts/prepare/prepare-lanproxy.js",
     "prepare:node": "node scripts/prepare/prepare-node.js",
     "prepare:git": "node scripts/prepare/prepare-git.js",
+    "prepare:ripgrep": "node scripts/prepare/prepare-ripgrep.js",
     "check-ports": "node scripts/tools/check-startup-ports.js",
     "check-ports:dev": "node scripts/tools/check-startup-ports.js --vite",
     "prepare:mcp-proxy": "node scripts/prepare/prepare-mcp-proxy.js",
@@ -35,7 +36,7 @@
     "prepare:sandbox-runtime": "node scripts/prepare/prepare-sandbox-runtime.js",
     "build:sandbox-helper": "node scripts/prepare/build-sandbox-helper.js",
     "prepare:sandbox-helper-win": "node scripts/prepare/prepare-sandbox-helper-windows.js",
-    "prepare:all": "npm run prepare:uv && npm run prepare:sign-uv && npm run prepare:lanproxy && npm run prepare:node && npm run prepare:git && npm run prepare:mcp-proxy && npm run prepare:sandboxed-mcp && npm run prepare:nuwaxcode && npm run prepare:sandbox-helper-win && npm run prepare:sandbox-runtime && npm run prepare:gui-server && npm run prepare:windows-mcp && npm run prepare:nuwax-file-server && npm run prepare:claude-code-acp-ts",
+    "prepare:all": "npm run prepare:uv && npm run prepare:sign-uv && npm run prepare:lanproxy && npm run prepare:node && npm run prepare:git && npm run prepare:mcp-proxy && npm run prepare:sandboxed-mcp && npm run prepare:nuwaxcode && npm run prepare:sandbox-helper-win && npm run prepare:sandbox-runtime && npm run prepare:gui-server && npm run prepare:windows-mcp && npm run prepare:nuwax-file-server && npm run prepare:claude-code-acp-ts && npm run prepare:ripgrep",
     "prepare:nuwax-file-server": "node scripts/prepare/prepare-nuwax-file-server.js",
     "prepare:claude-code-acp-ts": "node scripts/prepare/prepare-claude-code-acp-ts.js",
     "prepare:gui-server": "node scripts/prepare/prepare-gui-server.js",
@@ -179,6 +180,13 @@
       {
         "from": "resources/uv/bin",
         "to": "uv/bin",
+        "filter": [
+          "**/*"
+        ]
+      },
+      {
+        "from": "resources/ripgrep/bin",
+        "to": "ripgrep/bin",
         "filter": [
           "**/*"
         ]

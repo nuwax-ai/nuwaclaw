@@ -220,6 +220,7 @@ export const ESSENTIAL_TOOLS = [
   "echo",
   // 文本处理
   "grep",
+  "rg",
   "sed",
   "awk",
   "sort",
@@ -252,6 +253,7 @@ const ESSENTIAL_TOOLS_WINDOWS = [
   "copy",
   "move",
   "findstr", // Windows grep
+  "rg",
   "where",
 ];
 

@@ -420,6 +420,7 @@ export const I18N_KEYS = {
       DEP_FILE_SERVER: "Claw.Pages.Dependencies.dep.fileServer",
       DEP_MCP_PROXY: "Claw.Pages.Dependencies.dep.mcpProxy",
       DEP_NUWAXCODE: "Claw.Pages.Dependencies.dep.nuwaxcode",
+      DEP_RIPGREP: "Claw.Pages.Dependencies.dep.ripgrep",
 
       // 依赖描述
       DESC_UV: "Claw.Pages.Dependencies.desc.uv",
@@ -429,6 +430,7 @@ export const I18N_KEYS = {
       DESC_FILE_SERVER: "Claw.Pages.Dependencies.desc.fileServer",
       DESC_MCP_PROXY: "Claw.Pages.Dependencies.desc.mcpProxy",
       DESC_NUWAXCODE: "Claw.Pages.Dependencies.desc.nuwaxcode",
+      DESC_RIPGREP: "Claw.Pages.Dependencies.desc.ripgrep",
 
       // 版本要求
       REQ_NODE_VERSION: "Claw.Pages.Dependencies.reqNodeVersion",

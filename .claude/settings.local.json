@@ -3,7 +3,8 @@
     "allow": [
       "Bash(*)",
       "WebFetch(*)",
-      "mcp__*"
+      "mcp__*",
+      "Bash(node *)"
     ]
   }
 }

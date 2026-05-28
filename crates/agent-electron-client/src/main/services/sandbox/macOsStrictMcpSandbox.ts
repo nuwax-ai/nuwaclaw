@@ -8,6 +8,7 @@ import * as path from "path";
 import {
   getNodeBinPathWithFallback,
   getResourcesPath,
+  getRipgrepBinPath,
   getUvBinPath,
 } from "@main/services/system/dependencies";
 
@@ -38,11 +39,8 @@ export function resolveMacOsStrictMcpExecAllowlist(): string[] {
   );
   pushIfExists(literals, proxyIndex);
 
-  try {
-    pushIfExists(literals, getUvBinPath());
-  } catch {
-    // bundled uv optional
-  }
+  pushIfExists(literals, getUvBinPath());
+  pushIfExists(literals, getRipgrepBinPath());
 
   return [...new Set(literals)];
 }
@@ -68,6 +66,8 @@ export function resolveMacOsStrictMcpResourceSubpaths(): string[] {
   }
 
   pushIfExists(subpaths, path.join(resourcesPath, "node"));
+
+  pushIfExists(subpaths, path.join(resourcesPath, "ripgrep"));
 
   return [...new Set(subpaths)];
 }
