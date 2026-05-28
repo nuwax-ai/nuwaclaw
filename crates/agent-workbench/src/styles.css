@@ -1872,7 +1872,6 @@
 .md-thinking-block {
   margin: 0 0 var(--xagi-padding-xs);
   border: 0;
-  border-left: 2px solid var(--xagi-color-border-secondary);
   border-radius: 0;
   background: transparent;
   overflow: hidden;
@@ -1892,7 +1891,7 @@
   padding: 0 0 var(--xagi-padding-xs);
   border: 0;
   background: transparent;
-  color: var(--xagi-color-text-tertiary);
+  color: #999;
   font: inherit;
   font-size: var(--xagi-font-size);
   text-align: left;
@@ -1902,7 +1901,7 @@
 }
 
 .md-thinking-toggle:hover {
-  color: var(--xagi-color-text-secondary);
+  color: #666;
 }
 
 /* ref: .thinking-icon */
@@ -1910,7 +1909,7 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  margin-right: var(--xagi-padding-xs);
+  margin-right: 6px;
   min-width: var(--xagi-font-size-lg);
   font-size: var(--xagi-font-size-lg);
   color: var(--xagi-color-icon);
@@ -1940,8 +1939,9 @@
 /* Thinking body — ref: ds-markdown.css .ds-typed-thinking */
 .md-thinking-content {
   padding: 0 0 0 var(--xagi-padding-sm);
-  border-top: 0;
-  color: var(--xagi-color-text-secondary);
+  margin-left: 4px;
+  border-left: 1px solid #e5e5e5;
+  color: #8b8b8b;
   font-size: var(--xagi-font-size);
   line-height: 26px;
   white-space: pre-wrap;
