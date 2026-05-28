@@ -1315,19 +1315,12 @@ print("Hello from raw MarkdownRenderer!")
             <div style={{ flex: 1, padding: 16, overflow: 'auto', background: '#fff' }}>
               {(() => {
                 const fileContent = FILE_CONTENTS[selectedFile] || DEFAULT_FILE_CONTENT;
-                const content = previewTab === 'preview' ? fileContent.preview : fileContent.code;
+                // Use preview content if available, otherwise use code (for syntax highlighting)
+                const content = (previewTab === 'preview' && fileContent.preview)
+                  ? fileContent.preview
+                  : fileContent.code;
 
-                if (previewTab === 'preview' && fileContent.preview) {
-                  // Render preview as formatted HTML
-                  return (
-                    <MarkdownRenderer content={fileContent.preview} />
-                  );
-                } else {
-                  // Render code with syntax highlighting
-                  return (
-                    <MarkdownRenderer content={content} />
-                  );
-                }
+                return <MarkdownRenderer content={content} />;
               })()}
             </div>
           </div>
