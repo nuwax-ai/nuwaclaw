@@ -34,6 +34,115 @@ import { zh } from '../src/components/OpenApp/labels';
 import type { WorkbenchAgentDetail, WorkbenchMessage } from '../src/types';
 
 // ---------------------------------------------------------------------------
+// File icons — copied from nuwax src/assets/filetree/
+// ---------------------------------------------------------------------------
+
+const SvgIcon: React.FC<{ children: React.ReactNode; style?: React.CSSProperties }> = ({ children, style }) => (
+  <svg
+    xmlns="http://www.w3.org/2000/svg"
+    width="1em"
+    height="1em"
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="2"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+    aria-hidden="true"
+    style={{ fontSize: 14, flexShrink: 0, ...style }}
+  >
+    {children}
+  </svg>
+);
+
+const FolderIcon: React.FC = () => (
+  <SvgIcon>
+    <path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z" />
+  </SvgIcon>
+);
+
+const FileDefaultIcon: React.FC = () => (
+  <SvgIcon>
+    <path d="M6 22a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h8a2.4 2.4 0 0 1 1.704.706l3.588 3.588A2.4 2.4 0 0 1 20 8v12a2 2 0 0 1-2 2z" />
+    <path d="M14 2v5a1 1 0 0 0 1 1h5" />
+  </SvgIcon>
+);
+
+const FileMdIcon: React.FC = () => (
+  <SvgIcon>
+    <path d="M6 22a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h8a2.4 2.4 0 0 1 1.704.706l3.588 3.588A2.4 2.4 0 0 1 20 8v12a2 2 0 0 1-2 2z" />
+    <path d="M14 2v5a1 1 0 0 0 1 1h5" />
+    <path d="M10 9H8" />
+    <path d="M16 13H8" />
+    <path d="M16 17H8" />
+  </SvgIcon>
+);
+
+const FileTsIcon: React.FC = () => (
+  <svg xmlns="http://www.w3.org/2000/svg" width="1em" height="1em" viewBox="0 0 24 24" fill="none" color="currentColor" style={{ fontSize: 14, flexShrink: 0 }}>
+    <path d="M21.7832 15.0312C21.7831 13.9932 21.4035 13.2566 20.833 12.6924C20.2569 12.1227 19.4826 11.7253 18.6895 11.3799C17.9076 11.0395 17.0916 10.7442 16.4844 10.3887C15.8739 10.0312 15.4152 9.57981 15.415 8.89844C15.415 7.81896 16.4127 7.12698 17.6094 7.12695C18.3023 7.12695 18.9276 7.3162 19.4287 7.54297C20.0521 7.82503 20.8458 7.65621 21.1426 7.0957C21.3403 6.72216 21.2643 6.29276 20.9404 6.08105C20.3137 5.67176 19.2004 5.14746 17.6094 5.14746C15.0857 5.14749 13.2236 6.76884 13.2236 8.92188C13.2237 9.91671 13.6043 10.6324 14.1777 11.1904C14.7567 11.7537 15.5342 12.1582 16.3311 12.5156C17.1171 12.8682 17.9349 13.1796 18.5449 13.5518C19.1574 13.9256 19.6161 14.3925 19.6162 15.0781C19.6162 15.6787 19.3581 16.1347 18.957 16.4355C18.5607 16.7328 18.0329 16.873 17.4922 16.873C16.5655 16.873 15.7404 16.547 15.1299 16.2051C14.5594 15.8856 13.8053 15.9773 13.4502 16.4775C13.1749 16.8659 13.2234 17.3661 13.583 17.624C14.322 18.1539 15.6427 18.8525 17.4688 18.8525C18.8458 18.8525 19.9232 18.4114 20.6553 17.7188C21.3874 17.026 21.7832 16.0732 21.7832 15.0312Z" fill="currentColor" />
+    <path d="M13.1602 6.03027C13.1601 5.51661 12.7441 5.09981 12.2305 5.09961H3.23047C2.71674 5.09971 2.29991 5.51654 2.2998 6.03027C2.2998 6.54409 2.71667 6.96083 3.23047 6.96094H6.62793V17.999C6.62793 18.6014 7.11642 19.0897 7.71875 19.0898C8.32116 19.0898 8.80957 18.6014 8.80957 17.999V6.96094H12.2305C12.7442 6.96073 13.1602 6.54403 13.1602 6.03027Z" fill="currentColor" />
+  </svg>
+);
+
+const FileJsonIcon: React.FC = () => (
+  <SvgIcon>
+    <path d="M8 3H7a2 2 0 0 0-2 2v5a2 2 0 0 1-2 2 2 2 0 0 1 2 2v5c0 1.1.9 2 2 2h1" />
+    <path d="M16 21h1a2 2 0 0 0 2-2v-5c0-1.1.9-2 2-2a2 2 0 0 1-2-2V5a2 2 0 0 0-2-2h-1" />
+  </SvgIcon>
+);
+
+const FileVueIcon: React.FC = () => (
+  <svg xmlns="http://www.w3.org/2000/svg" width="1em" height="1em" viewBox="0 0 24 24" fill="none" color="currentColor" style={{ fontSize: 14, flexShrink: 0 }}>
+    <path d="M8 12C8 6.477 9.79 2 12 2C14.21 2 16 6.477 16 12C16 17.523 14.21 22 12 22C9.79 22 8 17.523 8 12Z" stroke="currentColor" strokeWidth="1.7" />
+    <path d="M9.97471 8.62003C14.8167 5.85803 19.6487 5.17003 20.7667 7.08303C21.8847 8.99603 18.8667 12.786 14.0247 15.547C9.18271 18.308 4.35071 18.997 3.23271 17.083C2.11471 15.17 5.13271 11.382 9.97471 8.62003Z" stroke="currentColor" strokeWidth="1.7" />
+    <path d="M14.0247 8.62003C18.8667 11.38 21.8847 15.17 20.7667 17.083C19.6487 18.997 14.8167 18.309 9.97471 15.547C5.13271 12.785 2.11471 8.99703 3.23271 7.08303C4.34971 5.17003 9.18271 5.85803 14.0247 8.62003Z" stroke="currentColor" strokeWidth="1.7" />
+    <path d="M12 10.5C11.7033 10.5 11.4133 10.588 11.1666 10.7528C10.92 10.9176 10.7277 11.1519 10.6142 11.426C10.5006 11.7001 10.4709 12.0017 10.5288 12.2926C10.5867 12.5836 10.7296 12.8509 10.9393 13.0607C11.1491 13.2704 11.4164 13.4133 11.7074 13.4712C11.9983 13.5291 12.2999 13.4994 12.574 13.3858C12.8481 13.2723 13.0824 13.08 13.2472 12.8334C13.412 12.5867 13.5 12.2967 13.5 12C13.5 11.6022 13.342 11.2206 13.0607 10.9393C12.7794 10.658 12.3978 10.5 12 10.5Z" fill="currentColor" />
+  </svg>
+);
+
+const FileHtmlIcon: React.FC = () => (
+  <SvgIcon>
+    <path d="M4 12.15V4a2 2 0 0 1 2-2h8a2.4 2.4 0 0 1 1.706.706l3.588 3.588A2.4 2.4 0 0 1 20 8v12a2 2 0 0 1-2 2h-3.35" />
+    <path d="M14 2v5a1 1 0 0 0 1 1h5" />
+    <path d="m5 16-3 3 3 3" />
+    <path d="m9 22 3-3-3-3" />
+  </SvgIcon>
+);
+
+const FileCssIcon: React.FC = () => (
+  <svg xmlns="http://www.w3.org/2000/svg" width="1em" height="1em" viewBox="0 0 24 24" fill="none" color="currentColor" style={{ fontSize: 14, flexShrink: 0 }}>
+    <path d="M9.8093 4L6.9889 20M17.1485 4L14.3281 20M4.643 8.32372H20.6474M3.35254 15.6408H19.357" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+  </svg>
+);
+
+const FileMermaidIcon: React.FC = () => (
+  <SvgIcon>
+    <path d="M6 22a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h8a2.4 2.4 0 0 1 1.704.706l3.588 3.588A2.4 2.4 0 0 1 20 8v12a2 2 0 0 1-2 2z" />
+    <path d="M14 2v5a1 1 0 0 0 1 1h5" />
+    <circle cx="10" cy="13" r="2" />
+    <path d="M10 15v2" />
+    <path d="M8 18h4" />
+  </SvgIcon>
+);
+
+/** File icon dispatcher — mirrors nuwax getFileIcon() */
+function FileIcon({ type, fileType }: { type: string; fileType?: string }): React.ReactElement {
+  if (type === 'dir') return <FolderIcon />;
+  switch (fileType) {
+    case 'md': return <FileMdIcon />;
+    case 'ts': return <FileTsIcon />;
+    case 'tsx': return <FileVueIcon />;
+    case 'vue': return <FileVueIcon />;
+    case 'json': return <FileJsonIcon />;
+    case 'html': return <FileHtmlIcon />;
+    case 'css': return <FileCssIcon />;
+    case 'mermaid': return <FileMermaidIcon />;
+    default: return <FileDefaultIcon />;
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Mock agent
 // ---------------------------------------------------------------------------
 
@@ -742,6 +851,44 @@ npm run dev
 - Vite
 \`\`\``,
   },
+  'architecture.mmd': {
+    preview: `\`\`\`mermaid
+graph TD
+    A[用户请求] --> B{认证检查}
+    B -->|通过| C[成员列表页]
+    B -->|失败| D[登录页]
+    C --> E[获取成员数据]
+    E --> F[展示列表]
+    F --> G{用户操作}
+    G -->|新增| H[打开表单弹窗]
+    G -->|编辑| I[打开编辑弹窗]
+    G -->|删除| J[确认删除弹窗]
+    H --> K[提交创建请求]
+    I --> L[提交更新请求]
+    J --> M[提交删除请求]
+    K --> E
+    L --> E
+    M --> E
+\`\`\``,
+    code: `\`\`\`mermaid
+graph TD
+    A[用户请求] --> B{认证检查}
+    B -->|通过| C[成员列表页]
+    B -->|失败| D[登录页]
+    C --> E[获取成员数据]
+    E --> F[展示列表]
+    F --> G{用户操作}
+    G -->|新增| H[打开表单弹窗]
+    G -->|编辑| I[打开编辑弹窗]
+    G -->|删除| J[确认删除弹窗]
+    H --> K[提交创建请求]
+    I --> L[提交更新请求]
+    J --> M[提交删除请求]
+    K --> E
+    L --> E
+    M --> E
+\`\`\``,
+  },
 };
 
 // Fallback for files not in the map
@@ -1105,27 +1252,31 @@ print("Hello from raw MarkdownRenderer!")
                   </div>
                   <div style={{ flex: 1, overflow: 'auto', fontSize: 13 }}>
                     {[
-                      { name: 'feature-doc.md', type: 'file' as const, icon: '📄' },
-                      { name: 'manual-test-cases.md', type: 'file' as const, icon: '📄' },
-                      { name: 'src', type: 'dir' as const, icon: '📁' },
-                      { name: 'types', type: 'dir' as const, icon: '📁', indent: 1 },
-                      { name: 'members.ts', type: 'file' as const, icon: '📄', indent: 2 },
-                      { name: 'api', type: 'dir' as const, icon: '📁', indent: 1 },
-                      { name: 'members.ts', type: 'file' as const, icon: '📄', indent: 2 },
-                      { name: 'views', type: 'dir' as const, icon: '📁', indent: 1 },
-                      { name: 'project-members', type: 'dir' as const, icon: '📁', indent: 2 },
-                      { name: 'index.vue', type: 'file' as const, icon: '📄', indent: 3 },
-                      { name: 'components', type: 'dir' as const, icon: '📁', indent: 3 },
-                      { name: 'MemberSearch.vue', type: 'file' as const, icon: '📄', indent: 4 },
-                      { name: 'MemberTable.vue', type: 'file' as const, icon: '📄', indent: 4 },
-                      { name: 'MemberDialog.vue', type: 'file' as const, icon: '📄', indent: 4 },
-                      { name: 'package.json', type: 'file' as const, icon: '📄' },
-                      { name: 'README.md', type: 'file' as const, icon: '📄' },
+                      { name: 'feature-doc.md', type: 'file' as const, fileType: 'md' },
+                      { name: 'manual-test-cases.md', type: 'file' as const, fileType: 'md' },
+                      { name: 'architecture.mmd', type: 'file' as const, fileType: 'mermaid' },
+                      { name: 'src', type: 'dir' as const },
+                      { name: 'types', type: 'dir' as const, indent: 1 },
+                      { name: 'members.ts', type: 'file' as const, fileType: 'ts', indent: 2 },
+                      { name: 'api', type: 'dir' as const, indent: 1 },
+                      { name: 'members.ts', type: 'file' as const, fileType: 'ts', indent: 2 },
+                      { name: 'views', type: 'dir' as const, indent: 1 },
+                      { name: 'project-members', type: 'dir' as const, indent: 2 },
+                      { name: 'index.vue', type: 'file' as const, fileType: 'vue', indent: 3 },
+                      { name: 'components', type: 'dir' as const, indent: 3 },
+                      { name: 'MemberSearch.vue', type: 'file' as const, fileType: 'vue', indent: 4 },
+                      { name: 'MemberTable.vue', type: 'file' as const, fileType: 'vue', indent: 4 },
+                      { name: 'MemberDialog.vue', type: 'file' as const, fileType: 'vue', indent: 4 },
+                      { name: 'package.json', type: 'file' as const, fileType: 'json' },
+                      { name: 'README.md', type: 'file' as const, fileType: 'md' },
                     ].map((item, idx) => (
                       <div
                         key={idx}
                         onClick={() => item.type === 'file' && setSelectedFile(item.name)}
                         style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: 6,
                           padding: `4px 12px 4px ${12 + (item.indent || 0) * 16}px`,
                           cursor: item.type === 'file' ? 'pointer' : 'default',
                           color: selectedFile === item.name ? 'rgb(81, 71, 255)' : 'rgba(0, 0, 0, 0.65)',
@@ -1136,7 +1287,8 @@ print("Hello from raw MarkdownRenderer!")
                           textOverflow: 'ellipsis',
                         }}
                       >
-                        {item.icon} {item.name}
+                        <FileIcon type={item.type} fileType={'fileType' in item ? item.fileType : undefined} />
+                        <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{item.name}</span>
                       </div>
                     ))}
                   </div>
