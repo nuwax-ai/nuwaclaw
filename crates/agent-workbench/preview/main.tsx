@@ -30,6 +30,8 @@ import '../src/styles.css';
 import { ChatMessage, PermissionCard } from '../src/components/OpenApp/Message';
 import { MarkdownRenderer } from '../src/components/MarkdownRenderer';
 import { ExecutionPlan } from '../src/components/MarkdownRenderer';
+import { ConversationStatus } from '../src/components/OpenApp/ConversationStatus';
+import { ChatInputHome } from '../src/components/ChatInputHome';
 import type { RunOverStep, PlanTask } from '../src/components/MarkdownRenderer';
 import { zh } from '../src/components/OpenApp/labels';
 import type { WorkbenchAgentDetail, WorkbenchMessage } from '../src/types';
@@ -946,6 +948,8 @@ function PreviewApp() {
   const [previewTab, setPreviewTab] = useState<'preview' | 'code'>('preview');
   const [fileTreeExpanded, setFileTreeExpanded] = useState(true);
   const [selectedFile, setSelectedFile] = useState('feature-doc.md');
+  const [mockStreaming, setMockStreaming] = useState(false);
+  const [mockPrompt, setMockPrompt] = useState('');
 
   const filteredMessages = filter
     ? messages.filter((m) => m.label.toLowerCase().includes(filter.toLowerCase()))
@@ -1141,6 +1145,65 @@ print("Hello from raw MarkdownRenderer!")
                 title="执行计划"
                 tasks={executionPlanTasks}
               />
+            </div>
+          </div>
+
+          {/* ConversationStatus + ChatInputHome demo */}
+          <div style={{ marginBottom: 24 }}>
+            <div
+              style={{
+                fontSize: 11,
+                color: '#999',
+                marginBottom: 4,
+                paddingLeft: 4,
+                fontFamily: 'monospace',
+              }}
+            >
+              22. 会话状态 + 输入框 (ConversationStatus + ChatInputHome)
+            </div>
+            <div
+              style={{
+                background: '#fff',
+                borderRadius: 8,
+                border: '1px solid #eee',
+                overflow: 'hidden',
+              }}
+            >
+              <ConversationStatus streaming={mockStreaming} statusText="正在思考..." />
+              <ChatInputHome
+                labels={zh}
+                disabled={false}
+                streaming={mockStreaming}
+                agentMode="ask"
+                selectedModelId="gpt-4"
+                modelOptions={[
+                  { id: 'gpt-4', name: 'GPT-4' },
+                  { id: 'gpt-3.5', name: 'GPT-3.5' },
+                ]}
+                showModelDropdown={false}
+                selectedSkillIds={[]}
+                selectedSkills={[]}
+                value={mockPrompt}
+                onChange={setMockPrompt}
+                onSubmit={() => {
+                  if (mockPrompt.trim()) {
+                    setMockStreaming(true);
+                    setTimeout(() => setMockStreaming(false), 5000);
+                    setMockPrompt('');
+                  }
+                }}
+                onStop={() => setMockStreaming(false)}
+                onModeChange={() => {}}
+                onModelSelect={() => {}}
+                onToggleModelDropdown={() => {}}
+                onSkillIdsChange={() => {}}
+                onSelectedSkillsChange={() => {}}
+                allowAtSkill={true}
+              />
+              <div className="open-app-ai-notice">{zh.contentGenerated}</div>
+            </div>
+            <div style={{ marginTop: 8, fontSize: 12, color: '#666' }}>
+              💡 点击发送按钮开始 5 秒模拟流式响应，观察计时器变化
             </div>
           </div>
 

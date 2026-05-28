@@ -3187,3 +3187,47 @@
   color: #991b1b;
   font-size: 12px;
 }
+
+/* ── ConversationStatus — streaming timer bar ── ref: nuwax ConversationStatus */
+.conversation-status {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 16px;
+  background: var(--xagi-color-bg-container, #ffffff);
+  border-top: 1px solid var(--xagi-color-border-secondary, #f0f0f0);
+  font-size: 13px;
+  color: rgba(0, 0, 0, 0.45);
+}
+
+.conversation-status-left {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.conversation-status-spinner {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 14px;
+  color: #1890ff;
+  animation: conversation-status-spin 1s linear infinite;
+}
+
+@keyframes conversation-status-spin {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}
+
+.conversation-status-text {
+  color: rgba(0, 0, 0, 0.65);
+}
+
+.conversation-status-timer {
+  font-family: Monaco, Menlo, 'Ubuntu Mono', monospace;
+  font-weight: 600;
+  color: rgba(0, 0, 0, 0.45);
+  min-width: 50px;
+  text-align: right;
+}

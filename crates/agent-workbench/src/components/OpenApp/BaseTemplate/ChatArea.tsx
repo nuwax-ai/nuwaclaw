@@ -9,6 +9,7 @@ import type {
   WorkbenchSkillOption,
 } from '../../../types';
 import { ChatInputHome } from '../../ChatInputHome';
+import { ConversationStatus } from '../ConversationStatus';
 import { AgentChatEmpty, ChatMessage, PermissionCard } from '../Message';
 import { VariableForm } from './VariableFormWrapper';
 import type { Labels } from '../labels';
@@ -180,6 +181,7 @@ export function ChatArea(props: ChatAreaProps): JSX.Element {
           ))}
         </div>
       )}
+      <ConversationStatus streaming={streaming} />
       <ChatInputHome
         value={prompt}
         labels={labels}
