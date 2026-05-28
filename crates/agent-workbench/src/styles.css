@@ -25,7 +25,7 @@
 
   /* Text */
   --xagi-color-text-base: #000;
-  --xagi-color-text: rgba(0, 0, 0, 0.88);
+  --xagi-color-text: rgb(64, 64, 64);
   --xagi-color-text-secondary: rgba(0, 0, 0, 0.65);
   --xagi-color-text-tertiary: rgba(0, 0, 0, 0.45);
   --xagi-color-text-quaternary: rgba(0, 0, 0, 0.25);
@@ -97,7 +97,7 @@
   --xagi-font-size-lg: 16px;
   --xagi-font-size-xl: 20px;
   --xagi-font-weight-strong: 400;
-  --xagi-line-height: 1.5714;
+  --xagi-line-height: 1.786;
   --xagi-line-height-lg: 1.5;
   --xagi-line-height-sm: 1.66;
   --xagi-font-family-code: 'JetBrains Mono', monospace, 'Fira Code', 'Consolas', 'Monaco', 'Courier New';
@@ -986,7 +986,7 @@
   background: transparent;
   word-wrap: break-word;
   word-break: break-word;
-  font-size: 14px;
+  font-size: 16px;
   line-height: 1.6;
 }
 
@@ -1038,10 +1038,10 @@
 }
 
 .open-app-message-text {
-  white-space: pre-wrap;
+  white-space: normal;
   overflow-wrap: anywhere;
-  font-size: 14px;
-  line-height: 1.6;
+  font-size: 16px;
+  line-height: 1.4;
 }
 
 /* Streaming indicator — ref: nuwax streamingIndicator */
@@ -1698,10 +1698,11 @@
 }
 
 /* Markdown rendering — ref: nuwax AppDevMarkdownCMD compact overrides */
-.open-app-message-text p {
-  margin: 0.5em 0;
-  font-size: 14px;
-  line-height: 1.6;
+.open-app-message-text p,
+.open-app-message-text .md-paragraph {
+  margin: 0 0 12px;
+  font-size: 16px;
+  line-height: 1.4;
 }
 
 .open-app-message-text p:first-child {
@@ -1714,8 +1715,8 @@
 
 .open-app-message-text ul,
 .open-app-message-text ol {
-  margin: 0.4em 0 0.6em;
-  padding-left: 1.2em;
+  margin: 4px 0 8px;
+  padding-left: 20px;
 }
 
 .open-app-message-text li {
@@ -1723,8 +1724,8 @@
 }
 
 .open-app-message-text blockquote {
-  margin: 0.5em 0;
-  padding: 0.4em 0.8em;
+  margin: 6px 0;
+  padding: 6px 12px;
   border-left: 3px solid #d1d5db;
   color: #6b7280;
   font-size: 13px;
@@ -1736,7 +1737,7 @@
 .open-app-message-text h4,
 .open-app-message-text h5,
 .open-app-message-text h6 {
-  margin: 0.8em 0 0.4em;
+  margin: 10px 0 6px;
   font-weight: 600;
 }
 
@@ -1752,7 +1753,7 @@
   padding: 1px 5px;
   border-radius: var(--xagi-border-radius-xs);
   background: var(--xagi-color-fill-tertiary);
-  font-size: 13px;
+  font-size: 14px;
 }
 
 .open-app-md-pre {
@@ -1794,10 +1795,10 @@
 
 /* ── Fenced code block ── ref: nuwax ds-markdown.css .md-code-block */
 .md-code-block {
-  margin: 8px 0;
+  margin: 12px 0;
   border: 0;
   border-radius: var(--xagi-border-radius-lg);
-  background: #f6f8fa;
+  background: #fafafa;
   overflow: hidden;
 }
 
@@ -1826,8 +1827,8 @@
   min-height: 24px;
   padding: 0 8px;
   border: 0;
-  border-radius: 6px;
-  background: transparent;
+  border-radius: 4px;
+  background: rgba(0, 0, 0, 0.04);
   color: inherit;
   font: inherit;
   font-size: 12px;
@@ -1844,8 +1845,8 @@
 
 .md-code-content {
   overflow-x: auto;
-  font-size: 13px;
-  line-height: 1.5;
+  font-size: 14px;
+  line-height: 1.6;
 }
 
 .md-code-content .md-code-pre {
@@ -2938,7 +2939,7 @@
   padding: 8px 12px;
   border: 1px solid var(--xagi-color-border-secondary, #f0f0f0);
   border-radius: var(--xagi-border-radius, 8px);
-  margin: 4px 0;
+  margin: 12px 0;
   background: var(--xagi-color-bg-container, #fff);
   color: var(--xagi-color-text);
   font-size: 13px;
@@ -2969,9 +2970,9 @@
 
 /* ── Table wrapper with toolbar ── ref: nuwax table-wrapper */
 .md-table-wrapper {
-  margin: 8px 0;
-  border: 1px solid var(--xagi-color-border-secondary, #f0f0f0);
-  border-radius: var(--xagi-border-radius-lg, 12px);
+  margin: 12px 0;
+  border: 0;
+  border-radius: 0;
   overflow: hidden;
 }
 .md-table-toolbar {
@@ -3001,18 +3002,29 @@
   width: 100%;
   border-collapse: collapse;
 }
+.md-table-scroll table th,
+.md-table-scroll table td {
+  padding: 7px 14px 7px 6px;
+  border: 0.5px solid #d9d9d9;
+  text-align: left;
+  font-size: 13px;
+}
+.md-table-scroll table th {
+  font-weight: 600;
+  color: rgb(64, 64, 64);
+}
 
 /* ── KaTeX math ── */
 .md-math-block {
   display: block;
-  margin: 8px 0;
+  margin: 12px 0;
   overflow-x: auto;
 }
 .md-math-inline {
   display: inline;
 }
 .md-math-error {
-  margin: 4px 0;
+  margin: 12px 0;
   padding: 8px 12px;
   border: 1px dashed #e5c07b;
   border-radius: var(--xagi-border-radius, 8px);
@@ -3026,7 +3038,7 @@
 
 /* ── Mermaid diagram ── */
 .md-mermaid {
-  margin: 8px 0;
+  margin: 12px 0;
   padding: 12px;
   border: 1px solid var(--xagi-color-border-secondary, #f0f0f0);
   border-radius: var(--xagi-border-radius-lg, 12px);

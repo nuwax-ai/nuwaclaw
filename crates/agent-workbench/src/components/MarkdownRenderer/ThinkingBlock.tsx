@@ -38,7 +38,7 @@ export function ThinkingBlock({
 
   if (!content || content.trim() === '') return null;
 
-  const label = streaming ? 'Thinking' : 'Thought';
+  const label = streaming ? 'Thinking' : '已思考';
 
   return (
     <div

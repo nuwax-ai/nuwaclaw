@@ -144,7 +144,7 @@ describe('MarkdownRenderer thinking integration', () => {
     );
     expect(html).toContain('md-thinking-block');
     expect(html).toContain('md-thinking-toggle');
-    expect(html).toContain('Thought'); // not streaming → "Thought" label
+    expect(html).toContain('已思考'); // not streaming → "已思考" label
     expect(html).toContain('Final answer here');
     // The literal thinking tag must NOT leak into the markdown body.
     expect(html).not.toContain('<thinking>');
