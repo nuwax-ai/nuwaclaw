@@ -150,27 +150,29 @@
 
 ---
 
-### Phase 3 — 消息渲染增强（中优先级）⚠️ 主链路可用，仍有缺口 (commit 31676e20)
+### Phase 3 — 消息渲染增强（中优先级）⚠️ 主链路可用，仅分页未实现 (commit 283c2c6b)
 
-> 状态更新 (2026-05-21)：
-> - 3.1 Markdown 渲染：✅ react-markdown + remark-gfm + 代码块高亮 (prism-react-renderer) + 复制按钮 + 语言标签
-> - Thinking 折叠 / RunOver / OptimizedImage 三个组件已建 (Phase D)，待接线 ChatMessage 渲染
+> 状态更新 (2026-05-28)：
+> - 3.1 Markdown 渲染：✅ react-markdown + remark-gfm + remark-math + rehype-katex + rehype-raw + prism-react-renderer 代码高亮 + 复制按钮 + 语言标签
+> - Thinking 折叠 / RunOver / OptimizedImage 全部接线完成 (commit 283c2c6b SSE 路由修复)
 > - 3.2 消息分页：❌ 未实现，需后端支持
 
 #### 3.1 Markdown 渲染 ✅
-**依赖**: 添加 `react-markdown` + `remark-gfm`
+**依赖**: 添加 `react-markdown` + `remark-gfm` + `remark-math` + `rehype-katex` + `rehype-raw` + `prism-react-renderer`
 **文件**: `crates/agent-workbench/src/components/MarkdownRenderer/index.tsx`
 **nuwax 参考**: `src/components/MarkdownRenderer/index.tsx`（使用 `ds-markdown` 库）
 - 渲染 assistant 消息中的 Markdown 内容
-- 自定义渲染 `<pre>`、`<code>`、`<table>`、`<a>`
+- 自定义渲染 `<pre>`、`<code>`、`<table>`、`<a>`、`<img>`
+- ✅ 代码块语法高亮 (prism-react-renderer + CodeBlock 组件)
+- ✅ KaTeX 数学公式 (remark-math + rehype-katex)
+- ✅ Mermaid 图表 (MermaidBlock 组件)
+- ✅ `<markdown-custom-process>` 标签 (parseSegments + RunOver 组件)
+- ✅ `<task-result>` 标签 (TaskResult 组件)
+- ✅ Thinking 折叠 (ThinkingBlock 组件, SSE thought 事件路由到 metadata.thinking)
+- ✅ RunOver 工具可视化 (SSE PROCESSING 事件路由到 metadata.runOverSteps)
+- ✅ 图片点击放大 (OptimizedImage + lightbox)
 - **未完成**:
-  - 代码块语法高亮未实现，当前仅使用基础 CSS 样式
-  - nuwax 使用 `ds-markdown` 库，内置流式打字效果（requestAnimationFrame, 30ms 间隔）
-  - nuwax 支持 mermaid 图表、KaTeX 数学公式
-  - nuwax 支持自定义 `<markdown-custom-process>` 标签（工具执行可视化）
-  - nuwax 支持自定义 `<task-result>` 标签
-  - nuwax 代码块带复制按钮和语言标签
-  - nuwax 图片支持点击放大预览（`OptimizedImage` 组件）
+  - nuwax `ds-markdown` 库内置流式打字效果（requestAnimationFrame, 30ms 间隔）未迁移
 
 #### 3.2 消息分页（延后）
 **文件**: `crates/agent-workbench/src/components/NuwaxOpenApp.tsx`
@@ -270,15 +272,15 @@
 
 > 以下功能在 `workspace/nuwax` PC Web `/app` 中已实现，但 agent-workbench 尚未开始。按优先级排列。
 
-### P1 — 核心体验（影响基本可用性）
+### P1 — 核心体验（影响基本可用性）✅ (commit 283c2c6b)
 
-| 功能 | nuwax 源码位置 | 说明 |
+| 功能 | nuwax 源码位置 | 状态 |
 |------|---------------|------|
-| **Thinking/推理过程展示** | `MarkdownRenderer` 内 collapsible "Thinking/Thought" 区域 | 助手消息中折叠展示 AI 推理过程，流式显示 |
-| **工具执行可视化（RunOver）** | `RunOver` 组件 + `<markdown-custom-process>` 标签 | 实时显示工具调用进度、耗时、详细步骤 popover |
-| **剪贴板粘贴图片上传** | `ChatInputHome/index.tsx` 行 228-340 | 粘贴图片自动上传到 `/api/file/upload` |
-| **图片点击放大预览** | `OptimizedImage` 组件 + Ant Design `Image preview` | 消息中的图片支持点击缩放查看 |
-| **预设推荐问题** | `guidQuestionDtos` from agent detail | Agent 详情中预置的问题推荐，当前仅实现了 SSE 后的 suggest 追问 |
+| **Thinking/推理过程展示** | `MarkdownRenderer` 内 collapsible "Thinking/Thought" 区域 | ✅ 完成 — SSE thought 事件路由到 metadata.thinking，ThinkingBlock 组件渲染 |
+| **工具执行可视化（RunOver）** | `RunOver` 组件 + `<markdown-custom-process>` 标签 | ✅ 完成 — SSE PROCESSING 事件路由到 metadata.runOverSteps，RunOver 组件渲染 |
+| **剪贴板粘贴图片上传** | `ChatInputHome/index.tsx` 行 228-340 | ✅ 完成 — ChatInputHome → ChatUploadFile → usePasteUpload → uploadFile 全链路 |
+| **图片点击放大预览** | `OptimizedImage` 组件 + Ant Design `Image preview` | ✅ 完成 — MarkdownRenderer img 组件已使用 OptimizedImage + lightbox |
+| **预设推荐问题** | `guidQuestionDtos` from agent detail | ✅ 完成 — ChatArea 渲染 guidQuestionDtos 为可点击推荐 |
 
 ### P2 — 增强功能（提升完整度）
 
