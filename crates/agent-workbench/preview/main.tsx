@@ -639,7 +639,7 @@ function PreviewApp() {
                 fontFamily: 'monospace',
               }}
             >
-              16. 权限请求卡片 (PermissionCard)
+              19. 权限请求卡片 (PermissionCard)
             </div>
             <PermissionCard
               labels={zh}
@@ -669,7 +669,7 @@ function PreviewApp() {
                 fontFamily: 'monospace',
               }}
             >
-              17. MarkdownRenderer 直接渲染（无消息气泡包装）
+              20. MarkdownRenderer 直接渲染（无消息气泡包装）
             </div>
             <div
               style={{
@@ -688,6 +688,145 @@ print("Hello from raw MarkdownRenderer!")
 
 支持 $E = mc^2$ 行内公式和完整 Markdown 语法。`}
               />
+            </div>
+          </div>
+
+          {/* File Preview Panel (mock) */}
+          <div style={{ marginBottom: 24 }}>
+            <div
+              style={{
+                fontSize: 11,
+                color: '#999',
+                marginBottom: 4,
+                paddingLeft: 4,
+                fontFamily: 'monospace',
+              }}
+            >
+              18. 文件预览面板 (File Preview Panel)
+            </div>
+            <div
+              style={{
+                border: '1px solid #e5e7eb',
+                borderRadius: 8,
+                overflow: 'hidden',
+                background: '#fff',
+              }}
+            >
+              {/* Header with tabs */}
+              <div
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 0,
+                  borderBottom: '1px solid #e5e7eb',
+                  background: '#fafafa',
+                  padding: '0 12px',
+                }}
+              >
+                <span
+                  style={{
+                    padding: '8px 16px',
+                    fontSize: 13,
+                    color: '#5147ff',
+                    borderBottom: '2px solid #5147ff',
+                    cursor: 'pointer',
+                  }}
+                >
+                  预览
+                </span>
+                <span
+                  style={{
+                    padding: '8px 16px',
+                    fontSize: 13,
+                    color: '#666',
+                    cursor: 'pointer',
+                  }}
+                >
+                  代码
+                </span>
+                <span
+                  style={{
+                    padding: '8px 16px',
+                    fontSize: 13,
+                    color: '#666',
+                    cursor: 'pointer',
+                  }}
+                >
+                  文件
+                </span>
+              </div>
+
+              {/* Body: file tree + preview */}
+              <div style={{ display: 'flex', minHeight: 280 }}>
+                {/* File tree sidebar */}
+                <div
+                  style={{
+                    width: 200,
+                    borderRight: '1px solid #e5e7eb',
+                    background: '#f9f9f9',
+                    padding: '8px 0',
+                    fontSize: 13,
+                    fontFamily:
+                      'ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace',
+                  }}
+                >
+                  <div style={{ padding: '4px 12px', color: '#999', fontSize: 11 }}>
+                    project-members/
+                  </div>
+                  <div style={{ padding: '4px 12px 4px 24px', color: '#333' }}>
+                    📁 docs/
+                  </div>
+                  <div
+                    style={{
+                      padding: '4px 12px 4px 36px',
+                      color: '#5147ff',
+                      background: '#f0eeff',
+                    }}
+                  >
+                    📄 feature-doc.md
+                  </div>
+                  <div style={{ padding: '4px 12px 4px 36px', color: '#333' }}>
+                    📄 manual-test-cases.md
+                  </div>
+                  <div style={{ padding: '4px 12px 4px 24px', color: '#333' }}>
+                    📁 src/
+                  </div>
+                  <div style={{ padding: '4px 12px 4px 36px', color: '#333' }}>
+                    📁 types/
+                  </div>
+                  <div style={{ padding: '4px 12px 4px 36px', color: '#333' }}>
+                    📁 api/
+                  </div>
+                  <div style={{ padding: '4px 12px 4px 36px', color: '#333' }}>
+                    📁 views/
+                  </div>
+                  <div style={{ padding: '4px 12px 4px 24px', color: '#333' }}>
+                    📄 package.json
+                  </div>
+                  <div style={{ padding: '4px 12px 4px 24px', color: '#333' }}>
+                    📄 README.md
+                  </div>
+                </div>
+
+                {/* Preview area */}
+                <div style={{ flex: 1, padding: 16, overflow: 'auto' }}>
+                  <h3 style={{ margin: '0 0 12px', fontSize: 16, fontWeight: 600 }}>
+                    功能文档
+                  </h3>
+                  <p style={{ margin: '0 0 8px', fontSize: 14, color: '#404040' }}>
+                    本文档描述了项目成员管理功能的完整需求和技术方案。
+                  </p>
+                  <h4 style={{ margin: '12px 0 8px', fontSize: 14, fontWeight: 600 }}>
+                    功能范围
+                  </h4>
+                  <ul style={{ margin: 0, paddingLeft: 20, fontSize: 14, color: '#404040' }}>
+                    <li>成员列表展示（筛选、分页）</li>
+                    <li>新增成员（表单校验、手机号唯一性）</li>
+                    <li>编辑成员（仅允许修改角色）</li>
+                    <li>删除成员（确认弹窗、不可恢复）</li>
+                  </ul>
+                </div>
+              </div>
             </div>
           </div>
         </div>
