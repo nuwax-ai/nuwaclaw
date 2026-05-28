@@ -199,7 +199,8 @@ jobs:
         working-directory: crates/agent-electron-client
         env:
           TARGET_ARCH: ${{ matrix.arch }}
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # 勿用 secrets.GITHUB_* 自定义 Secret（GitHub 禁止 GITHUB_ 前缀）；用内置 github.token
+          GH_TOKEN: ${{ github.token }}
         run: npm run prepare:all
         timeout-minutes: 15
 

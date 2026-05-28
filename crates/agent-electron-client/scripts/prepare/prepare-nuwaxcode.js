@@ -18,7 +18,7 @@
  * 环境变量：
  *   NUWAXCODE_DIST_DIR     — nuwaxcode 本地构建产物目录（设置后走本地复制模式）
  *   NUWAXCODE_REPO         — GitHub 仓库（默认 nuwax-ai/nuwaxcode）
- *   GITHUB_TOKEN / GH_TOKEN — GitHub token（CI 必配，避免 API 403 限流）
+ *   GH_TOKEN — CI 中由 workflow 注入 github.token（勿自建 GITHUB_ 前缀 Secret）
  */
 
 const path = require('path');
@@ -31,9 +31,9 @@ const { getProjectRoot } = require('../utils/project-paths');
 const NUWAXCODE_VERSION = '1.2.1';
 const NUWAXCODE_REPO = process.env.NUWAXCODE_REPO || 'nuwax-ai/nuwaxcode';
 
-/** CI 中优先 GITHUB_TOKEN / GH_TOKEN，避免未认证 API 触发 403 限流 */
+/** CI 通过 GH_TOKEN 传入 github.token，避免未认证 API 触发 403 限流 */
 function getGithubToken() {
-  return process.env.GITHUB_TOKEN || process.env.GH_TOKEN || '';
+  return process.env.GH_TOKEN || process.env.GITHUB_TOKEN || '';
 }
 
 function sleep(ms) {
@@ -330,7 +330,7 @@ function checkGithubReleaseTag() {
 
     if (!getGithubToken()) {
       console.warn(
-        '[prepare-nuwaxcode] 未设置 GITHUB_TOKEN/GH_TOKEN，GitHub API 可能因限流返回 403',
+        '[prepare-nuwaxcode] 未设置 GH_TOKEN，GitHub API 可能因限流返回 403',
       );
     }
 
@@ -364,7 +364,7 @@ function checkGithubReleaseTag() {
       const retryable = statusCode === -1 || shouldRetryGithubStatus(statusCode);
       const hint =
         statusCode === 403 || statusCode === 429
-          ? '（多为 API 限流，请配置 GITHUB_TOKEN 或稍后重试）'
+          ? '（多为 API 限流，请在 CI 配置 GH_TOKEN=github.token 或稍后重试）'
           : '';
       console.warn(
         `[prepare-nuwaxcode] Release ${tag} 检查失败: HTTP ${statusCode}${hint}`,
