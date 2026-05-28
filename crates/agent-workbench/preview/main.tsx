@@ -438,21 +438,22 @@ sequenceDiagram
 ];
 
 // ---------------------------------------------------------------------------
-// Nuwax token overrides (for side-by-side comparison)
+// Antd default token overrides (for side-by-side comparison)
+// Now the default styles.css uses nuwax tokens; toggle shows antd defaults.
 // ---------------------------------------------------------------------------
 
-const NUWAX_OVERRIDES: Record<string, string> = {
-  '--xagi-font-weight-strong': '400',
-  '--xagi-line-width': '0.5px',
-  '--xagi-color-primary': '#5147ff',
-  '--xagi-color-primary-hover': '#7366ff',
-  '--xagi-color-primary-active': '#3d33cc',
-  '--xagi-color-primary-bg': '#f0eeff',
-  '--xagi-color-primary-border': '#c7c2ff',
-  '--xagi-color-primary-text': '#5147ff',
-  '--xagi-color-primary-text-hover': '#7366ff',
-  '--xagi-color-fill': 'rgba(12, 20, 40, 0.1)',
-  '--xagi-line-height-sm': '1.66',
+const ANTD_DEFAULT_OVERRIDES: Record<string, string> = {
+  '--xagi-font-weight-strong': '600',
+  '--xagi-line-width': '1px',
+  '--xagi-color-primary': '#1677ff',
+  '--xagi-color-primary-hover': '#4096ff',
+  '--xagi-color-primary-active': '#0958d9',
+  '--xagi-color-primary-bg': '#e6f4ff',
+  '--xagi-color-primary-border': '#91caff',
+  '--xagi-color-primary-text': '#1677ff',
+  '--xagi-color-primary-text-hover': '#4096ff',
+  '--xagi-color-fill': 'rgba(0, 0, 0, 0.15)',
+  '--xagi-line-height-sm': '1.3',
 };
 
 // ---------------------------------------------------------------------------
@@ -460,7 +461,7 @@ const NUWAX_OVERRIDES: Record<string, string> = {
 // ---------------------------------------------------------------------------
 
 function PreviewApp() {
-  const [useNuwaxTokens, setUseNuwaxTokens] = useState(false);
+  const [useAntdDefaults, setUseAntdDefaults] = useState(false);
   const [filter, setFilter] = useState('');
 
   const filteredMessages = filter
@@ -468,7 +469,7 @@ function PreviewApp() {
     : messages;
 
   return (
-    <div className="nuwax-open-app" style={useNuwaxTokens ? NUWAX_OVERRIDES : undefined}>
+    <div className="nuwax-open-app" style={useAntdDefaults ? ANTD_DEFAULT_OVERRIDES : undefined}>
       {/* Toolbar */}
       <div
         style={{
@@ -486,10 +487,10 @@ function PreviewApp() {
         <label style={{ display: 'flex', alignItems: 'center', gap: 4, cursor: 'pointer' }}>
           <input
             type="checkbox"
-            checked={useNuwaxTokens}
-            onChange={(e) => setUseNuwaxTokens(e.target.checked)}
+            checked={useAntdDefaults}
+            onChange={(e) => setUseAntdDefaults(e.target.checked)}
           />
-          使用 nuwax 设计 tokens
+          切换为 Antd 默认 tokens（对比用）
         </label>
         <span style={{ color: '#999' }}>|</span>
         <input
@@ -511,18 +512,18 @@ function PreviewApp() {
       </div>
 
       {/* Token comparison panel */}
-      {useNuwaxTokens && (
+      {useAntdDefaults && (
         <div
           style={{
             padding: '6px 16px',
-            background: '#f0eeff',
-            borderBottom: '1px solid #c7c2ff',
+            background: '#e6f4ff',
+            borderBottom: '1px solid #91caff',
             fontSize: 12,
-            color: '#5147ff',
+            color: '#1677ff',
             flexShrink: 0,
           }}
         >
-          ✅ nuwax tokens 已启用: fontWeightStrong=400, lineWidth=0.5px, colorPrimary=#5147ff
+          ⚠️ Antd 默认 tokens: fontWeightStrong=600, lineWidth=1px, colorPrimary=#1677ff — 与 nuwax 有差异
         </div>
       )}
 
