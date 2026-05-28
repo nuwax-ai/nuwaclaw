@@ -2175,6 +2175,124 @@
   overflow-wrap: anywhere;
 }
 
+/* ── ExecutionPlan (plan tasks) ── ref: nuwax MarkdownCustomProcess Plan type */
+.md-plan {
+  border: 0.5px solid var(--xagi-color-border-secondary);
+  border-radius: var(--xagi-border-radius);
+  background: var(--xagi-color-bg-container, #ffffff);
+  overflow: hidden;
+  margin: 12px 0;
+}
+
+.md-plan-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 4px 12px;
+  background: var(--xagi-color-fill-quaternary, rgba(12, 20, 40, 0.02));
+}
+
+.md-plan-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--xagi-color-text);
+}
+
+.md-plan-controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.md-plan-progress {
+  font-size: 12px;
+  color: rgba(0, 0, 0, 0.45);
+}
+
+.md-plan-toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border: none;
+  background: transparent;
+  color: rgba(0, 0, 0, 0.45);
+  cursor: pointer;
+  border-radius: 4px;
+  padding: 0;
+  transition: all 0.2s;
+}
+
+.md-plan-toggle:hover {
+  background: rgba(0, 0, 0, 0.06);
+  color: rgba(0, 0, 0, 0.88);
+}
+
+.md-plan-content {
+  padding: 8px 12px 12px;
+  border-top: 1px solid rgba(0, 0, 0, 0.06);
+  max-height: 400px;
+  overflow-y: auto;
+}
+
+.md-plan-task {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 0;
+  min-height: 24px;
+}
+
+.md-plan-task-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 14px;
+  flex-shrink: 0;
+}
+
+.md-plan-task--completed .md-plan-task-icon {
+  color: #52c41a;
+}
+
+.md-plan-task--pending .md-plan-task-icon {
+  color: #8c8c8c;
+}
+
+.md-plan-task--failed .md-plan-task-icon {
+  color: #ff4d4f;
+}
+
+.md-plan-task--in_progress .md-plan-task-icon {
+  color: #1890ff;
+}
+
+.md-plan-task-icon--spinning {
+  animation: md-plan-spin 1.5s linear infinite;
+}
+
+@keyframes md-plan-spin {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}
+
+.md-plan-task-text {
+  flex: 1;
+  font-size: 13px;
+  color: rgba(0, 0, 0, 0.65);
+  line-height: 1.5;
+}
+
+.md-plan-task--completed .md-plan-task-text {
+  color: rgba(0, 0, 0, 0.45);
+  text-decoration: line-through;
+}
+
+.md-plan-task--failed .md-plan-task-text {
+  color: rgba(0, 0, 0, 0.88);
+}
+
 /* OptimizedImage + lightbox */
 .md-image-wrapper {
   display: inline-block;

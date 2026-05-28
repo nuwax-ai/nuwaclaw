@@ -29,7 +29,8 @@ import '../src/styles.css';
 
 import { ChatMessage, PermissionCard } from '../src/components/OpenApp/Message';
 import { MarkdownRenderer } from '../src/components/MarkdownRenderer';
-import type { RunOverStep } from '../src/components/MarkdownRenderer';
+import { ExecutionPlan } from '../src/components/MarkdownRenderer';
+import type { RunOverStep, PlanTask } from '../src/components/MarkdownRenderer';
 import { zh } from '../src/components/OpenApp/labels';
 import type { WorkbenchAgentDetail, WorkbenchMessage } from '../src/types';
 
@@ -616,6 +617,43 @@ project-members/
 ];
 
 // ---------------------------------------------------------------------------
+// ExecutionPlan demo data
+// ---------------------------------------------------------------------------
+
+const executionPlanTasks: PlanTask[] = [
+  {
+    id: 'step-1',
+    content: '收集上下文：确认技术栈和需求范围',
+    status: 'completed',
+  },
+  {
+    id: 'step-2',
+    content: '需求梳理：用户故事和功能范围',
+    status: 'completed',
+  },
+  {
+    id: 'step-3',
+    content: '边界拷问：识别 30 个边界场景',
+    status: 'completed',
+  },
+  {
+    id: 'step-4',
+    content: '技术方案：目录结构和组件设计',
+    status: 'in_progress',
+  },
+  {
+    id: 'step-5',
+    content: '实现：代码编写和测试',
+    status: 'pending',
+  },
+  {
+    id: 'step-6',
+    content: '部署失败：构建超时',
+    status: 'failed',
+  },
+];
+
+// ---------------------------------------------------------------------------
 // Antd default token overrides (for side-by-side comparison)
 // Now the default styles.css uses nuwax tokens; toggle shows antd defaults.
 // ---------------------------------------------------------------------------
@@ -1074,6 +1112,34 @@ print("Hello from raw MarkdownRenderer!")
 \`\`\`
 
 支持 $E = mc^2$ 行内公式和完整 Markdown 语法。`}
+              />
+            </div>
+          </div>
+
+          {/* ExecutionPlan demo */}
+          <div style={{ marginBottom: 24 }}>
+            <div
+              style={{
+                fontSize: 11,
+                color: '#999',
+                marginBottom: 4,
+                paddingLeft: 4,
+                fontFamily: 'monospace',
+              }}
+            >
+              21. 执行计划 (ExecutionPlan)
+            </div>
+            <div
+              style={{
+                background: '#fff',
+                padding: 16,
+                borderRadius: 8,
+                border: '1px solid #eee',
+              }}
+            >
+              <ExecutionPlan
+                title="执行计划"
+                tasks={executionPlanTasks}
               />
             </div>
           </div>

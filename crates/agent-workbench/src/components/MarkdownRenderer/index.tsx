@@ -21,8 +21,10 @@ import {
 
 // Re-export public types and sub-components
 export type { RunOverStep } from './RunOver';
+export type { PlanTask } from './ExecutionPlan';
 export { ThinkingBlock } from './ThinkingBlock';
 export { RunOver } from './RunOver';
+export { ExecutionPlan } from './ExecutionPlan';
 export { OptimizedImage } from './OptimizedImage';
 export { ProcessGroup } from './ProcessGroup';
 export { TaskResult } from './TaskResult';
