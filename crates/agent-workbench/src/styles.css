@@ -928,10 +928,6 @@
   min-height: 40px;
 }
 
-.open-app-message.user .open-app-message-text {
-  white-space: pre-wrap;
-}
-
 /* Avatar — ref: nuwax .agent-title-bar .avatar */
 .open-app-message-avatar {
   display: flex;
@@ -955,17 +951,11 @@
   border-radius: 50%;
 }
 
-.open-app-message-avatar > span {
-  display: flex;
-  width: 24px;
-  height: 24px;
-  align-items: center;
-  justify-content: center;
+.open-app-message-avatar .open-app-agent-avatar {
+  width: 100%;
+  height: 100%;
   border-radius: 50%;
-  background: var(--xagi-color-primary-bg);
-  color: var(--xagi-color-text-tertiary);
-  font-size: var(--xagi-font-size-sm);
-  font-weight: 800;
+  font-size: 11px;
 }
 
 /* .messageBubble base — ref: .chat-content + .inner-container */
@@ -994,8 +984,8 @@
 }
 
 /* Think content — ref: nuwax src/components/ChatView/index.less .inner-container .think-content
-   NOTE: agent-workbench wraps think in .open-app-message.thought > .open-app-message-content;
-   nuwax uses .inner-container > .think-content as sibling of .chat-content */
+   Applies to historical messages with kind='thought' from the API.
+   For streaming, ThinkingBlock (.md-thinking-block) handles its own styling. */
 .open-app-message.thought .open-app-message-content {
   position: relative;
   line-height: 28px;
@@ -1546,8 +1536,8 @@
     max-height: 48px;
   }
 
-  .open-app-chat-body {
-    padding: 18px 16px;
+  .open-app-chat-wrapper {
+    padding: 18px 16px 40px;
   }
 
   .open-app-chat-preview-split {

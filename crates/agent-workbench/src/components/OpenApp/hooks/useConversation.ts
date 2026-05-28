@@ -229,7 +229,8 @@ export function streamEventToMessagePatch(
     const delta = event.content ?? '';
     return (message) => {
       const meta = { ...((message.metadata as Record<string, unknown>) ?? {}) };
-      meta.thinking = `${(meta.thinking as string) ?? ''}${delta}`;
+      const prev = typeof meta.thinking === 'string' ? meta.thinking : '';
+      meta.thinking = `${prev}${delta}`;
       return { ...message, metadata: meta, status: 'streaming' };
     };
   }
@@ -241,9 +242,14 @@ export function streamEventToMessagePatch(
         ? ([...meta.runOverSteps] as RunOverStep[])
         : [];
       const step = parseProcessingStep(event, steps.length);
-      if (step) steps.push(step);
-      meta.runOverSteps = steps;
-      meta.runOverStatus = 'running';
+      if (step) {
+        // Upsert by id: replace existing step with same id, otherwise append.
+        const idx = steps.findIndex((s) => s.id === step.id);
+        if (idx >= 0) steps[idx] = step;
+        else steps.push(step);
+        meta.runOverSteps = steps;
+        meta.runOverStatus = 'running';
+      }
       return { ...message, metadata: meta, status: 'streaming' };
     };
   }
@@ -251,7 +257,9 @@ export function streamEventToMessagePatch(
   if (event.type === 'final') {
     return (message) => {
       const meta = { ...((message.metadata as Record<string, unknown>) ?? {}) };
-      if (meta.runOverSteps) meta.runOverStatus = 'done';
+      if (Array.isArray(meta.runOverSteps) && (meta.runOverSteps as unknown[]).length > 0) {
+        meta.runOverStatus = 'done';
+      }
       return {
         ...message,
         content: event.content || message.content,
@@ -265,7 +273,9 @@ export function streamEventToMessagePatch(
   if (event.type === 'error') {
     return (message) => {
       const meta = { ...((message.metadata as Record<string, unknown>) ?? {}) };
-      if (meta.runOverSteps) meta.runOverStatus = 'error';
+      if (Array.isArray(meta.runOverSteps) && (meta.runOverSteps as unknown[]).length > 0) {
+        meta.runOverStatus = 'error';
+      }
       return {
         ...message,
         content: event.error ?? 'Agent stream failed',
@@ -292,7 +302,7 @@ function parseProcessingStep(
   fallbackIndex: number,
 ): RunOverStep | null {
   const data = event.processingData ?? (event.raw as Record<string, unknown> | undefined);
-  if (!data || typeof data !== 'object') {
+  if (!data || typeof data !== 'object' || Array.isArray(data)) {
     // Fallback: synthesise a generic step from the text content.
     const text = (event.content ?? '').trim();
     if (!text) return null;
@@ -310,13 +320,15 @@ function parseProcessingStep(
     : Array.isArray(record.processing_list)
       ? record.processing_list
       : null;
+  // Empty list = no steps to report; don't create a phantom from the envelope.
+  if (list && list.length === 0) return null;
   const source =
     list && list.length > 0
       ? (list[list.length - 1] as Record<string, unknown>)
       : record;
 
   const id =
-    String(source.executeId ?? source.execute_id ?? source.id ?? `step-${fallbackIndex}`);
+    String(source.executeId || source.execute_id || source.id || `step-${fallbackIndex}`);
   const name =
     String(source.name ?? source.title ?? source.tool ?? event.content ?? 'Processing').slice(
       0,
@@ -566,12 +578,13 @@ export async function sendPromptAction(
     dispatch({
       type: 'patchMessage',
       messageId: assistantId,
-      patch: (msg) => ({
-        ...msg,
-        content: message,
-        kind: 'error',
-        status: 'error',
-      }),
+      patch: (msg) => {
+        const meta = { ...((msg.metadata as Record<string, unknown>) ?? {}) };
+        if (Array.isArray(meta.runOverSteps) && (meta.runOverSteps as unknown[]).length > 0) {
+          meta.runOverStatus = 'error';
+        }
+        return { ...msg, content: message, kind: 'error', status: 'error', metadata: meta };
+      },
     });
     deps.reportError(cause, { phase: 'sendMessage' });
   } finally {
