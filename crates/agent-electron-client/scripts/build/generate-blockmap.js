@@ -5,7 +5,7 @@
  * Usage: node generate-blockmap.js <path-to-installer>
  * Output: <installer>.blockmap in the same directory
  *
- * Requires npm install in crates/agent-electron-client (app-builder-bin).
+ * Requires dependencies installed in crates/agent-electron-client (app-builder-bin).
  */
 
 const path = require("path");
@@ -69,7 +69,7 @@ function main() {
   const appBuilder = findAppBuilder();
   if (!appBuilder) {
     console.error(
-      "Error: app-builder not found. Run npm install in crates/agent-electron-client.",
+      "Error: app-builder not found. Install deps in crates/agent-electron-client (app-builder-bin).",
     );
     process.exit(1);
   }

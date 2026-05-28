@@ -220,7 +220,6 @@ C:\tmp\nuwaclaw-sign\
 │
 └── signed/                                # 已签名文件（重命名为正式名称）
     ├── NuwaClaw.Setup.0.9.2.exe
-    ├── NuwaClaw.Setup.0.9.2.exe.blockmap
     └── NuwaClaw.0.9.2.msi
 ```
 
@@ -229,11 +228,11 @@ C:\tmp\nuwaclaw-sign\
 | 阶段 | EXE 文件名 | blockmap | MSI 文件名 |
 |------|-----------|----------|-----------|
 | CI 构建 | `NuwaClaw-Setup-{version}-unsigned.exe` | `...-unsigned.exe.blockmap` | `NuwaClaw-{version}-unsigned.msi` |
-| 本地签名后 | `NuwaClaw.Setup.{version}.exe` | `NuwaClaw.Setup.{version}.exe.blockmap`（签名后重新生成） | `NuwaClaw.{version}.msi` |
+| 本地签名后 | `NuwaClaw.Setup.{version}.exe` | （可选）差分启用时需要 | `NuwaClaw.{version}.msi` |
 
 > **Beta / `prerelease-v*`**：不做 Windows 签名，CI 直接发布 `NuwaClaw-Setup-{version}-unsigned.exe` 及同名 `.blockmap`，由 [release-electron-dev.yml](../../.github/workflows/release-electron-dev.yml) 同步到 OSS。请勿对 unsigned blockmap 重命名后当作已签名包使用。
 
-签名会改变 exe 字节内容，**不能**将 CI 的 `-unsigned.exe.blockmap` 重命名后上传；须对**已签名** exe 运行 `node scripts/build/generate-blockmap.js`。
+签名会改变 exe 字节内容，**不能**将 CI 的 `-unsigned.exe.blockmap` 重命名后上传；如未来恢复差分更新，需要对**已签名** exe 重新生成 blockmap。
 
 ## 流程步骤说明
 
@@ -243,8 +242,7 @@ C:\tmp\nuwaclaw-sign\
 | Sign | `signtool sign` | 使用证书进行代码签名（需要 SimplySign token） |
 | Verify | `signtool verify` | 验证签名有效性 |
 | Copy | `cp` | 复制已签名文件到 `signed/` |
-| Blockmap | `generate-blockmap.js` | 对已签名 exe 生成差分更新 blockmap |
-| Upload | `gh release upload` | 上传已签名 exe、msi、blockmap；删除 Release 上的 unsigned 产物 |
+| Upload | `gh release upload` | 上传已签名 exe、msi；删除 Release 上的 unsigned 产物 |
 
 **OSS 同步顺序（Stable）**：完成签名并上传 Release 后，再执行 `./scripts/sync-oss.sh electron-v{x.y.z}`，以便 `latest.yml` 含 `blockMapSize` 且指向已签名安装包。
 
