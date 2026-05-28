@@ -112,7 +112,7 @@ function inferNuwaxEnvelopeType(payload: unknown): WorkbenchStreamEventType | nu
   const eventType = readString(record, [['eventType'], ['event_type']])?.toUpperCase();
   if (!eventType) return null;
 
-  if (eventType === 'PROCESSING') return 'thought';
+  if (eventType === 'PROCESSING') return 'processing';
   if (eventType === 'FINAL_RESULT') return 'final';
   if (eventType === 'ERROR') return 'error';
   if (eventType === 'MESSAGE') {
@@ -151,6 +151,13 @@ function inferType(eventName: string | undefined, payload: unknown): WorkbenchSt
   ) {
     return 'permission';
   }
+  if (
+    ['processing', 'tool_call', 'tool_use', 'tool_execution'].includes(
+      normalized,
+    )
+  ) {
+    return 'processing';
+  }
 
   const record = getRecord(payload);
   const explicitType = readString(record, [['type'], ['event'], ['subType']])
@@ -169,6 +176,13 @@ function inferType(eventName: string | undefined, payload: unknown): WorkbenchSt
     }
     if (explicitType.includes('error')) return 'error';
     if (explicitType.includes('permission')) return 'permission';
+    if (
+      explicitType.includes('processing') ||
+      explicitType.includes('tool_call') ||
+      explicitType.includes('tool_use')
+    ) {
+      return 'processing';
+    }
   }
 
   if (readPermission(payload)) return 'permission';
@@ -266,6 +280,18 @@ export function normalizeSseMessage(message: RawSseMessage): WorkbenchStreamEven
         readString(record, [['error']]) ??
         contentFromPayload(payload) ??
         'Unknown stream error',
+      raw: payload,
+      ...ids,
+    };
+  }
+
+  if (type === 'processing') {
+    const record = getRecord(payload);
+    const data = getRecord(record?.data) ?? record;
+    return {
+      type,
+      content: contentFromPayload(payload) ?? '',
+      processingData: data ?? undefined,
       raw: payload,
       ...ids,
     };

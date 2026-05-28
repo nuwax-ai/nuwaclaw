@@ -25,6 +25,7 @@ import type {
   WorkbenchSendMessageRequest,
   WorkbenchStreamEvent,
 } from '../../../types';
+import type { RunOverStep } from '../../MarkdownRenderer';
 
 // ---------------------------------------------------------------------------
 // Public API
@@ -204,37 +205,138 @@ export function messagesReducer(
  * be applied to the streaming assistant message. Returns `null` for
  * events that do not target the assistant message body (e.g. `permission`).
  *
- * Mirrors the inline `updateAssistantMessage` logic in NuwaxOpenApp.tsx.
+ * Routing:
+ *   - `chunk`      → append to `message.content`
+ *   - `thought`    → accumulate in `metadata.thinking` (for ThinkingBlock)
+ *   - `processing` → accumulate in `metadata.runOverSteps` (for RunOver)
+ *   - `final`      → mark stream complete, set `runOverStatus = 'done'`
+ *   - `error`      → mark stream errored
  */
 export function streamEventToMessagePatch(
   event: WorkbenchStreamEvent,
 ): ((msg: WorkbenchMessage) => WorkbenchMessage) | null {
-  if (event.type === 'chunk' || event.type === 'thought') {
+  if (event.type === 'chunk') {
     const delta = event.content ?? '';
     return (message) => ({
       ...message,
       content: `${message.content}${delta}`,
-      kind: event.type === 'thought' ? 'thought' : message.kind ?? 'text',
+      kind: message.kind ?? 'text',
       status: 'streaming',
     });
   }
+
+  if (event.type === 'thought') {
+    const delta = event.content ?? '';
+    return (message) => {
+      const meta = { ...((message.metadata as Record<string, unknown>) ?? {}) };
+      meta.thinking = `${(meta.thinking as string) ?? ''}${delta}`;
+      return { ...message, metadata: meta, status: 'streaming' };
+    };
+  }
+
+  if (event.type === 'processing') {
+    return (message) => {
+      const meta = { ...((message.metadata as Record<string, unknown>) ?? {}) };
+      const steps = Array.isArray(meta.runOverSteps)
+        ? ([...meta.runOverSteps] as RunOverStep[])
+        : [];
+      const step = parseProcessingStep(event, steps.length);
+      if (step) steps.push(step);
+      meta.runOverSteps = steps;
+      meta.runOverStatus = 'running';
+      return { ...message, metadata: meta, status: 'streaming' };
+    };
+  }
+
   if (event.type === 'final') {
-    return (message) => ({
-      ...message,
-      content: event.content || message.content,
-      status: 'complete',
-      kind: 'text',
-    });
+    return (message) => {
+      const meta = { ...((message.metadata as Record<string, unknown>) ?? {}) };
+      if (meta.runOverSteps) meta.runOverStatus = 'done';
+      return {
+        ...message,
+        content: event.content || message.content,
+        status: 'complete',
+        kind: 'text',
+        metadata: meta,
+      };
+    };
   }
+
   if (event.type === 'error') {
-    return (message) => ({
-      ...message,
-      content: event.error ?? 'Agent stream failed',
-      status: 'error',
-      kind: 'error',
-    });
+    return (message) => {
+      const meta = { ...((message.metadata as Record<string, unknown>) ?? {}) };
+      if (meta.runOverSteps) meta.runOverStatus = 'error';
+      return {
+        ...message,
+        content: event.error ?? 'Agent stream failed',
+        status: 'error',
+        kind: 'error',
+        metadata: meta,
+      };
+    };
   }
+
   return null;
+}
+
+/**
+ * Convert a `processing` SSE event into a `RunOverStep`.
+ *
+ * nuwax PROCESSING events carry a `processingList` array in their data
+ * payload. Each entry has `{ executeId, name, status, result? }`. When the
+ * event wraps a single step we read from the top level; when it carries a
+ * list we pick the latest entry.
+ */
+function parseProcessingStep(
+  event: WorkbenchStreamEvent,
+  fallbackIndex: number,
+): RunOverStep | null {
+  const data = event.processingData ?? (event.raw as Record<string, unknown> | undefined);
+  if (!data || typeof data !== 'object') {
+    // Fallback: synthesise a generic step from the text content.
+    const text = (event.content ?? '').trim();
+    if (!text) return null;
+    return {
+      id: `step-${fallbackIndex}`,
+      name: text.slice(0, 80),
+      status: 'executing',
+    };
+  }
+
+  const record = data as Record<string, unknown>;
+  // If the payload contains a processingList, pick the last entry.
+  const list = Array.isArray(record.processingList)
+    ? record.processingList
+    : Array.isArray(record.processing_list)
+      ? record.processing_list
+      : null;
+  const source =
+    list && list.length > 0
+      ? (list[list.length - 1] as Record<string, unknown>)
+      : record;
+
+  const id =
+    String(source.executeId ?? source.execute_id ?? source.id ?? `step-${fallbackIndex}`);
+  const name =
+    String(source.name ?? source.title ?? source.tool ?? event.content ?? 'Processing').slice(
+      0,
+      120,
+    );
+  const rawStatus = String(source.status ?? 'executing').toLowerCase();
+  const status: RunOverStep['status'] =
+    rawStatus === 'done' || rawStatus === 'completed' || rawStatus === 'success'
+      ? 'done'
+      : rawStatus === 'error' || rawStatus === 'failed'
+        ? 'error'
+        : 'executing';
+
+  let durationMs: number | undefined;
+  const result = source.result as Record<string, unknown> | undefined;
+  if (result && typeof result.startTime === 'number' && typeof result.endTime === 'number') {
+    durationMs = result.endTime - result.startTime;
+  }
+
+  return { id, name, status, durationMs };
 }
 
 // ---------------------------------------------------------------------------

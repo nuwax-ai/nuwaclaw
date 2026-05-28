@@ -81,16 +81,52 @@ describe('SSE parser', () => {
     );
 
     expect(events.map((event) => event.type)).toEqual([
-      'thought',
+      'processing',
       'thought',
       'chunk',
       'final',
       'error',
     ]);
+    expect(events[0].content).toBe('working');
+    expect(events[0].processingData).toBeDefined();
+    expect(events[1].content).toBe('reason');
     expect(events[2].content).toBe('answer');
     expect(events[3].requestId).toBe('req-9');
     expect(events[3].content).toBe('done');
     expect(events[4].error).toBe('failed');
+  });
+
+  it('extracts processingData from nuwax PROCESSING events with processingList', () => {
+    const events = parseSseText(
+      [
+        'data: {"eventType":"PROCESSING","data":{"processingList":[{"executeId":"e1","name":"Read file","status":"executing"}]}}',
+        '',
+      ].join('\n'),
+    );
+
+    expect(events).toHaveLength(1);
+    expect(events[0].type).toBe('processing');
+    expect(events[0].processingData).toBeDefined();
+    const data = events[0].processingData as Record<string, unknown>;
+    expect(Array.isArray(data.processingList)).toBe(true);
+    const list = data.processingList as Array<Record<string, unknown>>;
+    expect(list[0].name).toBe('Read file');
+    expect(list[0].status).toBe('executing');
+  });
+
+  it('infers processing type from non-nuwax event names and payloads', () => {
+    const events = parseSseText(
+      [
+        'event: tool_call',
+        'data: {"name":"ls","status":"done"}',
+        '',
+        'event: message',
+        'data: {"type":"processing","text":"running"}',
+        '',
+      ].join('\n'),
+    );
+
+    expect(events.map((e) => e.type)).toEqual(['processing', 'processing']);
   });
 
   it('handles BOM, CRLF, comments, and multi-line data blocks', () => {

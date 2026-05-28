@@ -108,6 +108,7 @@ export interface WorkbenchAgentDetail {
 export type WorkbenchStreamEventType =
   | 'chunk'
   | 'thought'
+  | 'processing'
   | 'final'
   | 'error'
   | 'permission';
@@ -121,6 +122,8 @@ export interface WorkbenchStreamEvent {
   content?: string;
   error?: string;
   permission?: WorkbenchPermissionRequest;
+  /** Structured payload from nuwax PROCESSING events (processingList entry). */
+  processingData?: Record<string, unknown>;
   raw?: unknown;
 }
 

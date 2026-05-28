@@ -224,10 +224,134 @@ describe('streamEventToMessagePatch', () => {
     expect(next.kind).toBe('text');
   });
 
-  it('marks the message kind as thought for thought events', () => {
-    const patch = streamEventToMessagePatch({ type: 'thought', content: 'thinking…' });
+  it('accumulates thought events into metadata.thinking (not content)', () => {
+    const patch = streamEventToMessagePatch({ type: 'thought', content: 'hmm…' });
     const next = patch!(makeMessage({ content: '' }));
-    expect(next.kind).toBe('thought');
+    expect(next.content).toBe('');
+    expect(next.status).toBe('streaming');
+    const meta = next.metadata as Record<string, unknown>;
+    expect(meta.thinking).toBe('hmm…');
+  });
+
+  it('appends consecutive thought events to existing thinking', () => {
+    const msg = makeMessage({
+      content: '',
+      metadata: { thinking: 'first part ' },
+    });
+    const patch = streamEventToMessagePatch({ type: 'thought', content: 'second part' });
+    const next = patch!(msg);
+    expect((next.metadata as Record<string, unknown>).thinking).toBe('first part second part');
+  });
+
+  it('accumulates processing events into metadata.runOverSteps', () => {
+    const msg = makeMessage({ content: '', status: 'streaming' });
+    const patch = streamEventToMessagePatch({
+      type: 'processing',
+      content: 'Reading files',
+      processingData: {
+        processingList: [{ executeId: 'e1', name: 'Read file', status: 'executing' }],
+      },
+    });
+    const next = patch!(msg);
+    const meta = next.metadata as Record<string, unknown>;
+    expect(meta.runOverStatus).toBe('running');
+    const steps = meta.runOverSteps as Array<Record<string, unknown>>;
+    expect(steps).toHaveLength(1);
+    expect(steps[0].name).toBe('Read file');
+    expect(steps[0].status).toBe('executing');
+  });
+
+  it('appends multiple processing steps across events', () => {
+    const msg = makeMessage({
+      content: '',
+      status: 'streaming',
+      metadata: {
+        runOverSteps: [{ id: 'e1', name: 'Read file', status: 'done' }],
+        runOverStatus: 'running',
+      },
+    });
+    const patch = streamEventToMessagePatch({
+      type: 'processing',
+      processingData: {
+        processingList: [{ executeId: 'e2', name: 'Write file', status: 'executing' }],
+      },
+    });
+    const next = patch!(msg);
+    const steps = (next.metadata as Record<string, unknown>).runOverSteps as Array<
+      Record<string, unknown>
+    >;
+    expect(steps).toHaveLength(2);
+    expect(steps[1].name).toBe('Write file');
+  });
+
+  it('synthesises a step from content when processingData is absent', () => {
+    const patch = streamEventToMessagePatch({
+      type: 'processing',
+      content: 'Running tool',
+    });
+    const next = patch!(makeMessage({ content: '', status: 'streaming' }));
+    const steps = (next.metadata as Record<string, unknown>).runOverSteps as Array<
+      Record<string, unknown>
+    >;
+    expect(steps).toHaveLength(1);
+    expect(steps[0].name).toBe('Running tool');
+    expect(steps[0].status).toBe('executing');
+  });
+
+  it('marks runOverStatus as done on final event when steps exist', () => {
+    const msg = makeMessage({
+      content: 'partial',
+      status: 'streaming',
+      metadata: {
+        runOverSteps: [{ id: 'e1', name: 'Read', status: 'done' }],
+        runOverStatus: 'running',
+      },
+    });
+    const patch = streamEventToMessagePatch({ type: 'final', content: 'done' });
+    const next = patch!(msg);
+    expect(next.status).toBe('complete');
+    expect((next.metadata as Record<string, unknown>).runOverStatus).toBe('done');
+  });
+
+  it('marks runOverStatus as error on error event when steps exist', () => {
+    const msg = makeMessage({
+      content: 'partial',
+      status: 'streaming',
+      metadata: {
+        runOverSteps: [{ id: 'e1', name: 'Read', status: 'executing' }],
+        runOverStatus: 'running',
+      },
+    });
+    const patch = streamEventToMessagePatch({ type: 'error', error: 'boom' });
+    const next = patch!(msg);
+    expect(next.status).toBe('error');
+    expect((next.metadata as Record<string, unknown>).runOverStatus).toBe('error');
+  });
+
+  it('handles mixed sequence: thought → processing → chunk → final', () => {
+    const base = makeMessage({ content: '', status: 'streaming' });
+    const thoughtPatch = streamEventToMessagePatch({ type: 'thought', content: 'reasoning…' });
+    const afterThought = thoughtPatch!(base);
+    expect((afterThought.metadata as Record<string, unknown>).thinking).toBe('reasoning…');
+
+    const procPatch = streamEventToMessagePatch({
+      type: 'processing',
+      processingData: { processingList: [{ executeId: 'e1', name: 'Bash', status: 'done' }] },
+    });
+    const afterProc = procPatch!(afterThought);
+    const procMeta = afterProc.metadata as Record<string, unknown>;
+    expect(procMeta.runOverStatus).toBe('running');
+    expect((procMeta.runOverSteps as unknown[]).length).toBe(1);
+
+    const chunkPatch = streamEventToMessagePatch({ type: 'chunk', content: 'Here is the result.' });
+    const afterChunk = chunkPatch!(afterProc);
+    expect(afterChunk.content).toBe('Here is the result.');
+
+    const finalPatch = streamEventToMessagePatch({ type: 'final', content: 'Here is the result.' });
+    const afterFinal = finalPatch!(afterChunk);
+    expect(afterFinal.status).toBe('complete');
+    expect((afterFinal.metadata as Record<string, unknown>).runOverStatus).toBe('done');
+    expect((afterFinal.metadata as Record<string, unknown>).thinking).toBe('reasoning…');
   });
 
   it('overwrites content on final and marks complete', () => {
