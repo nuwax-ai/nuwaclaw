@@ -533,6 +533,7 @@ function PreviewApp() {
   const [useAntdDefaults, setUseAntdDefaults] = useState(false);
   const [filter, setFilter] = useState('');
   const [showFilePreview, setShowFilePreview] = useState(false);
+  const [previewTab, setPreviewTab] = useState<'preview' | 'code'>('preview');
 
   const filteredMessages = filter
     ? messages.filter((m) => m.label.toLowerCase().includes(filter.toLowerCase()))
@@ -774,32 +775,35 @@ print("Hello from raw MarkdownRenderer!")
               }}
             >
               <div
+                onClick={() => setPreviewTab('preview')}
                 style={{
                   padding: '0 12px',
                   height: 28,
                   display: 'flex',
                   alignItems: 'center',
                   fontSize: 14,
-                  color: 'rgb(81, 71, 255)',
-                  background: '#fff',
+                  color: previewTab === 'preview' ? 'rgb(81, 71, 255)' : 'rgba(0, 0, 0, 0.45)',
+                  background: previewTab === 'preview' ? '#fff' : 'transparent',
                   borderRadius: 4,
                   cursor: 'pointer',
-                  boxShadow: '0 1px 2px rgba(0,0,0,0.04)',
+                  boxShadow: previewTab === 'preview' ? '0 1px 2px rgba(0,0,0,0.04)' : 'none',
                 }}
               >
                 预览
               </div>
               <div
+                onClick={() => setPreviewTab('code')}
                 style={{
                   padding: '0 12px',
                   height: 28,
                   display: 'flex',
                   alignItems: 'center',
                   fontSize: 14,
-                  color: 'rgba(0, 0, 0, 0.45)',
-                  background: 'transparent',
+                  color: previewTab === 'code' ? 'rgb(81, 71, 255)' : 'rgba(0, 0, 0, 0.45)',
+                  background: previewTab === 'code' ? '#fff' : 'transparent',
                   borderRadius: 4,
                   cursor: 'pointer',
+                  boxShadow: previewTab === 'code' ? '0 1px 2px rgba(0,0,0,0.04)' : 'none',
                 }}
               >
                 代码
@@ -880,21 +884,65 @@ print("Hello from raw MarkdownRenderer!")
 
             {/* Preview content area */}
             <div style={{ flex: 1, padding: 16, overflow: 'auto', background: '#fff' }}>
-              <h3 style={{ margin: '0 0 12px', fontSize: 16, fontWeight: 600, color: 'rgba(0, 0, 0, 0.88)' }}>
-                功能文档
-              </h3>
-              <p style={{ margin: '0 0 8px', fontSize: 14, lineHeight: 1.6, color: 'rgba(0, 0, 0, 0.65)' }}>
-                本文档描述了项目成员管理功能的完整需求和技术方案。
-              </p>
-              <h4 style={{ margin: '12px 0 8px', fontSize: 14, fontWeight: 600, color: 'rgba(0, 0, 0, 0.88)' }}>
-                功能范围
-              </h4>
-              <ul style={{ margin: 0, paddingLeft: 20, fontSize: 14, lineHeight: 1.6, color: 'rgba(0, 0, 0, 0.65)' }}>
-                <li>成员列表展示（筛选、分页）</li>
-                <li>新增成员（表单校验、手机号唯一性）</li>
-                <li>编辑成员（仅允许修改角色）</li>
-                <li>删除成员（确认弹窗、不可恢复）</li>
-              </ul>
+              {previewTab === 'preview' ? (
+                <>
+                  <h3 style={{ margin: '0 0 12px', fontSize: 16, fontWeight: 600, color: 'rgba(0, 0, 0, 0.88)' }}>
+                    功能文档
+                  </h3>
+                  <p style={{ margin: '0 0 8px', fontSize: 14, lineHeight: 1.6, color: 'rgba(0, 0, 0, 0.65)' }}>
+                    本文档描述了项目成员管理功能的完整需求和技术方案。
+                  </p>
+                  <h4 style={{ margin: '12px 0 8px', fontSize: 14, fontWeight: 600, color: 'rgba(0, 0, 0, 0.88)' }}>
+                    功能范围
+                  </h4>
+                  <ul style={{ margin: 0, paddingLeft: 20, fontSize: 14, lineHeight: 1.6, color: 'rgba(0, 0, 0, 0.65)' }}>
+                    <li>成员列表展示（筛选、分页）</li>
+                    <li>新增成员（表单校验、手机号唯一性）</li>
+                    <li>编辑成员（仅允许修改角色）</li>
+                    <li>删除成员（确认弹窗、不可恢复）</li>
+                  </ul>
+                </>
+              ) : (
+                <pre
+                  style={{
+                    margin: 0,
+                    padding: 12,
+                    background: '#fafafa',
+                    borderRadius: 6,
+                    fontSize: 13,
+                    lineHeight: 1.5,
+                    fontFamily: 'ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace',
+                    color: 'rgba(0, 0, 0, 0.88)',
+                    overflow: 'auto',
+                    whiteSpace: 'pre-wrap',
+                  }}
+                >{`# 功能文档
+
+本文档描述了项目成员管理功能的完整需求和技术方案。
+
+## 功能范围
+
+- 成员列表展示（筛选、分页）
+- 新增成员（表单校验、手机号唯一性）
+- 编辑成员（仅允许修改角色）
+- 删除成员（确认弹窗、不可恢复）
+
+## 技术方案
+
+### 目录结构
+
+\`\`\`
+src/
+├── types/members.ts
+├── api/members.ts
+└── views/project-members/
+    ├── index.vue
+    └── components/
+        ├── MemberSearch.vue
+        ├── MemberTable.vue
+        └── MemberDialog.vue
+\`\`\``}</pre>
+              )}
             </div>
           </div>
         </div>
