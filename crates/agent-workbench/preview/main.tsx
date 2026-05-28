@@ -435,6 +435,75 @@ sequenceDiagram
       },
     },
   },
+  {
+    label: '16. 文件预览区块',
+    message: {
+      id: 'a16',
+      conversationId: 'preview',
+      role: 'assistant',
+      content: `已生成项目文件：
+
+<task-result>
+  <description>项目文档</description>
+  <file>feature-doc.md</file>
+</task-result>
+
+<task-result>
+  <description>测试用例</description>
+  <file>manual-test-cases.md</file>
+</task-result>
+
+文件树结构：
+
+\`\`\`
+project-members/
+├── docs/
+│   ├── feature-doc.md
+│   └── manual-test-cases.md
+├── src/
+│   ├── types/
+│   │   └── members.ts
+│   ├── api/
+│   │   └── members.ts
+│   └── views/
+│       └── project-members/
+│           ├── index.vue
+│           └── components/
+├── package.json
+└── README.md
+\`\`\``,
+      createdAt: '2026-05-28T10:02:00Z',
+      kind: 'text',
+      status: 'complete',
+    },
+  },
+  {
+    label: '17. 执行计划（Plan）渲染',
+    message: {
+      id: 'a17',
+      conversationId: 'preview',
+      role: 'assistant',
+      content: `**执行计划（3/5 已完成）**
+
+| Step | 状态 | 描述 |
+|------|------|------|
+| Step 1: 收集上下文 | ✅ 完成 | 确认技术栈和需求范围 |
+| Step 2: 需求梳理 | ✅ 完成 | 用户故事和功能范围 |
+| Step 3: 边界拷问 | ✅ 完成 | 识别 30 个边界场景 |
+| Step 4: 技术方案 | ⏳ 进行中 | 目录结构和组件设计 |
+| Step 5: 实现 | ⏸ 待开始 | 代码编写和测试 |
+
+**关键决策：**
+
+1. 使用 Vue 3 + TypeScript + Vite
+2. 组件化设计，复用现有 UI 库
+3. 状态管理使用 Pinia
+4. API 层统一封装，支持 Mock 数据`,
+      createdAt: '2026-05-28T10:02:30Z',
+      kind: 'text',
+      status: 'complete',
+    },
+  },
 ];
 
 // ---------------------------------------------------------------------------

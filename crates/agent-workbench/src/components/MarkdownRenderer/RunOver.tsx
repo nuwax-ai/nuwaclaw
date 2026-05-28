@@ -69,7 +69,16 @@ export function RunOver({ steps, status = 'done' }: RunOverProps): JSX.Element |
           className={`md-runover-chevron${expanded ? ' md-runover-chevron--open' : ''}`}
           aria-hidden
         >
-          {'▾'}
+          <svg
+            viewBox="64 64 896 896"
+            focusable="false"
+            width="1em"
+            height="1em"
+            fill="currentColor"
+            aria-hidden="true"
+          >
+            <path d="M884 256h-75c-5.1 0-9.9 2.5-12.9 6.6L512 654.2 227.9 262.6c-3-4.1-7.8-6.6-12.9-6.6h-75c-6.5 0-10.3 7.4-6.5 12.7l352.6 486.1c12.8 17.6 39 17.6 51.7 0l352.6-486.1c3.9-5.3.1-12.7-6.4-12.7z" />
+          </svg>
         </span>
       </button>
       {expanded && (
@@ -119,7 +128,16 @@ function renderStepRow(
           className={`md-runover-step-chevron${isOpen ? ' md-runover-step-chevron--open' : ''}`}
           aria-hidden
         >
-          {'▸'}
+          <svg
+            viewBox="64 64 896 896"
+            focusable="false"
+            width="1em"
+            height="1em"
+            fill="currentColor"
+            aria-hidden="true"
+          >
+            <path d="M765.7 486.8L314.9 134.7A7.97 7.97 0 00302 141v77.3c0 4.9 2.3 9.6 6.1 12.6l360 281.1-360 281.1c-3.9 3-6.1 7.7-6.1 12.6V883c0 6.7 7.7 10.4 12.9 6.3l450.8-352.1a8 8 0 000-12.6z" />
+          </svg>
         </span>
       )}
     </button>

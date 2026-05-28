@@ -1976,24 +1976,23 @@
   40% { opacity: 1; transform: scale(1); }
 }
 
-/* ── RunOver (tool execution) ── ref: nuwax src/pages/AppDev/components/ChatArea/index.less .assistantThinkingWrap */
+/* ── RunOver (tool execution) ── ref: nuwax markdown-custom-process-group card style */
 .md-runover {
-  margin: 0 0 var(--xagi-padding-xs);
-  border: 0;
-  border-left: 2px solid var(--xagi-color-border-secondary);
-  border-radius: 0;
-  background: transparent;
+  margin: 12px 0;
+  border: 0.5px solid var(--xagi-color-border-secondary);
+  border-radius: var(--xagi-border-radius);
+  background: var(--xagi-color-bg-container, #ffffff);
   overflow: hidden;
 }
 
 .md-runover--running {
-  border-left-color: var(--xagi-color-primary);
-  background: transparent;
+  border-color: var(--xagi-color-primary);
+  background: var(--xagi-color-bg-container, #ffffff);
 }
 
 .md-runover--error {
-  border-left-color: var(--xagi-color-error);
-  background: transparent;
+  border-color: var(--xagi-color-error);
+  background: var(--xagi-color-bg-container, #ffffff);
 }
 
 .md-runover-summary {
@@ -2002,9 +2001,9 @@
   gap: var(--xagi-padding-xs);
   width: 100%;
   min-height: 28px;
-  padding: var(--xagi-padding-xxs) var(--xagi-padding-xs) var(--xagi-padding-xxs) var(--xagi-padding-sm);
+  padding: 4px 12px;
   border: 0;
-  background: transparent;
+  background: var(--xagi-color-fill-quaternary, rgba(12, 20, 40, 0.02));
   color: var(--xagi-color-text);
   font: inherit;
   font-size: var(--xagi-font-size);
@@ -2045,11 +2044,12 @@
 .md-runover-summary-label {
   flex: 1;
   font-weight: 400;
+  color: rgba(0, 0, 0, 0.65);
 }
 
 .md-runover-summary-count {
-  color: var(--xagi-color-text-tertiary);
-  font-size: var(--xagi-font-size-sm);
+  color: rgba(0, 0, 0, 0.45);
+  font-size: 12px;
 }
 
 .md-runover-chevron {
@@ -2881,10 +2881,10 @@
 
 /* ── ProcessGroup (markdown-custom-process-group) ── ref: nuwax MarkdownCustomProcessGroup */
 .md-process-group {
-  border-left: 2px solid var(--xagi-color-primary);
+  border: 0.5px solid var(--xagi-color-border-secondary, #f0f0f0);
   border-radius: var(--xagi-border-radius);
-  background: var(--xagi-color-fill-quaternary, #fafafa);
-  margin: 8px 0;
+  background: var(--xagi-color-bg-container, #ffffff);
+  margin: 12px 0;
 }
 .md-process-group-header {
   display: flex;
@@ -2892,21 +2892,22 @@
   justify-content: space-between;
   gap: 8px;
   width: 100%;
-  padding: 8px 12px;
+  padding: 4px 12px;
   border: 0;
-  border-radius: var(--xagi-border-radius);
-  background: transparent;
+  border-radius: var(--xagi-border-radius) var(--xagi-border-radius) 0 0;
+  background: var(--xagi-color-fill-quaternary, rgba(12, 20, 40, 0.02));
   color: var(--xagi-color-text-secondary);
   font: inherit;
-  font-size: 13px;
+  font-size: 14px;
   cursor: pointer;
 }
 .md-process-group-header:hover {
-  background: var(--xagi-color-fill-secondary, #f5f5f5);
+  background: var(--xagi-color-fill-tertiary, rgba(12, 20, 40, 0.04));
 }
 .md-process-group-title {
   flex: 1;
   text-align: left;
+  color: rgba(0, 0, 0, 0.65);
 }
 .md-process-group-right {
   display: flex;
@@ -2914,9 +2915,7 @@
   gap: 6px;
 }
 .md-process-group-count {
-  padding: 2px 8px;
-  border-radius: 10px;
-  background: var(--xagi-color-fill-secondary, #f0f0f0);
+  color: rgba(0, 0, 0, 0.45);
   font-size: 12px;
 }
 .md-process-group-chevron {
