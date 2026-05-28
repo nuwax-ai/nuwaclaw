@@ -526,6 +526,231 @@ const ANTD_DEFAULT_OVERRIDES: Record<string, string> = {
 };
 
 // ---------------------------------------------------------------------------
+// Mock file contents for file preview panel
+// ---------------------------------------------------------------------------
+
+const FILE_CONTENTS: Record<string, { preview: string; code: string }> = {
+  'feature-doc.md': {
+    preview: `**功能文档**
+
+本文档描述了项目成员管理功能的完整需求和技术方案。
+
+**功能范围**
+
+- 成员列表展示（筛选、分页）
+- 新增成员（表单校验、手机号唯一性）
+- 编辑成员（仅允许修改角色）
+- 删除成员（确认弹窗、不可恢复）`,
+    code: `\`\`\`markdown
+# 功能文档
+
+本文档描述了项目成员管理功能的完整需求和技术方案。
+
+## 功能范围
+
+- 成员列表展示（筛选、分页）
+- 新增成员（表单校验、手机号唯一性）
+- 编辑成员（仅允许修改角色）
+- 删除成员（确认弹窗、不可恢复）
+
+## 技术方案
+
+### 目录结构
+
+\\\`\\\`\\\`
+src/
+├── types/members.ts
+├── api/members.ts
+└── views/project-members/
+\\\`\\\`\\\`
+\`\`\``,
+  },
+  'members.ts': {
+    preview: '',
+    code: `\`\`\`typescript
+export interface Member {
+  id: string;
+  name: string;
+  phone: string;
+  role: 'member' | 'admin' | 'observer';
+  projectId: string;
+  avatar?: string;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+export type MemberRole = Member['role'];
+
+export interface CreateMemberDto {
+  name: string;
+  phone: string;
+  role: MemberRole;
+  projectId: string;
+}
+
+export interface UpdateMemberDto {
+  role: MemberRole; // 编辑时仅允许修改角色
+}
+
+export interface MemberListParams {
+  projectId: string;
+  keyword?: string;
+  role?: MemberRole;
+  page: number;
+  pageSize: number;
+}
+
+export interface PageResult<T> {
+  list: T[];
+  total: number;
+  page: number;
+  pageSize: number;
+}
+\`\`\``,
+  },
+  'index.vue': {
+    preview: '',
+    code: `\`\`\`vue
+<template>
+  <div class="project-members">
+    <MemberSearch
+      v-model:keyword="keyword"
+      v-model:role="filterRole"
+      @search="handleSearch"
+      @reset="handleReset"
+    />
+    <el-button type="primary" @click="showDialog = true">
+      新增成员
+    </el-button>
+    <MemberTable
+      :data="members"
+      :loading="loading"
+      @edit="handleEdit"
+      @delete="handleDelete"
+    />
+    <el-pagination
+      v-model:current-page="page"
+      :total="total"
+      @current-change="fetchMembers"
+    />
+    <MemberDialog
+      v-model:visible="showDialog"
+      :mode="dialogMode"
+      :member="editingMember"
+      @submit="handleSubmit"
+    />
+  </div>
+</template>
+
+<script setup lang="ts">
+import { ref, onMounted } from 'vue';
+import { getMembers } from '@/api/members';
+import type { Member } from '@/types/members';
+
+const keyword = ref('');
+const filterRole = ref<string>();
+const page = ref(1);
+const total = ref(0);
+const members = ref<Member[]>([]);
+const loading = ref(false);
+</script>
+\`\`\``,
+  },
+  'MemberTable.vue': {
+    preview: '',
+    code: `\`\`\`vue
+<template>
+  <el-table :data="data" v-loading="loading" border>
+    <el-table-column prop="name" label="姓名" width="120" />
+    <el-table-column prop="phone" label="手机号" width="140" />
+    <el-table-column prop="role" label="角色" width="120">
+      <template #default="{ row }">
+        <el-tag>{{ roleMap[row.role] }}</el-tag>
+      </template>
+    </el-table-column>
+    <el-table-column label="操作" width="180" fixed="right">
+      <template #default="{ row }">
+        <el-button link @click="$emit('edit', row)">编辑</el-button>
+        <el-button link type="danger" @click="$emit('delete', row)">
+          移除
+        </el-button>
+      </template>
+    </el-table-column>
+  </el-table>
+</template>
+
+<script setup lang="ts">
+defineProps<{
+  data: Member[];
+  loading: boolean;
+}>();
+defineEmits(['edit', 'delete']);
+
+const roleMap = {
+  member: '普通成员',
+  admin: '项目管理员',
+  observer: '观察者',
+};
+</script>
+\`\`\``,
+  },
+  'package.json': {
+    preview: '',
+    code: `\`\`\`json
+{
+  "name": "project-members",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "dev": "vite",
+    "build": "vue-tsc --noEmit && vite build",
+    "preview": "vite preview",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "vue": "^3.4.0",
+    "element-plus": "^2.5.0",
+    "axios": "^1.6.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.3.0",
+    "vite": "^5.0.0",
+    "vue-tsc": "^1.8.0",
+    "vitest": "^1.2.0"
+  }
+}
+\`\`\``,
+  },
+  'README.md': {
+    preview: '',
+    code: `\`\`\`markdown
+# Project Members
+
+项目成员管理功能模块。
+
+## 快速开始
+
+\\\`\\\`\\\`bash
+npm install
+npm run dev
+\\\`\\\`\\\`
+
+## 技术栈
+
+- Vue 3 + TypeScript
+- Element Plus
+- Vite
+\`\`\``,
+  },
+};
+
+// Fallback for files not in the map
+const DEFAULT_FILE_CONTENT = {
+  preview: '文件内容为空或暂不支持预览。',
+  code: '```text\n// 文件内容加载中...\n```',
+};
+
+// ---------------------------------------------------------------------------
 // Preview App
 // ---------------------------------------------------------------------------
 
@@ -534,6 +759,8 @@ function PreviewApp() {
   const [filter, setFilter] = useState('');
   const [showFilePreview, setShowFilePreview] = useState(false);
   const [previewTab, setPreviewTab] = useState<'preview' | 'code'>('preview');
+  const [fileTreeExpanded, setFileTreeExpanded] = useState(true);
+  const [selectedFile, setSelectedFile] = useState('feature-doc.md');
 
   const filteredMessages = filter
     ? messages.filter((m) => m.label.toLowerCase().includes(filter.toLowerCase()))
@@ -751,16 +978,17 @@ print("Hello from raw MarkdownRenderer!")
                   padding: 0,
                   fontSize: 16,
                 }}
-                onClick={() => setShowFilePreview(false)}
+                onClick={() => setFileTreeExpanded(!fileTreeExpanded)}
+                title={fileTreeExpanded ? '收起文件树' : '展开文件树'}
               >
                 <svg viewBox="64 64 896 896" width="1em" height="1em" fill="currentColor">
-                  <path d="M909.1 209.3l-56.4 44.1C775.8 155.1 653.5 96 512 96 282.7 96 96.5 282.3 96 511.6 95.5 741.2 282.1 928 512 928c141.2 0 263.3-58.8 340.3-156.6l56.3 44.1C822.7 925.4 678.2 992 512 992 245.8 992 32 778.8 32 512S245.8 32 512 32c166.4 0 310.9 66.8 397.1 177.3zM192 512c0-176.7 143.3-320 320-320 88.4 0 168.4 35.9 226.3 93.7L192 512zm320 320c-88.4 0-168.4-35.9-226.3-93.7L832 512C832 688.7 688.7 832 512 832z" />
+                  <path d="M408 442h480c4.4 0 8-3.6 8-8v-56c0-4.4-3.6-8-8-8H408c-4.4 0-8 3.6-8 8v56c0 4.4 3.6 8 8 8zm-8 204c0 4.4 3.6 8 8 8h480c4.4 0 8-3.6 8-8v-56c0-4.4-3.6-8-8-8H408c-4.4 0-8 3.6-8 8v56zm504 48H120c-4.4 0-8 3.6-8 8v56c0 4.4 3.6 8 8 8h784c4.4 0 8-3.6 8-8v-56c0-4.4-3.6-8-8-8zm0-632H120c-4.4 0-8 3.6-8 8v56c0 4.4 3.6 8 8 8h784c4.4 0 8-3.6 8-8V70c0-4.4-3.6-8-8-8zM115.4 518.9L271.7 642c5.8 4.6 14.4.5 14.4-6.9V388.9c0-7.4-8.5-11.5-14.4-6.9L115.4 505.1a8.74 8.74 0 000 13.8z" />
                 </svg>
               </button>
             </div>
 
             <div style={{ marginLeft: 16, fontSize: 14, color: 'rgba(0, 0, 0, 0.65)' }}>
-              feature-doc.md
+              {selectedFile}
             </div>
 
             {/* Segmented control */}
@@ -855,94 +1083,100 @@ print("Hello from raw MarkdownRenderer!")
             </div>
           </div>
 
-          {/* Body: collapsed file tree + preview content */}
+          {/* Body: file tree + preview content */}
           <div style={{ display: 'flex', flex: 1, minHeight: 0, background: 'rgb(245, 245, 245)' }}>
-            {/* Collapsed file tree sidebar */}
+            {/* File tree sidebar */}
             <div
               style={{
-                width: 32,
+                width: fileTreeExpanded ? 200 : 32,
                 flexShrink: 0,
                 borderRight: '1px solid rgba(5, 5, 5, 0.06)',
-                background: 'transparent',
+                background: 'rgb(245, 245, 245)',
                 display: 'flex',
                 flexDirection: 'column',
-                alignItems: 'center',
-                paddingTop: 8,
+                overflow: 'hidden',
+                transition: 'width 0.2s ease',
               }}
             >
-              <div
-                style={{
-                  writingMode: 'vertical-rl',
-                  fontSize: 12,
-                  color: 'rgba(0, 0, 0, 0.45)',
-                  letterSpacing: 2,
-                }}
-              >
-                文件
-              </div>
+              {fileTreeExpanded ? (
+                <>
+                  <div style={{ padding: '8px 12px', fontSize: 13, fontWeight: 500, color: 'rgba(0, 0, 0, 0.88)' }}>
+                    文件
+                  </div>
+                  <div style={{ flex: 1, overflow: 'auto', fontSize: 13 }}>
+                    {[
+                      { name: 'feature-doc.md', type: 'file' as const, icon: '📄' },
+                      { name: 'manual-test-cases.md', type: 'file' as const, icon: '📄' },
+                      { name: 'src', type: 'dir' as const, icon: '📁' },
+                      { name: 'types', type: 'dir' as const, icon: '📁', indent: 1 },
+                      { name: 'members.ts', type: 'file' as const, icon: '📄', indent: 2 },
+                      { name: 'api', type: 'dir' as const, icon: '📁', indent: 1 },
+                      { name: 'members.ts', type: 'file' as const, icon: '📄', indent: 2 },
+                      { name: 'views', type: 'dir' as const, icon: '📁', indent: 1 },
+                      { name: 'project-members', type: 'dir' as const, icon: '📁', indent: 2 },
+                      { name: 'index.vue', type: 'file' as const, icon: '📄', indent: 3 },
+                      { name: 'components', type: 'dir' as const, icon: '📁', indent: 3 },
+                      { name: 'MemberSearch.vue', type: 'file' as const, icon: '📄', indent: 4 },
+                      { name: 'MemberTable.vue', type: 'file' as const, icon: '📄', indent: 4 },
+                      { name: 'MemberDialog.vue', type: 'file' as const, icon: '📄', indent: 4 },
+                      { name: 'package.json', type: 'file' as const, icon: '📄' },
+                      { name: 'README.md', type: 'file' as const, icon: '📄' },
+                    ].map((item, idx) => (
+                      <div
+                        key={idx}
+                        onClick={() => item.type === 'file' && setSelectedFile(item.name)}
+                        style={{
+                          padding: `4px 12px 4px ${12 + (item.indent || 0) * 16}px`,
+                          cursor: item.type === 'file' ? 'pointer' : 'default',
+                          color: selectedFile === item.name ? 'rgb(81, 71, 255)' : 'rgba(0, 0, 0, 0.65)',
+                          background: selectedFile === item.name ? 'rgba(81, 71, 255, 0.08)' : 'transparent',
+                          fontSize: 13,
+                          whiteSpace: 'nowrap',
+                          overflow: 'hidden',
+                          textOverflow: 'ellipsis',
+                        }}
+                      >
+                        {item.icon} {item.name}
+                      </div>
+                    ))}
+                  </div>
+                </>
+              ) : (
+                <div
+                  onClick={() => setFileTreeExpanded(true)}
+                  style={{
+                    writingMode: 'vertical-rl',
+                    fontSize: 12,
+                    color: 'rgba(0, 0, 0, 0.45)',
+                    letterSpacing: 2,
+                    paddingTop: 8,
+                    cursor: 'pointer',
+                    textAlign: 'center',
+                  }}
+                >
+                  文件
+                </div>
+              )}
             </div>
 
             {/* Preview content area */}
             <div style={{ flex: 1, padding: 16, overflow: 'auto', background: '#fff' }}>
-              {previewTab === 'preview' ? (
-                <>
-                  <h3 style={{ margin: '0 0 12px', fontSize: 16, fontWeight: 600, color: 'rgba(0, 0, 0, 0.88)' }}>
-                    功能文档
-                  </h3>
-                  <p style={{ margin: '0 0 8px', fontSize: 14, lineHeight: 1.6, color: 'rgba(0, 0, 0, 0.65)' }}>
-                    本文档描述了项目成员管理功能的完整需求和技术方案。
-                  </p>
-                  <h4 style={{ margin: '12px 0 8px', fontSize: 14, fontWeight: 600, color: 'rgba(0, 0, 0, 0.88)' }}>
-                    功能范围
-                  </h4>
-                  <ul style={{ margin: 0, paddingLeft: 20, fontSize: 14, lineHeight: 1.6, color: 'rgba(0, 0, 0, 0.65)' }}>
-                    <li>成员列表展示（筛选、分页）</li>
-                    <li>新增成员（表单校验、手机号唯一性）</li>
-                    <li>编辑成员（仅允许修改角色）</li>
-                    <li>删除成员（确认弹窗、不可恢复）</li>
-                  </ul>
-                </>
-              ) : (
-                <pre
-                  style={{
-                    margin: 0,
-                    padding: 12,
-                    background: '#fafafa',
-                    borderRadius: 6,
-                    fontSize: 13,
-                    lineHeight: 1.5,
-                    fontFamily: 'ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace',
-                    color: 'rgba(0, 0, 0, 0.88)',
-                    overflow: 'auto',
-                    whiteSpace: 'pre-wrap',
-                  }}
-                >{`# 功能文档
+              {(() => {
+                const fileContent = FILE_CONTENTS[selectedFile] || DEFAULT_FILE_CONTENT;
+                const content = previewTab === 'preview' ? fileContent.preview : fileContent.code;
 
-本文档描述了项目成员管理功能的完整需求和技术方案。
-
-## 功能范围
-
-- 成员列表展示（筛选、分页）
-- 新增成员（表单校验、手机号唯一性）
-- 编辑成员（仅允许修改角色）
-- 删除成员（确认弹窗、不可恢复）
-
-## 技术方案
-
-### 目录结构
-
-\`\`\`
-src/
-├── types/members.ts
-├── api/members.ts
-└── views/project-members/
-    ├── index.vue
-    └── components/
-        ├── MemberSearch.vue
-        ├── MemberTable.vue
-        └── MemberDialog.vue
-\`\`\``}</pre>
-              )}
+                if (previewTab === 'preview' && fileContent.preview) {
+                  // Render preview as formatted HTML
+                  return (
+                    <MarkdownRenderer content={fileContent.preview} />
+                  );
+                } else {
+                  // Render code with syntax highlighting
+                  return (
+                    <MarkdownRenderer content={content} />
+                  );
+                }
+              })()}
             </div>
           </div>
         </div>
