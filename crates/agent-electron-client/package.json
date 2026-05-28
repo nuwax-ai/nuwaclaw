@@ -358,6 +358,76 @@
       "icon": "public/icon.ico",
       "extraResources": [
         {
+          "from": "src/shared/locales",
+          "to": "locales",
+          "filter": [
+            "**/*.json"
+          ]
+        },
+        {
+          "from": "node_modules/better-sqlite3/build/Release",
+          "to": "better-sqlite3",
+          "filter": [
+            "*.node"
+          ]
+        },
+        {
+          "from": "resources/uv/bin",
+          "to": "uv/bin",
+          "filter": [
+            "**/*"
+          ]
+        },
+        {
+          "from": "resources/ripgrep/bin",
+          "to": "ripgrep/bin",
+          "filter": [
+            "**/*"
+          ]
+        },
+        {
+          "from": "resources/lanproxy",
+          "to": "lanproxy",
+          "filter": [
+            "**/*"
+          ]
+        },
+        {
+          "from": "public/icon.png",
+          "to": "icon.png"
+        },
+        {
+          "from": "public/icon-dock.png",
+          "to": "icon-dock.png"
+        },
+        {
+          "from": "public/icon.ico",
+          "to": "icon.ico"
+        },
+        {
+          "from": "public/tray",
+          "to": "tray",
+          "filter": [
+            "**/*"
+          ]
+        },
+        {
+          "from": "resources/node",
+          "to": "node",
+          "filter": [
+            "**/*",
+            "!.cache",
+            "!.cache/**"
+          ]
+        },
+        {
+          "from": "resources/nuwax-mcp-stdio-proxy",
+          "to": "nuwax-mcp-stdio-proxy",
+          "filter": [
+            "**/*"
+          ]
+        },
+        {
           "from": "resources/git",
           "to": "git",
           "filter": [
@@ -394,6 +464,43 @@
             "**/*.mjs",
             "dist/**",
             ".bundle-version"
+          ]
+        },
+        {
+          "from": "resources/sandbox-runtime",
+          "to": "sandbox-runtime",
+          "filter": [
+            "**/*"
+          ]
+        },
+        {
+          "from": "resources/agent-gui-server",
+          "to": "agent-gui-server",
+          "filter": [
+            "**/*"
+          ]
+        },
+        {
+          "from": "resources/nuwaxcode",
+          "to": "nuwaxcode",
+          "filter": [
+            "**/*",
+            "!*.cache",
+            "!.cache/**"
+          ]
+        },
+        {
+          "from": "resources/nuwax-file-server",
+          "to": "nuwax-file-server",
+          "filter": [
+            "**/*"
+          ]
+        },
+        {
+          "from": "resources/claude-code-acp-ts",
+          "to": "claude-code-acp-ts",
+          "filter": [
+            "**/*"
           ]
         }
       ]

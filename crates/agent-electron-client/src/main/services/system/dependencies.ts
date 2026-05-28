@@ -715,7 +715,9 @@ export function getAppEnv(opts?: GetAppEnvOptions): Record<string, string> {
   // - nodeModulesBin: 应用内 node_modules/.bin
   // - appBin: 应用内 bin
   // - systemPathPaths: 系统工具回退（可选，由 includeSystemPath 控制）
-  const priorityPath = [
+  // 去重：保留顺序（首次出现优先），避免 PATH 膨胀与重复项影响排查。
+  // 注意：不改变优先级，只做“同值”去重。
+  const priorityPathParts = [
     bundledNodeBinDir,
     electronNodeBinDir,
     bundledGitBinDir,
@@ -726,9 +728,18 @@ export function getAppEnv(opts?: GetAppEnvOptions): Record<string, string> {
     nodeModulesBin,
     appBin,
     ...systemPathPaths,
-  ]
-    .filter(Boolean)
-    .join(pathSep);
+  ].filter(Boolean);
+
+  const seen = new Set<string>();
+  const dedupedParts: string[] = [];
+  for (const p of priorityPathParts) {
+    const key = isWindows() ? p.toLowerCase() : p;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    dedupedParts.push(p);
+  }
+
+  const priorityPath = dedupedParts.join(pathSep);
 
   // 调试日志：输出 PATH 优先级（应用内 uv 优先）
   log.info(`[getAppEnv] PATH priority (${process.platform}):`);
