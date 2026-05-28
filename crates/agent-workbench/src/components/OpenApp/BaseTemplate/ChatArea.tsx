@@ -118,6 +118,7 @@ export function ChatArea(props: ChatAreaProps): JSX.Element {
   return (
     <div className="open-app-chat-left">
       <div className="open-app-chat-body" ref={transcriptRef}>
+        <div className="open-app-chat-wrapper">
         <div ref={loadMoreSentinelRef} />
         {hasMoreMessages && (
           <button
@@ -157,6 +158,7 @@ export function ChatArea(props: ChatAreaProps): JSX.Element {
             })}
           </div>
         )}
+        </div>
       </div>
       {permissionRequest && (
         <PermissionCard request={permissionRequest} labels={labels} onRespond={onAnswerPermission} />

@@ -542,16 +542,24 @@
   font-size: 13px;
 }
 
-/* ── Chat body ── ref: nuwax src/pages/AppDev/components/ChatArea/index.less .chatMessages */
+/* ── Chat body ── ref: nuwax src/pages/Chat/index.less .chat-wrapper-content + .chat-wrapper */
 .open-app-chat-body {
   display: flex;
   min-height: 0;
   flex-direction: column;
-  gap: 2px;
   overflow: auto;
-  padding: 20px 20px 36px 20px;
   scrollbar-gutter: stable;
   background: var(--xagi-color-bg-container);
+}
+
+.open-app-chat-wrapper {
+  max-width: 800px;
+  width: 100%;
+  margin: 0 auto;
+  padding: 20px 20px 40px;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
 }
 
 /* Scrollbar auto-hide — ref: nuwax scrollbar.less */
@@ -882,44 +890,69 @@
   background: var(--xagi-color-primary-bg);
 }
 
-/* ── Message bubble ── ref: nuwax src/pages/AppDev/components/ChatArea/index.less .messageWrapper */
+/* ── Message bubble ── ref: nuwax src/components/ChatView/index.less .container */
 .open-app-message {
   display: flex;
   width: 100%;
-  padding: 0 12px;
+  margin-bottom: var(--xagi-margin-sm);
+  padding: 0 8px;
+  flex-direction: column;
 }
 
-/* .messageWrapper.user — right-aligned */
+/* .messageWrapper.user — right-aligned, ref: nuwax .userContainer */
 .open-app-message.user {
+  align-items: flex-end;
   justify-content: flex-end;
-  padding: 4px 12px;
 }
 
 /* .messageWrapper.user .messageBubble */
 .open-app-message.user .open-app-message-content {
-  background: var(--xagi-color-fill-secondary);
+  display: inline-block;
+  background: var(--xagi-color-bg-layout);
   color: var(--xagi-color-text-base);
-  border-radius: 16px 16px 4px 16px;
-  padding: 10px 14px;
+  border-radius: 16px 0 16px 16px;
+  padding: 12px 16px;
   max-width: 80%;
-  min-width: 60px;
+  min-width: 80px;
   font-size: 14px;
   line-height: 1.6;
 }
 
-/* Assistant message — full width bubble, ref: nuwax .messageWrapper.assistant */
+/* Assistant message — ref: nuwax .container + .inner-container */
 .open-app-message:not(.user) {
-  justify-content: flex-start;
-  padding: 6px 12px;
+  align-items: flex-start;
 }
 
 .open-app-message:not(.user) .open-app-message-content {
   width: 100%;
+  min-height: 40px;
 }
 
-/* Avatar — hidden in AppDev ChatArea style */
+.open-app-message.user .open-app-message-text {
+  white-space: pre-wrap;
+}
+
+/* Avatar — ref: nuwax .agent-title-bar .avatar */
 .open-app-message-avatar {
-  display: none;
+  display: flex;
+  width: 24px;
+  height: 24px;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  background: var(--xagi-color-primary-bg);
+  color: var(--xagi-color-primary);
+  font-size: 12px;
+  font-weight: 800;
+  overflow: hidden;
+}
+
+.open-app-message-avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  border-radius: 50%;
 }
 
 .open-app-message-avatar > span {
@@ -935,20 +968,29 @@
   font-weight: 800;
 }
 
-/* .messageBubble base — ref: .messageBubble + .messageWrapper.assistant .messageBubble */
+/* .messageBubble base — ref: .chat-content + .inner-container */
 .open-app-message-content {
   min-width: 0;
-  border-radius: var(--xagi-border-radius-lg) var(--xagi-border-radius-lg) var(--xagi-border-radius-lg) var(--xagi-border-radius-sm);
-  padding: 2px 12px;
+  border-radius: var(--xagi-border-radius-sm);
+  padding: var(--xagi-padding) 0;
   background: transparent;
   word-wrap: break-word;
+  word-break: break-word;
   font-size: 14px;
   line-height: 1.6;
 }
 
-/* Meta row — hidden in AppDev ChatArea style */
+/* Meta row — ref: nuwax .agent-title-bar */
 .open-app-message-meta {
-  display: none;
+  display: flex;
+  align-items: center;
+  gap: var(--xagi-margin-xs);
+  margin-bottom: var(--xagi-margin-xs);
+  color: var(--xagi-color-text-description);
+  font-size: var(--xagi-font-size);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 /* Think content — ref: nuwax src/components/ChatView/index.less .inner-container .think-content
@@ -983,17 +1025,6 @@
   border-radius: var(--xagi-border-radius);
   color: var(--xagi-color-error-text);
   font-size: var(--xagi-font-size-sm);
-}
-
-/* Meta row — NOTE: nuwax ChatArea doesn't show meta inside bubble; kept for compat */
-.open-app-message-meta {
-  display: flex;
-  justify-content: space-between;
-  gap: var(--xagi-padding-sm);
-  margin-bottom: var(--xagi-padding-xs);
-  color: var(--xagi-color-text-tertiary);
-  font-size: var(--xagi-font-size-sm);
-  font-weight: 400;
 }
 
 .open-app-message-text {
@@ -1112,7 +1143,7 @@
 .open-app-chat-input-home {
   width: min(800px, calc(100% - 32px));
   margin: 4px auto 2px;
-  border: 1px solid var(--xagi-color-border-secondary);
+  border: 1px solid var(--xagi-color-split);
   border-radius: 20px;
   background: var(--xagi-color-bg-container);
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
@@ -1123,7 +1154,6 @@
 .open-app-chat-input-home:focus-within {
   border-color: var(--xagi-color-primary);
   box-shadow: 0 0 0 2px var(--xagi-color-primary-bg), 0 2px 8px rgba(0, 0, 0, 0.06);
-}
 }
 
 .open-app-input-topbar {
@@ -1287,10 +1317,10 @@
 }
 
 .open-app-ai-notice {
-  margin: 0 auto 6px;
+  margin: 2px auto 4px;
   padding: 0 12px;
   color: var(--xagi-color-text-quaternary);
-  font-size: 11px;
+  font-size: 10px;
   text-align: center;
 }
 

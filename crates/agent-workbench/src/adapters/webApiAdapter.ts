@@ -543,14 +543,6 @@ export function createWebApiAdapter(options: WebApiAdapterOptions): WorkbenchApi
           body: listBody,
         }),
       ]);
-      console.warn('[agent-workbench] listConversations response:', {
-        agentId: toApiId(agentId),
-        limit: listBody.limit,
-        raw: data,
-        type: typeof data,
-        isArr: Array.isArray(data),
-        keys: isRecord(data) ? Object.keys(data) : undefined,
-      });
       const items = readCollection(data);
       const conversations = items.map((item) => normalizeConversation(item, agentId));
       const publishedConversationId = readString(publishedAgent, [

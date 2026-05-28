@@ -19,7 +19,7 @@ import type {
 } from '../../types';
 import { AgentAvatar } from './icons';
 import type { Labels } from './labels';
-import { applyTemplate, formatTime, questionText } from './utils';
+import { applyTemplate, questionText } from './utils';
 
 /**
  * Renders a single transcript row.
@@ -73,14 +73,15 @@ export function ChatMessage({
         isUser ? 'open-app-message user' : `open-app-message ${message.kind ?? 'assistant'}`
       }
     >
-      <div className="open-app-message-avatar">
-        {isUser ? <span>U</span> : <AgentAvatar agent={agent} />}
-      </div>
-      <div className="open-app-message-content">
+      {!isUser && (
         <div className="open-app-message-meta">
-          <span>{isUser ? 'You' : agent?.name || 'Agent'}</span>
-          <span>{formatTime(message.createdAt)}</span>
+          <div className="open-app-message-avatar">
+            <AgentAvatar agent={agent} />
+          </div>
+          <span>{agent?.name || 'Agent'}</span>
         </div>
+      )}
+      <div className="open-app-message-content">
         <div className="open-app-message-text">
           {!message.content &&
             !thinking &&
