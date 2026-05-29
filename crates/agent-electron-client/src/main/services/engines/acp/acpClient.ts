@@ -626,10 +626,9 @@ export async function createAcpConnection(
   // 获取应用隔离环境变量（包含隔离的 PATH、npm、uv 配置等）
   const appEnv = getAppEnv();
 
-  // Write shell profiles to inject bundled tool paths into Bash tool's PATH.
-  // claude.exe sources ~/.bash_profile and ~/.bashrc from HOME when spawning
-  // shell commands. The parent process PATH (from getAppEnv) may not fully
-  // propagate to child shells on all platforms (e.g. Windows Git Bash).
+  // Prepend bundled ripgrep to isolated HOME profiles so Bash tool can run `rg`.
+  // getAppEnv() already puts ripgrep on PATH, but Windows env probe may corrupt PATH;
+  // ~/.bash_profile / ~/.bashrc (sourced by claude.exe) sanitize + prepend ripgrep bin.
   writeShellProfiles(
     isolatedHome,
     [appEnv.CLAUDE_CODE_RIPGREP_DIR].filter(Boolean),

@@ -5,6 +5,8 @@ import * as os from "os";
 import {
   windowsPathToPosix,
   generatePathExport,
+  generatePathSanitizeScript,
+  buildShellProfileContent,
   writeShellProfiles,
 } from "./shellProfile";
 import { isWindows } from "../system/shellEnv";
@@ -65,18 +67,50 @@ describe("shellProfile", () => {
     });
   });
 
+  describe("generatePathSanitizeScript", () => {
+    it("should include NuwaClaw PATH sanitize marker", () => {
+      const script = generatePathSanitizeScript();
+      expect(script).toContain("[NuwaClaw]");
+      expect(script).toContain("Creating*");
+      expect(script).toContain("_nuwaclaw_clean_path");
+    });
+  });
+
+  describe("buildShellProfileContent", () => {
+    it("should prepend bundled ripgrep bin so Bash tool can resolve rg", () => {
+      const content = buildShellProfileContent([
+        "/c/Program Files/NuwaClaw/resources/ripgrep/bin",
+      ]);
+      expect(content).toContain(
+        'export PATH="/c/Program Files/NuwaClaw/resources/ripgrep/bin:$PATH"',
+      );
+      expect(content).toContain("ripgrep/bin");
+    });
+
+    it("should include sanitize script on Windows only", () => {
+      const content = buildShellProfileContent(["/c/tools/bin"]);
+      if (isWindows()) {
+        expect(content).toContain("[NuwaClaw] Sanitize PATH");
+      } else {
+        expect(content).not.toContain("[NuwaClaw] Sanitize PATH");
+        expect(content).toBe('export PATH="/c/tools/bin:$PATH"\n');
+      }
+    });
+  });
+
   describe("writeShellProfiles", () => {
     it("should write .bash_profile and .bashrc files", () => {
       writeShellProfiles(tempDir, ["/c/tools/bin"]);
 
+      const expected = buildShellProfileContent(["/c/tools/bin"]);
       const bashProfile = fs.readFileSync(
         path.join(tempDir, ".bash_profile"),
         "utf-8",
       );
       const bashrc = fs.readFileSync(path.join(tempDir, ".bashrc"), "utf-8");
 
-      expect(bashProfile).toBe('export PATH="/c/tools/bin:$PATH"\n');
-      expect(bashrc).toBe('export PATH="/c/tools/bin:$PATH"\n');
+      expect(bashProfile).toBe(expected);
+      expect(bashrc).toBe(expected);
     });
 
     it("should handle multiple path entries", () => {
@@ -88,13 +122,12 @@ describe("shellProfile", () => {
       );
 
       expect(bashProfile).toBe(
-        'export PATH="/c/tools/bin:/c/node/bin:$PATH"\n',
+        buildShellProfileContent(["/c/tools/bin", "/c/node/bin"]),
       );
     });
 
     it("should convert Windows paths to POSIX format", () => {
       if (!isWindows()) {
-        // On non-Windows, paths are not converted
         writeShellProfiles(tempDir, ["C:\\tools\\bin"]);
         const bashProfile = fs.readFileSync(
           path.join(tempDir, ".bash_profile"),
@@ -109,7 +142,10 @@ describe("shellProfile", () => {
         path.join(tempDir, ".bash_profile"),
         "utf-8",
       );
-      expect(bashProfile).toBe('export PATH="/c/tools/ripgrep/bin:$PATH"\n');
+      expect(bashProfile).toBe(
+        buildShellProfileContent(["C:\\tools\\ripgrep\\bin"]),
+      );
+      expect(bashProfile).toContain("/c/tools/ripgrep/bin");
     });
 
     it("should not write files when pathEntries is empty", () => {

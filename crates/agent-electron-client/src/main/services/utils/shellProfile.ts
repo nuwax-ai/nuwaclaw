@@ -1,10 +1,12 @@
 /**
- * Shell profile utilities for injecting environment variables into isolated shell environments.
+ * Shell profile utilities for isolated ACP Bash environments (Windows Git Bash).
  *
- * When spawning shell commands in isolated environments (e.g., ACP sessions),
- * the parent process PATH may not fully propagate to child shells on all platforms.
- * These utilities write shell profile files (.bash_profile, .bashrc) to inject
- * bundled tool paths into the shell's PATH.
+ * Primary use case: make bundled **ripgrep** (`rg` / `rg.exe`) discoverable when the
+ * agent Bash tool runs `rg`, `rg --version`, etc. Without this, users see exit 127
+ * (`rg: command not found`) even though `resources/ripgrep/bin` is shipped in the app.
+ *
+ * On Windows, claude.exe env probe (`bash -ilc env`) can merge MSYS2 init noise into
+ * PATH; we sanitize PATH then prepend directories such as `CLAUDE_CODE_RIPGREP_DIR`.
  */
 
 import * as fs from "fs";
@@ -45,6 +47,40 @@ export function generatePathExport(dir: string): string {
 }
 
 /**
+ * Bash snippet that strips MSYS2 init noise from PATH so `which rg` / `rg` work again.
+ * Polluted PATH is the root cause of `rg: command not found` in the Bash tool on Windows.
+ */
+export function generatePathSanitizeScript(): string {
+  return `# [NuwaClaw] Sanitize PATH if MSYS2 init noise was merged (env probe pollution)
+if [[ "$PATH" == *$'\\n'* || "$PATH" == Creating* ]]; then
+  _nuwaclaw_clean_path=""
+  _nuwaclaw_IFS=:
+  for _nuwaclaw_seg in $PATH; do
+    case "$_nuwaclaw_seg" in
+      /*|[A-Za-z]:/*) _nuwaclaw_clean_path="\${_nuwaclaw_clean_path:+\$_nuwaclaw_clean_path:}$_nuwaclaw_seg" ;;
+    esac
+  done
+  PATH="$_nuwaclaw_clean_path"
+  unset _nuwaclaw_seg _nuwaclaw_clean_path _nuwaclaw_IFS
+fi
+`;
+}
+
+/**
+ * Build isolated-home profile: sanitize PATH (Windows), then prepend tool dirs (e.g. ripgrep bin).
+ */
+export function buildShellProfileContent(pathEntries: string[]): string {
+  const posixPaths = pathEntries.filter(Boolean).map(windowsPathToPosix);
+  const pathExport = posixPaths.join(":");
+  const parts: string[] = [];
+  if (isWindows()) {
+    parts.push(generatePathSanitizeScript());
+  }
+  parts.push(`export PATH="${pathExport}:$PATH"\n`);
+  return parts.join("");
+}
+
+/**
  * Write shell profile files (.bash_profile and .bashrc) to inject bundled tool paths.
  *
  * This is used when spawning shell commands in isolated environments where the parent
@@ -73,12 +109,7 @@ export function writeShellProfiles(
     return;
   }
 
-  // Convert all paths to POSIX format, filtering out any falsy entries
-  const posixPaths = pathEntries.filter(Boolean).map(windowsPathToPosix);
-
-  // Generate PATH export line (prepend all directories to existing PATH)
-  const pathExport = posixPaths.join(":");
-  const profileLine = `export PATH="${pathExport}:$PATH"\n`;
+  const profileLine = buildShellProfileContent(pathEntries);
 
   // Write to both .bash_profile (login shells) and .bashrc (interactive shells)
   const profileFiles = [".bash_profile", ".bashrc"];
