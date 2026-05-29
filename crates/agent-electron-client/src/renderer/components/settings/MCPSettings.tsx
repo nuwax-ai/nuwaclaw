@@ -65,6 +65,7 @@ function MCPSettings({ isOpen = true }: MCPSettingsProps) {
   const [editingServerId, setEditingServerId] = useState("");
   const [deletingServerId, setDeletingServerId] = useState<string | null>(null);
   const [testingServerId, setTestingServerId] = useState<string | null>(null);
+  const [hasUnsavedEdits, setHasUnsavedEdits] = useState(false);
 
   // 监听主题变化
   useEffect(() => {
@@ -184,8 +185,9 @@ function MCPSettings({ isOpen = true }: MCPSettingsProps) {
         window.electronAPI?.mcp.getConfig(),
         window.electronAPI?.mcp.status(),
       ]);
-      if (savedConfig) {
-        // 加载时即按“手动启用”策略规范化，便于列表模式直观管理开关状态。
+      if (savedConfig && !hasUnsavedEdits) {
+        // 加载时即按"手动启用"策略规范化，便于列表模式直观管理开关状态。
+        // 仅在没有未保存编辑时覆盖，防止丢失用户正在编辑的内容。
         applyConfigToEditor(savedConfig, false);
       }
       if (currentStatus) setStatus(currentStatus);
@@ -194,7 +196,7 @@ function MCPSettings({ isOpen = true }: MCPSettingsProps) {
     } finally {
       setLoading(false);
     }
-  }, [applyConfigToEditor]);
+  }, [applyConfigToEditor, hasUnsavedEdits]);
 
   useEffect(() => {
     if (isOpen) {
@@ -219,6 +221,7 @@ function MCPSettings({ isOpen = true }: MCPSettingsProps) {
     }
     try {
       await window.electronAPI?.mcp.setConfig(nextConfig);
+      setHasUnsavedEdits(false);
       message.success(t("Claw.MCP.message.configSaved"));
     } catch {
       message.error(t("Claw.Common.saveFailed"));
@@ -234,6 +237,7 @@ function MCPSettings({ isOpen = true }: MCPSettingsProps) {
     setActionLoading(true);
     try {
       await window.electronAPI?.mcp.setConfig(nextConfig);
+      setHasUnsavedEdits(false);
       const result = await window.electronAPI?.mcp.start();
       if (result?.success) {
         message.success(t("Claw.MCP.message.proxyReady"));
@@ -261,6 +265,7 @@ function MCPSettings({ isOpen = true }: MCPSettingsProps) {
     setActionLoading(true);
     try {
       await window.electronAPI?.mcp.setConfig(nextConfig);
+      setHasUnsavedEdits(false);
       const result = await window.electronAPI?.mcp.restart();
       if (result?.success) {
         message.success(t("Claw.MCP.message.proxyReady"));
@@ -311,6 +316,7 @@ function MCPSettings({ isOpen = true }: MCPSettingsProps) {
             const text = event.target?.result as string;
             const imported = JSON.parse(text);
             applyConfigToEditor(imported, false);
+            setHasUnsavedEdits(true);
             message.success(t("Claw.MCP.importExport.importSuccess"));
           } catch {
             message.error(t("Claw.MCP.importExport.importFailed"));
@@ -358,6 +364,7 @@ function MCPSettings({ isOpen = true }: MCPSettingsProps) {
       },
     };
     updateConfigFromUi(nextConfig);
+    setHasUnsavedEdits(true);
   };
 
   const handleDisableAllServers = () => {
@@ -371,6 +378,7 @@ function MCPSettings({ isOpen = true }: MCPSettingsProps) {
       nextServers[serverId] = { ...entry, enabled: false };
     }
     updateConfigFromUi({ ...latest, mcpServers: nextServers });
+    setHasUnsavedEdits(true);
     message.success(t("Claw.MCP.list.disableAllSuccess"));
   };
 
@@ -384,6 +392,7 @@ function MCPSettings({ isOpen = true }: MCPSettingsProps) {
     const nextServers = { ...latest.mcpServers };
     delete nextServers[serverId];
     updateConfigFromUi({ ...latest, mcpServers: nextServers });
+    setHasUnsavedEdits(true);
     message.success(t("Claw.MCP.message.serverRemoved"));
     setDeletingServerId(null);
   };
@@ -441,6 +450,7 @@ function MCPSettings({ isOpen = true }: MCPSettingsProps) {
       },
     };
     updateConfigFromUi(nextConfig);
+    setHasUnsavedEdits(true);
     setPageMode("list");
     message.success(
       editorMode === "create"
@@ -709,6 +719,7 @@ function MCPSettings({ isOpen = true }: MCPSettingsProps) {
                   language="json"
                   onChange={(e) => {
                     setConfigText(e.target.value);
+                    setHasUnsavedEdits(true);
                     if (configTextError) {
                       setConfigTextError("");
                     }

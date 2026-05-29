@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import {
   Button,
   Space,
@@ -59,23 +59,35 @@ function MCPServerEditor({
   const [jsonError, setJsonError] = useState("");
   const [testLoading, setTestLoading] = useState(false);
 
+  // 用于序列化比较 initialEntry，防止因父组件重渲染产生的新引用而重置表单
+  const lastInitialEntryRef = useRef<string>("");
+
   const isEdit = mode === "edit";
 
   useEffect(() => {
-    if (isEdit && initialEntry && editingServerId) {
-      if ("command" in initialEntry) {
-        setServerType("stdio");
-        setCommand(initialEntry.command);
-        setArgsText(JSON.stringify(initialEntry.args ?? []));
-      } else {
-        setServerType("remote");
-        setUrl(initialEntry.url);
-        setTransport(initialEntry.transport ?? "streamable-http");
+    if (isEdit && editingServerId) {
+      // 仅当 initialEntry 的实际内容变化时才重置表单字段，
+      // 避免因父组件重渲染产生的新对象引用而反复清空用户输入。
+      const serialized = initialEntry ? JSON.stringify(initialEntry) : "";
+      if (serialized !== lastInitialEntryRef.current) {
+        lastInitialEntryRef.current = serialized;
+        if (initialEntry) {
+          if ("command" in initialEntry) {
+            setServerType("stdio");
+            setCommand(initialEntry.command);
+            setArgsText(JSON.stringify(initialEntry.args ?? []));
+          } else {
+            setServerType("remote");
+            setUrl(initialEntry.url);
+            setTransport(initialEntry.transport ?? "streamable-http");
+          }
+          setServerId(editingServerId);
+          setJsonText(serializeEntryToJson(editingServerId, initialEntry));
+        }
       }
-      setServerId(editingServerId);
-      setJsonText(serializeEntryToJson(editingServerId, initialEntry));
     } else {
       setJsonText("");
+      lastInitialEntryRef.current = "";
     }
   }, [isEdit, initialEntry, editingServerId]);
 
