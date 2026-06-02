@@ -8,7 +8,7 @@
 import * as path from "path";
 import * as fs from "fs";
 import * as os from "os";
-import { spawn, execSync } from "child_process";
+import { spawn, execSync, execFileSync } from "child_process";
 import { app } from "electron";
 import log from "electron-log";
 import {
@@ -282,6 +282,12 @@ function getElectronNodeBinDir(): string {
 export function getUvBinPath(): string {
   const uvName = isWindows() ? "uv.exe" : "uv";
   return path.join(getResourcesPath(), "uv", "bin", uvName);
+}
+
+/** 获取 bundled ripgrep 二进制路径 */
+export function getRipgrepBinPath(): string {
+  const rgName = isWindows() ? "rg.exe" : "rg";
+  return path.join(getResourcesPath(), "ripgrep", "bin", rgName);
 }
 
 /**
@@ -731,6 +737,12 @@ export function getAppEnv(opts?: GetAppEnvOptions): Record<string, string> {
   const bundledGitBashPath = getBundledGitBashPath();
   const electronNodeBinDir = getElectronNodeBinDir();
 
+  // 获取 bundled ripgrep 路径
+  const ripgrepBinPath = getRipgrepBinPath();
+  const ripgrepBinDir = fs.existsSync(ripgrepBinPath)
+    ? path.dirname(ripgrepBinPath)
+    : "";
+
   // 构建系统 PATH 的回退路径（仅包含常用系统工具目录）
   // 这样 agent 可以使用 bash/git/grep 等系统工具
   const systemPathPaths = includeSystemPath ? getSystemPaths() : [];
@@ -744,19 +756,31 @@ export function getAppEnv(opts?: GetAppEnvOptions): Record<string, string> {
   // - nodeModulesBin: 应用内 node_modules/.bin
   // - appBin: 应用内 bin
   // - systemPathPaths: 系统工具回退（可选，由 includeSystemPath 控制）
-  const priorityPath = [
+  // 去重：保留顺序（首次出现优先），避免 PATH 膨胀与重复项影响排查。
+  // 注意：不改变优先级，只做“同值”去重。
+  const priorityPathParts = [
     bundledNodeBinDir,
     electronNodeBinDir,
     bundledGitBinDir,
     uvBin,
+    ripgrepBinDir,
     uvToolBinDir,
     pnpmHome,
     nodeModulesBin,
     appBin,
     ...systemPathPaths,
-  ]
-    .filter(Boolean)
-    .join(pathSep);
+  ].filter(Boolean);
+
+  const seen = new Set<string>();
+  const dedupedParts: string[] = [];
+  for (const p of priorityPathParts) {
+    const key = isWindows() ? p.toLowerCase() : p;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    dedupedParts.push(p);
+  }
+
+  const priorityPath = dedupedParts.join(pathSep);
 
   // 调试日志：输出 PATH 优先级（应用内 uv 优先）
   log.info(`[getAppEnv] PATH priority (${process.platform}):`);
@@ -771,6 +795,9 @@ export function getAppEnv(opts?: GetAppEnvOptions): Record<string, string> {
   );
   log.info(
     `[getAppEnv]   4. uv/uvx (bundled preferred): ${uvBin || "(not found, falling back to system PATH)"}`,
+  );
+  log.info(
+    `[getAppEnv]   4.5 ripgrep (bundled): ${ripgrepBinDir || "(not found)"}`,
   );
   log.info(`[getAppEnv]   5. node_modules: ${nodeModulesBin}`);
   log.info(`[getAppEnv]   6. app bin: ${appBin}`);
@@ -867,6 +894,12 @@ export function getAppEnv(opts?: GetAppEnvOptions): Record<string, string> {
     cleanEnv.CLAUDE_CODE_GIT_BIN_DIR = bundledGitBinDir;
   }
 
+  // 设置内置 ripgrep 路径（全平台）
+  if (ripgrepBinDir) {
+    cleanEnv.NUWAXCODE_RIPGREP_DIR = ripgrepBinDir;
+    cleanEnv.CLAUDE_CODE_RIPGREP_DIR = ripgrepBinDir;
+  }
+
   // === Windows 特定优化（参考 LobsterAI）===
   if (isWindows()) {
     // 1. 确保 Windows 关键系统环境变量存在
@@ -881,6 +914,9 @@ export function getAppEnv(opts?: GetAppEnvOptions): Record<string, string> {
         "C:\\windows",
       COMSPEC: process.env.COMSPEC || "C:\\windows\\system32\\cmd.exe",
       SYSTEMDRIVE: process.env.SYSTEMDRIVE || "C:",
+      PATHEXT:
+        process.env.PATHEXT ||
+        ".COM;.EXE;.BAT;.CMD;.VBS;.VBE;.JS;.JSE;.WSF;.WSH;.MSC",
     };
 
     for (const [key, value] of Object.entries(windowsCriticalEnvVars)) {
@@ -1216,7 +1252,15 @@ export function getSetupRequiredDependencies(): LocalDependencyConfig[] {
       description: t(I18N_KEYS.Pages.Dependencies.DESC_CLAUDE_CODE_ACP),
       required: true,
       binName: "claude-code-acp-ts",
-      installVersion: "0.24.3",
+      installVersion: "0.38.2",
+    },
+    {
+      name: "ripgrep",
+      displayName: t(I18N_KEYS.Pages.Dependencies.DEP_RIPGREP),
+      type: "bundled",
+      description: t(I18N_KEYS.Pages.Dependencies.DESC_RIPGREP),
+      required: false,
+      binName: "rg",
     },
     {
       name: "codex-acp",
@@ -2050,6 +2094,27 @@ export async function checkAllDependencies(options?: {
               item.binPath = bundledDir;
             } catch {
               item.status = "bundled";
+            }
+          } else {
+            item.status = "missing";
+          }
+          break;
+        }
+        case "ripgrep": {
+          const rgPath = getRipgrepBinPath();
+          if (fs.existsSync(rgPath)) {
+            item.status = "bundled";
+            item.binPath = rgPath;
+            try {
+              const ver = execFileSync(rgPath, ["--version"], {
+                encoding: "utf-8",
+                timeout: 5000,
+              }).trim();
+              // rg --version 输出多行，只取第一行的版本号 (如 "ripgrep 14.1.1" → "14.1.1")
+              item.version =
+                ver.split("\n")[0].replace(/^ripgrep\s+/, "") || "unknown";
+            } catch {
+              item.version = "unknown";
             }
           } else {
             item.status = "missing";

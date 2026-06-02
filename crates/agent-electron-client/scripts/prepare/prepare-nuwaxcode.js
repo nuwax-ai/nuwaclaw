@@ -18,7 +18,7 @@
  * 环境变量：
  *   NUWAXCODE_DIST_DIR     — nuwaxcode 本地构建产物目录（设置后走本地复制模式）
  *   NUWAXCODE_REPO         — GitHub 仓库（默认 nuwax-ai/nuwaxcode）
- *   GITHUB_TOKEN           — GitHub token（私有仓库或提高速率限制用）
+ *   GH_TOKEN — CI 中由 workflow 注入 github.token（勿自建 GITHUB_ 前缀 Secret）
  */
 
 const path = require('path');
@@ -30,6 +30,27 @@ const { getProjectRoot } = require('../utils/project-paths');
 
 const NUWAXCODE_VERSION = '1.2.1';
 const NUWAXCODE_REPO = process.env.NUWAXCODE_REPO || 'nuwax-ai/nuwaxcode';
+
+/** CI 通过 GH_TOKEN 传入 github.token，避免未认证 API 触发 403 限流 */
+function getGithubToken() {
+  return process.env.GH_TOKEN || process.env.GITHUB_TOKEN || '';
+}
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function githubApiHeaders() {
+  const headers = {
+    'User-Agent': 'NuwaClaw-Build',
+    Accept: 'application/vnd.github+json',
+  };
+  const token = getGithubToken();
+  if (token) {
+    headers.Authorization = `Bearer ${token}`;
+  }
+  return headers;
+}
 
 const projectRoot = getProjectRoot();
 const resDir = path.join(projectRoot, 'resources', 'nuwaxcode');
@@ -282,100 +303,137 @@ function copyFromDist(key) {
 // ==================== 模式 2: GitHub Release 下载 ====================
 
 /**
+ * 当前平台资源是否已就绪（Actions 缓存恢复后无需再调 GitHub API）。
+ */
+function isPlatformResourceReady(key) {
+  const resourceKey = getResourcePlatformKey(key);
+  const destPath = path.join(resDir, resourceKey, 'bin', getBinaryName(key));
+  const versionFile = path.join(resDir, '.version');
+  const shaFile = path.join(resDir, `.sha256-${resourceKey}`);
+  if (!fs.existsSync(destPath) || !fs.existsSync(versionFile) || !fs.existsSync(shaFile)) {
+    return false;
+  }
+  if (fs.readFileSync(versionFile, 'utf-8').trim() !== NUWAXCODE_VERSION) {
+    return false;
+  }
+  const expectedHash = fs.readFileSync(shaFile, 'utf-8').trim();
+  return sha256File(destPath) === expectedHash;
+}
+
+function shouldRetryGithubStatus(statusCode) {
+  return statusCode === 403 || statusCode === 429 || statusCode === 502 || statusCode === 503;
+}
+
+/**
  * 检查 GitHub 是否存在目标 Release tag（避免目标版本未发版时反复 404）。
+ * 403/429 时指数退避重试；已缓存资源时由 main() 跳过本检查。
  * @returns {Promise<{ ok: boolean, latestTag?: string, status?: number, unverified?: boolean, reason?: string }>}
  */
 function checkGithubReleaseTag() {
   return new Promise((resolve) => {
     const tag = `v${NUWAXCODE_VERSION}`;
     const apiUrl = `https://api.github.com/repos/${NUWAXCODE_REPO}/releases/tags/${tag}`;
-    const headers = {
-      'User-Agent': 'NuwaClaw-Build',
-      Accept: 'application/vnd.github+json',
-    };
-    const githubToken = getGithubToken();
-    if (githubToken) {
-      headers.Authorization = `Bearer ${githubToken}`;
+    const headers = githubApiHeaders();
+
+    if (!getGithubToken()) {
+      console.warn(
+        '[prepare-nuwaxcode] 未设置 GH_TOKEN，GitHub API 可能因限流返回 403',
+      );
     }
 
     let attempts = 0;
-    const maxAttempts = 3;
-    const retryDelay = (ms) => new Promise((r) => setTimeout(r, ms));
+    const maxAttempts = 6;
 
-    const tryRequest = () => {
+    const tryRequest = async () => {
       attempts++;
       console.log(`[prepare-nuwaxcode] 检查 Release ${tag} (尝试 ${attempts}/${maxAttempts})...`);
-      https
-        .get(apiUrl, { headers }, (res) => {
-          let body = '';
-          res.on('data', (chunk) => {
-            body += chunk;
-          });
-          res.on('end', () => {
-            if (res.statusCode === 200) {
-              console.log(`[prepare-nuwaxcode] ✓ Release ${tag} 存在`);
-              resolve({ ok: true });
-              return;
-            }
-            let message = '';
-            try {
-              message = JSON.parse(body).message || '';
-            } catch (_) {}
-            const rateLimitRemaining = res.headers['x-ratelimit-remaining'];
-            const rateLimitReset = formatGithubRateLimitReset(res.headers['x-ratelimit-reset']);
-            const isRateLimited =
-              res.statusCode === 403 &&
-              (rateLimitRemaining === '0' || /rate limit/i.test(message));
 
-            if (isRateLimited) {
-              console.warn(
-                `[prepare-nuwaxcode] GitHub API 匿名限流，跳过 Release 预检查并直接尝试下载资产`
-                + (rateLimitReset ? `（重置时间: ${rateLimitReset}）` : ''),
-              );
-              resolve({
-                ok: true,
-                status: res.statusCode,
-                unverified: true,
-                reason: 'github_api_rate_limited',
+      const response = await new Promise((resolveResponse, reject) => {
+        https
+          .get(apiUrl, { headers }, (res) => {
+            let body = '';
+            res.on('data', (chunk) => {
+              body += chunk;
+            });
+            res.on('end', () => {
+              resolveResponse({
+                statusCode: res.statusCode || 0,
+                body,
+                headers: res.headers,
               });
-              return;
-            }
+            });
+          })
+          .on('error', reject);
+      }).catch((err) => {
+        console.warn(
+          `[prepare-nuwaxcode] 网络错误 (尝试 ${attempts}/${maxAttempts}): ${err.message}`,
+        );
+        return { statusCode: -1, body: '', headers: {} };
+      });
+      const statusCode = response.statusCode;
 
-            console.warn(
-              `[prepare-nuwaxcode] Release ${tag} 检查失败: HTTP ${res.statusCode}${res.statusCode === 403 ? ' (auth issue)' : ''}${message ? `: ${message}` : ''}`,
-            );
-            if (attempts < maxAttempts) {
-              console.log(`[prepare-nuwaxcode] 1s 后重试...`);
-              setTimeout(tryRequest, 1000);
-              return;
-            }
-            // Exhausted retries — try to get latest tag for diagnostic
-            const latestUrl = `https://api.github.com/repos/${NUWAXCODE_REPO}/releases/latest`;
-            https
-              .get(latestUrl, { headers }, (res2) => {
-                let body2 = '';
-                res2.on('data', (c) => {
-                  body2 += c;
-                });
-                res2.on('end', () => {
-                  let latestTag;
-                  try {
-                    latestTag = JSON.parse(body2).tag_name;
-                  } catch (_) {}
-                  resolve({ ok: false, latestTag, status: res.statusCode, reason: message });
-                });
-              })
-              .on('error', () => resolve({ ok: false, status: res.statusCode }));
+      if (statusCode === 200) {
+        console.log(`[prepare-nuwaxcode] ✓ Release ${tag} 存在`);
+        resolve({ ok: true });
+        return;
+      }
+
+      const retryable = statusCode === -1 || shouldRetryGithubStatus(statusCode);
+      const hint =
+        statusCode === 403 || statusCode === 429
+          ? '（多为 API 限流，请在 CI 配置 GH_TOKEN=github.token 或稍后重试）'
+          : '';
+      console.warn(
+        `[prepare-nuwaxcode] Release ${tag} 检查失败: HTTP ${statusCode}${hint}`,
+      );
+
+      if (retryable && attempts < maxAttempts) {
+        const delayMs = Math.min(1000 * 2 ** (attempts - 1), 30000);
+        console.log(`[prepare-nuwaxcode] ${delayMs}ms 后重试...`);
+        await sleep(delayMs);
+        return tryRequest();
+      }
+
+      let message = '';
+      try {
+        message = JSON.parse(response.body).message || '';
+      } catch (_) {}
+      const rateLimitRemaining = response.headers['x-ratelimit-remaining'];
+      const rateLimitReset = formatGithubRateLimitReset(response.headers['x-ratelimit-reset']);
+      const isRateLimited =
+        statusCode === 403 &&
+        (rateLimitRemaining === '0' || /rate limit/i.test(message));
+
+      if (isRateLimited) {
+        console.warn(
+          `[prepare-nuwaxcode] GitHub API 匿名限流，跳过 Release 预检查并直接尝试下载资产`
+          + (rateLimitReset ? `（重置时间: ${rateLimitReset}）` : ''),
+        );
+        resolve({
+          ok: true,
+          status: statusCode,
+          unverified: true,
+          reason: 'github_api_rate_limited',
+        });
+        return;
+      }
+
+      const latestUrl = `https://api.github.com/repos/${NUWAXCODE_REPO}/releases/latest`;
+      https
+        .get(latestUrl, { headers }, (res2) => {
+          let body2 = '';
+          res2.on('data', (c) => {
+            body2 += c;
+          });
+          res2.on('end', () => {
+            let latestTag;
+            try {
+              latestTag = JSON.parse(body2).tag_name;
+            } catch (_) {}
+            resolve({ ok: false, latestTag, status: statusCode, reason: message });
           });
         })
-        .on('error', (err) => {
-          console.warn(`[prepare-nuwaxcode] 网络错误 (尝试 ${attempts}/${maxAttempts}): ${err.message}`);
-          if (attempts < maxAttempts) {
-            setTimeout(tryRequest, 1500);
-          } else {
-            resolve({ ok: false, status: -1 });
-          }
-        });
+        .on('error', () => resolve({ ok: false, status: statusCode }));
     };
 
     tryRequest();
@@ -409,11 +467,7 @@ function download(url, preferredFilename, options = {}) {
       try { fs.unlinkSync(file); } catch (_) {}
     }
 
-    const headers = { 'User-Agent': 'NuwaClaw-Build' };
-    const githubToken = getGithubToken();
-    if (githubToken) {
-      headers.Authorization = `Bearer ${githubToken}`;
-    }
+    const headers = githubApiHeaders();
 
     fs.mkdirSync(cacheDir, { recursive: true });
     const doRequest = (reqUrl, redirects) => {
@@ -752,41 +806,48 @@ async function main() {
   console.log(`[prepare-nuwaxcode] 平台: ${keys.join(', ')}`);
 
   if (!useLocalDist) {
-    const releaseCheck = await checkGithubReleaseTag();
-    if (!releaseCheck.ok) {
-      console.error(
-        `[prepare-nuwaxcode] 无法确认 GitHub Release: https://github.com/${NUWAXCODE_REPO}/releases/tag/v${NUWAXCODE_VERSION}`,
-      );
-      if (releaseCheck.status) {
-        console.error(
-          `[prepare-nuwaxcode] GitHub API 状态: HTTP ${releaseCheck.status}${releaseCheck.reason ? ` (${releaseCheck.reason})` : ''}`,
-        );
-      }
-      if (releaseCheck.latestTag) {
-        console.error(
-          `[prepare-nuwaxcode] 当前远端最新 Release: ${releaseCheck.latestTag}（与 prepare 脚本 NUWAXCODE_VERSION=${NUWAXCODE_VERSION} 不一致）`,
-        );
-      }
-      console.error('[prepare-nuwaxcode] 可选方案:');
-      console.error(
-        `  1) 在 nuwaxcode 仓库执行 ./release.sh ${NUWAXCODE_VERSION} 发布 GitHub Release`,
-      );
-      console.error(
-        '  2) 开发调试: NUWAXCODE_DIST_DIR=<nuwaxcode>/packages/opencode/dist npm run prepare:nuwaxcode',
-      );
-      console.error(
-        '  3) 临时回退: 修改 prepare-nuwaxcode.js 中 NUWAXCODE_VERSION 为已存在的 tag（不推荐用于发版）',
-      );
-      process.exit(1);
-    }
-    if (releaseCheck.unverified) {
+    const allKeysReady = keys.every((key) => PLATFORM_MAP[key] && isPlatformResourceReady(key));
+    if (allKeysReady) {
       console.log(
-        `[prepare-nuwaxcode] GitHub Release v${NUWAXCODE_VERSION} 预检查被跳过，将以资产下载结果为准`,
+        `[prepare-nuwaxcode] 已缓存 v${NUWAXCODE_VERSION} 资源 (${keys.join(', ')})，跳过 GitHub Release API 检查`,
       );
     } else {
-      console.log(
-        `[prepare-nuwaxcode] GitHub Release v${NUWAXCODE_VERSION} 已存在`,
-      );
+      const releaseCheck = await checkGithubReleaseTag();
+      if (!releaseCheck.ok) {
+        console.error(
+          `[prepare-nuwaxcode] 无法确认 GitHub Release: https://github.com/${NUWAXCODE_REPO}/releases/tag/v${NUWAXCODE_VERSION}`,
+        );
+        if (releaseCheck.status) {
+          console.error(
+            `[prepare-nuwaxcode] GitHub API 状态: HTTP ${releaseCheck.status}${releaseCheck.reason ? ` (${releaseCheck.reason})` : ''}`,
+          );
+        }
+        if (releaseCheck.latestTag) {
+          console.error(
+            `[prepare-nuwaxcode] 当前远端最新 Release: ${releaseCheck.latestTag}（与 prepare 脚本 NUWAXCODE_VERSION=${NUWAXCODE_VERSION} 不一致）`,
+          );
+        }
+        console.error('[prepare-nuwaxcode] 可选方案:');
+        console.error(
+          `  1) 在 nuwaxcode 仓库执行 ./release.sh ${NUWAXCODE_VERSION} 发布 GitHub Release`,
+        );
+        console.error(
+          '  2) 开发调试: NUWAXCODE_DIST_DIR=<nuwaxcode>/packages/opencode/dist npm run prepare:nuwaxcode',
+        );
+        console.error(
+          '  3) 临时回退: 修改 prepare-nuwaxcode.js 中 NUWAXCODE_VERSION 为已存在的 tag（不推荐用于发版）',
+        );
+        process.exit(1);
+      }
+      if (releaseCheck.unverified) {
+        console.log(
+          `[prepare-nuwaxcode] GitHub Release v${NUWAXCODE_VERSION} 预检查被跳过，将以资产下载结果为准`,
+        );
+      } else {
+        console.log(
+          `[prepare-nuwaxcode] GitHub Release v${NUWAXCODE_VERSION} 已存在`,
+        );
+      }
     }
   }
 

@@ -1,6 +1,6 @@
 {
   "name": "@nuwax-ai/nuwaclaw",
-  "version": "0.11.27",
+  "version": "0.11.42",
   "description": "NuwaClaw",
   "main": "dist/main/main.js",
   "author": "Nuwax Team",
@@ -27,6 +27,7 @@
     "prepare:lanproxy": "node scripts/prepare/prepare-lanproxy.js",
     "prepare:node": "node scripts/prepare/prepare-node.js",
     "prepare:git": "node scripts/prepare/prepare-git.js",
+    "prepare:ripgrep": "node scripts/prepare/prepare-ripgrep.js",
     "check-ports": "node scripts/tools/check-startup-ports.js",
     "check-ports:dev": "node scripts/tools/check-startup-ports.js --vite",
     "prepare:mcp-proxy": "node scripts/prepare/prepare-mcp-proxy.js",
@@ -181,6 +182,13 @@
       {
         "from": "resources/uv/bin",
         "to": "uv/bin",
+        "filter": [
+          "**/*"
+        ]
+      },
+      {
+        "from": "resources/ripgrep/bin",
+        "to": "ripgrep/bin",
         "filter": [
           "**/*"
         ]
@@ -379,24 +387,6 @@
           "to": "sandbox-helper",
           "filter": [
             "**/*.exe"
-          ]
-        },
-        {
-          "from": "resources/sandboxed-bash-mcp",
-          "to": "sandboxed-bash-mcp",
-          "filter": [
-            "**/*.mjs",
-            "dist/**",
-            ".bundle-version"
-          ]
-        },
-        {
-          "from": "resources/sandboxed-fs-mcp",
-          "to": "sandboxed-fs-mcp",
-          "filter": [
-            "**/*.mjs",
-            "dist/**",
-            ".bundle-version"
           ]
         }
       ]

@@ -1,0 +1,99 @@
+import { describe, expect, it, vi } from "vitest";
+import {
+  parseServerFromJson,
+  resolveMcpEditorPayload,
+} from "./mcpServerEditorUtils";
+
+vi.mock("../../services/core/i18n", () => ({
+  t: (key: string) => key,
+}));
+
+const context7Json = JSON.stringify({
+  context7: {
+    command: "npx",
+    args: ["-y", "@upstash/context7-mcp"],
+    env: { CONTEXT7_API_KEY: "YOUR_API_KEY" },
+    enabled: true,
+  },
+});
+
+describe("parseServerFromJson", () => {
+  it("parses format A with server key as serverId", () => {
+    const result = parseServerFromJson(context7Json);
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.serverId).toBe("context7");
+    expect(result.entry).toMatchObject({
+      command: "npx",
+      args: ["-y", "@upstash/context7-mcp"],
+      enabled: true,
+    });
+  });
+
+  it("parses format B mcpServers wrapper", () => {
+    const result = parseServerFromJson(
+      JSON.stringify({
+        mcpServers: {
+          myserver: { command: "node", args: ["server.js"] },
+        },
+      }),
+    );
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.serverId).toBe("myserver");
+  });
+
+  it("rejects invalid JSON", () => {
+    const result = parseServerFromJson("{ not json");
+    expect(result.ok).toBe(false);
+  });
+});
+
+describe("resolveMcpEditorPayload", () => {
+  it("uses JSON key as serverId in create mode", () => {
+    const result = resolveMcpEditorPayload({
+      editorTab: "json",
+      jsonText: context7Json,
+      isEdit: false,
+      formPayload: () => ({
+        ok: false,
+        error: "Claw.MCP.addServer.idRequired",
+      }),
+    });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.serverId).toBe("context7");
+  });
+
+  it("keeps editingServerId in edit mode", () => {
+    const result = resolveMcpEditorPayload({
+      editorTab: "json",
+      jsonText: context7Json,
+      isEdit: true,
+      editingServerId: "original-id",
+      formPayload: () => ({
+        ok: false,
+        error: "Claw.MCP.addServer.idRequired",
+      }),
+    });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.serverId).toBe("original-id");
+  });
+
+  it("uses form payload on form tab", () => {
+    const result = resolveMcpEditorPayload({
+      editorTab: "form",
+      jsonText: "",
+      isEdit: false,
+      formPayload: () => ({
+        ok: true,
+        serverId: "form-id",
+        entry: { command: "cmd", args: [] },
+      }),
+    });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.serverId).toBe("form-id");
+  });
+});

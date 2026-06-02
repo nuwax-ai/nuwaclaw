@@ -1358,7 +1358,13 @@ function App() {
                       onWebviewChange={setWebviewActions}
                     />
                   )}
-                  {activeTab === "mcp" && <MCPSettings />}
+                  <div
+                    style={{
+                      display: activeTab === "mcp" ? "contents" : "none",
+                    }}
+                  >
+                    <MCPSettings isOpen={activeTab === "mcp"} />
+                  </div>
                   {activeTab === "settings" && <SettingsPage />}
                   {activeTab === "dependencies" && <DependenciesPage />}
                   {activeTab === "permissions" && <PermissionsPage />}
