@@ -552,6 +552,18 @@
   opacity: 0.5;
 }
 
+.open-app-preview-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.open-app-preview-toggle.active {
+  background: var(--open-app-accent, #6366f1) !important;
+  color: #fff !important;
+  border-color: var(--open-app-accent, #6366f1) !important;
+}
+
 .open-app-error {
   margin: 0 22px 10px;
   padding: 10px 12px;
@@ -610,7 +622,7 @@
   display: grid;
   min-height: 0;
   height: 100%;
-  grid-template-columns: minmax(400px, 0.42fr) minmax(420px, 0.58fr);
+  grid-template-columns: minmax(400px, 0.42fr) 6px minmax(420px, 0.58fr);
   gap: 0;
   padding: 0 20px;
   overflow: hidden;
@@ -655,7 +667,6 @@
   background: var(--open-app-border);
   border-radius: 3px;
   transition: background 0.15s;
-  flex-shrink: 0;
   align-self: stretch;
 }
 

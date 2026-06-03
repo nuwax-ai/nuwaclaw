@@ -296,9 +296,42 @@ export interface WorkbenchHostBridge {
   onPreviewDownload?: (info: { url: string; filename?: string }) => void;
   /** Called when webview attempts to open a new window. */
   onPreviewNewWindow?: (url: string) => 'allow' | 'deny' | 'open-external';
-  /** Called when user clicks a task-result file card in chat. */
-  onFilePreview?: (fileId: string, context?: { conversationId?: string }) => void | Promise<void>;
+  /**
+   * Called when user clicks a task-result file card in chat.
+   * The host resolves the file URL and returns a descriptor for the workbench
+   * to render in the preview pane. Return void/undefined to signal "not handled".
+   */
+  onFilePreview?: (
+    fileId: string,
+    context?: { conversationId?: string },
+  ) => FilePreviewDescriptor | Promise<FilePreviewDescriptor | void> | void;
 }
+
+/**
+ * Descriptor returned by the host bridge's `onFilePreview`.
+ * Contains everything the workbench's FilePreview component needs to render a file.
+ */
+export interface FilePreviewDescriptor {
+  /** Full URL to fetch the file content. */
+  src: string;
+  /** Display name (e.g. "report.pdf"). Also used for extension-based type detection. */
+  fileName: string;
+  /** Optional inline text content (bypasses fetch for text/markdown). */
+  content?: string;
+  /** Optional file type override. Auto-detected from fileName extension when absent. */
+  fileType?: import('./components/business-component/FilePreview/fileTypes').FileType;
+  /** Base path for resolving relative image URLs inside markdown files. */
+  staticFileBasePath?: string;
+}
+
+/**
+ * Discriminated union for the preview pane state.
+ * Replaces the previous `previewUrl: string | null`.
+ */
+export type PreviewState =
+  | { kind: 'none' }
+  | { kind: 'page'; url: string }
+  | { kind: 'file'; descriptor: FilePreviewDescriptor };
 
 export interface AgentWorkbenchConfig {
   agentId?: string;

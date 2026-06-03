@@ -240,6 +240,19 @@ function createWorkbenchHostBridge(
       }
     },
     onExit,
+    onFilePreview: async (fileId, context) => {
+      const conversationId = context?.conversationId ?? '';
+      const staticBase = `${baseUrl}/api/computer/static/${conversationId}`;
+      const encodedPath = fileId.split('/').map(encodeURIComponent).join('/');
+      const src = `${staticBase}/${encodedPath}`;
+      // Sync auth cookie before the workbench fetches the file
+      await syncSessionCookie(new URL(baseUrl).origin, accessToken);
+      return {
+        src,
+        fileName: fileId.split('/').pop() ?? fileId,
+        staticFileBasePath: staticBase,
+      };
+    },
     onError: (error) => {
       console.warn("[AgentMode] Workbench error:", error);
     },

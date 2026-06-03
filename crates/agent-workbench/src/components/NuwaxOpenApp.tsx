@@ -13,6 +13,7 @@ import {
   parseAgentWorkbenchRoute,
 } from '../routes';
 import type {
+  PreviewState,
   WorkbenchAgentDetail,
   WorkbenchConversation,
   WorkbenchModelOption,
@@ -243,7 +244,7 @@ export function NuwaxOpenApp() {
   const [error, setError] = useState<string | null>(null);
   const [historyKeyword, setHistoryKeyword] = useState('');
   const [sidebarVisible, setSidebarVisible] = useState(true);
-  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const [previewState, setPreviewState] = useState<PreviewState>({ kind: 'none' });
   const [agentMode, setAgentMode] = useState<'ask' | 'yolo'>('ask');
   const [selectedModelId, setSelectedModelId] = useState<string | undefined>(undefined);
   const [modelOptions, setModelOptions] = useState<WorkbenchModelOption[]>([]);
@@ -648,13 +649,13 @@ export function NuwaxOpenApp() {
       } catch (cause) {
         reportError(cause, 'Preview auth sync failed', { phase: 'onBeforePreviewLoad', url });
       }
-      setPreviewUrl(url);
+      setPreviewState({ kind: 'page', url });
     },
     [config.baseUrl, config.hostBridge, reportError],
   );
 
   useEffect(() => {
-    if (!agent || previewUrl) return;
+    if (!agent || previewState.kind !== 'none') return;
     const autoOpenKey = `openApp:autoOpenedDefaultPage:${agentId}`;
     if (sessionStorage.getItem(autoOpenKey)) return;
     const defaultPage = agent.customPageMenus?.find((item) => item.selected && item.path);
@@ -662,7 +663,7 @@ export function NuwaxOpenApp() {
       sessionStorage.setItem(autoOpenKey, '1');
       openPreview(defaultPage.path);
     }
-  }, [agent, agentId, openPreview, previewUrl]);
+  }, [agent, agentId, openPreview, previewState.kind]);
 
   const openEditor = useCallback(async () => {
     await config.hostBridge?.onOpenEditor?.({
@@ -672,8 +673,11 @@ export function NuwaxOpenApp() {
   }, [activeConversation?.id, agentId, config.hostBridge]);
 
   const handleFilePreview = useCallback(
-    (fileId: string, context?: { conversationId?: string }) => {
-      void config.hostBridge?.onFilePreview?.(fileId, context);
+    async (fileId: string, context?: { conversationId?: string }) => {
+      const result = await config.hostBridge?.onFilePreview?.(fileId, context);
+      if (result) {
+        setPreviewState({ kind: 'file', descriptor: result });
+      }
     },
     [config.hostBridge],
   );
@@ -749,7 +753,7 @@ export function NuwaxOpenApp() {
           recentConversations={conversations.slice(0, 8)}
           totalConversationCount={conversations.length}
           activeConversation={activeConversation}
-          previewUrl={previewUrl}
+          previewUrl={previewState.kind === 'page' ? previewState.url : null}
           loadingHistory={loadingHistory}
           baseUrl={config.baseUrl}
           userId={config.userId}
@@ -798,6 +802,15 @@ export function NuwaxOpenApp() {
                     ? 'Loading...'
                     : applyTemplate(labels.emptyTitle, { name: agent?.name ?? `Agent ${agentId}` })}
                 </span>
+                <button
+                  type="button"
+                  className={previewState.kind !== 'none' ? 'open-app-preview-toggle active' : 'open-app-preview-toggle'}
+                  onClick={() => setPreviewState((prev) => prev.kind === 'none' ? prev : { kind: 'none' })}
+                  disabled={previewState.kind === 'none'}
+                >
+                  <Icon name="page" />
+                  {labels.togglePreview}
+                </button>
                 <button type="button" onClick={() => void openEditor()} disabled={!config.hostBridge?.onOpenEditor}>
                   {labels.openEditor}
                 </button>
@@ -805,11 +818,11 @@ export function NuwaxOpenApp() {
               {error && <div className="open-app-error">{error}</div>}
               <div
                 ref={splitContainerRef}
-                className={previewUrl ? 'open-app-chat-preview-split' : 'open-app-chat-preview-split no-preview'}
+                className={previewState.kind !== 'none' ? 'open-app-chat-preview-split' : 'open-app-chat-preview-split no-preview'}
                 style={
-                  previewUrl
+                  previewState.kind !== 'none'
                     ? {
-                        gridTemplateColumns: `${splitRatio}fr ${1 - splitRatio}fr`,
+                        gridTemplateColumns: `${splitRatio}fr 6px ${1 - splitRatio}fr`,
                       }
                     : undefined
                 }
@@ -859,10 +872,10 @@ export function NuwaxOpenApp() {
                   labels={labels}
                 />
                 <PreviewPane
-                  previewUrl={previewUrl}
+                  previewState={previewState}
                   splitRatio={splitRatio}
                   onSplitRatioChange={setSplitRatio}
-                  onClose={() => setPreviewUrl(null)}
+                  onClose={() => setPreviewState({ kind: 'none' })}
                   containerRef={splitContainerRef}
                   hostBridge={config.hostBridge}
                   previewContainer={config.previewContainer}
