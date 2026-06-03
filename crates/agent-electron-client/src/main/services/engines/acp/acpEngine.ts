@@ -94,13 +94,13 @@ import { firstTokenTrace } from "../perf/firstTokenTrace";
 import { resolveEffectiveMode, type AcpMode } from "@shared/types/acpMode";
 import {
   approvalInterventionService,
-  isRcoderNotifyResolvedRequest,
-  toRcoderPermissionProgressData,
+  isComputerPermissionResolveRequest,
+  toComputerPermissionProgressData,
 } from "../../intervention";
 import type {
   NotifyResolvedRequest,
   NotifyResolvedResponse,
-  RcoderNotifyResolvedRequest,
+  ComputerNotifyResolvedRequest,
 } from "@shared/types/intervention";
 
 /** Safe JSON.stringify that handles circular references */
@@ -2282,7 +2282,7 @@ User question: ${request.prompt}`;
       acpSessionId,
       messageType: "acpRequestPermission",
       subType: "request_permission",
-      data: toRcoderPermissionProgressData({
+      data: toComputerPermissionProgressData({
         acpRequest: params,
         interventionId: interventionRequest.id,
         revision: interventionRequest.revision,
@@ -2294,10 +2294,12 @@ User question: ${request.prompt}`;
   }
 
   resolvePermissionIntervention(
-    payload: NotifyResolvedRequest | RcoderNotifyResolvedRequest,
+    payload: NotifyResolvedRequest | ComputerNotifyResolvedRequest,
   ): NotifyResolvedResponse {
-    if (isRcoderNotifyResolvedRequest(payload)) {
-      return approvalInterventionService.resolveFromRcoderCallback(payload);
+    if (isComputerPermissionResolveRequest(payload)) {
+      return approvalInterventionService.resolveFromComputerPermissionCallback(
+        payload,
+      );
     }
     return approvalInterventionService.resolveFromCallback(payload);
   }

@@ -16,11 +16,11 @@ import type {
   NotifyResolvedResponse,
   AcpPermissionResponse,
   AcpPermissionOption,
-  RcoderNotifyResolvedRequest,
+  ComputerNotifyResolvedRequest,
 } from "@shared/types/intervention";
 import type { AcpPermissionRequest } from "../engines/acp/acpClient";
 import { buildAcpPermissionInterventionRequest } from "./buildAcpPermissionInterventionRequest";
-import { parseRcoderNotifyResolvedRequest } from "./rcoderPermissionProtocol";
+import { parseComputerPermissionResolveRequest } from "./computerPermissionProtocol";
 
 export class ApprovalInterventionService extends EventEmitter {
   private pending = new Map<string, PendingAcpPermission>();
@@ -160,12 +160,12 @@ export class ApprovalInterventionService extends EventEmitter {
   }
 
   /**
-   * 通过 RCoder permission_resolve_request 回调 resolve pending
+   * 通过 /computer/notify-resolved 的 permission_resolve_request 回调 resolve pending
    */
-  resolveFromRcoderCallback(
-    payload: RcoderNotifyResolvedRequest,
+  resolveFromComputerPermissionCallback(
+    payload: ComputerNotifyResolvedRequest,
   ): NotifyResolvedResponse {
-    const parsed = parseRcoderNotifyResolvedRequest(payload);
+    const parsed = parseComputerPermissionResolveRequest(payload);
     if (!parsed.ok) {
       return parsed.response;
     }
@@ -220,7 +220,11 @@ export class ApprovalInterventionService extends EventEmitter {
       };
     }
 
-    this.resolvePendingInternal(interventionId, acpResponse, "rcoder_callback");
+    this.resolvePendingInternal(
+      interventionId,
+      acpResponse,
+      "computer_permission_callback",
+    );
     return { ok: true, hostStatus: "resolved" };
   }
 

@@ -82,7 +82,7 @@ export interface AcpPermissionInterventionRequest extends BaseInterventionReques
   engine: string;
   protocol: "acp";
   callbackTarget: {
-    kind: "electron" | "rcoder";
+    kind: "electron" | "computer";
     targetId: string;
   };
   schemaRef: string;
@@ -126,9 +126,9 @@ export interface NotifyResolvedRequest {
   resolvedAt: number;
 }
 
-// === RCoder Permission Request Contract ===
+// === Computer Permission Request Contract ===
 
-export interface RcoderPermissionToolCall {
+export interface ComputerPermissionToolCall {
   tool_call_id: string;
   kind: string;
   status: "pending" | "in_progress" | "completed" | "failed";
@@ -138,50 +138,52 @@ export interface RcoderPermissionToolCall {
   _meta?: Record<string, unknown>;
 }
 
-export interface RcoderPermissionOption {
+export interface ComputerPermissionOption {
   option_id: string;
   name: string;
   kind: AcpPermissionOptionKind;
   _meta?: Record<string, unknown>;
 }
 
-export interface RcoderRequestPermissionRequest {
+export interface ComputerRequestPermissionRequest {
   session_id: string;
-  tool_call: RcoderPermissionToolCall;
-  options: RcoderPermissionOption[];
+  tool_call: ComputerPermissionToolCall;
+  options: ComputerPermissionOption[];
   _meta?: Record<string, unknown>;
 }
 
-export interface RcoderPermissionSaveRule {
+export interface ComputerPermissionSaveRule {
   suggested_pattern: string;
   rule_type: "allow" | "deny";
   tool_name: string;
 }
 
-export interface RcoderPermissionProgressData {
-  request_permission_request: RcoderRequestPermissionRequest;
+export interface ComputerPermissionProgressData {
+  request_permission_request: ComputerRequestPermissionRequest;
   tool_call_id: string;
-  save_rule?: RcoderPermissionSaveRule;
+  save_rule?: ComputerPermissionSaveRule;
   _meta?: Record<string, unknown>;
 }
 
-export type RcoderRequestPermissionOutcome =
+export type ComputerRequestPermissionOutcome =
   | { Selected: { option_id: string } }
-  | { Cancelled: Record<string, never> | null };
+  | { Cancelled: Record<string, never> | null }
+  | { outcome: "selected"; optionId: string }
+  | { outcome: "cancelled"; optionId?: string };
 
-export interface RcoderRequestPermissionResponse {
-  outcome: RcoderRequestPermissionOutcome;
+export interface ComputerRequestPermissionResponse {
+  outcome: ComputerRequestPermissionOutcome;
 }
 
-export interface RcoderPermissionResolveRequest {
-  request_permission_response: RcoderRequestPermissionResponse;
+export interface ComputerPermissionResolveRequest {
+  request_permission_response: ComputerRequestPermissionResponse;
   session_id: string;
   tool_call_id: string;
   save_rule?: boolean;
 }
 
-export interface RcoderNotifyResolvedRequest {
-  permission_resolve_request: RcoderPermissionResolveRequest;
+export interface ComputerNotifyResolvedRequest {
+  permission_resolve_request: ComputerPermissionResolveRequest;
   user_id?: string;
   project_id?: string;
   pod_id?: string;
@@ -227,7 +229,7 @@ export interface AcpRequestPermissionProgressMessage {
   acpSessionId?: string;
   messageType: "acpRequestPermission";
   subType: "session/request_permission" | "request_permission";
-  data: AcpPermissionInterventionRequest | RcoderPermissionProgressData;
+  data: AcpPermissionInterventionRequest | ComputerPermissionProgressData;
   timestamp: string;
 }
 

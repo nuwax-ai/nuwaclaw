@@ -46,15 +46,15 @@ import { DEFAULT_SSE_HEARTBEAT_INTERVAL } from "@shared/constants";
 import type {
   NotifyResolvedRequest,
   NotifyResolvedResponse,
-  RcoderNotifyResolvedRequest,
+  ComputerNotifyResolvedRequest,
 } from "@shared/types/intervention";
 import {
   verifyInternalCallback,
   validateNotifyResolvedRequest,
-  validateRcoderNotifyResolvedRequest,
+  validateComputerPermissionResolveRequest,
   statusFromNotifyResolvedResult,
   getOrCreateInternalSecret,
-  isRcoderNotifyResolvedRequest,
+  isComputerPermissionResolveRequest,
 } from "./intervention";
 
 let server: http.Server | null = null;
@@ -932,12 +932,13 @@ async function handleRequest(
     if (pathname === "/computer/notify-resolved" && method === "POST") {
       const body = (await parseBody(req)) as
         | NotifyResolvedRequest
-        | RcoderNotifyResolvedRequest;
-      const isRcoderPermissionResolve = isRcoderNotifyResolvedRequest(body);
+        | ComputerNotifyResolvedRequest;
+      const isComputerPermissionResolve =
+        isComputerPermissionResolveRequest(body);
       const hasInternalSecretHeader =
         typeof req.headers["x-nuwax-internal-secret"] === "string";
 
-      if (!interventionSecret && !isRcoderPermissionResolve) {
+      if (!interventionSecret && !isComputerPermissionResolve) {
         sendJson(res, 500, {
           ok: false,
           error: {
@@ -960,8 +961,8 @@ async function handleRequest(
           req.headers["x-nuwax-internal-secret"] === configKey
         ) {
           log.info("[HTTP] Accepted notify-resolved with configKey auth");
-        } else if (!isRcoderPermissionResolve || hasInternalSecretHeader) {
-          const payload = isRcoderPermissionResolve
+        } else if (!isComputerPermissionResolve || hasInternalSecretHeader) {
+          const payload = isComputerPermissionResolve
             ? httpError("ERR_VALIDATION", "invalid internal secret")
             : {
                 ok: false,
@@ -974,15 +975,15 @@ async function handleRequest(
           return;
         }
         log.warn(
-          "[HTTP] Accepting RCoder permission resolve without internal secret; enable X-Nuwax-Internal-Secret once RCoder supports it",
+          "[HTTP] Accepting computer permission resolve without internal secret; enable X-Nuwax-Internal-Secret once backend supports it",
         );
       }
 
-      const validation = isRcoderPermissionResolve
-        ? validateRcoderNotifyResolvedRequest(body)
+      const validation = isComputerPermissionResolve
+        ? validateComputerPermissionResolveRequest(body)
         : validateNotifyResolvedRequest(body);
       if (!validation.ok) {
-        if (isRcoderPermissionResolve) {
+        if (isComputerPermissionResolve) {
           sendJson(res, 400, httpError("ERR_VALIDATION", validation.message));
         } else {
           sendJson(res, 400, {
@@ -996,12 +997,14 @@ async function handleRequest(
         return;
       }
 
-      const projectId = isRcoderPermissionResolve ? body.project_id : undefined;
+      const projectId = isComputerPermissionResolve
+        ? body.project_id
+        : undefined;
       const acpEngine =
         (projectId ? agentService.getEngineForProject(projectId) : null) ||
         agentService.getAcpEngine();
       if (!acpEngine) {
-        if (isRcoderPermissionResolve) {
+        if (isComputerPermissionResolve) {
           sendJson(
             res,
             404,
@@ -1021,7 +1024,7 @@ async function handleRequest(
         acpEngine as any
       ).resolvePermissionIntervention(body);
       const status = statusFromNotifyResolvedResult(result);
-      if (isRcoderPermissionResolve) {
+      if (isComputerPermissionResolve) {
         if (result.ok) {
           sendJson(res, status, httpResult(result));
         } else {

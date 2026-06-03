@@ -1,9 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
-  parseRcoderNotifyResolvedRequest,
-  toRcoderPermissionProgressData,
-  validateRcoderNotifyResolvedRequest,
-} from "./rcoderPermissionProtocol";
+  parseComputerPermissionResolveRequest,
+  toComputerPermissionProgressData,
+  validateComputerPermissionResolveRequest,
+} from "./computerPermissionProtocol";
 import type { AcpPermissionRequest } from "@shared/types/intervention";
 
 function permissionRequest(): AcpPermissionRequest {
@@ -28,9 +28,9 @@ function permissionRequest(): AcpPermissionRequest {
   };
 }
 
-describe("rcoderPermissionProtocol", () => {
-  it("maps ACP permission request to RCoder SSE payload", () => {
-    const payload = toRcoderPermissionProgressData({
+describe("computerPermissionProtocol", () => {
+  it("maps ACP permission request to computer SSE payload", () => {
+    const payload = toComputerPermissionProgressData({
       acpRequest: permissionRequest(),
       interventionId: "itv_001",
       revision: 1,
@@ -72,8 +72,8 @@ describe("rcoderPermissionProtocol", () => {
     });
   });
 
-  it("maps RCoder Selected outcome to ACP selected response", () => {
-    const parsed = parseRcoderNotifyResolvedRequest({
+  it("maps computer Selected outcome to ACP selected response", () => {
+    const parsed = parseComputerPermissionResolveRequest({
       permission_resolve_request: {
         request_permission_response: {
           outcome: {
@@ -104,7 +104,7 @@ describe("rcoderPermissionProtocol", () => {
   });
 
   it("passes reject option_id through as selected response", () => {
-    const parsed = parseRcoderNotifyResolvedRequest({
+    const parsed = parseComputerPermissionResolveRequest({
       permission_resolve_request: {
         request_permission_response: {
           outcome: {
@@ -128,8 +128,39 @@ describe("rcoderPermissionProtocol", () => {
     });
   });
 
-  it("maps RCoder Cancelled outcome to ACP cancelled response", () => {
-    const parsed = parseRcoderNotifyResolvedRequest({
+  it("accepts agent-platform legacy selected outcome", () => {
+    const parsed = parseComputerPermissionResolveRequest({
+      permission_resolve_request: {
+        request_permission_response: {
+          outcome: {
+            optionId: "reject",
+            outcome: "selected",
+          },
+        },
+        session_id: "session_789",
+        tool_call_id: "tool_001",
+      },
+      user_id: "user_123",
+      project_id: "49",
+    });
+
+    expect(parsed).toEqual({
+      ok: true,
+      command: {
+        acpSessionId: "session_789",
+        toolCallId: "tool_001",
+        acpResponse: {
+          outcome: { outcome: "selected", optionId: "reject" },
+        },
+        saveRule: undefined,
+        projectId: "49",
+        userId: "user_123",
+      },
+    });
+  });
+
+  it("maps computer Cancelled outcome to ACP cancelled response", () => {
+    const parsed = parseComputerPermissionResolveRequest({
       permission_resolve_request: {
         request_permission_response: {
           outcome: { Cancelled: {} },
@@ -147,8 +178,8 @@ describe("rcoderPermissionProtocol", () => {
     });
   });
 
-  it("validates required RCoder fields", () => {
-    const validation = validateRcoderNotifyResolvedRequest({
+  it("validates required computer permission fields", () => {
+    const validation = validateComputerPermissionResolveRequest({
       permission_resolve_request: {
         request_permission_response: {
           outcome: { Selected: {} },

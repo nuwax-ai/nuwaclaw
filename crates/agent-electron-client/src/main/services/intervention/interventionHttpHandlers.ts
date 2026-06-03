@@ -10,7 +10,7 @@ import type {
   NotifyResolvedResponse,
   AcpPermissionResponse,
 } from "@shared/types/intervention";
-import { validateRcoderNotifyResolvedRequest } from "./rcoderPermissionProtocol";
+import { validateComputerPermissionResolveRequest } from "./computerPermissionProtocol";
 
 // === Internal Secret 校验 ===
 
@@ -106,7 +106,7 @@ export function validateNotifyResolvedRequest(
   return { ok: true };
 }
 
-export { validateRcoderNotifyResolvedRequest };
+export { validateComputerPermissionResolveRequest };
 
 /**
  * 根据 NotifyResolvedResponse 确定 HTTP status code

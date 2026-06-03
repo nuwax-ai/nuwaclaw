@@ -42,7 +42,7 @@ function createRequest(
   };
 }
 
-function createRcoderResolve(optionId = "allow") {
+function createComputerPermissionResolve(optionId = "allow") {
   return {
     permission_resolve_request: {
       request_permission_response: {
@@ -61,7 +61,7 @@ function createRcoderResolve(optionId = "allow") {
   };
 }
 
-describe("ApprovalInterventionService RCoder callbacks", () => {
+describe("ApprovalInterventionService computer permission callbacks", () => {
   afterEach(() => {
     vi.useRealTimers();
   });
@@ -75,7 +75,9 @@ describe("ApprovalInterventionService RCoder callbacks", () => {
       acpRequest: createRequest(),
     });
 
-    const result = service.resolveFromRcoderCallback(createRcoderResolve());
+    const result = service.resolveFromComputerPermissionCallback(
+      createComputerPermissionResolve(),
+    );
 
     expect(result).toEqual({ ok: true, hostStatus: "resolved" });
     await expect(acpResponsePromise).resolves.toEqual({
@@ -84,7 +86,7 @@ describe("ApprovalInterventionService RCoder callbacks", () => {
     expect(service.pendingCount).toBe(0);
   });
 
-  it("rejects RCoder option_id that is not in the pending ACP options", () => {
+  it("rejects option_id that is not in the pending ACP options", () => {
     const service = new ApprovalInterventionService();
     service.createPending({
       engine: "nuwaxcode",
@@ -93,8 +95,8 @@ describe("ApprovalInterventionService RCoder callbacks", () => {
       acpRequest: createRequest(),
     });
 
-    const result = service.resolveFromRcoderCallback(
-      createRcoderResolve("unknown-option"),
+    const result = service.resolveFromComputerPermissionCallback(
+      createComputerPermissionResolve("unknown-option"),
     );
 
     expect(result).toMatchObject({
@@ -158,7 +160,9 @@ describe("ApprovalInterventionService RCoder callbacks", () => {
     });
     expect(service.pendingCount).toBe(0);
 
-    const result = service.resolveFromRcoderCallback(createRcoderResolve());
+    const result = service.resolveFromComputerPermissionCallback(
+      createComputerPermissionResolve(),
+    );
     expect(result).toMatchObject({
       ok: false,
       error: {
