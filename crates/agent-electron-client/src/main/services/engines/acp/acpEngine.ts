@@ -97,6 +97,10 @@ import {
   isComputerPermissionResolveRequest,
   toComputerPermissionProgressData,
 } from "../../intervention";
+import {
+  normalizePermissionGatedToolUpdate,
+  type PermissionGatedToolInputCache,
+} from "./permissionGatedToolUpdate";
 import type {
   NotifyResolvedRequest,
   NotifyResolvedResponse,
@@ -165,6 +169,10 @@ export class AcpEngine extends EventEmitter {
     }
   >();
   private effectiveModes = new Map<string, AcpMode>();
+  private permissionGatedToolRawInputs = new Map<
+    string,
+    PermissionGatedToolInputCache
+  >();
 
   setEffectiveMode(acpSessionId: string, mode: AcpMode): void {
     this.effectiveModes.set(acpSessionId, mode);
@@ -740,6 +748,7 @@ export class AcpEngine extends EventEmitter {
       reject(new Error("AcpEngine destroyed"));
       this.activePromptRejects.delete(sessionId);
     }
+    this.permissionGatedToolRawInputs.clear();
 
     // Kill ACP process tree (prevents zombie child processes)
     if (this.acpProcess) {
@@ -2037,19 +2046,37 @@ User question: ${request.prompt}`;
       `${this.logTag} 📩 ACP sessionUpdate: type=${update.sessionUpdate}, sessionId=${acpSessionId}`,
     );
 
+    const { update: normalizedUpdate, delay } =
+      normalizePermissionGatedToolUpdate(
+        update,
+        this.permissionGatedToolRawInputs,
+      );
+    if (delay) {
+      log.debug(
+        `${this.logTag} Delay permission-gated tool update until completed result`,
+        {
+          sessionId: acpSessionId,
+          sessionUpdate: normalizedUpdate.sessionUpdate,
+          toolCallId: (normalizedUpdate as any).toolCallId,
+          status: (normalizedUpdate as any).status,
+        },
+      );
+      return;
+    }
+
     // sessionId and acpSessionId are the same UUID
     this.emit("computer:progress", {
       sessionId: acpSessionId,
       acpSessionId: acpSessionId,
       messageType: "agentSessionUpdate",
-      subType: update.sessionUpdate,
-      data: update,
+      subType: normalizedUpdate.sessionUpdate,
+      data: normalizedUpdate,
       timestamp: new Date().toISOString(),
     } satisfies UnifiedSessionMessage);
 
-    switch (update.sessionUpdate) {
+    switch (normalizedUpdate.sessionUpdate) {
       case "agent_message_chunk": {
-        const u = update as AcpAgentMessageChunk;
+        const u = normalizedUpdate as AcpAgentMessageChunk;
         this.emit("message.part.updated", {
           sessionId: acpSessionId,
           type: "text",
@@ -2059,7 +2086,7 @@ User question: ${request.prompt}`;
       }
 
       case "agent_thought_chunk": {
-        const u = update as AcpAgentThoughtChunk;
+        const u = normalizedUpdate as AcpAgentThoughtChunk;
         this.emit("message.part.updated", {
           sessionId: acpSessionId,
           type: "reasoning",
@@ -2069,7 +2096,7 @@ User question: ${request.prompt}`;
       }
 
       case "tool_call": {
-        const u = update as AcpToolCall;
+        const u = normalizedUpdate as AcpToolCall;
         this.emit("message.part.updated", {
           sessionId: acpSessionId,
           type: "tool",
@@ -2084,13 +2111,15 @@ User question: ${request.prompt}`;
       }
 
       case "tool_call_update": {
-        const u = update as AcpToolCallUpdate;
+        const u = normalizedUpdate as AcpToolCallUpdate;
 
         this.emit("message.part.updated", {
           sessionId: acpSessionId,
           type: "tool",
           toolCallId: u.toolCallId,
+          name: u.title,
           status: u.status,
+          input: u.rawInput,
           output: u.rawOutput,
           content: u.content,
         });
@@ -2098,7 +2127,7 @@ User question: ${request.prompt}`;
       }
 
       case "session_info_update": {
-        const u = update as AcpSessionInfoUpdate;
+        const u = normalizedUpdate as AcpSessionInfoUpdate;
         if (u.title) {
           session.title = u.title;
         }
@@ -2116,8 +2145,8 @@ User question: ${request.prompt}`;
 
       default: {
         log.info(
-          `${this.logTag} ❓ Unhandled ACP update: ${update.sessionUpdate}`,
-          safeStringify(update),
+          `${this.logTag} ❓ Unhandled ACP update: ${normalizedUpdate.sessionUpdate}`,
+          safeStringify(normalizedUpdate),
         );
       }
     }

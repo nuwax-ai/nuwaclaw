@@ -328,6 +328,64 @@ describe("AcpEngine.handleAcpSessionUpdate", () => {
     expect(onMessage).not.toHaveBeenCalled();
     expect(onProgress).not.toHaveBeenCalled();
   });
+
+  it("审批门控的交互工具在 completed 更新中带回 rawInput", () => {
+    const { engine, sessionId } = setupEngine("claude-code");
+    const onMessage = vi.fn();
+    const onProgress = vi.fn();
+    engine.on("message.part.updated", onMessage);
+    engine.on("computer:progress", onProgress);
+
+    const rawInput = {
+      schemaVersion: "nuwax.mcp_ask.v1",
+      requestId: "tech_report_001",
+      revision: 1,
+      title: "技术调研报告配置",
+      ui: { version: "nuwax.interaction.v1", presentation: "inline" },
+    };
+    const rawOutput = JSON.stringify({
+      status: "pending",
+      requestId: "tech_report_001",
+      revision: 1,
+    });
+
+    (engine as any).handleAcpSessionUpdate(sessionId, {
+      _meta: { claudeCode: { toolName: "custom_interactive_tool" } },
+      sessionUpdate: "tool_call_update",
+      toolCallId: "tool-call-interactive",
+      rawInput,
+    });
+    (engine as any).handleAcpSessionUpdate(sessionId, {
+      _meta: { claudeCode: { toolName: "custom_interactive_tool" } },
+      sessionUpdate: "tool_call_update",
+      toolCallId: "tool-call-interactive",
+      status: "completed",
+      rawOutput,
+    });
+
+    expect(onProgress).toHaveBeenCalledTimes(1);
+    expect(onProgress.mock.calls[0][0]).toMatchObject({
+      sessionId,
+      subType: "tool_call_update",
+      data: {
+        toolCallId: "tool-call-interactive",
+        title: "custom_interactive_tool",
+        status: "completed",
+        rawInput,
+        rawOutput,
+      },
+    });
+    expect(onMessage).toHaveBeenCalledTimes(1);
+    expect(onMessage.mock.calls[0][0]).toMatchObject({
+      sessionId,
+      type: "tool",
+      toolCallId: "tool-call-interactive",
+      name: "custom_interactive_tool",
+      status: "completed",
+      input: rawInput,
+      output: rawOutput,
+    });
+  });
 });
 
 describe("AcpEngine.createSession", () => {
