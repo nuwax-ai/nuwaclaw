@@ -5,7 +5,7 @@ import {
 } from "./permissionGatedToolUpdate";
 
 const rawInput = {
-  schemaVersion: "nuwax.mcp_ask.v1",
+  schemaVersion: "custom.interactive.v1",
   requestId: "interactive-after-permission",
   revision: 1,
   title: "Need input",

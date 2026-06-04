@@ -110,5 +110,14 @@ function isInteractiveToolInput(rawInput: unknown): boolean {
     return false;
   }
   const input = rawInput as Record<string, unknown>;
+  // nuwax_ask_question MCP 工具的 rawInput 包含 ui 字段（交互式表单），
+  // 但它不是权限门控工具——它需要被实时转发给前端渲染表单。
+  // 通过 schemaVersion 识别并排除（rawInput 中没有 toolName 字段）。
+  if (
+    typeof input.schemaVersion === "string" &&
+    input.schemaVersion.startsWith("nuwax.mcp_ask")
+  ) {
+    return false;
+  }
   return !!input.ui && typeof input.ui === "object";
 }
