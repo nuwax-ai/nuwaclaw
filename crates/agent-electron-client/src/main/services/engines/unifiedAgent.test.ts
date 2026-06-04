@@ -98,7 +98,10 @@ vi.mock("./acp/acpEngine", () => {
 
 // ────────────────────────────────────────────────────────────────────────────
 
-import { UnifiedAgentService } from "./unifiedAgent";
+import {
+  UnifiedAgentService,
+  resolveRequiredAgentEngine,
+} from "./unifiedAgent";
 import {
   filterBridgeEntries,
   rawMcpServersEqual,
@@ -422,6 +425,36 @@ describe("rawMcpServersEqual — 清空 MCP 场景", () => {
   it("请求为空、存储也为空 → 相等（无变化）", () => {
     // rawMcpServersEqual({}, {}) → true → mcpChanged = false
     expect(eq({}, {})).toBe(true);
+  });
+});
+
+describe("resolveRequiredAgentEngine", () => {
+  it("优先使用 ACP 下发的 agent_server.command", () => {
+    expect(
+      resolveRequiredAgentEngine({
+        agentCommand: "nuwaxcode",
+        apiProtocol: "anthropic",
+        fallbackEngine: "claude-code",
+      }),
+    ).toBe("nuwaxcode");
+  });
+
+  it("ACP 未指定 engine 时，anthropic 协议自动使用 claude-code", () => {
+    expect(
+      resolveRequiredAgentEngine({
+        apiProtocol: "anthropic",
+        fallbackEngine: "nuwaxcode",
+      }),
+    ).toBe("claude-code");
+  });
+
+  it("ACP 未指定且非 anthropic 协议时，回退到本地 Dev engine", () => {
+    expect(
+      resolveRequiredAgentEngine({
+        apiProtocol: "openai",
+        fallbackEngine: "nuwaxcode",
+      }),
+    ).toBe("nuwaxcode");
   });
 });
 

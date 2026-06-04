@@ -93,6 +93,22 @@ function shouldNormalizeCodexModelToOpenAICompat(args: {
 import type { AgentConfig, AgentEngineType } from "./types";
 export type { AgentConfig, AgentEngineType };
 
+export function resolveRequiredAgentEngine(args: {
+  agentCommand?: string | null;
+  apiProtocol?: string | null;
+  fallbackEngine?: AgentEngineType | null;
+}): AgentEngineType | null {
+  const acpEngine = args.agentCommand
+    ? mapAgentCommand(args.agentCommand)
+    : null;
+  if (acpEngine) return acpEngine;
+
+  const apiProtocol = (args.apiProtocol || "").trim().toLowerCase();
+  if (apiProtocol === "anthropic") return "claude-code";
+
+  return args.fallbackEngine ?? null;
+}
+
 export type AcpSessionStatus = "idle" | "pending" | "active" | "terminating";
 
 // ==================== Message Types (replacing SDK types) ====================
@@ -890,26 +906,13 @@ export class UnifiedAgentService extends EventEmitter {
       );
     }
 
-    // Dev mode: when agent_config.type differs from request's agent_server.command,
-    // override the remote command to respect local dev settings
-    if (
-      process.env.NODE_ENV === "development" &&
-      this.engineType &&
-      request.agent_config?.agent_server?.command &&
-      mapAgentCommand(request.agent_config.agent_server.command) !==
-        this.engineType
-    ) {
-      log.info(
-        `[UnifiedAgent] Dev mode: overriding remote engine "${request.agent_config.agent_server.command}" → "${this.engineType}"`,
-      );
-      request.agent_config.agent_server.command = this.engineType;
-    }
-
     const agentServer = request.agent_config?.agent_server;
     const mp = request.model_provider;
-    const requiredEngine = agentServer?.command
-      ? mapAgentCommand(agentServer.command)
-      : this.engineType;
+    const requiredEngine = resolveRequiredAgentEngine({
+      agentCommand: agentServer?.command,
+      apiProtocol: mp?.api_protocol,
+      fallbackEngine: this.engineType,
+    });
     const resolvedEnv = agentServer?.env
       ? resolveAgentEnv(agentServer.env, mp)
       : undefined;
