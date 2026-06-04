@@ -38,22 +38,23 @@ describe("computerPermissionProtocol", () => {
 
     expect(payload).toMatchObject({
       request_permission_request: {
-        session_id: "session_789",
-        tool_call: {
-          tool_call_id: "tool_001",
+        sessionId: "session_789",
+        toolCall: {
+          toolCallId: "tool_001",
           kind: "bash",
           status: "pending",
           title: "bash",
-          raw_input: { command: "cargo build" },
+          rawInput: { command: "cargo build" },
+          locations: [],
         },
         options: [
           {
-            option_id: "always_allow:terminal",
+            optionId: "always_allow:terminal",
             name: "始终允许",
             kind: "allow_always",
           },
           {
-            option_id: "allow",
+            optionId: "allow",
             name: "允许本次",
             kind: "allow_once",
           },
