@@ -337,7 +337,7 @@ describe("AcpEngine.handleAcpSessionUpdate", () => {
     engine.on("computer:progress", onProgress);
 
     const rawInput = {
-      schemaVersion: "nuwax.mcp_ask.v1",
+      schemaVersion: "custom.interactive.v1",
       requestId: "tech_report_001",
       revision: 1,
       title: "技术调研报告配置",
@@ -608,22 +608,22 @@ describe("AcpEngine.handlePermissionRequest(strict)", () => {
       subType: "request_permission",
       data: {
         request_permission_request: {
-          session_id: sessionId,
-          tool_call: {
-            tool_call_id: "tool-call-ask",
+          sessionId: sessionId,
+          toolCall: {
+            toolCallId: "tool-call-ask",
             kind: "execute",
             status: "pending",
             title: "Run command",
-            raw_input: { command: "cargo test" },
+            rawInput: { command: "cargo test" },
           },
           options: [
             {
-              option_id: "reject-once",
+              optionId: "reject-once",
               kind: "reject_once",
               name: "拒绝本次",
             },
             {
-              option_id: "allow-once",
+              optionId: "allow-once",
               kind: "allow_once",
               name: "允许本次",
             },

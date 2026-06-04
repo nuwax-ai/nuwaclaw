@@ -129,27 +129,25 @@ export interface NotifyResolvedRequest {
 // === Computer Permission Request Contract ===
 
 export interface ComputerPermissionToolCall {
-  tool_call_id: string;
+  toolCallId: string;
   kind: string;
   status: "pending" | "in_progress" | "completed" | "failed";
   title: string;
   content: unknown[];
-  raw_input: unknown;
-  _meta?: Record<string, unknown>;
+  rawInput: unknown;
+  locations?: Array<{ path: string; line?: number | null }>;
 }
 
 export interface ComputerPermissionOption {
-  option_id: string;
+  optionId: string;
   name: string;
   kind: AcpPermissionOptionKind;
-  _meta?: Record<string, unknown>;
 }
 
 export interface ComputerRequestPermissionRequest {
-  session_id: string;
-  tool_call: ComputerPermissionToolCall;
+  sessionId: string;
+  toolCall: ComputerPermissionToolCall;
   options: ComputerPermissionOption[];
-  _meta?: Record<string, unknown>;
 }
 
 export interface ComputerPermissionSaveRule {

@@ -128,23 +128,21 @@ export function toComputerPermissionProgressData(args: {
 
   return {
     request_permission_request: {
-      session_id: acpRequest.sessionId,
-      tool_call: {
-        tool_call_id: toolCallId,
+      sessionId: acpRequest.sessionId,
+      toolCall: {
+        toolCallId: toolCallId,
         kind: toolCall.kind ?? "tool",
         status: toolCall.status ?? "pending",
         title: toolCall.title ?? toolCall.kind ?? "tool",
         content: Array.isArray(toolCall.content) ? toolCall.content : [],
-        raw_input: toolCall.rawInput ?? {},
-        _meta: {},
+        rawInput: toolCall.rawInput ?? {},
+        locations: toolCall.locations ?? [],
       },
       options: acpRequest.options.map((option) => ({
-        option_id: option.optionId,
+        optionId: option.optionId,
         name: option.name,
         kind: option.kind,
-        _meta: {},
       })),
-      _meta: {},
     },
     tool_call_id: toolCallId,
     ...(saveRule ? { save_rule: saveRule } : {}),
