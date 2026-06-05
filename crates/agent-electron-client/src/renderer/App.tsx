@@ -32,11 +32,19 @@ import {
   RobotOutlined,
 } from "@ant-design/icons";
 import {
-  AgentWorkbench,
-  AgentWorkbenchProvider,
   type AgentWorkbenchConfig,
   type WorkbenchHostBridge,
 } from "@nuwax-ai/agent-workbench";
+
+// Lazy-load the entire workbench UI tree to keep it out of the initial bundle.
+// The workbench pulls in react-markdown, rehype, remark, prism, mermaid, etc.
+// — none of which are needed until the user enters Agent Mode.
+const LazyAgentWorkbenchProvider = React.lazy(
+  () => import("@nuwax-ai/agent-workbench").then((m) => ({ default: m.AgentWorkbenchProvider })),
+);
+const LazyAgentWorkbench = React.lazy(
+  () => import("@nuwax-ai/agent-workbench").then((m) => ({ default: m.AgentWorkbench })),
+);
 import {
   setupService,
   authService,
@@ -1504,9 +1512,11 @@ function App() {
               message={t(I18N_KEYS.AgentMode.MOCK_BANNER)}
             />
           )}
-          <AgentWorkbenchProvider config={workbenchConfigState.config}>
-            <AgentWorkbench />
-          </AgentWorkbenchProvider>
+          <React.Suspense fallback={<Spin size="large" style={{ display: 'block', margin: '120px auto' }} />}>
+            <LazyAgentWorkbenchProvider config={workbenchConfigState.config}>
+              <LazyAgentWorkbench />
+            </LazyAgentWorkbenchProvider>
+          </React.Suspense>
         </div>
       );
     }

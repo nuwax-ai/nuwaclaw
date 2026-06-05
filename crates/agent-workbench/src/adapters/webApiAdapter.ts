@@ -102,7 +102,7 @@ function readString(value: unknown, keys: string[]): string | undefined {
   for (const key of keys) {
     const raw = record[key];
     if (typeof raw === 'string' && raw.trim()) return raw;
-    if (typeof raw === 'number') return String(raw);
+    if (typeof raw === 'number') return fromApiId(raw);
   }
   return undefined;
 }
@@ -209,9 +209,11 @@ function normalizeGuidQuestionDtos(raw: unknown): WorkbenchAgentDetail['guidQues
     if (!question) continue;
     const rawId = entry.id;
     const id =
-      typeof rawId === 'string' || typeof rawId === 'number' ? rawId : undefined;
+      typeof rawId === 'string' || typeof rawId === 'number'
+        ? fromApiId(rawId)
+        : undefined;
     result.push({
-      ...(id !== undefined ? { id } : {}),
+      ...(id ? { id } : {}),
       question,
       ...(typeof entry.content === 'string' ? { content: entry.content } : {}),
       ...(typeof entry.title === 'string' ? { title: entry.title } : {}),
@@ -529,8 +531,10 @@ export function createWebApiAdapter(options: WebApiAdapterOptions): WorkbenchApi
         agentId: toApiId(agentId),
         limit: listOptions?.limit ?? OPENAPP_SIDEBAR_CONVERSATION_LIMIT,
       };
-      if (listOptions?.lastId !== undefined && listOptions.lastId !== null) {
-        listBody.lastId = toApiId(String(listOptions.lastId));
+      // Truthy check intentionally skips '' (fromApiId null-sentinel).
+      // No current caller passes lastId; empty string is meaningless as cursor.
+      if (listOptions?.lastId) {
+        listBody.lastId = toApiId(listOptions.lastId);
       }
       if (listOptions?.topic) {
         listBody.topic = listOptions.topic;

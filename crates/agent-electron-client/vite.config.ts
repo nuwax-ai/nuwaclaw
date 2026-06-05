@@ -77,9 +77,31 @@ export default defineConfig(({ mode }) => ({
     rollupOptions: {
       output: {
         // 优化代码分割，将第三方库分离
-        manualChunks: {
-          'vendor-react': ['react', 'react-dom'],
-          'vendor-antd': ['antd', '@ant-design/icons'],
+        manualChunks(id) {
+          if (id.includes('node_modules')) {
+            // React core
+            if (id.includes('/react-dom/') || id.includes('/react/')) {
+              return 'vendor-react';
+            }
+            // Ant Design
+            if (id.includes('/antd/') || id.includes('/@ant-design/')) {
+              return 'vendor-antd';
+            }
+            // Markdown rendering (lives in agent-workbench/node_modules)
+            if (
+              id.includes('/react-markdown/') ||
+              id.includes('/remark-gfm/') ||
+              id.includes('/remark-math/') ||
+              id.includes('/rehype-raw/') ||
+              id.includes('/rehype-katex/')
+            ) {
+              return 'vendor-markdown';
+            }
+            // Prism syntax highlighting (lives in agent-workbench/node_modules)
+            if (id.includes('/prism-react-renderer/')) {
+              return 'vendor-prism';
+            }
+          }
         },
       },
     },

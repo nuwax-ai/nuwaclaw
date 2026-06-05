@@ -56,7 +56,7 @@ export interface WorkbenchCustomPageNavItem {
 }
 
 export interface WorkbenchGuidQuestion {
-  id?: string | number;
+  id?: string;
   question?: string;
   content?: string;
   title?: string;
@@ -150,7 +150,7 @@ export interface WorkbenchUploadedAttachment {
 
 export interface WorkbenchListConversationsOptions {
   /** 上一页最后一条会话 id，用于翻页 */
-  lastId?: number | string | null;
+  lastId?: string | null;
   /** 返回条数；OpenApp 侧栏默认 8 */
   limit?: number;
   /** 主题模糊搜索 */
