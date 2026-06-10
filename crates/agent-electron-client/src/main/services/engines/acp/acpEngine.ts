@@ -102,15 +102,7 @@ import type {
   NotifyResolvedResponse,
   ComputerNotifyResolvedRequest,
 } from "@shared/types/intervention";
-
-/** Safe JSON.stringify that handles circular references */
-function safeStringify(obj: unknown): string {
-  try {
-    return JSON.stringify(obj);
-  } catch {
-    return String(obj);
-  }
-}
+import { safeStringify } from "../utils/safeStringify";
 
 const MCP_RETRY_DELAY_MS = 1200;
 const MCP_RECONNECT_WINDOW_MS = 4000;

@@ -9,9 +9,9 @@
 
 import log from "electron-log";
 import { memoryService } from "../../memory";
-import type { ModelConfig } from "../../memory/types";
 import type { ModelProviderConfig } from "@shared/types/computerTypes";
 import type { AgentConfig, AgentEngineType } from "../types";
+import { buildModelConfig } from "../utils/buildModelConfig";
 
 export interface RecordUserMessageArgs {
   sessionId: string;
@@ -53,11 +53,9 @@ export function recordUserMessageToMemory(args: RecordUserMessageArgs): void {
   }
 
   try {
-    const modelConfig: ModelConfig = {
-      provider: engineName.includes("claude") ? "anthropic" : "openai",
+    const modelConfig = {
+      ...buildModelConfig(engineName, config),
       model: modelProvider?.default_model || config.model || "",
-      apiKey: config.apiKey || "",
-      baseUrl: config.baseUrl,
       apiProtocol: modelProvider?.api_protocol || config.apiProtocol,
     };
     memoryService.handleMessage(

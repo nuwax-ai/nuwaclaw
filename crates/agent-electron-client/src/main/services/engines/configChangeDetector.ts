@@ -6,13 +6,11 @@
  */
 
 import * as fs from "fs";
-import * as os from "os";
-import * as path from "path";
 import log from "electron-log";
 import type { ModelProviderConfig } from "@shared/types/computerTypes";
 import type { McpServerEntry } from "../packages/mcp";
 import { rawMcpServersEqual } from "../packages/mcpHelpers";
-import { APP_DATA_DIR_NAME } from "../constants";
+import { normalizeLogDirInEnv } from "./utils/normalizeLogDir";
 import type { AgentConfig, AgentEngineType } from "./types";
 
 type EnvRecord = Record<string, string | undefined>;
@@ -49,18 +47,9 @@ export function detectEngineConfigChange(
   const needsSwitch =
     !!requiredEngine && requiredEngine !== currentConfig?.engine;
 
-  // 先对 resolvedEnv 进行本地化处理（与 ensureEngineForRequest 中的逻辑一致）
+  // 先对 resolvedEnv 进行本地化处理（与 requestConfigResolver 中的逻辑一致）
   // 避免因为路径本地化导致的误判
-  let normalizedResolvedEnv = resolvedEnv;
-  if (
-    resolvedEnv?.OPENCODE_LOG_DIR &&
-    !fs.existsSync(resolvedEnv.OPENCODE_LOG_DIR)
-  ) {
-    normalizedResolvedEnv = {
-      ...resolvedEnv,
-      OPENCODE_LOG_DIR: path.join(os.homedir(), APP_DATA_DIR_NAME, "logs"),
-    };
-  }
+  const normalizedResolvedEnv = normalizeLogDirInEnv(resolvedEnv);
 
   // JSON.stringify 会静默丢弃 undefined 值的 key，导致 {A: undefined, B: 'x'} 与 {B: 'x'} 等价。
   // 显式过滤 undefined 值后再比较，确保语义一致。

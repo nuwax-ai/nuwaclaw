@@ -34,7 +34,9 @@ describe("toErrorMessage", () => {
     expect(toErrorMessage(new Error("boom"))).toBe("boom");
   });
   it("对象走 JSON 序列化", () => {
-    expect(toErrorMessage({ code: 1 })).toBe('{"code":1}');
+    expect(toErrorMessage({ code: 1 })).toBe(
+      JSON.stringify({ code: 1 }, null, 2),
+    );
   });
   it("原始值转字符串", () => {
     expect(toErrorMessage("plain")).toBe("plain");
@@ -43,16 +45,19 @@ describe("toErrorMessage", () => {
 });
 
 describe("isPromptCancellationError", () => {
-  it.each([
-    "session is terminating",
-    "Request aborted",
-    "user cancelled the request",
-    "Session cancelled",
-  ])("识别取消类文案: %s", (msg) => {
-    expect(isPromptCancellationError(msg)).toBe(true);
-  });
+  it.each(["session is terminating", "Session cancelled", "Abort timeout"])(
+    "识别取消类文案: %s",
+    (msg) => {
+      expect(isPromptCancellationError(msg)).toBe(true);
+    },
+  );
   it("普通错误不误判", () => {
     expect(isPromptCancellationError("transport error")).toBe(false);
+    expect(isPromptCancellationError("Request aborted")).toBe(false);
+    expect(isPromptCancellationError("user cancelled the request")).toBe(false);
+    expect(
+      isPromptCancellationError("Aborted fetch due to network timeout"),
+    ).toBe(false);
   });
 });
 
@@ -63,7 +68,9 @@ describe("isPromptCancellation / createSessionCancelledError", () => {
     expect(isPromptCancellation(err)).toBe(true);
   });
   it("无 code 时回退 message 启发式", () => {
-    expect(isPromptCancellation(new Error("operation abort"))).toBe(true);
+    expect(isPromptCancellation(new Error("session is terminating"))).toBe(
+      true,
+    );
     expect(isPromptCancellation(new Error("ENOENT"))).toBe(false);
   });
 });

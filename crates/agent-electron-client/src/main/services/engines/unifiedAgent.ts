@@ -9,7 +9,7 @@
 import { EventEmitter } from "events";
 import log from "electron-log";
 import { memoryService } from "../memory";
-import type { ModelConfig } from "../memory/types";
+import { buildModelConfig } from "./utils/buildModelConfig";
 import { perfEmitter } from "./perf/perfEmitter";
 import { firstTokenTrace } from "./perf/firstTokenTrace";
 
@@ -182,12 +182,10 @@ export class UnifiedAgentService extends EventEmitter {
       });
 
       // Provide model config to scheduler for cron-triggered LLM consolidation
-      const modelConfig: ModelConfig = {
-        provider: config.engine === "claude-code" ? "anthropic" : "openai",
-        model: config.model || "",
-        apiKey: config.apiKey || "",
-        baseUrl: config.baseUrl,
-      };
+      const modelConfig = buildModelConfig(
+        config.engine || "claude-code",
+        config,
+      );
       memoryService.setSchedulerModelConfig(modelConfig);
 
       log.info(
@@ -231,12 +229,10 @@ export class UnifiedAgentService extends EventEmitter {
 
     // Trigger session-end memory extraction for each project
     if (memoryService.isInitialized() && this.baseConfig) {
-      const modelConfig: ModelConfig = {
-        provider: this.engineType === "claude-code" ? "anthropic" : "openai",
-        model: this.baseConfig.model || "",
-        apiKey: this.baseConfig.apiKey || "",
-        baseUrl: this.baseConfig.baseUrl,
-      };
+      const modelConfig = buildModelConfig(
+        this.engineType || "claude-code",
+        this.baseConfig,
+      );
 
       for (const projectId of this.engines.keys()) {
         try {
@@ -1185,12 +1181,10 @@ export class UnifiedAgentService extends EventEmitter {
     const content = textParts.map((p) => p.text).join("\n");
 
     // Build model config for memory extraction
-    const modelConfig: ModelConfig = {
-      provider: this.engineType === "claude-code" ? "anthropic" : "openai",
-      model: this.baseConfig.model || "",
-      apiKey: this.baseConfig.apiKey || "",
-      baseUrl: this.baseConfig.baseUrl,
-    };
+    const modelConfig = buildModelConfig(
+      this.engineType || "claude-code",
+      this.baseConfig!,
+    );
 
     // Delegate to MemoryService handleMessage (writes transcript + triggers segment extraction)
     memoryService.handleMessage(

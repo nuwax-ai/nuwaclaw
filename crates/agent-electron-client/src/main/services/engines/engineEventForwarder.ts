@@ -8,8 +8,8 @@
 
 import log from "electron-log";
 import { memoryService } from "../memory";
-import type { ModelConfig } from "../memory/types";
 import type { AcpEngine } from "./acp/acpEngine";
+import { buildModelConfig } from "./utils/buildModelConfig";
 
 /** 转发宿主：UnifiedAgentService 暴露给转发器的最小接口 */
 export interface EngineEventForwardHost {
@@ -117,13 +117,7 @@ export function attachEngineEventForwarders(
       if (!buffered || !buffered.trim() || !memoryService.isInitialized())
         return;
 
-      const modelConfig: ModelConfig = {
-        provider: engine.engineName.includes("claude") ? "anthropic" : "openai",
-        model: engineConfig.model || "",
-        apiKey: engineConfig.apiKey || "",
-        baseUrl: engineConfig.baseUrl,
-        apiProtocol: engineConfig.apiProtocol,
-      };
+      const modelConfig = buildModelConfig(engine.engineName, engineConfig);
 
       memoryService.handleMessage(
         sessionId,
@@ -162,13 +156,7 @@ export function attachEngineEventForwarders(
         return;
       }
 
-      const modelConfig: ModelConfig = {
-        provider: engine.engineName.includes("claude") ? "anthropic" : "openai",
-        model: engineConfig.model || "",
-        apiKey: engineConfig.apiKey,
-        baseUrl: engineConfig.baseUrl,
-        apiProtocol: engineConfig.apiProtocol,
-      };
+      const modelConfig = buildModelConfig(engine.engineName, engineConfig);
 
       // Trigger incremental extraction (async, non-blocking)
       // This will extract any new messages since the last extraction

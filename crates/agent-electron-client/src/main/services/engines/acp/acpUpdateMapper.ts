@@ -15,15 +15,7 @@ import type {
   AcpToolCallUpdate,
   AcpSessionInfoUpdate,
 } from "./acpClient";
-
-/** Safe JSON.stringify that handles circular references */
-function safeStringify(obj: unknown): string {
-  try {
-    return JSON.stringify(obj);
-  } catch {
-    return String(obj);
-  }
-}
+import { safeStringify } from "../utils/safeStringify";
 
 export interface MappedAcpUpdate {
   events: Array<{ event: string; payload: Record<string, unknown> }>;

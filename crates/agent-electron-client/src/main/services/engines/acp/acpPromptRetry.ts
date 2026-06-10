@@ -12,15 +12,7 @@ import log from "electron-log";
 import type { ChildProcess } from "child_process";
 import { ACP_SESSION_CANCELLED_ERROR_CODE } from "@shared/constants";
 import { isMcpReconnectWindowActive } from "./acpClient";
-
-/** Safe JSON.stringify that handles circular references */
-function safeStringify(obj: unknown): string {
-  try {
-    return JSON.stringify(obj);
-  } catch {
-    return String(obj);
-  }
-}
+import { safeStringify } from "../utils/safeStringify";
 
 export function toErrorMessage(error: unknown): string {
   return error instanceof Error
@@ -38,10 +30,9 @@ export function toErrorMessage(error: unknown): string {
 export function isPromptCancellationError(errorMsg: string): boolean {
   const lower = errorMsg.toLowerCase();
   return (
-    lower.includes("session is terminating") ||
-    lower.includes("abort") ||
-    lower.includes("cancel") ||
-    errorMsg.includes("Session cancelled")
+    lower === "session is terminating" ||
+    lower === "session cancelled" ||
+    lower === "abort timeout"
   );
 }
 

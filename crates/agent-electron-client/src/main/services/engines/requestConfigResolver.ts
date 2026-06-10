@@ -10,15 +10,18 @@
  */
 
 import * as fs from "fs";
-import * as os from "os";
 import * as path from "path";
 import log from "electron-log";
+
+/** 已确认存在的目录缓存，避免热路径重复 mkdirSync syscall */
+const ensuredDirs = new Set<string>();
 import type {
   ComputerChatRequest,
   ModelProviderConfig,
 } from "@shared/types/computerTypes";
 import type { McpServerEntry } from "../packages/mcp";
 import { APP_DATA_DIR_NAME } from "../constants";
+import { normalizeLogDirInEnv } from "./utils/normalizeLogDir";
 import { resolveComputerProjectWorkspaceDir } from "../workspacePaths";
 import { perfEmitter } from "./perf/perfEmitter";
 import { mapAgentCommand, resolveAgentEnv } from "./agentHelpers";
@@ -286,16 +289,16 @@ export function buildEffectiveConfig(args: {
 
   const mergedEnv = { ...(base.env || {}), ...(resolvedEnv || {}) };
 
-  // OPENCODE_LOG_DIR 容器路径本地化
-  if (
-    mergedEnv.OPENCODE_LOG_DIR &&
-    !fs.existsSync(mergedEnv.OPENCODE_LOG_DIR)
-  ) {
-    const localLogDir = path.join(os.homedir(), APP_DATA_DIR_NAME, "logs");
+  // OPENCODE_LOG_DIR 容器路径本地化（共享 helper，与 configChangeDetector 一致）
+  const origLogDir = mergedEnv.OPENCODE_LOG_DIR;
+  const localizedEnv = normalizeLogDirInEnv(mergedEnv);
+  if (localizedEnv && localizedEnv.OPENCODE_LOG_DIR !== origLogDir) {
     log.info(
-      `[UnifiedAgent] 📂 OPENCODE_LOG_DIR localized: ${mergedEnv.OPENCODE_LOG_DIR} → ${localLogDir}`,
+      `[UnifiedAgent] 📂 OPENCODE_LOG_DIR localized: ${origLogDir} → ${localizedEnv.OPENCODE_LOG_DIR}`,
     );
-    mergedEnv.OPENCODE_LOG_DIR = localLogDir;
+  }
+  if (localizedEnv) {
+    Object.assign(mergedEnv, localizedEnv);
   }
 
   const effectiveConfig: AgentConfig = {
@@ -317,7 +320,10 @@ export function buildEffectiveConfig(args: {
       request.user_id,
       request.project_id,
     );
-    fs.mkdirSync(effectiveConfig.workspaceDir, { recursive: true });
+    if (!ensuredDirs.has(effectiveConfig.workspaceDir)) {
+      fs.mkdirSync(effectiveConfig.workspaceDir, { recursive: true });
+      ensuredDirs.add(effectiveConfig.workspaceDir);
+    }
     log.info(
       `[UnifiedAgent] 🎯 codex-cli workspaceDir overridden to: ${effectiveConfig.workspaceDir}`,
     );

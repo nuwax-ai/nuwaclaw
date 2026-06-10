@@ -4,6 +4,7 @@ import * as os from "os";
 import * as path from "path";
 import log from "electron-log";
 import { APP_DATA_DIR_NAME, LOGS_DIR_NAME } from "../../constants";
+import { safeStringify } from "../utils/safeStringify";
 
 type TraceLevel = "basic" | "deep";
 
@@ -79,14 +80,6 @@ function safeGap(
 ): number | undefined {
   if (a === undefined || b === undefined) return undefined;
   return Math.max(0, b - a);
-}
-
-function safeStringify(v: unknown): string {
-  try {
-    return JSON.stringify(v);
-  } catch {
-    return String(v);
-  }
 }
 
 export class FirstTokenTrace {

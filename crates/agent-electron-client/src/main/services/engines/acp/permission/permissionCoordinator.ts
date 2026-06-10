@@ -37,9 +37,14 @@ export type PermissionEvaluateContext = StrictPermissionContext;
 
 export class AcpPermissionCoordinator {
   /**
-   * 遗留审批路径：仅 respond() 读取、destroy() 清理，当前无写入方
-   * （真实审批走 approvalInterventionService）。respondPermission 是
-   * preload → `agent:respondPermission` IPC 暴露的 API，不可删除。
+   * @deprecated 遗留审批路径，当前为 dead code。
+   *
+   * 真实审批走 approvalInterventionService（intervention:respond IPC），
+   * 此 Map 从未被写入（无 .set() 调用）。
+   *
+   * respondPermission 是 preload → `agent:respondPermission` IPC 暴露的 API，
+   * renderer 侧无调用方。保留此 Map 及 respond()/cancelAllPending() 仅因
+   * preload API 不可删除；后续可安全清理整个遗留路径。
    */
   private pendingPermissions = new Map<
     string,
