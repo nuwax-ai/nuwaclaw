@@ -354,6 +354,13 @@ function App() {
     new Set(),
   );
   const servicesPollTimer = useRef<ReturnType<typeof setInterval> | null>(null);
+  /**
+   * 上一次同步给托盘的整体服务状态（true=有服务在跑 / false=全部停止）。
+   * 避免每 5 秒轮询都向主进程发一次 tray:updateServicesStatus IPC。
+   * UI 入口（services:restartAll/stopAll 等）走主进程同步，本 ref 仅兜底
+   * 渲染端通过逐个 IPC 启动服务（startServicesSequentially）的场景。
+   */
+  const lastSyncedTrayRunning = useRef<boolean | null>(null);
   /** 递增后通知 ClientPage 刷新账号状态（用户名等），与 reg 返回保持一致 */
   const [authRefreshTrigger, setAuthRefreshTrigger] = useState(0);
   const [updateState, setUpdateState] = useState<UpdateState>({
@@ -627,6 +634,18 @@ function App() {
       });
       setServices(items);
       setPollFailCount(0);
+
+      // 兜底同步托盘：任一服务在跑 → running；全部停止 → stopped。
+      // 仅在状态发生变化时发 IPC，避免每 5 秒重复调用。
+      // 这里覆盖了 startServicesSequentially 逐个 IPC 启动服务的场景；
+      // services:restartAll/stopAll 等批量路径由主进程 processHandlers 直接同步。
+      const anyRunning = items.some((s) => s.running);
+      if (lastSyncedTrayRunning.current !== anyRunning) {
+        lastSyncedTrayRunning.current = anyRunning;
+        window.electronAPI?.tray
+          .updateServicesStatus(anyRunning)
+          .catch((e) => console.warn("[App] Failed to sync tray status:", e));
+      }
     } catch (error) {
       console.error("[App] pollServicesStatus failed:", error);
       setPollFailCount((count) => count + 1);
