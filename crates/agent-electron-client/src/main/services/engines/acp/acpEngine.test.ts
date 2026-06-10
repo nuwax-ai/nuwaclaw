@@ -12,7 +12,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import * as path from "path";
 import * as dependencies from "@main/services/system/dependencies";
 import * as sandboxPolicy from "@main/services/sandbox/policy";
-import * as opencodeAcpSandbox from "./opencodeAcpSandbox";
+import * as opencodeAcpSandbox from "./sandbox/opencodeAcpSandbox";
 
 vi.mock("electron", () => ({
   app: {

@@ -75,6 +75,7 @@ vi.mock("./acp/acpClient", () => ({
 
 vi.mock("../sandbox/policyCache", () => ({
   getCachedSandboxPolicy: vi.fn(() => sandboxPolicyState.current),
+  setCachedSandboxPolicy: vi.fn(),
 }));
 
 vi.mock("./acp/acpEngine", () => {
@@ -87,6 +88,7 @@ vi.mock("./acp/acpEngine", () => {
     removeAllListeners: vi.fn(),
     destroy: vi.fn().mockResolvedValue(undefined),
     isReady: true,
+    sandboxMode: "compat",
     getActivePromptCount: vi.fn(() => 0),
     engineName: "nuwaxcode" as const,
     on: vi.fn(),
@@ -663,6 +665,8 @@ describe("UnifiedAgentService — warmupEngine 热启动", () => {
 
     expect(engine).not.toBe(warmupEngine);
     expect(warmupEngine.destroy).toHaveBeenCalled();
+    // create_refill 补仓走 setTimeout(0)，需 flush 宏任务
+    await new Promise((r) => setTimeout(r, 0));
     expect(svc.engines.has("__warmup__")).toBe(true);
     expect(svc.engines.get("proj-runtime-mismatch")).toBe(engine);
   });
@@ -687,6 +691,8 @@ describe("UnifiedAgentService — warmupEngine 热启动", () => {
 
     // 第一次请求：runtime mismatch → 冷启动，缓存 runtime config
     const engine1 = await svc.getOrCreateEngine("proj-cache-1", runtimeConfig);
+    // create_refill 补仓走 setTimeout(0)，需 flush 宏任务
+    await new Promise((r) => setTimeout(r, 0));
     expect(svc.engines.has("__warmup__")).toBe(true);
 
     // refill warmup 应该带缓存的 runtime config，第二个请求可命中
@@ -726,6 +732,8 @@ describe("UnifiedAgentService — warmupEngine 热启动", () => {
 
     // 第一次请求：缓存 configA
     await svc.getOrCreateEngine("proj-change-1", runtimeConfigA);
+    // create_refill 补仓走 setTimeout(0)，需 flush 宏任务
+    await new Promise((r) => setTimeout(r, 0));
     expect(svc.engines.has("__warmup__")).toBe(true);
     const refillA = svc.engines.get("__warmup__");
 
@@ -737,7 +745,8 @@ describe("UnifiedAgentService — warmupEngine 热启动", () => {
     expect(engine2).not.toBe(refillA);
     expect(refillA.destroy).toHaveBeenCalled();
 
-    // refill 应该用 configB 创建
+    // refill 应该用 configB 创建（create_refill 走 setTimeout(0)，需 flush）
+    await new Promise((r) => setTimeout(r, 0));
     expect(svc.engines.has("__warmup__")).toBe(true);
     const refillB = svc.engines.get("__warmup__");
 
@@ -773,6 +782,8 @@ describe("UnifiedAgentService — warmupEngine 热启动", () => {
 
     expect(engine).not.toBe(warmupEngine);
     expect(warmupEngine.destroy).toHaveBeenCalled();
+    // create_refill 补仓走 setTimeout(0)，需 flush 宏任务
+    await new Promise((r) => setTimeout(r, 0));
     expect(svc.engines.has("__warmup__")).toBe(true);
     expect(svc.engines.get("proj-sandbox-policy-change")).toBe(engine);
 
@@ -811,6 +822,8 @@ describe("UnifiedAgentService — warmupEngine 热启动", () => {
 
     expect(engine).not.toBe(warmupEngine);
     expect(warmupEngine.destroy).toHaveBeenCalled();
+    // create_refill 补仓走 setTimeout(0)，需 flush 宏任务
+    await new Promise((r) => setTimeout(r, 0));
     expect(svc.engines.has("__warmup__")).toBe(true);
     expect(svc.engines.get("proj-legacy-warmup")).toBe(engine);
   });
@@ -895,6 +908,7 @@ describe("UnifiedAgentService — warmupEngine 热启动", () => {
       removeAllListeners: vi.fn(),
       destroy: vi.fn().mockResolvedValue(undefined),
       isReady: true,
+      sandboxMode: "compat",
       getActivePromptCount: vi.fn(() => 0),
       engineName: "nuwaxcode" as const,
       on: vi.fn(),
@@ -906,6 +920,7 @@ describe("UnifiedAgentService — warmupEngine 热启动", () => {
       removeAllListeners: vi.fn(),
       destroy: vi.fn().mockResolvedValue(undefined),
       isReady: true,
+      sandboxMode: "compat",
       getActivePromptCount: vi.fn(() => 0),
       engineName: "nuwaxcode" as const,
       on: vi.fn(),
@@ -926,6 +941,8 @@ describe("UnifiedAgentService — warmupEngine 热启动", () => {
     });
     expect(engine).toBe(mockNewEngine);
     expect(mockWarmupEngine.destroy).toHaveBeenCalled();
+    // create_refill 补仓走 setTimeout(0)，需 flush 宏任务
+    await new Promise((r) => setTimeout(r, 0));
     expect(svc.engines.has("__warmup__")).toBe(true);
     expect(svc.engines.get("proj-mcp-mismatch")).toBe(mockNewEngine);
   });
@@ -1164,6 +1181,7 @@ describe("UnifiedAgentService — warmupEngine 热启动", () => {
         removeAllListeners: vi.fn(),
         destroy: vi.fn().mockResolvedValue(undefined),
         isReady: true,
+        sandboxMode: "compat",
         getActivePromptCount: vi.fn(() => 0),
         engineName: "nuwaxcode" as const,
         on: vi.fn(),
@@ -1175,6 +1193,7 @@ describe("UnifiedAgentService — warmupEngine 热启动", () => {
         removeAllListeners: vi.fn(),
         destroy: vi.fn().mockResolvedValue(undefined),
         isReady: true,
+        sandboxMode: "compat",
         getActivePromptCount: vi.fn(() => 0),
         engineName: "nuwaxcode" as const,
         on: vi.fn(),
@@ -1196,6 +1215,8 @@ describe("UnifiedAgentService — warmupEngine 热启动", () => {
 
       expect(engine).toBe(mockNewEngine);
       expect(mockWarmupEngine.destroy).toHaveBeenCalled();
+      // create_refill 补仓走 setTimeout(0)，需 flush 宏任务
+      await new Promise((r) => setTimeout(r, 0));
       expect(svc.engines.has("__warmup__")).toBe(true);
       expect(svc.engines.get("proj-non-persistent")).toBe(mockNewEngine);
     } finally {
@@ -1232,6 +1253,7 @@ describe("UnifiedAgentService — warmupEngine 热启动", () => {
       removeAllListeners: vi.fn(),
       destroy: vi.fn().mockResolvedValue(undefined),
       isReady: true,
+      sandboxMode: "compat",
       getActivePromptCount: vi.fn(() => 0),
       engineName: "nuwaxcode" as const,
       on: vi.fn(),
@@ -1254,6 +1276,8 @@ describe("UnifiedAgentService — warmupEngine 热启动", () => {
     // 请求到达 → tryReuse 发现 warmup 未就绪 → 清理 → 创建新引擎
     const engine = await svc.getOrCreateEngine("proj-late", baseConfig);
     expect(engine).toBe(mockNewEngine);
+    // create_refill 补仓走 setTimeout(0)，需 flush 一次宏任务
+    await new Promise((r) => setTimeout(r, 0));
     // warmup 引擎被清理后会重新补仓
     expect(svc.engines.has("__warmup__")).toBe(true);
     // 新引擎已注册

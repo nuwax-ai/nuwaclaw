@@ -9,7 +9,7 @@
  * ③ agent_mode 默认行为（调用方处理）
  */
 
-import type { AcpPermissionRequest } from "./acpClient";
+import type { AcpPermissionRequest } from "../acpClient";
 import type {
   ToolApprovalRule,
   ToolApprovalAction,

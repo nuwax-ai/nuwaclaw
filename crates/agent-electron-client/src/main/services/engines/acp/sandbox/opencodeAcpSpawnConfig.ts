@@ -2,6 +2,8 @@
  * Build OPENCODE_CONFIG_CONTENT payload for OpenCode-family ACP engines.
  */
 
+import log from "electron-log";
+import { isGuiMcpManagedServerId } from "@shared/guiMcp";
 import type { SandboxProcessConfig } from "@shared/types/sandbox";
 import type { ApplyOpencodeSandboxConfigResult } from "./opencodeAcpSandbox";
 
@@ -143,4 +145,45 @@ export function describeOpencodeSandboxActive(
     builtinEditDenied: sandboxApply.builtinEditDenied,
     engineVersion: sandboxApply.engineVersion,
   };
+}
+
+/**
+ * GUI MCP (gui-agent) and sandbox are mutually exclusive for now.
+ * Remove gui-agent from legacy OPENCODE_CONFIG_CONTENT injection path
+ * when sandbox is enabled, so nuwaxcode won't bootstrap GUI MCP.
+ *
+ * 直接原地改写 spawnEnv.OPENCODE_CONFIG_CONTENT。调用方负责判断
+ * usesOpencodeSpawnConfig / sandbox enabled 等前置条件。
+ */
+export function stripGuiMcpFromOpencodeConfigContent(
+  spawnEnv: Record<string, string>,
+  logTag: string,
+): void {
+  if (!spawnEnv.OPENCODE_CONFIG_CONTENT) return;
+  try {
+    const injectedConfig = JSON.parse(spawnEnv.OPENCODE_CONFIG_CONTENT) as {
+      mcp?: Record<string, unknown>;
+    };
+    if (injectedConfig.mcp) {
+      let removed = 0;
+      for (const key of Object.keys(injectedConfig.mcp)) {
+        if (isGuiMcpManagedServerId(key)) {
+          delete injectedConfig.mcp[key];
+          removed += 1;
+        }
+      }
+      if (removed > 0) {
+        spawnEnv.OPENCODE_CONFIG_CONTENT = JSON.stringify(injectedConfig);
+        log.warn(
+          `${logTag} Removed gui-agent MCP from OPENCODE_CONFIG_CONTENT because sandbox is enabled`,
+          { removed },
+        );
+      }
+    }
+  } catch (e) {
+    log.warn(
+      `${logTag} Failed to enforce gui-agent/sandbox mutual exclusion in OPENCODE_CONFIG_CONTENT`,
+      e,
+    );
+  }
 }

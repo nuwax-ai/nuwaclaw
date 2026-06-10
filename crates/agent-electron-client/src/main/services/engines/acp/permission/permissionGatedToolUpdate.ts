@@ -1,4 +1,4 @@
-import type { AcpSessionUpdate } from "./acpClient";
+import type { AcpSessionUpdate } from "../acpClient";
 
 export interface PermissionGatedToolUpdateNormalization {
   update: AcpSessionUpdate;

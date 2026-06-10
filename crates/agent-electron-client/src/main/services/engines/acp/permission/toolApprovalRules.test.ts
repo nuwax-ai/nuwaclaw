@@ -4,7 +4,7 @@ import {
   extractMatchTarget,
   matchToolApprovalRules,
 } from "./toolApprovalRules";
-import type { AcpPermissionRequest } from "./acpClient";
+import type { AcpPermissionRequest } from "../acpClient";
 import type { ToolApprovalRule } from "@shared/types/computerTypes";
 
 // --- globToRegex ---
