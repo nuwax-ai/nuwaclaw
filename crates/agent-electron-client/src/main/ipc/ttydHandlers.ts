@@ -25,16 +25,16 @@ import {
 import { getServiceManager } from "./processHandlers";
 
 export function registerTtydHandlers(ctx: HandlerContext): void {
+  // 幂等：已运行直接复用 startTtyd() 的 short-circuit 行为，避免打断已有终端会话。
+  // startTtyd 内部已做端口清理与二进制缺失降级，这里不再 stop+portSweep 重启。
   ipcMain.handle("ttyd:start", async () => {
-    if (ctx.ttyd.running) {
-      await ctx.ttyd.stopAsync(3000);
-    }
-    await killProcessTreesListeningOnTcpPort(getConfiguredPorts().ttyd).catch(
-      () => {},
-    );
     return getServiceManager()?.startTtyd();
   });
 
+  // 停止 ttyd：先 ManagedProcess.kill 杀进程树，再扫一遍端口清理孤儿监听。
+  // 这里用配置的端口而非 status().port（status() 不返回 port 字段）；
+  // 即使用户在 UI 改了端口，clearServicePort 扫新端口找不到也无所谓——
+  // 旧进程已被 kill，旧端口的孤儿监听会在 OS 层面自然释放。
   ipcMain.handle("ttyd:stop", async () => {
     const result = await ctx.ttyd.stopAsync(3000);
     await killProcessTreesListeningOnTcpPort(getConfiguredPorts().ttyd).catch(
@@ -70,14 +70,17 @@ export function registerTtydHandlers(ctx: HandlerContext): void {
   ipcMain.handle("ttyd:isAvailable", () => {
     const binPath = getTtydBinPath();
     if (!fs.existsSync(binPath)) return { available: false };
-    try {
-      const r = spawnSync(binPath, ["--version"], { timeout: 3000 });
-      const raw = (r.stdout?.toString() || r.stderr?.toString() || "").trim();
-      // ttyd --version 输出：ttyd version 1.7.7-40e79c7
-      const m = raw.match(/(\d+\.\d+\.\d+)/);
-      return { available: true, version: m?.[1] };
-    } catch {
-      return { available: true };
+    const r = spawnSync(binPath, ["--version"], { timeout: 3000 });
+    // 非零退出 / spawn 错误（EACCES 等）一律视为不可用，避免给损坏二进制显示绿勾
+    if (r.error || (r.status !== null && r.status !== 0)) {
+      return {
+        available: false,
+        error: r.error?.message ?? `exit=${r.status}`,
+      };
     }
+    const raw = (r.stdout?.toString() || r.stderr?.toString() || "").trim();
+    // ttyd --version 输出：ttyd version 1.7.7-40e79c7
+    const m = raw.match(/(\d+\.\d+\.\d+)/);
+    return { available: true, version: m?.[1] };
   });
 }

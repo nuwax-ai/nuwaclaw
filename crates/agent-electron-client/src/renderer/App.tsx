@@ -540,16 +540,10 @@ function App() {
   const pollServicesStatus = useCallback(async () => {
     try {
       const items: ServiceItem[] = [];
-      const [
-        fsStatus,
-        lpStatus,
-        agentSvcStatus,
-        mcpStatus,
-        csStatus,
-        guiStatus,
-        guiEnabledRes,
-        ttydStatus,
-      ] = await Promise.all([
+      // 任一 status() 抛错不应阻塞其他服务的轮询；用 allSettled 单点隔离。
+      // 渲染端 status 不会 reject（handlers 返回 {success, error}），但 IPC 通道缺失等
+      // 边缘场景仍可能 reject，统一处理避免冻结尾页 services 列表。
+      const settled = await Promise.allSettled([
         window.electronAPI?.fileServer.status(),
         window.electronAPI?.lanproxy.status(),
         window.electronAPI?.agent.serviceStatus(),
@@ -559,6 +553,16 @@ function App() {
         window.electronAPI?.guiServer?.isEnabled(),
         window.electronAPI?.ttyd.status(),
       ]);
+      const unwrap = <T,>(r: PromiseSettledResult<T>, fallback: T): T =>
+        r.status === "fulfilled" ? (r.value ?? fallback) : fallback;
+      const fsStatus = unwrap(settled[0], { running: false });
+      const lpStatus = unwrap(settled[1], { running: false });
+      const agentSvcStatus = unwrap(settled[2], { running: false });
+      const mcpStatus = unwrap(settled[3], { running: false });
+      const csStatus = unwrap(settled[4], { running: false });
+      const guiStatus = unwrap(settled[5], undefined);
+      const guiEnabledRes = unwrap(settled[6], undefined);
+      const ttydStatus = unwrap(settled[7], { running: false });
       const isGuiEnabled =
         FEATURES.ENABLE_GUI_AGENT_SERVER && (guiEnabledRes?.enabled ?? false);
       setGuiMcpEnabled(isGuiEnabled);

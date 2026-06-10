@@ -88,16 +88,23 @@ function main() {
         console.log(`[prepare-ttyd] ${key} → ${exeName} (已是最新，跳过)`);
         return;
       }
-    } else if (fs.existsSync(platformKeyFile)) {
-      console.log(`[prepare-ttyd] 架构不匹配，清理并重新复制`);
-      fs.rmSync(destBinDir, { recursive: true, force: true });
+    }
+    // 架构不匹配或大小变化：原子覆盖而非 rmSync+copy，避免并发 prepare 抢占时
+    // 把 destBinDir 里的半成品清掉。先写到 .tmp 再 rename（POSIX 保证 rename 原子）。
+    if (fs.existsSync(platformKeyFile) && !sameKey) {
+      console.log(`[prepare-ttyd] 架构不匹配，原子覆盖`);
     }
   }
 
   fs.mkdirSync(destBinDir, { recursive: true });
-  fs.copyFileSync(srcPath, destPath);
-  fs.chmodSync(destPath, 0o755);
-  fs.writeFileSync(platformKeyFile, key, 'utf-8');
+  const destTmp = `${destPath}.tmp`;
+  fs.copyFileSync(srcPath, destTmp);
+  fs.chmodSync(destTmp, 0o755);
+  fs.renameSync(destTmp, destPath);
+  // 同样用 .tmp + rename 写 .platform-key，避免读到半截字符串。
+  const keyTmp = `${platformKeyFile}.tmp`;
+  fs.writeFileSync(keyTmp, key, 'utf-8');
+  fs.renameSync(keyTmp, platformKeyFile);
   console.log(
     `[prepare-ttyd] ✓ ${destPath} (${(fs.statSync(destPath).size / 1024 / 1024).toFixed(1)} MB)`,
   );

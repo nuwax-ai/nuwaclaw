@@ -102,11 +102,18 @@ done
 if [ -z "$_NUWAX_CWD" ]; then
     _NUWAX_CWD="$(cat "${cwdFile}" 2>/dev/null || true)"
 fi
-# 进入目标目录（存在则 cd，否则回退 HOME）
+# 进入目标目录：--cwd 有效则用之，否则读 ttyd-cwd 文件，最后兜底 HOME。
+# cd 失败需明确报错（写到 ttyd 终端 stderr），不能 || true 静默吞错让用户毫无感知。
+_NUWAX_TARGET=""
 if [ -n "$_NUWAX_CWD" ] && [ -d "$_NUWAX_CWD" ]; then
-    cd "$_NUWAX_CWD" 2>/dev/null || cd "$HOME" 2>/dev/null || true
+    _NUWAX_TARGET="$_NUWAX_CWD"
+elif [ -d "$HOME" ]; then
+    _NUWAX_TARGET="$HOME"
 else
-    cd "$HOME" 2>/dev/null || true
+    echo "[ttyd-wrapper] WARNING: no valid cwd (--cwd=\${_NUWAX_CWD:-<unset>}, HOME=\${HOME:-<unset>}); staying in inherited cwd" >&2
+fi
+if [ -n "$_NUWAX_TARGET" ]; then
+    cd "$_NUWAX_TARGET" || echo "[ttyd-wrapper] WARNING: cd to '\$_NUWAX_TARGET' failed" >&2
 fi
 exec "\${SHELL:-/bin/bash}" -l
 `;

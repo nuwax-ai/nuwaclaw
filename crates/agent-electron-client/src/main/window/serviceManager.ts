@@ -253,24 +253,32 @@ export function createServiceManager(ctx: ServiceManagerContext) {
         shellCmd = wrapper;
         shellArgs = [];
       } else {
-        // wrapper 写出失败，降级为直接使用 login shell
+        // wrapper 写出失败，降级为直接使用 login shell。
+        // 注意：ttyd -a flag 会把 URL query 的 --cwd <path> 作为 argv 透传给子命令，
+        // 裸 $SHELL -l 收到未知选项 --cwd 会立即退出；故降级时去掉 -a 标志，
+        // 避免把 --cwd 透传过去（功能降级：失去 per-connection 动态 cwd，但终端仍可用）。
         shellCmd = process.env.SHELL || "/bin/bash";
         shellArgs = ["-l"];
       }
     }
+
+    // 降级路径：去掉 -a flag，防止 URL 透传的 --cwd 进入裸 login shell 导致 bash 报错
+    const useArgPassThrough =
+      !win && shellCmd !== (process.env.SHELL || "/bin/bash");
 
     // ttyd 选项：
     //   -p  端口
     //   -i  127.0.0.1  仅回环绑定（安全约束：绝不绑定 0.0.0.0）
     //   -W  允许客户端写入 TTY（交互终端必需）
     //   -a  允许 URL query 参数（?arg=--cwd&arg=<path>）透传给子进程 argv
+    //      降级到裸 login shell 时跳过 -a，避免 --cwd 进入 bash 触发"invalid option"
     const args = [
       "-p",
       String(port),
       "-i",
       "127.0.0.1",
       "-W",
-      "-a",
+      ...(useArgPassThrough ? ["-a"] : []),
       shellCmd,
       ...shellArgs,
     ];
@@ -285,6 +293,22 @@ export function createServiceManager(ctx: ServiceManagerContext) {
       cwd: initialCwd,
       startupDelayMs: 1000,
     });
+  };
+
+  /**
+   * 启动 ttyd 并把结果/异常统一写入 results 记录，restartAll* 两个函数共用。
+   * 抽出来避免两份 try/catch 漂移。
+   */
+  const startAndRecordTtyd = async (
+    results: Record<string, ServiceResult>,
+  ): Promise<void> => {
+    try {
+      results.ttyd = await startTtyd();
+      if (results.ttyd.success) log.info("[ServiceManager] ttyd started");
+    } catch (e) {
+      results.ttyd = { success: false, error: String(e) };
+      log.error("[ServiceManager] ttyd start failed:", e);
+    }
   };
 
   /** 按设置页开关启动 GUI MCP（macOS/Linux agent-gui-server + Windows MCP） */
@@ -478,13 +502,7 @@ export function createServiceManager(ctx: ServiceManagerContext) {
     }
 
     // 6. 启动 ttyd Web 终端（仅回环；幂等，不打断已有终端会话）
-    try {
-      results.ttyd = await startTtyd();
-      if (results.ttyd.success) log.info("[ServiceManager] ttyd started");
-    } catch (e) {
-      results.ttyd = { success: false, error: String(e) };
-      log.error("[ServiceManager] ttyd start failed:", e);
-    }
+    await startAndRecordTtyd(results);
 
     log.info("[ServiceManager] All services restart complete");
     return { success: true, results };
@@ -582,13 +600,7 @@ export function createServiceManager(ctx: ServiceManagerContext) {
     }
 
     // 5. 启动 ttyd Web 终端（仅回环；幂等）
-    try {
-      results.ttyd = await startTtyd();
-      if (results.ttyd.success) log.info("[ServiceManager] ttyd started");
-    } catch (e) {
-      results.ttyd = { success: false, error: String(e) };
-      log.error("[ServiceManager] ttyd start failed:", e);
-    }
+    await startAndRecordTtyd(results);
 
     // 注意：不启动 lanproxy
     // 注意：computerServer 的重启由调用方（processHandlers）处理

@@ -475,32 +475,22 @@ export function getLanproxyBinPath(): string {
 }
 
 // 获取 bundled ttyd 二进制路径
-// 采用「每平台一个目录」布局（macOS 需随附 dylib）：优先 binaries/<platform-key>/ttyd[.exe]，
-// 回退 bin/ttyd[.exe]（prepare:ttyd 按当前平台复制），都不存在时返回预期路径让调用方报错。
+// 采用「每平台一个目录」布局：优先 binaries/<platform-key>/ttyd[.exe]，回退 bin/ttyd[.exe]
+// （prepare:ttyd 按当前平台复制），都不存在时返回预期路径让调用方报错。
+// 注：ttyd 的 build-ttyd-mac.sh 是 vcpkg 静态链接，输出自包含单文件二进制，不需要随附 dylib。
 export function getTtydBinPath(): string {
   const resourcesPath = getResourcesPath();
   const binariesDir = path.join(resourcesPath, "ttyd", "binaries");
   const binDir = path.join(resourcesPath, "ttyd", "bin");
   const exeName = isWindows() ? "ttyd.exe" : "ttyd";
 
-  // 平台映射 (Node platform-arch → 目录名)
-  const platformMap: Record<string, string> = {
-    "darwin-arm64": "darwin-arm64",
-    "darwin-x64": "darwin-x64",
-    "win32-x64": "win32-x64",
-    "linux-x64": "linux-x64",
-    "linux-arm64": "linux-arm64",
-  };
-
+  // ttyd 二进制目录名与 Node platform-arch 键相同（binaries/darwin-arm64/ttyd 等），
+  // 无需独立 map：直接拼接即可。未来新增架构只需在 prepare 脚本补对应目录。
   const platformKey = `${process.platform}-${process.arch}`;
-  const dirName = platformMap[platformKey];
-
-  // 1. 优先：binaries/<平台目录>/ttyd[.exe]
-  if (dirName) {
-    const binaryPath = path.join(binariesDir, dirName, exeName);
-    if (fs.existsSync(binaryPath)) {
-      return binaryPath;
-    }
+  // 1. 优先：binaries/<platform-key>/ttyd[.exe]
+  const binaryPath = path.join(binariesDir, platformKey, exeName);
+  if (fs.existsSync(binaryPath)) {
+    return binaryPath;
   }
 
   // 2. 回退：bin/ttyd[.exe]
