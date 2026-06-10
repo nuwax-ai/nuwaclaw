@@ -256,6 +256,10 @@ function ClientPage({
                 await window.electronAPI?.lanproxy.stop();
               else if (svc.key === "mcpProxy")
                 await window.electronAPI?.mcp.stop();
+              else if (svc.key === "guiServer")
+                await window.electronAPI?.guiServer?.stop();
+              else if (svc.key === "ttyd")
+                await window.electronAPI?.ttyd.stop();
             } catch (e) {
               console.error(`[ClientPage] Failed to stop ${svc.label}:`, e);
             }
