@@ -245,7 +245,8 @@ export function createServiceManager(ctx: ServiceManagerContext) {
     let shellArgs: string[];
 
     if (win) {
-      shellCmd = process.env.ComSpec || "cmd.exe";
+      // 必须绝对路径：裸 "cmd.exe" 在部分环境会触发 CreateProcessW 失败（ttyd#1292）
+      shellCmd = process.env.ComSpec || "C:\\Windows\\System32\\cmd.exe";
       shellArgs = [];
     } else {
       const wrapper = ttydHelper.ensureTtydShellWrapper();
@@ -270,6 +271,7 @@ export function createServiceManager(ctx: ServiceManagerContext) {
     //   -p  端口
     //   -i  127.0.0.1  仅回环绑定（安全约束：绝不绑定 0.0.0.0）
     //   -W  允许客户端写入 TTY（交互终端必需）
+    //   -w  Windows 子进程工作目录（Win11 25H2 + MinGW ttyd 无此参数会在 WS 连接时崩溃，见 ttyd#1501）
     //   -a  允许 URL query 参数（?arg=--cwd&arg=<path>）透传给子进程 argv
     //      降级到裸 login shell 时跳过 -a，避免 --cwd 进入 bash 触发"invalid option"
     const args = [
@@ -278,6 +280,7 @@ export function createServiceManager(ctx: ServiceManagerContext) {
       "-i",
       "127.0.0.1",
       "-W",
+      ...(win ? ["-w", initialCwd] : []),
       ...(useArgPassThrough ? ["-a"] : []),
       shellCmd,
       ...shellArgs,
