@@ -1,0 +1,392 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Nuwax ttyd 终端测试</title>
+
+    <!--
+        xterm.js v5.3.0 (UMD 构建，可直接 <script> 引入)
+        换源：jsdelivr / unpkg / bootcdn 均可
+    -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/xterm@5.3.0/css/xterm.css">
+    <script src="https://cdn.jsdelivr.net/npm/xterm@5.3.0/lib/xterm.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/xterm-addon-fit@0.8.0/lib/xterm-addon-fit.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/xterm-addon-web-links@0.9.0/lib/xterm-addon-web-links.js"></script>
+
+    <style>
+        :root {
+            --bg:       #1e1e1e;
+            --bg-elev:  #2d2d2d;
+            --border:   #3a3a3a;
+            --text:     #d4d4d4;
+            --dim:      #888;
+            --accent:   #4ec9b0;
+            --blue:     #0e639c;
+            --blue-h:   #1177bb;
+            --red:      #b73a3a;
+            --red-h:    #c94545;
+            --green:    #51cf66;
+            --yellow:   #ffd43b;
+        }
+        * { box-sizing: border-box; }
+        body {
+            margin: 0; padding: 20px;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+            background: var(--bg); color: var(--text); line-height: 1.5;
+        }
+        h1   { color: var(--accent); margin: 0 0 3px; font-size: 20px; font-weight: 600; }
+        .sub { color: var(--dim); margin: 0 0 16px; font-size: 13px; }
+
+        /* 提示块 */
+        .tip {
+            background: var(--bg-elev); padding: 11px 15px;
+            border-radius: 5px; border-left: 3px solid var(--accent);
+            margin-bottom: 14px; font-size: 13px;
+        }
+        .tip code {
+            background: #111; padding: 1px 5px; border-radius: 3px;
+            color: var(--accent); font-family: "SF Mono", Menlo, Consolas, monospace; font-size: 12px;
+        }
+
+        /* 控制栏 */
+        .bar {
+            display: flex; gap: 8px; margin-bottom: 10px;
+            align-items: center; flex-wrap: wrap;
+            padding: 10px 12px;
+            background: var(--bg-elev); border-radius: 5px;
+        }
+        .bar label { font-size: 13px; color: var(--dim); white-space: nowrap; }
+        .bar input {
+            padding: 6px 9px; border: 1px solid var(--border);
+            background: #111; color: var(--text); border-radius: 4px;
+            font-size: 13px; font-family: "SF Mono", Menlo, Consolas, monospace;
+        }
+        .bar input:focus { outline: none; border-color: var(--blue); }
+        .bar input#cwdInput { flex: 1; min-width: 200px; }
+        .bar input#wsUrl   { width: 260px; }
+        button {
+            padding: 6px 13px; border: 1px solid transparent;
+            border-radius: 4px; font-size: 13px; cursor: pointer; transition: background .15s;
+        }
+        #connectBtn    { background: var(--blue); color: #fff; }
+        #connectBtn:hover:not(:disabled) { background: var(--blue-h); }
+        #disconnectBtn { background: var(--red);  color: #fff; }
+        #disconnectBtn:hover:not(:disabled) { background: var(--red-h); }
+        #clearBtn      { background: #555; color: #fff; }
+        #clearBtn:hover:not(:disabled) { background: #666; }
+        button:disabled { opacity: .5; cursor: not-allowed; }
+
+        /* 状态标签 */
+        #status {
+            padding: 3px 11px; border-radius: 10px;
+            font-size: 12px; font-weight: 500; margin-left: auto; white-space: nowrap;
+        }
+        .s-dc   { background: #5a1d1d; color: #ff6b6b; }
+        .s-conn { background: #5a4a1d; color: var(--yellow); }
+        .s-ok   { background: #1d5a2d; color: var(--green); }
+        .s-err  { background: #5a1d1d; color: #ff6b6b; }
+
+        /* 分割线 */
+        .sep { width: 1px; height: 24px; background: var(--border); }
+
+        /* 终端容器 */
+        #terminal {
+            height: 560px; background: #000; padding: 6px;
+            border-radius: 5px; border: 1px solid var(--border);
+        }
+
+        /* 底部协议说明 */
+        .proto {
+            margin-top: 14px; padding: 11px 15px;
+            background: var(--bg-elev); border-radius: 5px;
+            font-size: 12px; color: var(--dim);
+        }
+        .proto strong { color: var(--text); }
+        .proto table { border-collapse: collapse; margin-top: 8px; width: 100%; }
+        .proto td, .proto th { padding: 4px 10px; border: 1px solid var(--border); text-align: left; }
+        .proto th { color: var(--accent); font-weight: 600; }
+        .proto code {
+            background: #111; padding: 1px 4px; border-radius: 2px;
+            color: var(--accent); font-family: "SF Mono", Menlo, Consolas, monospace;
+        }
+    </style>
+</head>
+<body>
+<h1>🖥 Nuwax ttyd 终端测试</h1>
+<p class="sub">本地 WebSocket 终端协议验证 · 仅供开发调试使用</p>
+
+<div class="tip">
+    <strong>使用方法</strong>：先在应用内启动「终端服务」，再点「连接」。<br>
+    默认地址 <code>ws://127.0.0.1:60009/ws</code>，默认端口与应用设置保持一致。<br>
+    <strong>初始目录</strong>：填写绝对路径，连接时会自动 <code>cd</code> 进去（需应用启动时开启 <code>-a</code> flag）。
+</div>
+
+<div class="bar">
+    <label>WS:</label>
+    <input type="text" id="wsUrl" value="ws://127.0.0.1:60009/ws">
+    <div class="sep"></div>
+    <label>初始目录 (--cwd):</label>
+    <input type="text" id="cwdInput" placeholder="留空 = ttyd 默认目录，如 /Users/you/projects/myapp">
+    <div class="sep"></div>
+    <button id="connectBtn">连接</button>
+    <button id="disconnectBtn" disabled>断开</button>
+    <button id="clearBtn">清屏</button>
+    <span id="status" class="s-dc">未连接</span>
+</div>
+
+<div id="terminal"></div>
+
+<div class="proto">
+    <strong>ttyd 1.7.x 二进制 WebSocket 协议（子协议 <code>tty</code>）</strong>
+    <table>
+        <tr><th>方向</th><th>首字节</th><th>含义</th><th>Payload</th></tr>
+        <tr><td>C→S</td><td><code>0x7B '{'</code></td><td>JSON_DATA（握手，必须第一条）</td><td>JSON: <code>{"columns":N,"rows":N}</code></td></tr>
+        <tr><td>C→S</td><td><code>0x30 '0'</code></td><td>INPUT（键盘输入）</td><td>原始字节（UTF-8）</td></tr>
+        <tr><td>C→S</td><td><code>0x31 '1'</code></td><td>RESIZE</td><td>JSON: <code>{"columns":N,"rows":N}</code></td></tr>
+        <tr><td>C→S</td><td><code>0x32 '2'</code></td><td>PAUSE（流控）</td><td>空</td></tr>
+        <tr><td>C→S</td><td><code>0x33 '3'</code></td><td>RESUME（流控）</td><td>空</td></tr>
+        <tr><td>S→C</td><td><code>0x30 '0'</code></td><td>OUTPUT（终端输出）</td><td>原始字节（ANSI 序列）</td></tr>
+        <tr><td>S→C</td><td><code>0x31 '1'</code></td><td>SET_WINDOW_TITLE</td><td>字符串</td></tr>
+        <tr><td>S→C</td><td><code>0x32 '2'</code></td><td>SET_PREFERENCES</td><td>JSON</td></tr>
+    </table>
+    <br>
+    <strong>--cwd 传参方式</strong>：ttyd 启动时加 <code>-a</code> flag，前端在 WS URL 附加
+    <code>?arg=--cwd&amp;arg=%2Fpath%2Fto%2Fdir</code>，ttyd 会把 URL query 参数追加到子进程（wrapper 脚本）的 argv。
+</div>
+
+<script>
+(function () {
+    'use strict';
+
+    // ── xterm.js 初始化 ──────────────────────────────────────────────
+    const term = new Terminal({
+        cursorBlink: true,
+        fontSize: 14,
+        fontFamily: '"SF Mono", Menlo, Consolas, "DejaVu Sans Mono", "Microsoft YaHei", monospace',
+        theme: {
+            background: '#000000', foreground: '#d4d4d4', cursor: '#4ec9b0',
+            selectionBackground: '#264f78',
+            black: '#000000',   red: '#cd3131',   green: '#0dbc79', yellow: '#e5e510',
+            blue: '#2472c8',    magenta: '#bc3fbc', cyan: '#11a8cd', white: '#e5e5e5',
+            brightBlack: '#666666', brightRed: '#f14c4c', brightGreen: '#23d18b',
+            brightYellow: '#f5f543', brightBlue: '#3b8eea', brightMagenta: '#d670d6',
+            brightCyan: '#29b8db', brightWhite: '#ffffff',
+        },
+        scrollback: 5000,
+        allowProposedApi: true,
+    });
+    const fitAddon = new FitAddon.FitAddon();
+    term.loadAddon(fitAddon);
+    term.loadAddon(new WebLinksAddon.WebLinksAddon());
+    term.open(document.getElementById('terminal'));
+    fitAddon.fit();
+
+    // ── DOM ──────────────────────────────────────────────────────────
+    const $status  = document.getElementById('status');
+    const $connect = document.getElementById('connectBtn');
+    const $discon  = document.getElementById('disconnectBtn');
+    const $clear   = document.getElementById('clearBtn');
+    const $wsUrl   = document.getElementById('wsUrl');
+    const $cwd     = document.getElementById('cwdInput');
+
+    // ── ttyd 协议常量 ─────────────────────────────────────────────────
+    const CMD_INPUT     = 0x30;   // '0'  C→S 键盘输入
+    const CMD_RESIZE    = 0x31;   // '1'  C→S resize
+    const CMD_PAUSE     = 0x32;   // '2'  C→S 流控 pause
+    const CMD_RESUME    = 0x33;   // '3'  C→S 流控 resume
+    const CMD_OUTPUT    = 0x30;   // '0'  S→C 终端输出
+    const CMD_TITLE     = 0x31;   // '1'  S→C 窗口标题
+    const CMD_PREFS     = 0x32;   // '2'  S→C 偏好设置
+
+    // ── 流控 ─────────────────────────────────────────────────────────
+    const PAUSE_TH  = 64 * 1024;
+    const RESUME_TH = 8  * 1024;
+    let ws = null, paused = false, fcTimer = null;
+
+    function sendRaw(bytes) {
+        if (!ws || ws.readyState !== WebSocket.OPEN) return;
+        ws.send(bytes);
+    }
+    function sendPause()  { if (!paused) { paused = true;  sendRaw(new Uint8Array([CMD_PAUSE]));  } }
+    function sendResume() { if (paused)  { paused = false; sendRaw(new Uint8Array([CMD_RESUME])); } }
+
+    function startFC() {
+        fcTimer = setInterval(() => {
+            if (!ws || ws.readyState !== WebSocket.OPEN) return;
+            const b = ws.bufferedAmount;
+            if (!paused && b > PAUSE_TH)  sendPause();
+            else if (paused && b < RESUME_TH) sendResume();
+        }, 200);
+    }
+    function stopFC()  { if (fcTimer) { clearInterval(fcTimer); fcTimer = null; } paused = false; }
+
+    document.addEventListener('visibilitychange', () => {
+        if (!ws || ws.readyState !== WebSocket.OPEN) return;
+        document.hidden ? sendPause() : sendResume();
+    });
+
+    // ── 工具函数 ─────────────────────────────────────────────────────
+    function setStatus(text, cls) {
+        $status.textContent = text;
+        $status.className = cls;
+    }
+    function setUI(connected) {
+        $connect.disabled = connected;
+        $discon.disabled  = !connected;
+        $wsUrl.disabled   = connected;
+        $cwd.disabled     = connected;
+    }
+
+    // 构建带 --cwd 参数的 WS URL
+    // ttyd -a 会把 URL query 的 arg=xxx 追加到子进程 argv
+    // 格式：ws://host/ws?arg=--cwd&arg=%2Fpath%2Fto%2Fdir
+    function buildUrl() {
+        let base = $wsUrl.value.trim();
+        const cwd = $cwd.value.trim();
+        if (cwd) {
+            const sep = base.includes('?') ? '&' : '?';
+            base += sep + 'arg=--cwd&arg=' + encodeURIComponent(cwd);
+        }
+        return base;
+    }
+
+    function sendInit() {
+        // JSON_DATA：ttyd 收到后才会 fork shell
+        const payload = JSON.stringify({ columns: term.cols, rows: term.rows });
+        ws.send(payload);
+        console.log('[ttyd] → JSON_DATA', payload);
+    }
+
+    function sendResize() {
+        if (!ws || ws.readyState !== WebSocket.OPEN) return;
+        ws.send('1' + JSON.stringify({ columns: term.cols, rows: term.rows }));
+    }
+
+    function sendInput(data) {
+        if (!ws || ws.readyState !== WebSocket.OPEN) return;
+        const enc = new TextEncoder().encode(data);
+        const buf = new Uint8Array(enc.length + 1);
+        buf[0] = CMD_INPUT;
+        buf.set(enc, 1);
+        ws.send(buf);
+    }
+
+    // ── 连接 ─────────────────────────────────────────────────────────
+    function connect() {
+        if (ws) return;
+        const url = buildUrl();
+        setStatus('连接中…', 's-conn');
+        term.writeln(`\x1b[36m[connecting] ${url.replace(/:[^:@/]+@/, ':***@')}\x1b[0m`);
+
+        try {
+            // 子协议 'tty' 是 ttyd 的 LWS 路由条件，缺少则连接但收不到终端输出
+            ws = new WebSocket(url, ['tty']);
+        } catch (e) {
+            term.writeln(`\x1b[31m[error] ${e.message}\x1b[0m`);
+            setStatus('失败', 's-err');
+            return;
+        }
+        ws.binaryType = 'arraybuffer';
+
+        ws.onopen = () => {
+            setStatus('已连接', 's-ok');
+            term.writeln('\x1b[32m[connected] ✓\x1b[0m\r\n');
+            setUI(true);
+            sendInit();
+            startFC();
+            fitAddon.fit();
+            sendResize();
+            setTimeout(() => term.focus(), 80);
+        };
+
+        ws.onmessage = ({ data }) => {
+            const handle = (buf) => {
+                if (!buf || buf.byteLength === 0) return;
+                const cmd = new DataView(buf).getUint8(0);
+                if (cmd === CMD_OUTPUT) {
+                    term.write(new Uint8Array(buf, 1));
+                } else if (cmd === CMD_TITLE) {
+                    document.title = new TextDecoder().decode(new Uint8Array(buf, 1));
+                } else if (cmd === CMD_PREFS) {
+                    console.log('[ttyd] ← SET_PREFS', new TextDecoder().decode(new Uint8Array(buf, 1)));
+                } else {
+                    term.write(new Uint8Array(buf, 1));
+                }
+            };
+            if (data instanceof ArrayBuffer) handle(data);
+            else if (data instanceof Blob) data.arrayBuffer().then(handle);
+            else term.write(data);
+        };
+
+        ws.onerror = () => {
+            term.writeln('\r\n\x1b[31m[error] WebSocket error（查看控制台）\x1b[0m');
+        };
+
+        ws.onclose = (ev) => {
+            stopFC();
+            const reason = ev.reason || `code=${ev.code}`;
+            term.writeln(ev.wasClean
+                ? `\r\n\x1b[33m[disconnected] ${reason}\x1b[0m`
+                : `\r\n\x1b[31m[disconnected] ${reason}（异常关闭）\x1b[0m`
+            );
+            setStatus('未连接', 's-dc');
+            setUI(false);
+            ws = null;
+        };
+    }
+
+    function disconnect() {
+        stopFC();
+        ws?.close(1000, 'user requested');
+    }
+
+    // ── 事件绑定 ─────────────────────────────────────────────────────
+    $connect.addEventListener('click', connect);
+    $discon .addEventListener('click', disconnect);
+    $clear  .addEventListener('click', () => term.clear());
+    window  .addEventListener('resize', () => fitAddon.fit());
+    $wsUrl  .addEventListener('keydown', e => { if (e.key === 'Enter' && !$connect.disabled) connect(); });
+    $cwd    .addEventListener('keydown', e => { if (e.key === 'Enter' && !$connect.disabled) connect(); });
+
+    // 注册一次 onData / onResize，避免断线重连后累积多份 handler
+    term.onData(data => {
+        if (!ws) { term.writeln('\r\n\x1b[33m[hint] 未连接，点「连接」按钮\x1b[0m'); return; }
+        if (ws.readyState === WebSocket.OPEN) sendInput(data);
+    });
+    term.onResize(() => sendResize());
+
+    // 欢迎信息
+    term.writeln('\x1b[36m╔══════════════════════════════════════════╗\x1b[0m');
+    term.writeln('\x1b[36m║  Nuwax ttyd 终端测试                      ║\x1b[0m');
+    term.writeln('\x1b[36m╚══════════════════════════════════════════╝\x1b[0m');
+    term.writeln('');
+
+    // 在 Electron webview 内：自动从主进程获取带 --cwd 的 WS URL
+    // 在普通浏览器内：手动填写「初始目录」字段即可
+    if (window.electronAPI?.ttyd?.getWsUrl) {
+        window.electronAPI.ttyd.getWsUrl().then(url => {
+            if (url) {
+                // 解析 URL 中的 --cwd 参数，分别填入两个输入框
+                try {
+                    const u = new URL(url);
+                    const base = u.origin + u.pathname;
+                    $wsUrl.value = base;
+                    const args = u.searchParams.getAll('arg');
+                    const cidx = args.indexOf('--cwd');
+                    if (cidx >= 0) $cwd.value = args[cidx + 1] || '';
+                } catch {
+                    $wsUrl.value = url;
+                }
+                term.writeln('\x1b[32m[auto] 已从应用获取工作区路径，点「连接」即可\x1b[0m');
+            }
+        }).catch(() => {});
+    } else {
+        term.writeln('\x1b[33m[browser] 非 Electron 环境：请手动填写「初始目录」后点「连接」\x1b[0m');
+        term.writeln('\x1b[33m          或留空直接连接（ttyd 默认目录）\x1b[0m');
+    }
+    term.writeln('');
+})();
+</script>
+</body>
+</html>

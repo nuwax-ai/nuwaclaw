@@ -364,14 +364,14 @@ function App() {
     typeof setInterval
   > | null>(null);
   const statusExpectedKeys = useMemo(() => {
-    const keys = ["mcpProxy", "agent", "fileServer", "lanproxy"];
+    const keys = ["mcpProxy", "agent", "fileServer", "lanproxy", "ttyd"];
     if (FEATURES.ENABLE_GUI_AGENT_SERVER && guiMcpEnabled) {
       keys.splice(3, 0, "guiServer");
     }
     return keys;
   }, [guiMcpEnabled]);
   const getStartupServiceKeys = useCallback(async (): Promise<string[]> => {
-    const keys = ["mcpProxy", "agent", "fileServer", "lanproxy"];
+    const keys = ["mcpProxy", "agent", "fileServer", "lanproxy", "ttyd"];
     if (!FEATURES.ENABLE_GUI_AGENT_SERVER) return keys;
     try {
       const guiEnabledRes = await window.electronAPI?.guiServer?.isEnabled();
@@ -548,6 +548,7 @@ function App() {
         csStatus,
         guiStatus,
         guiEnabledRes,
+        ttydStatus,
       ] = await Promise.all([
         window.electronAPI?.fileServer.status(),
         window.electronAPI?.lanproxy.status(),
@@ -556,6 +557,7 @@ function App() {
         window.electronAPI?.computerServer.status(),
         window.electronAPI?.guiServer?.status(),
         window.electronAPI?.guiServer?.isEnabled(),
+        window.electronAPI?.ttyd.status(),
       ]);
       const isGuiEnabled =
         FEATURES.ENABLE_GUI_AGENT_SERVER && (guiEnabledRes?.enabled ?? false);
@@ -610,6 +612,14 @@ function App() {
         running: lpStatus?.running ?? false,
         pid: lpStatus?.pid,
         error: lpStatus?.error,
+      });
+      items.push({
+        key: "ttyd",
+        label: t("Claw.Service.ttyd"),
+        description: t("Claw.Service.ttydDesc"),
+        running: ttydStatus?.running ?? false,
+        pid: ttydStatus?.pid,
+        error: ttydStatus?.error,
       });
       setServices(items);
       setPollFailCount(0);
@@ -701,6 +711,12 @@ function App() {
             result = await window.electronAPI?.mcp.start();
             log.info(
               `mcpProxy: ${result?.success ? "ok" : "failed"}`,
+              result?.error,
+            );
+          } else if (key === "ttyd") {
+            result = await window.electronAPI?.ttyd.start();
+            log.info(
+              `ttyd: ${result?.success ? "ok" : "failed"}`,
               result?.error,
             );
           }

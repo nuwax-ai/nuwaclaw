@@ -37,6 +37,11 @@ crates/agent-electron-client/resources/git/
 # Bundled lanproxy: 构建时 prepare-lanproxy 复制当前平台二进制
 crates/agent-electron-client/resources/lanproxy/bin/
 
+# Bundled ttyd: 构建时 prepare-ttyd 复制当前平台二进制（binaries/ 下的源二进制需提交）
+crates/agent-electron-client/resources/ttyd/bin/
+# ttyd macOS 源码编译缓存（vcpkg + ttyd 源码 + 构建产物，体积大，勿提交）
+crates/agent-electron-client/.ttyd-build/
+
 # Bundled MCP proxy: 构建时 prepare-mcp-proxy 从源码 build 并集成
 crates/agent-electron-client/resources/nuwax-mcp-stdio-proxy/
 

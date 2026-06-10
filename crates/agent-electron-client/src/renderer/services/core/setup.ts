@@ -15,6 +15,7 @@ import {
   DEFAULT_FILE_SERVER_PORT,
   DEFAULT_GUI_MCP_PORT,
   DEFAULT_ADMIN_SERVER_PORT,
+  DEFAULT_TTYD_PORT,
   STORAGE_KEYS,
   AUTH_KEYS,
   DEFAULT_AI_ENGINE,
@@ -30,6 +31,7 @@ export interface Step1Config {
   guiMcpPort: number;
   guiMcpEnabled: boolean;
   adminServerPort?: number;
+  ttydPort?: number;
   workspaceDir: string;
 }
 
@@ -70,6 +72,7 @@ export const DEFAULT_STEP1_CONFIG: Step1Config = {
   guiMcpPort: DEFAULT_GUI_MCP_PORT,
   guiMcpEnabled: false,
   adminServerPort: DEFAULT_ADMIN_SERVER_PORT,
+  ttydPort: DEFAULT_TTYD_PORT,
   workspaceDir: "",
 };
 

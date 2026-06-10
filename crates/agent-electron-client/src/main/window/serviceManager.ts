@@ -24,8 +24,10 @@ import { getConfiguredPorts } from "../services/startupPorts";
 import {
   getAppEnv,
   getLanproxyBinPath,
+  getTtydBinPath,
   getNuwaxFileServerBundledDir,
 } from "../services/system/dependencies";
+import * as ttydHelper from "../services/packages/ttydHelper";
 import { agentService } from "../services/engines/unifiedAgent";
 import type { AgentConfig } from "../services/engines/unifiedAgent";
 import { mcpProxyManager } from "../services/packages/mcp";
@@ -48,6 +50,7 @@ export interface ServiceManagerContext {
   lanproxy: ManagedProcess;
   fileServer: ManagedProcess;
   agentRunner: ManagedProcess;
+  ttyd: ManagedProcess;
 }
 
 export interface ServiceResult {
@@ -191,6 +194,95 @@ export function createServiceManager(ctx: ServiceManagerContext) {
       command: binPath,
       args,
       env: getAppEnv(),
+      startupDelayMs: 1000,
+    });
+  };
+
+  /**
+   * 启动 ttyd Web 终端服务
+   *
+   * - 仅监听回环 127.0.0.1（终端等同 shell，切勿绑定 0.0.0.0 暴露到网络）
+   * - 端口来自聚合配置（DEFAULT_TTYD_PORT=60009）
+   * - 使用 process.env（用户原始环境），不注入 getAppEnv()，避免 NPM_CONFIG_PREFIX 等
+   *   app 内部隔离变量污染用户 shell（nvm / rvm / pyenv 等工具依赖干净的环境）
+   * - 幂等：已运行直接返回成功，供启动/重启流程重复调用而不打断已有终端会话
+   * - cwd / wrapper 逻辑见 services/packages/ttydHelper.ts
+   */
+  const startTtyd = async (): Promise<ServiceResult> => {
+    if (ctx.ttyd.running) {
+      return { success: true, message: "Already running" };
+    }
+
+    const binPath = getTtydBinPath();
+    if (!fs.existsSync(binPath)) {
+      log.warn(
+        `[ServiceManager] ttyd binary not found, skip start: ${binPath}`,
+      );
+      return {
+        success: false,
+        error: "ttyd binary not available for this platform",
+      };
+    }
+
+    const { ttyd: port } = getConfiguredPorts();
+    try {
+      log.info(`[ServiceManager] Pre-start ttyd port sweep for ${port}`);
+      await killProcessTreesListeningOnTcpPort(port);
+    } catch (e) {
+      log.warn("[ServiceManager] ttyd pre-start port sweep failed:", e);
+    }
+
+    const win = isWindows();
+
+    // cwd / wrapper 逻辑委托给 ttydHelper（见 services/packages/ttydHelper.ts）
+    const initialCwd = ttydHelper.getTtydInitialCwd();
+    ttydHelper.writeTtydCwdFile(initialCwd);
+
+    // Unix：用 wrapper 脚本作为 ttyd 的子进程命令
+    //   wrapper 解析 --cwd 参数（由 ttyd -a flag 从 URL query 传入），动态 cd 到目标目录
+    // Windows：暂用 cmd.exe（待补 Windows ttyd 二进制），不启用 wrapper
+    let shellCmd: string;
+    let shellArgs: string[];
+
+    if (win) {
+      shellCmd = process.env.ComSpec || "cmd.exe";
+      shellArgs = [];
+    } else {
+      const wrapper = ttydHelper.ensureTtydShellWrapper();
+      if (wrapper) {
+        shellCmd = wrapper;
+        shellArgs = [];
+      } else {
+        // wrapper 写出失败，降级为直接使用 login shell
+        shellCmd = process.env.SHELL || "/bin/bash";
+        shellArgs = ["-l"];
+      }
+    }
+
+    // ttyd 选项：
+    //   -p  端口
+    //   -i  127.0.0.1  仅回环绑定（安全约束：绝不绑定 0.0.0.0）
+    //   -W  允许客户端写入 TTY（交互终端必需）
+    //   -a  允许 URL query 参数（?arg=--cwd&arg=<path>）透传给子进程 argv
+    const args = [
+      "-p",
+      String(port),
+      "-i",
+      "127.0.0.1",
+      "-W",
+      "-a",
+      shellCmd,
+      ...shellArgs,
+    ];
+
+    log.info(
+      `[ServiceManager] Starting ttyd on 127.0.0.1:${port} (shell=${shellCmd}, cwd=${initialCwd})`,
+    );
+    return ctx.ttyd.start({
+      command: binPath,
+      args,
+      env: { ...process.env } as Record<string, string>,
+      cwd: initialCwd,
       startupDelayMs: 1000,
     });
   };
@@ -385,6 +477,15 @@ export function createServiceManager(ctx: ServiceManagerContext) {
       });
     }
 
+    // 6. 启动 ttyd Web 终端（仅回环；幂等，不打断已有终端会话）
+    try {
+      results.ttyd = await startTtyd();
+      if (results.ttyd.success) log.info("[ServiceManager] ttyd started");
+    } catch (e) {
+      results.ttyd = { success: false, error: String(e) };
+      log.error("[ServiceManager] ttyd start failed:", e);
+    }
+
     log.info("[ServiceManager] All services restart complete");
     return { success: true, results };
   };
@@ -480,6 +581,15 @@ export function createServiceManager(ctx: ServiceManagerContext) {
       log.error("[ServiceManager] FileServer start failed:", e);
     }
 
+    // 5. 启动 ttyd Web 终端（仅回环；幂等）
+    try {
+      results.ttyd = await startTtyd();
+      if (results.ttyd.success) log.info("[ServiceManager] ttyd started");
+    } catch (e) {
+      results.ttyd = { success: false, error: String(e) };
+      log.error("[ServiceManager] ttyd start failed:", e);
+    }
+
     // 注意：不启动 lanproxy
     // 注意：computerServer 的重启由调用方（processHandlers）处理
     log.info(
@@ -534,6 +644,16 @@ export function createServiceManager(ctx: ServiceManagerContext) {
       });
     }
 
+    // 停止 ttyd Web 终端
+    try {
+      await ctx.ttyd.stopAsync();
+      await killProcessTreesListeningOnTcpPort(getConfiguredPorts().ttyd);
+      results.ttyd = { success: true };
+      log.info("[ServiceManager] ttyd stopped");
+    } catch (e) {
+      results.ttyd = { success: false, error: String(e) };
+    }
+
     // 停止 MCP Proxy
     try {
       await mcpProxyManager.stop();
@@ -578,6 +698,7 @@ export function createServiceManager(ctx: ServiceManagerContext) {
   return {
     startFileServer,
     startLanproxy,
+    startTtyd,
     restartAllServices,
     restartAllServicesExceptLanproxy,
     stopAllServices,

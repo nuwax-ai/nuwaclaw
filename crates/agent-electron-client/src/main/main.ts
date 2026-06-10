@@ -180,6 +180,7 @@ const lanproxy = new ManagedProcess("lanproxy");
 const fileServer = new ManagedProcess("fileServer");
 const agentRunner = new ManagedProcess("agentRunner");
 const guiServer = new ManagedProcess("gui-agent-server");
+const ttyd = new ManagedProcess("ttyd");
 let agentRunnerPorts: { backendPort: number; proxyPort: number } | null = null;
 
 function createWindow() {
@@ -309,6 +310,7 @@ async function initTrayManager() {
     lanproxy,
     fileServer,
     agentRunner,
+    ttyd,
   });
 
   trayManager = createTrayManager({
@@ -434,6 +436,7 @@ async function cleanupAllProcesses(): Promise<void> {
   lanproxy.kill();
   fileServer.kill();
   guiServer.kill();
+  ttyd.kill();
 
   log.info("[Cleanup] All processes stopped");
 }
@@ -517,6 +520,7 @@ app.whenReady().then(async () => {
     fileServer,
     agentRunner,
     guiServer,
+    ttyd,
     get agentRunnerPorts() {
       return agentRunnerPorts;
     },

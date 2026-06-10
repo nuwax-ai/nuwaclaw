@@ -132,6 +132,10 @@ export default function DependenciesPage() {
     available: boolean;
     version?: string;
   } | null>(null);
+  const [ttydBundled, setTtydBundled] = useState<{
+    available: boolean;
+    version?: string;
+  } | null>(null);
   const [ripgrepResult, setRipgrepResult] = useState<{
     available: boolean;
     version?: string;
@@ -230,6 +234,14 @@ export default function DependenciesPage() {
       setFileServerBundled(
         fileServerRes?.success && fileServerRes.available
           ? { available: true, version: fileServerRes.version }
+          : { available: false },
+      );
+
+      // 应用包内集成的 ttyd（WebSocket 终端，仅检查二进制是否存在）
+      const ttydRes = await window.electronAPI?.ttyd.isAvailable();
+      setTtydBundled(
+        ttydRes?.available
+          ? { available: true, version: ttydRes.version }
           : { available: false },
       );
 
@@ -823,6 +835,42 @@ export default function DependenciesPage() {
               }}
             >
               {nuwaxcodeBundled?.available
+                ? t(I18N_KEYS.Pages.Dependencies.INTEGRATED)
+                : t(I18N_KEYS.Pages.Dependencies.NOT_INTEGRATED)}
+            </span>
+          </div>
+
+          {/* ttyd：应用包内集成的 WebSocket 终端 */}
+          <div className={styles.serviceRow}>
+            <div className={styles.serviceInfo}>
+              {ttydBundled?.available ? (
+                <CheckCircleOutlined
+                  style={{ color: "var(--color-success)", fontSize: 12 }}
+                />
+              ) : (
+                <ExclamationCircleOutlined
+                  style={{ color: "var(--color-warning)", fontSize: 12 }}
+                />
+              )}
+              <div>
+                <span className={styles.serviceLabel}>ttyd</span>
+                {ttydBundled?.available && ttydBundled.version && (
+                  <span className={styles.serviceDescription}>
+                    {" "}
+                    {ttydBundled.version}
+                  </span>
+                )}
+              </div>
+            </div>
+            <span
+              style={{
+                fontSize: 12,
+                color: ttydBundled?.available
+                  ? "var(--color-success)"
+                  : "var(--color-text-tertiary)",
+              }}
+            >
+              {ttydBundled?.available
                 ? t(I18N_KEYS.Pages.Dependencies.INTEGRATED)
                 : t(I18N_KEYS.Pages.Dependencies.NOT_INTEGRATED)}
             </span>

@@ -99,6 +99,7 @@ async function main() {
     'prepare:git',
     'prepare:ripgrep',
     'prepare:lanproxy',
+    'prepare:ttyd',
     'prepare:mcp-proxy',
     'prepare:sandboxed-mcp',
     'prepare:nuwaxcode',

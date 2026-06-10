@@ -1486,6 +1486,28 @@ export class UnifiedAgentService extends EventEmitter {
   }
 
   /**
+   * 返回最近活跃 session 所属引擎的 workspaceDir。
+   * 供 ttyd 等服务在启动时将 cwd 设置为最近的项目工作目录。
+   * 若无 ready 引擎或无 session，返回 null。
+   */
+  getRecentWorkspaceDir(): string | null {
+    let bestKey: string | null = null;
+    let bestActivity = 0;
+    for (const [key, engine] of this.engines) {
+      if (!engine.isReady) continue;
+      for (const s of engine.listSessionsDetailed()) {
+        const activity = s.lastActivity ?? s.createdAt;
+        if (activity > bestActivity) {
+          bestActivity = activity;
+          bestKey = key;
+        }
+      }
+    }
+    if (!bestKey) return null;
+    return this.engineConfigs.get(bestKey)?.workspaceDir ?? null;
+  }
+
+  /**
    * Stop a specific session by ID.
    * Aborts and deletes the session. Only destroys the engine if no sessions remain.
    */

@@ -474,6 +474,45 @@ export function getLanproxyBinPath(): string {
   return path.join(binDir, binName);
 }
 
+// 获取 bundled ttyd 二进制路径
+// 采用「每平台一个目录」布局（macOS 需随附 dylib）：优先 binaries/<platform-key>/ttyd[.exe]，
+// 回退 bin/ttyd[.exe]（prepare:ttyd 按当前平台复制），都不存在时返回预期路径让调用方报错。
+export function getTtydBinPath(): string {
+  const resourcesPath = getResourcesPath();
+  const binariesDir = path.join(resourcesPath, "ttyd", "binaries");
+  const binDir = path.join(resourcesPath, "ttyd", "bin");
+  const exeName = isWindows() ? "ttyd.exe" : "ttyd";
+
+  // 平台映射 (Node platform-arch → 目录名)
+  const platformMap: Record<string, string> = {
+    "darwin-arm64": "darwin-arm64",
+    "darwin-x64": "darwin-x64",
+    "win32-x64": "win32-x64",
+    "linux-x64": "linux-x64",
+    "linux-arm64": "linux-arm64",
+  };
+
+  const platformKey = `${process.platform}-${process.arch}`;
+  const dirName = platformMap[platformKey];
+
+  // 1. 优先：binaries/<平台目录>/ttyd[.exe]
+  if (dirName) {
+    const binaryPath = path.join(binariesDir, dirName, exeName);
+    if (fs.existsSync(binaryPath)) {
+      return binaryPath;
+    }
+  }
+
+  // 2. 回退：bin/ttyd[.exe]
+  const binPath = path.join(binDir, exeName);
+  if (fs.existsSync(binPath)) {
+    return binPath;
+  }
+
+  // 都不存在时返回预期路径（让调用者报错/标记不可用）
+  return path.join(binDir, exeName);
+}
+
 // 获取 bundled nuwaxcode 二进制路径
 // 打包时 extraResources 将 resources/nuwaxcode/ 复制到应用内
 // 运行时根据 platform-arch 选择正确二进制

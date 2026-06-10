@@ -25,6 +25,7 @@
     "prepare:uv": "node scripts/prepare/prepare-uv.js",
     "prepare:sign-uv": "node scripts/build/sign-uv-mac.js",
     "prepare:lanproxy": "node scripts/prepare/prepare-lanproxy.js",
+    "prepare:ttyd": "node scripts/prepare/prepare-ttyd.js",
     "prepare:node": "node scripts/prepare/prepare-node.js",
     "prepare:git": "node scripts/prepare/prepare-git.js",
     "prepare:ripgrep": "node scripts/prepare/prepare-ripgrep.js",
@@ -196,6 +197,13 @@
       {
         "from": "resources/lanproxy",
         "to": "lanproxy",
+        "filter": [
+          "**/*"
+        ]
+      },
+      {
+        "from": "resources/ttyd",
+        "to": "ttyd",
         "filter": [
           "**/*"
         ]

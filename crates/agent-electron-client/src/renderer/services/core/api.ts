@@ -180,6 +180,12 @@ export interface SandboxValue {
   fileServerPort: number;
   guiMcpPort: number;
   adminServerPort: number;
+  /**
+   * ttyd Web 终端端口（仅回环监听）。
+   * TODO(backend): 后端尚未指定该字段名，暂以 ttydPort 占位上报；
+   * 待后端确定字段后同步重命名（此处 + getLocalSandboxValue）。
+   */
+  ttydPort?: number;
   apiKey?: string;
   maxUsers?: number;
 }

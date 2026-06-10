@@ -205,6 +205,26 @@ contextBridge.exposeInMainWorld("electronAPI", {
     status: () => ipcRenderer.invoke("fileServer:status"),
   },
 
+  // ttyd Web 终端服务（仅监听回环 127.0.0.1）
+  ttyd: {
+    start: () => ipcRenderer.invoke("ttyd:start"),
+    stop: () => ipcRenderer.invoke("ttyd:stop"),
+    status: () => ipcRenderer.invoke("ttyd:status"),
+    isAvailable: () =>
+      ipcRenderer.invoke("ttyd:isAvailable") as Promise<{
+        available: boolean;
+        version?: string;
+      }>,
+    /** 返回带 --cwd 参数的 WebSocket URL，前端直接用此 URL 建立终端连接 */
+    getWsUrl: () => ipcRenderer.invoke("ttyd:getWsUrl") as Promise<string>,
+    /** 刷新 ttyd-cwd 文件（工作区切换后调用，无需重启 ttyd） */
+    updateCwd: () =>
+      ipcRenderer.invoke("ttyd:updateCwd") as Promise<{
+        success: boolean;
+        cwd: string;
+      }>,
+  },
+
   // Computer Server lifecycle (Agent HTTP 接口服务)
   computerServer: {
     start: (port?: number) => ipcRenderer.invoke("computerServer:start", port),

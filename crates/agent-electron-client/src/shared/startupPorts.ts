@@ -12,8 +12,9 @@ import {
   DEFAULT_MCP_PROXY_PORT,
   DEFAULT_LANPROXY_PORT,
   DEFAULT_DEV_SERVER_PORT,
+  DEFAULT_TTYD_PORT,
   STORAGE_KEYS,
-} from './constants';
+} from "./constants";
 
 // ==================== 端口默认值（与 constants 保持一致，此处聚合引用） ====================
 
@@ -26,6 +27,8 @@ export const STARTUP_PORT_DEFAULTS = {
   mcp: DEFAULT_MCP_PROXY_PORT,
   /** Lanproxy 相关本地端口（如 Agent Runner 代理） */
   lanproxyLocal: DEFAULT_LANPROXY_PORT,
+  /** ttyd Web 终端（仅监听回环） */
+  ttyd: DEFAULT_TTYD_PORT,
   /** Vite 开发服务器（仅开发模式） */
   vite: DEFAULT_DEV_SERVER_PORT,
 } as const;
@@ -35,16 +38,18 @@ export type StartupPorts = {
   fileServer: number;
   mcp: number;
   lanproxyLocal: number;
+  ttyd: number;
   vite: number;
 };
 
 /** 本地需检查占用的服务名（用于日志/脚本输出） */
 export const STARTUP_PORT_LABELS: Record<keyof StartupPorts, string> = {
-  agent: 'Agent(ComputerServer)',
-  fileServer: 'FileServer',
-  mcp: 'MCP Proxy',
-  lanproxyLocal: 'Lanproxy',
-  vite: 'Vite',
+  agent: "Agent(ComputerServer)",
+  fileServer: "FileServer",
+  mcp: "MCP Proxy",
+  lanproxyLocal: "Lanproxy",
+  ttyd: "ttyd",
+  vite: "Vite",
 };
 
 // ==================== 从配置解析端口（聚合逻辑） ====================
@@ -55,17 +60,24 @@ export type GetSettingFn = (key: string) => unknown;
  * 从任意配置源解析出当前应使用的端口（不依赖 main/db，可被 main、脚本、测试复用）
  * @param getSetting 读配置函数，如 main 的 readSetting 或脚本内对 SQLite 的封装
  */
-export function resolvePortsFromSettings(getSetting: GetSettingFn): StartupPorts {
-  const step1 = getSetting(STORAGE_KEYS.STEP1_CONFIG) as { agentPort?: number; fileServerPort?: number } | null;
+export function resolvePortsFromSettings(
+  getSetting: GetSettingFn,
+): StartupPorts {
+  const step1 = getSetting(STORAGE_KEYS.STEP1_CONFIG) as {
+    agentPort?: number;
+    fileServerPort?: number;
+    ttydPort?: number;
+  } | null;
   const agent = step1?.agentPort ?? STARTUP_PORT_DEFAULTS.agent;
   const fileServer = step1?.fileServerPort ?? STARTUP_PORT_DEFAULTS.fileServer;
+  const ttyd = step1?.ttydPort ?? STARTUP_PORT_DEFAULTS.ttyd;
 
   const mcpRaw = getSetting(STORAGE_KEYS.MCP_PROXY_PORT);
   const mcp =
-    typeof mcpRaw === 'number' && Number.isInteger(mcpRaw)
+    typeof mcpRaw === "number" && Number.isInteger(mcpRaw)
       ? mcpRaw
-      : typeof mcpRaw === 'string'
-        ? (parseInt(mcpRaw, 10) || STARTUP_PORT_DEFAULTS.mcp)
+      : typeof mcpRaw === "string"
+        ? parseInt(mcpRaw, 10) || STARTUP_PORT_DEFAULTS.mcp
         : STARTUP_PORT_DEFAULTS.mcp;
 
   return {
@@ -73,6 +85,7 @@ export function resolvePortsFromSettings(getSetting: GetSettingFn): StartupPorts
     fileServer,
     mcp,
     lanproxyLocal: STARTUP_PORT_DEFAULTS.lanproxyLocal,
+    ttyd,
     vite: STARTUP_PORT_DEFAULTS.vite,
   };
 }
@@ -84,16 +97,30 @@ export function resolvePortsFromSettings(getSetting: GetSettingFn): StartupPorts
  */
 export function getPortsToCheck(
   ports: StartupPorts,
-  includeVite: boolean
+  includeVite: boolean,
 ): Array<{ name: keyof StartupPorts; label: string; port: number }> {
-  const list: Array<{ name: keyof StartupPorts; label: string; port: number }> = [
-    { name: 'agent', label: STARTUP_PORT_LABELS.agent, port: ports.agent },
-    { name: 'fileServer', label: STARTUP_PORT_LABELS.fileServer, port: ports.fileServer },
-    { name: 'mcp', label: STARTUP_PORT_LABELS.mcp, port: ports.mcp },
-    { name: 'lanproxyLocal', label: STARTUP_PORT_LABELS.lanproxyLocal, port: ports.lanproxyLocal },
-  ];
+  const list: Array<{ name: keyof StartupPorts; label: string; port: number }> =
+    [
+      { name: "agent", label: STARTUP_PORT_LABELS.agent, port: ports.agent },
+      {
+        name: "fileServer",
+        label: STARTUP_PORT_LABELS.fileServer,
+        port: ports.fileServer,
+      },
+      { name: "mcp", label: STARTUP_PORT_LABELS.mcp, port: ports.mcp },
+      {
+        name: "lanproxyLocal",
+        label: STARTUP_PORT_LABELS.lanproxyLocal,
+        port: ports.lanproxyLocal,
+      },
+      { name: "ttyd", label: STARTUP_PORT_LABELS.ttyd, port: ports.ttyd },
+    ];
   if (includeVite) {
-    list.push({ name: 'vite', label: STARTUP_PORT_LABELS.vite, port: ports.vite });
+    list.push({
+      name: "vite",
+      label: STARTUP_PORT_LABELS.vite,
+      port: ports.vite,
+    });
   }
   return list;
 }

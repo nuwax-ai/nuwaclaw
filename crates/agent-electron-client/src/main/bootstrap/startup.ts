@@ -46,6 +46,25 @@ export async function runStartupTasks(): Promise<void> {
     });
   }
 
+  // 启动 ttyd Web 终端服务（仅回环监听）。
+  // serviceManager 已在 registerAllHandlers → registerProcessHandlers 中创建，
+  // 通过 getServiceManager() 复用其 startTtyd（含端口清理与 binary 缺失降级）。
+  setImmediate(async () => {
+    try {
+      const { getServiceManager } = await import("../ipc/processHandlers");
+      const sm = getServiceManager();
+      if (!sm) {
+        log.warn("[Init] ttyd start skipped: serviceManager not ready");
+        return;
+      }
+      const r = await sm.startTtyd();
+      if (r.success) log.info("[Init] ttyd terminal service started");
+      else log.warn(`[Init] ttyd terminal service not started: ${r.error}`);
+    } catch (e) {
+      log.warn("[Init] ttyd start failed (non-fatal):", e);
+    }
+  });
+
   // 初始化 MCP Proxy 配置（从数据库加载）
   try {
     const db = getDb();

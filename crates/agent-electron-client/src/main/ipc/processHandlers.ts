@@ -58,6 +58,7 @@ export function registerProcessHandlers(ctx: HandlerContext): void {
     lanproxy: ctx.lanproxy,
     fileServer: ctx.fileServer,
     agentRunner: ctx.agentRunner,
+    ttyd: ctx.ttyd,
   });
 
   // 本地别名，确保 TypeScript 知道它已被赋值
