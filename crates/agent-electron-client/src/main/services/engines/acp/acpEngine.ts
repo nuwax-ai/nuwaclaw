@@ -101,6 +101,8 @@ import {
   normalizePermissionGatedToolUpdate,
   type PermissionGatedToolInputCache,
 } from "./permissionGatedToolUpdate";
+import { matchToolApprovalRules } from "./toolApprovalRules";
+import type { ToolApprovalRule } from "@shared/types/computerTypes";
 import type {
   NotifyResolvedRequest,
   NotifyResolvedResponse,
@@ -169,6 +171,8 @@ export class AcpEngine extends EventEmitter {
     }
   >();
   private effectiveModes = new Map<string, AcpMode>();
+  /** tool_approval_rules 按 acpSessionId 存储，每次 chat 请求刷新 */
+  private sessionToolApprovalRules = new Map<string, ToolApprovalRule[]>();
   private permissionGatedToolRawInputs = new Map<
     string,
     PermissionGatedToolInputCache
@@ -826,6 +830,7 @@ export class AcpEngine extends EventEmitter {
     this.activePromptRejects.clear();
     this.strictPermissionSnapshotLoggedSessions.clear();
     this.effectiveModes.clear();
+    this.sessionToolApprovalRules.clear();
     approvalInterventionService.destroy();
     this.config = null;
     this._ready = false;
@@ -1189,6 +1194,7 @@ export class AcpEngine extends EventEmitter {
 
       approvalInterventionService.cancelByAcpSession(sessionId);
       this.effectiveModes.delete(sessionId);
+      this.sessionToolApprovalRules.delete(sessionId);
 
       // 2. Send cancel to ACP binary
       let timer: ReturnType<typeof setTimeout> | undefined;
@@ -1789,6 +1795,17 @@ export class AcpEngine extends EventEmitter {
 
       if (session.acpSessionId) {
         this.setEffectiveMode(session.acpSessionId, effectiveMode);
+        // 每次 chat 请求刷新该会话的 tool_approval_rules（不传则清除，保持向后兼容）
+        const approvalRules =
+          request.agent_config?.agent_server?.tool_approval_rules;
+        if (approvalRules && approvalRules.length > 0) {
+          this.sessionToolApprovalRules.set(
+            session.acpSessionId,
+            approvalRules,
+          );
+        } else {
+          this.sessionToolApprovalRules.delete(session.acpSessionId);
+        }
       }
 
       timer.end("acp.chat.sessionSetup", {
@@ -2236,9 +2253,41 @@ User question: ${request.prompt}`;
       return { outcome: { outcome: "cancelled" } };
     }
 
+    // ② tool_approval_rules 匹配（优先级高于 agent_mode 默认行为）
+    const ruleAction = (() => {
+      const rules = this.sessionToolApprovalRules.get(acpSessionId);
+      return rules && rules.length > 0
+        ? matchToolApprovalRules(params, rules)
+        : null;
+    })();
+
+    if (ruleAction === "deny") {
+      log.info(
+        `${this.logTag} 🚫 Permission denied by tool_approval_rules: tool=${params.toolCall.title}`,
+      );
+      return { outcome: { outcome: "cancelled" } };
+    }
+
+    if (ruleAction === "allow") {
+      const selected =
+        params.options.find((o) => o.kind === "allow_always") ||
+        params.options.find((o) => o.kind === "allow_once") ||
+        params.options[0];
+      if (selected) {
+        log.info(
+          `${this.logTag} 🔓 Permission auto-allowed by tool_approval_rules: tool=${params.toolCall.title}`,
+        );
+        return {
+          outcome: { outcome: "selected", optionId: selected.optionId },
+        };
+      }
+    }
+
+    // ③ agent_mode 默认行为
     const effectiveMode = this.getEffectiveMode(acpSessionId);
 
-    if (effectiveMode === "yolo") {
+    // ruleAction === "ask" 时强制走审批流程，忽略 yolo 默认放行
+    if (effectiveMode === "yolo" && ruleAction !== "ask") {
       const strictWriteMode = strictEnabled && strictCheck.isWriteRequest;
       const selected = strictWriteMode
         ? params.options.find((o) => o.kind === "allow_once")
