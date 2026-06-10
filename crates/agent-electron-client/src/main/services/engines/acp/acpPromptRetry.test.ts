@@ -34,9 +34,7 @@ describe("toErrorMessage", () => {
     expect(toErrorMessage(new Error("boom"))).toBe("boom");
   });
   it("对象走 JSON 序列化", () => {
-    expect(toErrorMessage({ code: 1 })).toBe(
-      JSON.stringify({ code: 1 }, null, 2),
-    );
+    expect(toErrorMessage({ code: 1 })).toBe('{"code":1}');
   });
   it("原始值转字符串", () => {
     expect(toErrorMessage("plain")).toBe("plain");

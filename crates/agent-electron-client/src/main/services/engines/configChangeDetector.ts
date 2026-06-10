@@ -5,7 +5,6 @@
  * 判断是否需要销毁重建引擎。调用方负责提供存量快照。
  */
 
-import * as fs from "fs";
 import log from "electron-log";
 import type { ModelProviderConfig } from "@shared/types/computerTypes";
 import type { McpServerEntry } from "../packages/mcp";

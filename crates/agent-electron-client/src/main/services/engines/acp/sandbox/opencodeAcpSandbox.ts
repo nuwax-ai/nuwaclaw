@@ -26,7 +26,7 @@ export function parseSemverTriplet(
 export function compareSemver(a: string, b: string): number {
   const left = parseSemverTriplet(a);
   const right = parseSemverTriplet(b);
-  if (!left || !right) return 0;
+  if (!left || !right) return -1;
   for (let i = 0; i < 3; i++) {
     if (left[i] !== right[i]) return left[i] - right[i];
   }

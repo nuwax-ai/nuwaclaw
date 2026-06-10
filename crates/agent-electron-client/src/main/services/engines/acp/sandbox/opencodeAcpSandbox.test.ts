@@ -67,9 +67,9 @@ describe("opencodeAcpSandbox", () => {
       expect(compareSemver("1.2.0", "1.2.0")).toBe(0);
     });
 
-    it("returns 0 for unparseable versions", () => {
-      expect(compareSemver("bad", "1.0.0")).toBe(0);
-      expect(compareSemver("1.0.0", "bad")).toBe(0);
+    it("returns -1 for unparseable versions (treats unknown as lower)", () => {
+      expect(compareSemver("bad", "1.0.0")).toBeLessThan(0);
+      expect(compareSemver("1.0.0", "bad")).toBeLessThan(0);
     });
   });
 
