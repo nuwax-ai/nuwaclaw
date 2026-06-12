@@ -2,6 +2,7 @@ import { parseSseStream } from '../sse';
 import { fromApiId, toApiId } from './idCoercion';
 import type {
   WorkbenchApiAdapter,
+  WorkbenchAgentComponent,
   WorkbenchAgentDetail,
   WorkbenchCustomPageNavItem,
   WorkbenchConversation,
@@ -223,6 +224,27 @@ function normalizeGuidQuestionDtos(raw: unknown): WorkbenchAgentDetail['guidQues
   return result;
 }
 
+function normalizeManualComponents(raw: unknown): WorkbenchAgentComponent[] {
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .map((entry): WorkbenchAgentComponent | null => {
+      const item = isRecord(entry) ? entry : {};
+      const id = fromApiId(
+        (item.id ?? item.componentId ?? item.component_id) as number | string | null | undefined,
+      );
+      if (!id) return null;
+      return {
+        id,
+        name: readString(item, ['name', 'componentName', 'component_name']) ?? '',
+        type: readString(item, ['type', 'componentType', 'component_type']),
+        icon: readString(item, ['icon', 'avatar', 'logo']),
+        description: readString(item, ['description', 'desc']),
+        selected: normalizeBooleanLike(item.selected ?? item.isSelected),
+      };
+    })
+    .filter((item): item is WorkbenchAgentComponent => item !== null);
+}
+
 function normalizeAgentDetail(raw: unknown, agentId: string): WorkbenchAgentDetail {
   const item = isRecord(raw) ? raw : {};
   const id =
@@ -255,6 +277,9 @@ function normalizeAgentDetail(raw: unknown, agentId: string): WorkbenchAgentDeta
     // `normalizeBooleanLike` already maps both shapes (it accepts 'yes'/'no'
     // case-insensitively and passes booleans through unchanged).
     allowAtSkill: normalizeBooleanLike(item.allowAtSkill ?? item.allow_at_skill),
+    manualComponents: normalizeManualComponents(
+      item.manualComponents ?? item.manual_components ?? item.components,
+    ),
     sandboxId: readString(item, ['sandboxId', 'sandbox_id']),
     raw: item,
   };
@@ -421,7 +446,11 @@ function toNuwaxChatBody(request: WorkbenchSendMessageRequest): Record<string, u
     conversationId: toApiId(request.conversationId),
     message: request.content,
     attachments,
-    selectedComponents: [],
+    selectedComponents: (request.selectedComponents ?? []).map((c) => ({
+      id: toApiId(c.id),
+      name: c.name,
+      type: c.type,
+    })),
     debug: false,
   };
 

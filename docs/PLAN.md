@@ -309,9 +309,9 @@
 |------|---------------|------|
 | **会话重命名** | ✅ 已实现 — `adapter.updateConversation` + `onRenameConversation` | 历史会话可修改标题 |
 | **Cmd+J 新建会话快捷键** | ✅ 已实现 — `useEffect` keydown listener | 快速新建对话 |
-| **URL 参数自动发送** | ✅ 已实现（预填） — nuwax 支持加载后自动发送仍可选增强 | 当前仅预填 |
+| **URL 参数自动发送** | ✅ 已实现 — `?message=` 参数加载后自动发送，`?prompt=` 仅预填 | 与 nuwax 一致 |
 | **Agent 侧边栏详情** | `AgentSidebar` 组件 | 展开查看完整 agent 信息 |
-| **手动组件选择** | `manualComponents`（知识库、插件等） | 发送消息前可选择附加组件 |
+| **手动组件选择** | ✅ 已实现 — `manualComponents` 类型 + adapter 解析 + ChatArea 组件选择 chip bar + `selectedComponents` 传入 sendMessage | 发送消息前可选择附加组件 |
 | **会话分享** | ✅ 已实现 — `adapter.shareConversation` + 聊天头部/历史列表分享按钮 + 剪贴板复制 | 生成分享链接 |
 | **Debug 视图** | `ChatBottomDebug` | 显示运行时长、token 数、调试按钮 |
 

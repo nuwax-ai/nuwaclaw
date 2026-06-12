@@ -3242,3 +3242,36 @@
   min-width: 50px;
   text-align: right;
 }
+
+/* ===== Manual Component Selector ===== */
+.open-app-component-bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 6px 0;
+}
+
+.open-app-component-chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 10px;
+  background: var(--open-app-bg-secondary, #f3f4f6);
+  color: var(--open-app-text-secondary, #6b7280);
+  border: 1px solid var(--open-app-border, #e5e7eb);
+  border-radius: 14px;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.open-app-component-chip:hover {
+  border-color: var(--open-app-accent, #6366f1);
+  color: var(--open-app-accent, #6366f1);
+}
+
+.open-app-component-chip.active {
+  background: var(--open-app-accent-bg, rgba(99, 102, 241, 0.1));
+  color: var(--open-app-accent, #6366f1);
+  border-color: var(--open-app-accent, #6366f1);
+}

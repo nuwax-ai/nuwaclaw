@@ -63,6 +63,19 @@ export interface WorkbenchGuidQuestion {
   info?: string;
 }
 
+/**
+ * A selectable agent component (knowledge base, plugin, etc.) that the user
+ * can attach before sending a message. Mirrors nuwax `AgentComponentInfo`.
+ */
+export interface WorkbenchAgentComponent {
+  id: string;
+  name: string;
+  type?: string;
+  icon?: string;
+  description?: string;
+  selected?: boolean;
+}
+
 export interface WorkbenchVariable {
   name: string;
   label?: string;
@@ -101,6 +114,8 @@ export interface WorkbenchAgentDetail {
    * "use the host default" (matches nuwax behavior when the field is absent).
    */
   allowAtSkill?: boolean;
+  /** Selectable components (knowledge bases, plugins) for manual attachment. */
+  manualComponents?: WorkbenchAgentComponent[];
   sandboxId?: string;
   raw?: unknown;
 }
@@ -178,6 +193,7 @@ export interface WorkbenchSendMessageRequest {
   attachments?: WorkbenchUploadedFile[];
   skillIds?: string[];
   sandboxId?: string;
+  selectedComponents?: WorkbenchAgentComponent[];
 }
 
 export interface WorkbenchModelOption {

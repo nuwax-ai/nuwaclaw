@@ -1,5 +1,6 @@
 import type { RefObject } from 'react';
 import type {
+  WorkbenchAgentComponent,
   WorkbenchAgentDetail,
   WorkbenchApiAdapter,
   WorkbenchConversation,
@@ -47,6 +48,11 @@ export interface ChatAreaProps {
   selectedSkills: WorkbenchSkillOption[];
   onSelectedSkillsChange: (next: WorkbenchSkillOption[]) => void;
   showVariableForm: boolean;
+
+  // manual component selection (knowledge bases, plugins)
+  manualComponents?: WorkbenchAgentComponent[];
+  selectedComponentIds: string[];
+  onToggleComponent: (id: string) => void;
 
   // actions
   onSendPrompt: (text?: string) => void | Promise<void>;
@@ -102,6 +108,9 @@ export function ChatArea(props: ChatAreaProps): JSX.Element {
     selectedSkills,
     onSelectedSkillsChange,
     showVariableForm,
+    manualComponents,
+    selectedComponentIds,
+    onToggleComponent,
     onSendPrompt,
     onSubmitWithUploads,
     onStopStream,
@@ -179,6 +188,24 @@ export function ChatArea(props: ChatAreaProps): JSX.Element {
               {text}
             </button>
           ))}
+        </div>
+      )}
+      {manualComponents && manualComponents.length > 0 && (
+        <div className="open-app-component-bar">
+          {manualComponents.map((comp) => {
+            const active = selectedComponentIds.includes(comp.id);
+            return (
+              <button
+                key={comp.id}
+                type="button"
+                className={active ? 'open-app-component-chip active' : 'open-app-component-chip'}
+                title={comp.description ?? comp.name}
+                onClick={() => onToggleComponent(comp.id)}
+              >
+                {comp.name}
+              </button>
+            );
+          })}
         </div>
       )}
       <ConversationStatus streaming={streaming} />

@@ -254,6 +254,7 @@ export function NuwaxOpenApp() {
   const [showVariableForm, setShowVariableForm] = useState(false);
   const [selectedSkillIds, setSelectedSkillIds] = useState<string[]>([]);
   const [selectedSkills, setSelectedSkills] = useState<WorkbenchSkillOption[]>([]);
+  const [selectedComponentIds, setSelectedComponentIds] = useState<string[]>([]);
   const [splitRatio, setSplitRatio] = useState(0.42);
   const splitContainerRef = useRef<HTMLDivElement>(null);
 
@@ -453,6 +454,7 @@ export function NuwaxOpenApp() {
   }, [adapter, agentId]);
 
   const urlParamsAppliedRef = useRef(false);
+  const urlAutoSendRef = useRef<string | null>(null);
   useEffect(() => {
     if (!urlParams || urlParamsAppliedRef.current || !agent) return;
     urlParamsAppliedRef.current = true;
@@ -469,6 +471,11 @@ export function NuwaxOpenApp() {
         ? urlMessage
         : '';
     if (autoText) {
+      // If the URL carries a `message` field (not just `prompt`), nuwax
+      // auto-sends after the agent loads. `prompt` only prefills.
+      if (typeof urlMessage === 'string' && urlMessage === autoText) {
+        urlAutoSendRef.current = autoText;
+      }
       setPrompt(autoText);
     }
   }, [agent, urlParams]);
@@ -582,6 +589,9 @@ export function NuwaxOpenApp() {
           agentMode,
           attachments: attachmentPayload,
           skillIds: currentSkillIds,
+          selectedComponents: (agent?.manualComponents ?? [])
+            .filter((c) => selectedComponentIds.includes(c.id))
+            .map((c) => ({ id: c.id, name: c.name, type: c.type })),
         });
 
         // Update the conversation list: rename if still on the placeholder
@@ -644,6 +654,16 @@ export function NuwaxOpenApp() {
       variableParams,
     ],
   );
+
+  // Auto-send when URL params included a `message` field (nuwax behavior).
+  // Fires once after agent loads and sendPrompt is available.
+  useEffect(() => {
+    if (!urlAutoSendRef.current || !agent) return;
+    if (streaming) return;
+    const text = urlAutoSendRef.current;
+    urlAutoSendRef.current = null;
+    void sendPrompt(text);
+  }, [agent, sendPrompt, streaming]);
 
   const stopStream = useCallback(() => conv.stopStream(), [conv]);
 
@@ -890,6 +910,13 @@ export function NuwaxOpenApp() {
                   selectedSkills={selectedSkills}
                   onSelectedSkillsChange={setSelectedSkills}
                   showVariableForm={showVariableForm}
+                  manualComponents={agent?.manualComponents}
+                  selectedComponentIds={selectedComponentIds}
+                  onToggleComponent={(id) =>
+                    setSelectedComponentIds((prev) =>
+                      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id],
+                    )
+                  }
                   onSendPrompt={(text) => void sendPrompt(text)}
                   onSubmitWithUploads={(uploaded) =>
                     void sendPrompt(undefined, undefined, uploaded)
