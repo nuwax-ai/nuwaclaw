@@ -242,7 +242,7 @@ describe('ChatUploadFile — utils', () => {
 });
 
 describe('ChatUploadFile — extractClipboardFiles', () => {
-  it('returns image files from a clipboard files list', () => {
+  it('returns files from a clipboard files list (all types)', () => {
     const png = makeFile('paste.png', 100, 'image/png');
     const txt = makeFile('note.txt', 50, 'text/plain');
     const data = {
@@ -258,11 +258,12 @@ describe('ChatUploadFile — extractClipboardFiles', () => {
     // right `files.item` is enough since the extractor only reads what it
     // needs.
     const out = extractClipboardFiles(data);
-    expect(out).toHaveLength(1);
+    expect(out).toHaveLength(2);
     expect(out[0]?.type).toBe('image/png');
+    expect(out[1]?.type).toBe('text/plain');
   });
 
-  it('returns [] when clipboard has no image files', () => {
+  it('returns non-image files too (all file types accepted)', () => {
     const txt = makeFile('note.txt', 50, 'text/plain');
     const data = {
       files: {
@@ -273,7 +274,9 @@ describe('ChatUploadFile — extractClipboardFiles', () => {
       },
       items: undefined,
     } as unknown as DataTransfer;
-    expect(extractClipboardFiles(data)).toEqual([]);
+    // After commit 9341a145 sync, all file types are accepted (not just images)
+    expect(extractClipboardFiles(data)).toHaveLength(1);
+    expect(extractClipboardFiles(data)[0]?.type).toBe('text/plain');
   });
 
   it('returns [] when clipboardData is null', () => {

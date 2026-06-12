@@ -8,9 +8,9 @@
  *
  * The hook is intentionally framework-agnostic:
  *   - it attaches a `paste` listener to the provided element
- *   - it extracts every `File` whose `type.startsWith('image/')` from
- *     `e.clipboardData.files` (preferred) or `e.clipboardData.items`
- *   - if there is at least one image file, it calls `e.preventDefault()` and
+ *   - it extracts every `File` from `e.clipboardData.files` (preferred) or
+ *     `e.clipboardData.items` (all file kinds: images, PDFs, documents)
+ *   - if there is at least one file, it calls `e.preventDefault()` and
  *     invokes `onFiles(files)`. The caller then routes those into
  *     `ChatUploadFile`'s upload queue.
  *
@@ -32,8 +32,13 @@ export interface UsePasteUploadOptions {
   mimeFilter?: (mimeType: string) => boolean;
 }
 
-function defaultFilter(mimeType: string): boolean {
-  return mimeType.startsWith('image/');
+/**
+ * Default filter: accept all file kinds (images, PDFs, documents, etc.).
+ * Mirrors nuwax commit 9341a145 which expanded paste from image-only to
+ * all file types.
+ */
+function defaultFilter(_mimeType: string): boolean {
+  return true;
 }
 
 function extractFiles(
@@ -91,7 +96,7 @@ export function usePasteUpload(opts: UsePasteUploadOptions): void {
 }
 
 /**
- * Exported for testing — extracts image files from a ClipboardEvent-like
+ * Exported for testing — extracts files from a ClipboardEvent-like
  * payload without needing a real DOM event.
  */
 export function extractClipboardFiles(

@@ -1162,6 +1162,7 @@
 
 /* ── Chat input ── ref: nuwax src/components/ChatInputHome/index.less .chat-container */
 .open-app-chat-input-home {
+  position: relative;
   width: min(800px, calc(100% - 32px));
   margin: 4px auto 2px;
   border: 1px solid var(--xagi-color-split);
@@ -3314,4 +3315,29 @@
   line-height: 1.4;
   margin: 0;
   font-style: italic;
+}
+
+/* ===== Drag & Drop Overlay ===== */
+.open-app-chat-input-home.drag-over {
+  border-color: var(--open-app-accent, #6366f1) !important;
+  background: var(--open-app-accent-bg, rgba(99, 102, 241, 0.05));
+}
+
+.open-app-drag-overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(99, 102, 241, 0.1);
+  border: 2px dashed var(--open-app-accent, #6366f1);
+  border-radius: inherit;
+  z-index: 10;
+  pointer-events: none;
+}
+
+.open-app-drag-overlay-text {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--open-app-accent, #6366f1);
 }

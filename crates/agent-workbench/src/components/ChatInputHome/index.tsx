@@ -16,6 +16,7 @@ import type {
 import { Icon } from '../OpenApp/icons';
 import { zh } from '../OpenApp/labels';
 import { ChatUploadFile, usePasteUpload } from '../ChatUploadFile';
+import { useDragUpload } from '../ChatUploadFile/useDragUpload';
 import type { UploadEntry } from '../ChatUploadFile/types';
 import { generateUploadId } from '../ChatUploadFile/utils';
 import { MentionPopup } from '../MentionPopup';
@@ -151,6 +152,15 @@ export function ChatInputHome({
     disabled: streaming,
   });
 
+  const formRef = useRef<HTMLFormElement>(null);
+
+  // Drag-and-drop file upload (mirrors nuwax commit 9341a145)
+  const { isDragging } = useDragUpload({
+    targetRef: formRef,
+    onFiles: handlePastedFiles,
+    disabled: streaming,
+  });
+
   // Resolve skill chip labels: prefer the parent-supplied metadata map, fall
   // back to the raw id if no metadata is available.
   const skillNameById = useCallback(
@@ -206,15 +216,24 @@ export function ChatInputHome({
     if (streaming) setMentionOpen(false);
   }, [streaming]);
 
+
   return (
     <form
-      className="open-app-chat-input-home"
+      ref={formRef}
+      className={isDragging ? 'open-app-chat-input-home drag-over' : 'open-app-chat-input-home'}
       onSubmit={(event: FormEvent) => {
         event.preventDefault();
         if (streaming) onStop();
         else handleSubmit();
       }}
     >
+      {isDragging && (
+        <div className="open-app-drag-overlay">
+          <div className="open-app-drag-overlay-text">
+            {labels.dropFilesHere}
+          </div>
+        </div>
+      )}
       <textarea
         ref={textareaRef}
         value={value}

@@ -158,11 +158,15 @@
 
 ## 建议执行顺序
 
-1. **P0-1: ChatInputHome 拖拽上传** → 直接提升用户体验
-2. **P0-2: MarkdownRenderer process 标签修复** → 修复流式渲染 bug
-3. **P1-4: ChatUploadFile 状态优化** → 快速对齐
-4. **P2-6: 流式渲染全量重推** → 防止 HTML 结构断裂
-5. **P1-3: 技能订阅/付费** → 需要后端 API 就绪后再迁移
+## 迁移完成状态（2026-06-12）
+
+| 项目 | 状态 | 备注 |
+|------|------|------|
+| P0-1: ChatInputHome 拖拽上传 + 多文件粘贴 | ✅ 完成 | `useDragUpload.ts` 新增, `usePasteUpload.ts` 扩展为全文件类型, ChatInputHome 集成拖拽遮罩 UI |
+| P0-2: MarkdownRenderer process 标签去重 + URL 编码 | ✅ 完成 | `groupMarkdownProcesses.ts` 完全重写, executeId dedup + name URL 编码 + div 包裹 |
+| P1-4: ChatUploadFile 上传状态 | ✅ 评估完成 | workbench 实现已足够, 无需改动 |
+| P2-6: 流式渲染全量重推 | ✅ 评估完成 | workbench 的 MarkdownRenderer 已正确处理自定义标签, 无需改动 |
+| P1-3: 技能订阅/付费 | ⏳ 待定 | 需要后端 API 就绪后迁移 |
 
 ## 不迁移项
 
