@@ -189,10 +189,18 @@ jobs:
           path: crates/agent-electron-client/resources/nuwaxcode
           key: bundled-nuwaxcode-v1-${{ matrix.platform }}-${{ matrix.arch }}-${{ hashFiles('crates/agent-electron-client/scripts/prepare/prepare-nuwaxcode.js') }}
 
-      - name: Prepare bundled resources (uv, node, git, nuwaxcode)
+      - name: Cache ripgrep
+        uses: actions/cache@v4
+        with:
+          path: crates/agent-electron-client/resources/ripgrep
+          key: bundled-ripgrep-v1-${{ matrix.platform }}-${{ matrix.arch }}-${{ hashFiles('crates/agent-electron-client/scripts/prepare/prepare-ripgrep.js') }}
+
+      - name: Prepare bundled resources (uv, node, git, nuwaxcode, ripgrep)
         working-directory: crates/agent-electron-client
         env:
           TARGET_ARCH: ${{ matrix.arch }}
+          # 勿用 secrets.GITHUB_* 自定义 Secret（GitHub 禁止 GITHUB_ 前缀）；用内置 github.token
+          GH_TOKEN: ${{ github.token }}
         run: npm run prepare:all
         timeout-minutes: 15
 
@@ -255,6 +263,7 @@ jobs:
         working-directory: crates/agent-electron-client
         env:
           TARGET_ARCH: ${{ matrix.arch }}
+          SKIP_PREPARE: "1"  # Step 14 已执行 prepare:all，避免重复（含 git clone/pull）
           APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
           CSC_NAME: ${{ secrets.APPLE_SIGNING_IDENTITY }}
         run: |
@@ -353,9 +362,21 @@ jobs:
           GH_TOKEN: ${{ secrets.GH_PAT || github.token }}
         run: |
           TAG="${RELEASE_TAG}"
-          VERSION="${TAG#electron-v}"
           CHANNEL="${RELEASE_CHANNEL}"
-          S3_URL_PREFIX="${S3_CDN_BASE}/nuwaclaw-electron/${TAG}"
+          if [[ "$TAG" == prerelease-v* ]]; then
+            VERSION="${TAG#prerelease-v}"
+            WIN_EXE="NuwaClaw-Setup-${VERSION}-unsigned.exe"
+            WIN_MSI="NuwaClaw-${VERSION}-unsigned.msi"
+          else
+            VERSION="${TAG#electron-v}"
+            WIN_EXE="NuwaClaw.Setup.${VERSION}.exe"
+            WIN_MSI="NuwaClaw.${VERSION}.msi"
+          fi
+          if [[ "$TAG" == prerelease-v* ]] || [ "$CHANNEL" = "beta" ]; then
+            S3_URL_PREFIX="${S3_CDN_BASE}/nuwaclaw-electron/beta-build/${TAG}"
+          else
+            S3_URL_PREFIX="${S3_CDN_BASE}/nuwaclaw-electron/${TAG}"
+          fi
           ASSETS_DIR="/tmp/release-assets"
 
           # semver MVP guard: only allow numeric x.y.z
@@ -407,9 +428,9 @@ jobs:
           add_platform "darwin-aarch64-zip" "NuwaClaw-${VERSION}-arm64-mac.zip"
           add_platform "darwin-x86_64"      "NuwaClaw-${VERSION}.dmg"
           add_platform "darwin-x86_64-zip"  "NuwaClaw-${VERSION}-mac.zip"
-          add_platform "windows-x86_64"      "NuwaClaw.Setup.${VERSION}.exe"
-          add_platform "windows-x86_64-nsis" "NuwaClaw.Setup.${VERSION}.exe"
-          add_platform "windows-x86_64-msi"  "NuwaClaw.${VERSION}.msi"
+          add_platform "windows-x86_64"      "$WIN_EXE"
+          add_platform "windows-x86_64-nsis" "$WIN_EXE"
+          add_platform "windows-x86_64-msi"  "$WIN_MSI"
           add_platform "linux-x86_64"          "NuwaClaw-${VERSION}.AppImage"
           add_platform "linux-x86_64-appimage" "NuwaClaw-${VERSION}.AppImage"
           add_platform "linux-x86_64-deb"      "NuwaClaw-${VERSION}-amd64.deb"
@@ -444,24 +465,43 @@ jobs:
             done
           fi
 
+          blockmap_size_for() {
+            local installer="$1"
+            local bm="${ASSETS_DIR}/${installer}.blockmap"
+            if [ -f "$bm" ]; then
+              stat -c%s "$bm" 2>/dev/null || stat -f%z "$bm"
+            fi
+          }
+
           gen_yml() {
             local channel="$1"
             local keys="$2"
-            local first_key first_file
+            local first_key first_file blockmap_size k fname sig size bms
             first_key=$(echo "$PLATFORMS" | jq -r --argjson keys "$keys" 'limit(1; $keys[] as $k | select(.[$k] != null) | $k)')
             [ -z "$first_key" ] || [ "$first_key" = "null" ] && return 0
             first_file=$(echo "$PLATFORMS" | jq -r --arg k "$first_key" '.[$k].url' | sed 's|.*/||')
+            blockmap_size=$(blockmap_size_for "$first_file")
             {
               echo "version: $VERSION"
               echo "path: $first_file"
               echo "sha512: $(echo "$PLATFORMS" | jq -r --arg k "$first_key" '.[$k].signature')"
               echo "releaseDate: $PUB_DATE"
+              if [ -n "$blockmap_size" ]; then
+                echo "blockMapSize: $blockmap_size"
+              fi
               echo "files:"
-              echo "$PLATFORMS" | jq -r --argjson keys "$keys" '
-                [ $keys[] as $k | select(.[$k] != null) | .[$k] |
-                  "  - url: " + (.url | split("/") | last) + "\n    sha512: " + .signature + "\n    size: " + (.size | tostring)
-                ] | join("\n")
-              '
+              while IFS= read -r k; do
+                fname=$(echo "$PLATFORMS" | jq -r --arg k "$k" '.[$k].url' | sed 's|.*/||')
+                sig=$(echo "$PLATFORMS" | jq -r --arg k "$k" '.[$k].signature')
+                size=$(echo "$PLATFORMS" | jq -r --arg k "$k" '.[$k].size')
+                echo "  - url: $fname"
+                echo "    sha512: $sig"
+                echo "    size: $size"
+                bms=$(blockmap_size_for "$fname")
+                if [ -n "$bms" ]; then
+                  echo "    blockMapSize: $bms"
+                fi
+              done < <(echo "$PLATFORMS" | jq -r --argjson keys "$keys" '$keys[] as $k | select(.[$k] != null) | $k')
             } > "${ASSETS_DIR}/${channel}.yml"
             echo "  Generated ${channel}.yml (primary: $first_file)"
           }
@@ -503,7 +543,7 @@ jobs:
         run: |
           TAG="${RELEASE_TAG}"
           CHANNEL="${RELEASE_CHANNEL}"
-          if [ "$CHANNEL" = "beta" ]; then
+          if [[ "$TAG" == prerelease-v* ]] || [ "$CHANNEL" = "beta" ]; then
             S3_PREFIX="nuwaclaw-electron/beta-build/${TAG}"
           else
             S3_PREFIX="nuwaclaw-electron/${TAG}"

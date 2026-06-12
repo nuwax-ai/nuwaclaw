@@ -1,7 +1,7 @@
 import path from "path";
 import { describe, it, expect } from "vitest";
 import { evaluateStrictWritePermission } from "./strictPermissionGuard";
-import type { AcpPermissionRequest } from "./acpClient";
+import type { AcpPermissionRequest } from "../acpClient";
 
 function makeRequest(
   overrides?: Partial<AcpPermissionRequest>,

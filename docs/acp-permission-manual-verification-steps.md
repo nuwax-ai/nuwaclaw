@@ -1,6 +1,6 @@
 # ACP Permission / MCP Ask 手动验收步骤
 
-更新时间：2026-05-26
+更新时间：2026-05-27
 
 本文档记录本地可复现的提测验收步骤。权限审批字段格式以 `docs/permission-request-handler-design.md` 为唯一来源；MCP Ask 字段格式见 `docs/mcp-ask-question-acp-toolcall-v1.md`。
 
@@ -62,7 +62,8 @@ http://localhost:3000/home/chat/<conversationId>/<agentId>
 - 标题：`ACP 权限审批`
 - 工具：`bash`
 - kind：`execute`
-- 选项：`Allow once`、`Always allow`、`Reject`、`取消`
+- 选项来自 `request_permission_request.options[]`，例如 `Allow once`、`Always allow`、`Reject`。
+- 权限卡片不提供额外的“取消”按钮，也不使用 Esc 生成 `Cancelled`；`Cancelled` 只来自会话取消或 pending 清理。
 
 ### 预期日志
 
@@ -72,8 +73,8 @@ NuwaClaw 日志应包含：
 "agent_mode": "ask"
 method="session/request_permission"
 Permission pending (ask mode)
-messageType":"acpRequestPermission"
-subType":"request_permission"
+message_type":"acpRequestPermission"
+sub_type":"request_permission"
 ```
 
 SSE payload 的业务字段必须是 RCoder snake_case：
@@ -270,6 +271,7 @@ npm run test:run -- \
 ```bash
 cd /Users/apple/workspace/nuwax
 pnpm vitest run \
+  src/components/business-component/AgentIntervention/components/AcpPermissionCard/useAcpPermissionShortcuts.test.tsx \
   src/components/business-component/AgentIntervention/utils/parseMcpAskSchema.test.ts \
   src/components/business-component/AgentIntervention/utils/mcpAskResumeMessage.test.ts \
   src/components/business-component/AgentIntervention/utils/applyAcpPermissionSseEvent.test.ts \

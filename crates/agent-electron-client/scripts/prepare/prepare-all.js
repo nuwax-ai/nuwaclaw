@@ -97,7 +97,9 @@ async function main() {
   const phase2 = [
     'prepare:node',
     'prepare:git',
+    'prepare:ripgrep',
     'prepare:lanproxy',
+    'prepare:ttyd',
     'prepare:mcp-proxy',
     'prepare:sandboxed-mcp',
     'prepare:nuwaxcode',

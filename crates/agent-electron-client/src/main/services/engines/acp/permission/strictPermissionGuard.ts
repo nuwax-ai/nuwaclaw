@@ -1,6 +1,6 @@
 import * as fs from "fs";
 import * as path from "path";
-import type { AcpPermissionRequest } from "./acpClient";
+import type { AcpPermissionRequest } from "../acpClient";
 import { getCurrentPlatform } from "@main/services/system/platformAdapter";
 
 const WRITE_KEYWORDS = [

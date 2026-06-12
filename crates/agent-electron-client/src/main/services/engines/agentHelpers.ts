@@ -1,5 +1,6 @@
 import log from "electron-log";
-import type { AgentEngineType, ModelProviderConfig } from "./unifiedAgent";
+import type { AgentEngineType } from "./types";
+import type { ModelProviderConfig } from "@shared/types/computerTypes";
 
 /** Map agent_config.agent_server.command to engine type */
 export function mapAgentCommand(command: string): AgentEngineType | null {

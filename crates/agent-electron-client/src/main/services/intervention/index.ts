@@ -14,8 +14,8 @@ export {
   statusFromNotifyResolvedResult,
 } from "./interventionHttpHandlers";
 export {
-  isRcoderNotifyResolvedRequest,
-  parseRcoderNotifyResolvedRequest,
-  toRcoderPermissionProgressData,
-  validateRcoderNotifyResolvedRequest,
-} from "./rcoderPermissionProtocol";
+  isComputerPermissionResolveRequest,
+  parseComputerPermissionResolveRequest,
+  toComputerPermissionProgressData,
+  validateComputerPermissionResolveRequest,
+} from "./computerPermissionProtocol";

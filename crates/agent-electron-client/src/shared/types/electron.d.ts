@@ -136,6 +136,18 @@ export interface FileServerAPI {
   status: () => Promise<{ running: boolean; pid?: number; error?: string }>;
 }
 
+/** ttyd Web 终端服务（仅监听回环 127.0.0.1） */
+export interface TtydAPI {
+  start: () => Promise<{ success: boolean; error?: string }>;
+  stop: () => Promise<{ success: boolean; error?: string }>;
+  status: () => Promise<{ running: boolean; pid?: number; error?: string }>;
+  isAvailable: () => Promise<{ available: boolean; version?: string }>;
+  /** 返回带 --cwd 参数的 WebSocket URL，前端直接用此 URL 建立终端连接 */
+  getWsUrl: () => Promise<string>;
+  /** 刷新 ttyd-cwd 文件（工作区切换后调用，无需重启 ttyd） */
+  updateCwd: () => Promise<{ success: boolean; cwd: string }>;
+}
+
 export interface ComputerServerAPI {
   start: (port?: number) => Promise<{ success: boolean; error?: string }>;
   stop: () => Promise<{ success: boolean; error?: string }>;
@@ -757,6 +769,7 @@ export interface ElectronAPI {
   agentRunner: AgentRunnerAPI;
   sandbox: SandboxAPI;
   fileServer: FileServerAPI;
+  ttyd: TtydAPI;
   computerServer: ComputerServerAPI;
   guiServer: GuiServerAPI;
   adminServer: AdminServerAPI;

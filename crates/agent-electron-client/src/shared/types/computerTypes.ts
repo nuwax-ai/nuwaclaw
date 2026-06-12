@@ -23,6 +23,21 @@ export interface ChatContextServerConfig {
   env?: Record<string, string>;
 }
 
+/** tool_approval_rules 中的 action 取值 */
+export type ToolApprovalAction = "ask" | "allow" | "deny";
+
+/**
+ * 单条工具审批规则。
+ * - patterns: glob 通配符列表，任一命中即触发（大小写不敏感）
+ * - action: ask=要求审批 / allow=自动放行 / deny=直接拒绝
+ * - tool_kind: ACP ToolKind 过滤（默认 "Execute"）
+ */
+export interface ToolApprovalRule {
+  patterns: string[];
+  action: ToolApprovalAction;
+  tool_kind?: string;
+}
+
 // 对应 rcoder ChatAgentConfig
 export interface ChatAgentConfig {
   agent_server?: {
@@ -32,6 +47,8 @@ export interface ChatAgentConfig {
     args?: string[];
     env?: Record<string, string>;
     metadata?: Record<string, string>;
+    /** 工具审批策略规则，按数组顺序匹配，首条命中生效 */
+    tool_approval_rules?: ToolApprovalRule[];
   };
   context_servers?: Record<string, ChatContextServerConfig>;
 }

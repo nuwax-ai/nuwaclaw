@@ -7,6 +7,7 @@ export interface HandlerContext {
   fileServer: ManagedProcess;
   agentRunner: ManagedProcess;
   guiServer: ManagedProcess;
+  ttyd: ManagedProcess;
   readonly agentRunnerPorts: { backendPort: number; proxyPort: number } | null;
   setAgentRunnerPorts: (
     ports: { backendPort: number; proxyPort: number } | null,

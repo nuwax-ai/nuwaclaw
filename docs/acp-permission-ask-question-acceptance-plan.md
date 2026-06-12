@@ -1,6 +1,6 @@
 # ACP Permission 与 MCP Ask/Question 提测验收计划
 
-更新时间：2026-05-26
+更新时间：2026-05-27
 
 ## 目标
 
@@ -17,7 +17,7 @@
 | --------- | ----------------------------------------------- | ------------------------------------------------------------------ |
 | NuwaClaw  | `/Users/apple/workspace/nuwaclaw`               | ACP engine、ask/yolo 模式、RCoder SSE、`/computer/notify-resolved` |
 | Nuwax Web | `/Users/apple/workspace/nuwax`                  | Ask/Yolo 切换、审批卡片、MCP Ask 表单、回执/回复消息               |
-| Backend   | `/Users/apple/workspace/agent-platform`         | `agent_mode` 透传、permission event 转发、审批回执转发             |
+| Backend   | `/Users/apple/workspace/agent-platform`         | `agent_mode` 透传、snake_case permission event 转发、审批回执转发  |
 | MCP Ask   | `/Users/apple/workspace/nuwax-ask-question-mcp` | `nuwax_ask_question` stdio 工具、schema 校验、停止当前轮提示       |
 
 ## 服务拓扑
@@ -220,6 +220,7 @@ MCP Ask 不调用 `/computer/notify-resolved`，也不需要 HTTP sidecar 或 MC
 
 - Network payload 使用 `Selected.option_id`，值为 reject option。
 - 不使用 `Cancelled`。
+- 权限卡片不提供额外的“取消”按钮，也不使用 Esc 生成 `Cancelled`。
 - 文件不创建。
 
 ### A3. Session cancel
@@ -286,6 +287,8 @@ npm run test:run -- \
 ```bash
 cd /Users/apple/workspace/nuwax
 pnpm vitest run \
+  src/components/business-component/AgentIntervention/components/McpAskQuestionCard/index.test.tsx \
+  src/components/business-component/AgentIntervention/components/AcpPermissionCard/useAcpPermissionShortcuts.test.tsx \
   src/components/business-component/AgentIntervention/utils/parseMcpAskSchema.test.ts \
   src/components/business-component/AgentIntervention/utils/mcpAskResumeMessage.test.ts \
   src/components/business-component/AgentIntervention/utils/applyAcpPermissionSseEvent.test.ts \
@@ -303,7 +306,25 @@ npm run typecheck
 npm run build
 ```
 
-## 2026-05-26 本地证据
+### Backend
+
+```bash
+cd /Users/apple/workspace/agent-platform
+JAVA_HOME=/opt/homebrew/opt/openjdk@17/libexec/openjdk.jdk/Contents/Home mvn -pl \
+  app-platform-modules/app-platform-agent/app-platform-agent-core-infra \
+  -Dtest=SandboxAgentClientTest test
+
+JAVA_HOME=/opt/homebrew/opt/openjdk@17/libexec/openjdk.jdk/Contents/Home mvn -pl \
+  app-platform-modules/app-platform-agent/app-platform-agent-core-adapter,\
+  app-platform-modules/app-platform-agent/app-platform-agent-core-application,\
+  app-platform-modules/app-platform-agent/app-platform-agent-core-infra,\
+  app-platform-modules/app-platform-agent/app-platform-agent-core-ui \
+  -am -DskipTests compile
+```
+
+## 本地证据
+
+### 2026-05-26 浏览器联调
 
 已在 `http://localhost:3000/home/chat/43/21` 验证：
 
@@ -315,13 +336,20 @@ npm run build
 /Users/apple/Downloads/test-electron-client/computer-project-workspace/1/43/acp-permission-live-20260526.txt
 ```
 
+### 2026-05-27 自动化验证
+
 自动化验证补充：
 
-- Nuwax Web 相关 7 个测试文件、21 个测试通过，覆盖 ACP permission 事件、MCP Ask tool_call 识别、历史消息 hydrate、active queue、MCP Ask 普通消息 `label：value` 格式。
+- Nuwax Web 相关 9 个测试文件、25 个测试通过，覆盖 ACP permission snake_case 事件、权限卡片快捷键不生成 `Cancelled`、MCP Ask 表单渲染与提交 payload、MCP Ask tool_call 识别、历史消息 hydrate、active queue、MCP Ask 普通消息 `label：value` 格式，以及取消/跳过/超时普通消息。
 - NuwaClaw 权限审批相关 4 个测试文件、14 个测试通过，覆盖 `agent_mode`、RCoder payload/回执映射、pending resolve、OpenCode ask/yolo 配置。
+- Backend `SandboxAgentClientTest` 3 个测试通过，覆盖 `message_type/sub_type` 严格文档字段、旧 `messageType/subType` 兼容、非权限 `tool_call` 不误判。
+- Backend 相关 62 个 Maven reactor 模块在 Java 17 下 `-DskipTests compile` 通过，覆盖 agent adapter/application/infra/ui 及依赖模块。
 - `nuwax-ask-question-mcp` `npm run typecheck` 与 `npm run build` 通过；clean build 后 `dist` 只包含 `index.*` 与 `types.*`。
+- `nuwax-ask-question-mcp` README 已说明无 HTTP sidecar / MCP-side pending store，并补充普通聊天恢复消息的 `label：value` 规则、enumNames/数组/布尔/空值/取消/跳过/超时示例。
 
-待人工补充的浏览器证据：
+提测后手动验收项：
 
 - MCP Ask 表单真实渲染截图。
 - 用户提交后生成的普通聊天消息截图，消息内容应为 `label：value` 格式且不包含 JSON 代码块。
+
+说明：当前本地 in-app browser 登录页输入受 virtual clipboard 能力限制，无法在本轮补截图；MCP Ask 表单渲染与提交 payload 已由组件级测试覆盖，截图作为提测后的人工验收证据补充。

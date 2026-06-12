@@ -13,58 +13,60 @@ import * as path from "path";
 import * as fs from "fs";
 import log from "electron-log";
 import type { ChildProcess } from "child_process";
-import { FEATURES } from "@shared/featureFlags";
-import {
-  ACP_SESSION_CANCELLED_ERROR_CODE,
-  GUI_MCP_SERVER_ID,
-} from "@shared/constants";
-import { isGuiMcpManagedServerId } from "@shared/guiMcp";
-import { getGuiAgentServerUrl } from "@main/services/packages/guiAgentServer";
-import { getWindowsMcpUrl } from "@main/services/packages/windowsMcp";
-import { isWindows } from "@main/services/system/shellEnv";
-import { getResourcesPath } from "@main/services/system/dependencies";
+import { ACP_SESSION_CANCELLED_ERROR_CODE } from "@shared/constants";
 import type { SandboxProcessConfig } from "@shared/types/sandbox";
 import {
   getAcpEngineSandboxCapabilities,
   isOpencodeAcpEngine,
-} from "./acpEngineSandbox";
-import { resolveAcpSandboxProcessConfig } from "./acpSandboxPolicy";
-import { injectSandboxedMcpForSession } from "./acpSandboxedMcpSession";
+} from "./sandbox/acpEngineSandbox";
+import { resolveAcpSandboxProcessConfig } from "./sandbox/acpSandboxPolicy";
 import {
   buildOpencodeSpawnConfig,
   describeOpencodeSandboxActive,
-} from "./opencodeAcpSpawnConfig";
+  stripGuiMcpFromOpencodeConfigContent,
+} from "./sandbox/opencodeAcpSpawnConfig";
 import {
   createAcpConnection,
   getMcpTransportSnapshot,
-  isMcpReconnectWindowActive,
   loadAcpSdk,
   resolveAcpBinary,
   type AcpClientSideConnection,
   type AcpClientHandler,
   type AcpSessionUpdate,
-  type AcpAgentMessageChunk,
-  type AcpAgentThoughtChunk,
-  type AcpToolCall,
-  type AcpToolCallUpdate,
-  type AcpSessionInfoUpdate,
   type AcpPermissionRequest,
   type AcpPermissionResponse,
-  type AcpPermissionOption,
-  type AcpMcpServer,
-  type AcpEnvVariable,
 } from "./acpClient";
-import { AcpTerminalManager } from "./acpTerminalManager";
-import { evaluateStrictWritePermission } from "./strictPermissionGuard";
+import {
+  AcpTerminalManager,
+  createTerminalManagerForSandbox,
+} from "./acpTerminalManager";
+import { AcpPermissionCoordinator } from "./permission/permissionCoordinator";
+import {
+  buildNewSessionParams,
+  type NewSessionOpts,
+} from "./acpNewSessionParams";
+import {
+  toErrorMessage,
+  isPromptCancellation,
+  createSessionCancelledError,
+  isMcpReconnectFailure as isMcpReconnectFailureWith,
+  executePromptWithRetry,
+} from "./acpPromptRetry";
+import {
+  recordUserMessageToMemory,
+  buildMemoryEnhancedPrompt,
+} from "./acpChatMemory";
+import { mapAcpUpdateToEvents } from "./acpUpdateMapper";
 import type {
   AgentConfig,
+  AgentEngineType,
   AcpSessionStatus,
   SdkSession,
   MessageWithParts,
   PromptOptions,
   AssistantMessage,
   TextPart,
-} from "../unifiedAgent";
+} from "../types";
 import type {
   HttpResult,
   ComputerChatRequest,
@@ -72,8 +74,6 @@ import type {
   UnifiedSessionMessage,
   ModelProviderConfig,
 } from "@shared/types/computerTypes";
-import { memoryService } from "../../memory";
-import type { ModelConfig } from "../../memory/types";
 import { redactForLog, redactStringForLog } from "../../utils/logRedact";
 import {
   killProcessTree,
@@ -82,7 +82,6 @@ import {
 import { processRegistry } from "../../system/processRegistry";
 import { t } from "../../i18n";
 import { resolveComputerProjectWorkspaceDir } from "../../workspacePaths";
-import type { AgentEngineType } from "../types";
 import type { DetailedSession } from "@shared/types/sessions";
 import { ACP_ABORT_TIMEOUT } from "@shared/constants";
 import { APP_DATA_DIR_NAME } from "../../constants";
@@ -91,23 +90,19 @@ import { firstTokenTrace } from "../perf/firstTokenTrace";
 import { resolveEffectiveMode, type AcpMode } from "@shared/types/acpMode";
 import {
   approvalInterventionService,
-  isRcoderNotifyResolvedRequest,
-  toRcoderPermissionProgressData,
+  isComputerPermissionResolveRequest,
+  toComputerPermissionProgressData,
 } from "../../intervention";
+import {
+  normalizePermissionGatedToolUpdate,
+  type PermissionGatedToolInputCache,
+} from "./permission/permissionGatedToolUpdate";
 import type {
   NotifyResolvedRequest,
   NotifyResolvedResponse,
-  RcoderNotifyResolvedRequest,
+  ComputerNotifyResolvedRequest,
 } from "@shared/types/intervention";
-
-/** Safe JSON.stringify that handles circular references */
-function safeStringify(obj: unknown): string {
-  try {
-    return JSON.stringify(obj);
-  } catch {
-    return String(obj);
-  }
-}
+import { safeStringify } from "../utils/safeStringify";
 
 const MCP_RETRY_DELAY_MS = 1200;
 const MCP_RECONNECT_WINDOW_MS = 4000;
@@ -154,27 +149,19 @@ export class AcpEngine extends EventEmitter {
   /** Stored sandbox config for use in createSession (MCP Bash injection) */
   private storedSandboxConfig: SandboxProcessConfig | null = null;
   private sessions = new Map<string, AcpSession>();
-  private pendingPermissions = new Map<
+  private permissionGatedToolRawInputs = new Map<
     string,
-    {
-      resolve: (r: AcpPermissionResponse) => void;
-      options: AcpPermissionOption[];
-    }
+    PermissionGatedToolInputCache
   >();
-  private effectiveModes = new Map<string, AcpMode>();
+  /** 权限决策链与权限会话状态（决策逻辑见 permission/permissionCoordinator.ts） */
+  private readonly permissions: AcpPermissionCoordinator;
 
   setEffectiveMode(acpSessionId: string, mode: AcpMode): void {
-    this.effectiveModes.set(acpSessionId, mode);
-  }
-
-  private getEffectiveMode(acpSessionId: string): AcpMode {
-    return this.effectiveModes.get(acpSessionId) ?? "yolo";
+    this.permissions.setEffectiveMode(acpSessionId, mode);
   }
 
   private activePromptSessions = new Set<string>();
   private activePromptRejects = new Map<string, (reason: Error) => void>();
-  private strictPermissionSnapshotLoggedSessions = new Set<string>();
-  private static readonly MAX_SNAPSHOT_LOGGED_SESSIONS = 500;
   private logTag: string;
 
   private readonly _engineName: AgentEngineType;
@@ -183,6 +170,7 @@ export class AcpEngine extends EventEmitter {
     super();
     this._engineName = engineName;
     this.logTag = `[AcpEngine:${engineName}]`;
+    this.permissions = new AcpPermissionCoordinator(this.logTag);
   }
 
   get isReady(): boolean {
@@ -221,73 +209,14 @@ export class AcpEngine extends EventEmitter {
     return this.activePromptSessions.size;
   }
 
-  private toErrorMessage(error: unknown): string {
-    return error instanceof Error
-      ? error.message
-      : typeof error === "object" && error !== null
-        ? safeStringify(error)
-        : String(error);
-  }
-
-  /**
-   * 根据错误 message 判断是否为用户取消 / 中止类（启发式，兼容历史英文与其它来源文案）。
-   * 用户主动 abort 时优先使用 {@link createSessionCancelledError}，其 `code` 为
-   * {@link ACP_SESSION_CANCELLED_ERROR_CODE}，由 {@link isPromptCancellation} 优先识别。
-   */
-  private isPromptCancellationError(errorMsg: string): boolean {
-    const lower = errorMsg.toLowerCase();
-    return (
-      lower.includes("session is terminating") ||
-      lower.includes("abort") ||
-      lower.includes("cancel") ||
-      errorMsg.includes("Session cancelled")
-    );
-  }
-
-  /**
-   * 判断 prompt 失败是否属于「取消」而非可重试的 MCP 波动。
-   * 先检查 {@link ACP_SESSION_CANCELLED_ERROR_CODE}，再回退到 message 启发式。
-   */
-  private isPromptCancellation(error: unknown): boolean {
-    if (
-      error !== null &&
-      typeof error === "object" &&
-      (error as { code?: unknown }).code === ACP_SESSION_CANCELLED_ERROR_CODE
-    ) {
-      return true;
-    }
-    return this.isPromptCancellationError(this.toErrorMessage(error));
-  }
-
-  /**
-   * 用户取消会话时 reject 用的 Error：`message` 随主进程当前语言，`code` 固定。
-   */
-  private createSessionCancelledError(): Error {
-    const err = new Error("Session cancelled"); // 这个不要走 i18n
-    Object.assign(err, { code: ACP_SESSION_CANCELLED_ERROR_CODE });
-    return err;
-  }
-
-  private isMcpReconnectErrorMessage(errorMsg: string): boolean {
-    const lower = errorMsg.toLowerCase();
-    return (
-      (lower.includes("transport error") &&
-        (lower.includes("sse stream disconnected") ||
-          lower.includes("typeerror: terminated"))) ||
-      lower.includes("sse stream disconnected") ||
-      lower.includes("typeerror: terminated") ||
-      lower.includes("mcp session reconnected") ||
-      lower.includes("connection terminated") ||
-      lower.includes("stream disconnected")
-    );
-  }
+  // 错误分类与重试逻辑见 acpPromptRetry.ts；此处为绑定引擎上下文的薄封装。
 
   private isMcpReconnectFailure(errorMsg: string): boolean {
-    if (!isOpencodeAcpEngine(this.engineName)) return false;
-    return (
-      this.isMcpReconnectErrorMessage(errorMsg) ||
-      isMcpReconnectWindowActive(this.acpProcess, MCP_RECONNECT_WINDOW_MS)
-    );
+    return isMcpReconnectFailureWith(errorMsg, {
+      isOpencodeEngine: isOpencodeAcpEngine(this.engineName),
+      acpProcess: this.acpProcess,
+      reconnectWindowMs: MCP_RECONNECT_WINDOW_MS,
+    });
   }
 
   private buildPromptMeta(
@@ -531,70 +460,18 @@ export class AcpEngine extends EventEmitter {
       configTimer.end("acp.init.config", { engine: this.engineName });
 
       // GUI MCP (gui-agent) and sandbox are mutually exclusive for now.
-      // Remove gui-agent from legacy OPENCODE_CONFIG_CONTENT injection path
-      // when sandbox is enabled, so nuwaxcode won't bootstrap GUI MCP.
-      if (
-        this.sandboxCaps.usesOpencodeSpawnConfig &&
-        sandboxConfig?.enabled &&
-        spawnEnv.OPENCODE_CONFIG_CONTENT
-      ) {
-        try {
-          const injectedConfig = JSON.parse(
-            spawnEnv.OPENCODE_CONFIG_CONTENT,
-          ) as {
-            mcp?: Record<string, unknown>;
-          };
-          if (injectedConfig.mcp) {
-            let removed = 0;
-            for (const key of Object.keys(injectedConfig.mcp)) {
-              if (isGuiMcpManagedServerId(key)) {
-                delete injectedConfig.mcp[key];
-                removed += 1;
-              }
-            }
-            if (removed > 0) {
-              spawnEnv.OPENCODE_CONFIG_CONTENT = JSON.stringify(injectedConfig);
-              log.warn(
-                `${this.logTag} Removed gui-agent MCP from OPENCODE_CONFIG_CONTENT because sandbox is enabled`,
-                { removed },
-              );
-            }
-          }
-        } catch (e) {
-          log.warn(
-            `${this.logTag} Failed to enforce gui-agent/sandbox mutual exclusion in OPENCODE_CONFIG_CONTENT`,
-            e,
-          );
-        }
+      if (this.sandboxCaps.usesOpencodeSpawnConfig && sandboxConfig?.enabled) {
+        stripGuiMcpFromOpencodeConfigContent(spawnEnv, this.logTag);
       }
 
       // Create Terminal Manager for per-command sandboxing via ACP Terminal API.
       // claude-code-acp-ts uses terminal/create for bash execution.
       // On Windows, this routes through nuwax-sandbox-helper.exe run.
       // On macOS/Linux, commands are executed directly.
-      if (
-        sandboxConfig?.enabled &&
-        sandboxConfig.type === "windows-sandbox" &&
-        sandboxConfig.windowsSandboxHelperPath
-      ) {
-        this.terminalManager = new AcpTerminalManager({
-          windowsSandboxHelperPath: sandboxConfig.windowsSandboxHelperPath,
-          windowsSandboxMode: sandboxConfig.windowsSandboxMode,
-          networkEnabled: sandboxConfig.networkEnabled ?? true,
-          writablePaths: sandboxConfig.projectWorkspaceDir
-            ? [sandboxConfig.projectWorkspaceDir]
-            : [],
-          mode: sandboxConfig.mode,
-        });
-        log.info(
-          `${this.logTag} Terminal manager initialized (Windows sandbox)`,
-        );
-      } else {
-        this.terminalManager = new AcpTerminalManager();
-        log.info(
-          `${this.logTag} Terminal manager initialized (direct execution)`,
-        );
-      }
+      this.terminalManager = createTerminalManagerForSandbox(
+        sandboxConfig,
+        this.logTag,
+      );
 
       // Store sandbox config for use in createSession (MCP Bash injection)
       this.storedSandboxConfig = sandboxConfig ?? null;
@@ -726,17 +603,16 @@ export class AcpEngine extends EventEmitter {
       }
     }
 
-    // Reject all pending permissions
-    for (const [id, pending] of this.pendingPermissions) {
-      pending.resolve({ outcome: { outcome: "cancelled" } });
-      this.pendingPermissions.delete(id);
-    }
+    // Reject all pending permissions (session-mode state is cleared at the
+    // end of destroy — see permissions.destroy() below)
+    this.permissions.cancelAllPending();
 
     // Reject all active prompts
     for (const [sessionId, reject] of this.activePromptRejects) {
       reject(new Error("AcpEngine destroyed"));
       this.activePromptRejects.delete(sessionId);
     }
+    this.permissionGatedToolRawInputs.clear();
 
     // Kill ACP process tree (prevents zombie child processes)
     if (this.acpProcess) {
@@ -812,8 +688,7 @@ export class AcpEngine extends EventEmitter {
     this.sessions.clear();
     this.activePromptSessions.clear();
     this.activePromptRejects.clear();
-    this.strictPermissionSnapshotLoggedSessions.clear();
-    this.effectiveModes.clear();
+    this.permissions.destroy();
     approvalInterventionService.destroy();
     this.config = null;
     this._ready = false;
@@ -823,195 +698,22 @@ export class AcpEngine extends EventEmitter {
 
   // === Session Management ===
 
-  async createSession(opts?: {
-    title?: string;
-    cwd?: string;
-    mcpServers?: Record<
-      string,
-      {
-        command?: string;
-        args?: string[];
-        env?: Record<string, string>;
-        url?: string;
-        type?: string;
-      }
-    >;
-    systemPrompt?: string;
-    requestId?: string;
-  }): Promise<SdkSession> {
+  async createSession(opts?: NewSessionOpts): Promise<SdkSession> {
     if (!this.acpConnection || !this.config) {
       throw new Error("AcpEngine not initialized");
     }
 
-    // Build mcpServers array for ACP (McpServerStdio format)
-    const mcpServers: AcpMcpServer[] = [];
+    // MCP 聚合、GUI MCP 注入/互斥、沙箱 MCP 注入、_meta 构建
+    // 见 acpNewSessionParams.ts
+    const { sessionCwd, mcpServers, _meta } = buildNewSessionParams(opts, {
+      config: this.config,
+      storedSandboxConfig: this.storedSandboxConfig,
+      engineName: this.engineName,
+      logTag: this.logTag,
+    });
 
-    const toAcpMcpServer = (
-      name: string,
-      srv: {
-        command?: string;
-        args?: string[];
-        env?: Record<string, string>;
-        url?: string;
-        type?: string;
-      },
-    ): AcpMcpServer => {
-      // HTTP/SSE URL 类型（来自 PersistentMcpBridge）
-      if ("url" in srv && srv.url) {
-        return {
-          name,
-          url: srv.url,
-          headers: [],
-          type: (srv.type || "http") as "http" | "sse",
-        };
-      }
-      // stdio 类型（降级）
-      const envVars: AcpEnvVariable[] = [];
-      if (srv.env) {
-        for (const [k, v] of Object.entries(srv.env)) {
-          envVars.push({ name: k, value: v });
-        }
-      }
-      return {
-        name,
-        command: srv.command!,
-        args: srv.args || [],
-        env: envVars,
-      };
-    };
-
-    // 1. Global MCP servers from config
-    if (this.config.mcpServers) {
-      for (const [name, srv] of Object.entries(this.config.mcpServers)) {
-        mcpServers.push(toAcpMcpServer(name, srv));
-      }
-    }
-
-    // 2. Per-request MCP servers
-    if (opts?.mcpServers) {
-      for (const [name, srv] of Object.entries(opts.mcpServers)) {
-        if (mcpServers.some((m) => m.name === name)) continue;
-        mcpServers.push(toAcpMcpServer(name, srv));
-      }
-    }
-
-    const sandboxEnabled = this.storedSandboxConfig?.enabled === true;
-    const sandboxMode = this.storedSandboxConfig?.mode ?? "compat";
-    const isStrictOrCompat = sandboxMode !== "permissive";
-    const sessionCwd = (() => {
-      const raw = opts?.cwd || this.config.workspaceDir;
-      if (path.isAbsolute(raw)) return raw;
-      log.warn(`${this.logTag} sessionCwd is not absolute (${raw}), resolving`);
-      return path.resolve(raw);
-    })();
-
-    // GUI MCP (gui-agent) and sandbox are mutually exclusive for now.
-    // Drop gui-agent from both global and per-request MCP inputs when sandbox is on.
-    if (sandboxEnabled) {
-      const before = mcpServers.length;
-      const filtered = mcpServers.filter(
-        (server) => !isGuiMcpManagedServerId(server.name),
-      );
-      const removed = before - filtered.length;
-      if (removed > 0) {
-        mcpServers.length = 0;
-        mcpServers.push(...filtered);
-        log.warn(
-          `${this.logTag} Removed gui-agent MCP from session request because sandbox is enabled`,
-          { removed },
-        );
-      }
-    }
-
-    // [临时测试代码 - 正式发布前将 .env.production 中 INJECT_GUI_MCP 设为 false]
-    // 通过 FEATURES.INJECT_GUI_MCP 控制是否注入 GUI Agent MCP（由 .env.development/.env.production 在运行时决定）
-    // 用于本地开发/打包测试 GUI 桌面自动化功能，正式发布时由服务器下发 context_servers
-    // macOS/Linux：内嵌 agent-gui-server → getGuiAgentServerUrl()
-    // Windows：独立 windows-mcp 子进程（uv）→ getWindowsMcpUrl()；getGuiAgentServerUrl() 在 Win 上恒为 null
-    if (
-      FEATURES.INJECT_GUI_MCP &&
-      !sandboxEnabled &&
-      !mcpServers.some((m) => isGuiMcpManagedServerId(m.name))
-    ) {
-      const guiMcpUrl = isWindows()
-        ? getWindowsMcpUrl()
-        : getGuiAgentServerUrl();
-      if (guiMcpUrl) {
-        mcpServers.push({
-          name: GUI_MCP_SERVER_ID,
-          url: guiMcpUrl,
-          headers: [],
-          type: "http",
-        });
-        log.info(`${this.logTag} 🔧 Injecting GUI Agent MCP: ${guiMcpUrl}`);
-      }
-    } else if (FEATURES.INJECT_GUI_MCP && sandboxEnabled) {
-      log.info(
-        `${this.logTag} Skip GUI Agent MCP injection because sandbox is enabled`,
-      );
-    }
-
-    const { sandboxedBashInjected, sandboxedFsInjected } =
-      injectSandboxedMcpForSession({
-        engineId: this.engineName,
-        logTag: this.logTag,
-        sandboxConfig: this.storedSandboxConfig,
-        sessionCwd,
-        mcpServers,
-        resourcesPath: getResourcesPath(),
-      });
-
-    // Build _meta with systemPrompt if provided (skip if empty or whitespace only)
     const systemPromptTrimmed = opts?.systemPrompt?.trim();
     const requestId = opts?.requestId;
-    const isSandboxed =
-      this.storedSandboxConfig?.enabled === true &&
-      this.storedSandboxConfig.type !== "none";
-
-    const _meta: Record<string, unknown> | undefined = (() => {
-      const meta: Record<string, unknown> = {};
-      if (systemPromptTrimmed) {
-        meta.systemPrompt = { append: systemPromptTrimmed };
-      }
-      if (requestId) {
-        meta.requestId = requestId;
-        meta.request_id = requestId;
-      }
-      // Optionally disable built-in Claude Code tools when sandbox MCP replacements exist.
-      // claude-code-acp-ts reads _meta.claudeCode.options.disallowedTools and merges
-      // with its default disallowedTools (["AskUserQuestion"]).
-      // - Bash: disallowed only if sandboxed-bash MCP was injected (Windows + helper + script).
-      // - Write/Edit/NotebookEdit: in strict/compat, disallowed only if sandboxed-fs MCP
-      //   was injected; if the FS script is missing we keep built-ins so the session can still write.
-      // - Permissive mode: built-in Write/Edit/NotebookEdit stay available (no FS MCP injection).
-      if (isSandboxed) {
-        const disallowed: string[] = [];
-        // Bash: only list as disallowed when sandboxed-bash MCP was actually injected
-        // (Windows helper path). macOS/Linux rely on seatbelt/bwrap for shell, not this MCP.
-        if (sandboxedBashInjected) {
-          disallowed.push("Bash");
-        }
-        // Write/Edit: only disable built-ins when sandboxed-fs MCP is present; otherwise
-        // the model would have no file-write path in strict/compat.
-        if (isStrictOrCompat) {
-          if (sandboxedFsInjected) {
-            disallowed.push("Write", "Edit", "NotebookEdit");
-          } else {
-            log.warn(
-              `${this.logTag} Sandboxed FS MCP unavailable, keep built-in Write/Edit tools`,
-            );
-          }
-        }
-        if (disallowed.length > 0) {
-          meta.claudeCode = {
-            options: {
-              disallowedTools: disallowed,
-            },
-          };
-        }
-      }
-      return Object.keys(meta).length > 0 ? meta : undefined;
-    })();
 
     const newSessionParams = {
       cwd: sessionCwd,
@@ -1149,14 +851,14 @@ export class AcpEngine extends EventEmitter {
       // 1. Reject local prompt immediately for fast UX feedback.
       const reject = this.activePromptRejects.get(sessionId);
       if (reject) {
-        reject(this.createSessionCancelledError());
+        reject(createSessionCancelledError());
         this.activePromptRejects.delete(sessionId);
       }
 
       this.activePromptSessions.delete(sessionId);
 
       approvalInterventionService.cancelByAcpSession(sessionId);
-      this.effectiveModes.delete(sessionId);
+      this.permissions.clearSession(sessionId);
 
       // 2. Send cancel to ACP binary
       let timer: ReturnType<typeof setTimeout> | undefined;
@@ -1326,43 +1028,19 @@ export class AcpEngine extends EventEmitter {
             });
           }
 
-          const runPromptWithRetry = async () => {
-            const maxAttempts = this.sandboxCaps.usesOpencodePromptBehaviors
-              ? 2
-              : 1;
-            let attempt = 1;
-            while (true) {
-              try {
-                const res = await this.acpConnection!.prompt(promptParams);
-                log.info(
-                  `${this.logTag} 📥 ACP prompt resolved (${Date.now() - promptStartTime}ms, attempt=${attempt}):`,
-                  safeStringify(res),
-                );
-                return res;
-              } catch (err) {
-                const errMsg = this.toErrorMessage(err);
-                const canRetry =
-                  attempt < maxAttempts &&
-                  !this.isPromptCancellation(err) &&
-                  this.isMcpReconnectFailure(errMsg);
-
-                if (!canRetry) {
-                  log.error(
-                    `${this.logTag} 📥 ACP prompt rejected (${Date.now() - promptStartTime}ms, attempt=${attempt}):`,
-                    err,
-                  );
-                  throw err;
-                }
-
-                const telemetry = getMcpTransportSnapshot(this.acpProcess);
-                log.warn(
-                  `${this.logTag} ⚠️ MCP reconnect window detected, auto-retrying prompt (attempt=${attempt + 1}/${maxAttempts})`,
-                  {
-                    sessionId,
-                    error: errMsg,
-                    telemetry,
-                  },
-                );
+          executePromptWithRetry(
+            () => this.acpConnection!.prompt(promptParams),
+            {
+              maxAttempts: this.sandboxCaps.usesOpencodePromptBehaviors ? 2 : 1,
+              retryDelayMs: MCP_RETRY_DELAY_MS,
+              logTag: this.logTag,
+              sessionId,
+              promptStartTime,
+              shouldRetry: (err, errMsg) =>
+                !isPromptCancellation(err) &&
+                this.isMcpReconnectFailure(errMsg),
+              getRetryTelemetry: () => getMcpTransportSnapshot(this.acpProcess),
+              onRetry: (info) => {
                 firstTokenTrace.trace(
                   "acp.prompt.retry.mcp_reconnect",
                   {
@@ -1371,21 +1049,13 @@ export class AcpEngine extends EventEmitter {
                     projectId: session.projectId,
                     engine: this.engineName,
                   },
-                  {
-                    attempt,
-                    nextAttempt: attempt + 1,
-                    delayMs: MCP_RETRY_DELAY_MS,
-                    error: errMsg,
-                    telemetry,
-                  },
+                  { ...info },
                 );
-                await this.sleep(MCP_RETRY_DELAY_MS);
-                attempt += 1;
-              }
-            }
-          };
-
-          runPromptWithRetry().then(resolve).catch(reject);
+              },
+            },
+          )
+            .then(resolve)
+            .catch(reject);
         },
       );
 
@@ -1447,7 +1117,7 @@ export class AcpEngine extends EventEmitter {
       });
     } catch (error) {
       log.error(`${this.logTag} Prompt failed:`, error);
-      const errMsg = this.toErrorMessage(error);
+      const errMsg = toErrorMessage(error);
       const isMcpReconnect = this.isMcpReconnectFailure(errMsg);
       const promptEndReason = isMcpReconnect ? "mcp_reconnecting" : "error";
       const promptEndDescription = isMcpReconnect
@@ -1515,30 +1185,7 @@ export class AcpEngine extends EventEmitter {
     permissionId: string,
     response: "once" | "always" | "reject",
   ): void {
-    const pending = this.pendingPermissions.get(permissionId);
-    if (!pending) {
-      log.warn(`${this.logTag} No pending permission for:`, permissionId);
-      return;
-    }
-
-    if (response === "reject") {
-      pending.resolve({ outcome: { outcome: "cancelled" } });
-    } else {
-      const targetKind = response === "always" ? "allow_always" : "allow_once";
-      const optionId =
-        pending.options.find((o) => o.kind === targetKind)?.optionId ??
-        pending.options[0]?.optionId;
-      if (!optionId) {
-        log.warn(
-          `${this.logTag} No valid option for permission response, cancelling`,
-        );
-        pending.resolve({ outcome: { outcome: "cancelled" } });
-      } else {
-        pending.resolve({
-          outcome: { outcome: "selected", optionId },
-        });
-      }
-    }
+    this.permissions.respond(permissionId, response);
   }
 
   // === Legacy compat ===
@@ -1757,6 +1404,11 @@ export class AcpEngine extends EventEmitter {
 
       if (session.acpSessionId) {
         this.setEffectiveMode(session.acpSessionId, effectiveMode);
+        // 每次 chat 请求刷新该会话的 tool_approval_rules（不传则清除，保持向后兼容）
+        this.permissions.setSessionApprovalRules(
+          session.acpSessionId,
+          request.agent_config?.agent_server?.tool_approval_rules,
+        );
       }
 
       timer.end("acp.chat.sessionSetup", {
@@ -1777,7 +1429,7 @@ export class AcpEngine extends EventEmitter {
         { isNewSession },
       );
 
-      // 2. Record user message to MemoryService
+      // 2. Record user message to MemoryService（见 acpChatMemory.ts）
       // 获取纯净用户输入（仅使用 original_user_prompt，不回退到 prompt）
       const pureUserPrompt = request.original_user_prompt || "";
       // 决定是否启用记忆（默认 false）
@@ -1789,76 +1441,25 @@ export class AcpEngine extends EventEmitter {
       session.memoryModel =
         request.model_provider?.default_model || this.config.model || "";
 
-      // 如果 original_user_prompt 为空，打印错误日志
-      if (!pureUserPrompt) {
-        log.error(
-          `${this.logTag} original_user_prompt is empty; skipping memory handling`,
-          {
-            session_id: session.id,
-            request_id: request.request_id,
-          },
-        );
-      }
-
-      if (
-        memoryService.isInitialized() &&
-        this.config &&
-        enableMemory &&
-        pureUserPrompt
-      ) {
-        try {
-          const modelConfig: ModelConfig = {
-            provider: this.engineName.includes("claude")
-              ? "anthropic"
-              : "openai",
-            model:
-              request.model_provider?.default_model || this.config.model || "",
-            apiKey: this.config.apiKey || "",
-            baseUrl: this.config.baseUrl,
-            apiProtocol:
-              request.model_provider?.api_protocol || this.config.apiProtocol,
-          };
-          memoryService.handleMessage(
-            session.id,
-            { role: "user", content: pureUserPrompt },
-            modelConfig,
-          );
-        } catch (error) {
-          log.warn(
-            `${this.logTag} Failed to record user message to memory:`,
-            error,
-          );
-        }
-      }
+      recordUserMessageToMemory({
+        sessionId: session.id,
+        requestId: request.request_id,
+        pureUserPrompt,
+        enableMemory,
+        modelProvider: request.model_provider,
+        engineName: this.engineName,
+        config: this.config,
+        logTag: this.logTag,
+      });
 
       // 3. Inject memory context into prompt
-      let enhancedPrompt = request.prompt;
       const memoryTimer = perfEmitter.start();
-      if (memoryService.isInitialized() && enableMemory && pureUserPrompt) {
-        try {
-          // 使用纯净用户输入进行记忆搜索
-          const promptForMemory = pureUserPrompt.trim();
-          log.debug(
-            `${this.logTag} Memory search query: "${promptForMemory.slice(0, 100)}"`,
-          );
-
-          const memoryContext =
-            await memoryService.getInjectionContext(promptForMemory);
-          if (memoryContext && memoryContext.trim()) {
-            enhancedPrompt = `<memory-context>
-Known information about the user (use as reference when answering):
-${memoryContext}
-</memory-context>
-
-User question: ${request.prompt}`;
-            log.info(
-              `${this.logTag} Injected memory context (${memoryContext.length} chars)`,
-            );
-          }
-        } catch (error) {
-          log.warn(`${this.logTag} Failed to inject memory context:`, error);
-        }
-      }
+      const enhancedPrompt = await buildMemoryEnhancedPrompt({
+        prompt: request.prompt,
+        pureUserPrompt,
+        enableMemory,
+        logTag: this.logTag,
+      });
       memoryTimer.end("acp.chat.memoryInject", {
         stage: "memory_injection",
         enabled: enableMemory,
@@ -1932,7 +1533,7 @@ User question: ${request.prompt}`;
         success: true,
       };
     } catch (error) {
-      const rawErrorMsg = this.toErrorMessage(error);
+      const rawErrorMsg = toErrorMessage(error);
       const errorMsg = this.isMcpReconnectFailure(rawErrorMsg)
         ? getMcpReconnectPromptMessage()
         : rawErrorMsg;
@@ -2014,89 +1615,45 @@ User question: ${request.prompt}`;
       `${this.logTag} 📩 ACP sessionUpdate: type=${update.sessionUpdate}, sessionId=${acpSessionId}`,
     );
 
+    const { update: normalizedUpdate, delay } =
+      normalizePermissionGatedToolUpdate(
+        update,
+        this.permissionGatedToolRawInputs,
+      );
+    if (delay) {
+      log.debug(
+        `${this.logTag} Delay permission-gated tool update until completed result`,
+        {
+          sessionId: acpSessionId,
+          sessionUpdate: normalizedUpdate.sessionUpdate,
+          toolCallId: (normalizedUpdate as any).toolCallId,
+          status: (normalizedUpdate as any).status,
+        },
+      );
+      return;
+    }
+
     // sessionId and acpSessionId are the same UUID
     this.emit("computer:progress", {
       sessionId: acpSessionId,
       acpSessionId: acpSessionId,
       messageType: "agentSessionUpdate",
-      subType: update.sessionUpdate,
-      data: update,
+      subType: normalizedUpdate.sessionUpdate,
+      data: normalizedUpdate,
       timestamp: new Date().toISOString(),
     } satisfies UnifiedSessionMessage);
 
-    switch (update.sessionUpdate) {
-      case "agent_message_chunk": {
-        const u = update as AcpAgentMessageChunk;
-        this.emit("message.part.updated", {
-          sessionId: acpSessionId,
-          type: "text",
-          text: u.content?.text || "",
-        });
-        break;
-      }
-
-      case "agent_thought_chunk": {
-        const u = update as AcpAgentThoughtChunk;
-        this.emit("message.part.updated", {
-          sessionId: acpSessionId,
-          type: "reasoning",
-          thinking: u.content?.text || "",
-        });
-        break;
-      }
-
-      case "tool_call": {
-        const u = update as AcpToolCall;
-        this.emit("message.part.updated", {
-          sessionId: acpSessionId,
-          type: "tool",
-          toolCallId: u.toolCallId,
-          name: u.title,
-          kind: u.kind,
-          status: u.status,
-          input: u.rawInput,
-          content: u.content,
-        });
-        break;
-      }
-
-      case "tool_call_update": {
-        const u = update as AcpToolCallUpdate;
-
-        this.emit("message.part.updated", {
-          sessionId: acpSessionId,
-          type: "tool",
-          toolCallId: u.toolCallId,
-          status: u.status,
-          output: u.rawOutput,
-          content: u.content,
-        });
-        break;
-      }
-
-      case "session_info_update": {
-        const u = update as AcpSessionInfoUpdate;
-        if (u.title) {
-          session.title = u.title;
-        }
-        this.emit("session.updated", {
-          sessionId: acpSessionId,
-          title: u.title,
-        });
-        break;
-      }
-
-      case "usage_update": {
-        log.info(`${this.logTag} 📊 Usage update:`, safeStringify(update));
-        break;
-      }
-
-      default: {
-        log.info(
-          `${this.logTag} ❓ Unhandled ACP update: ${update.sessionUpdate}`,
-          safeStringify(update),
-        );
-      }
+    // ACP update → 内部事件映射见 acpUpdateMapper.ts
+    const mapped = mapAcpUpdateToEvents(
+      acpSessionId,
+      normalizedUpdate,
+      this.logTag,
+    );
+    if (mapped.sessionTitle) {
+      session.title = mapped.sessionTitle;
+    }
+    for (const { event, payload } of mapped.events) {
+      this.emit(event, payload);
     }
   }
 
@@ -2110,16 +1667,10 @@ User question: ${request.prompt}`;
       return { outcome: { outcome: "cancelled" } };
     }
 
-    if (params.toolCall.kind === "question") {
-      log.info(
-        `${this.logTag} 🚫 Denying question-type request: tool=${params.toolCall.title}`,
-      );
-      return { outcome: { outcome: "cancelled" } };
-    }
-
-    const strictEnabled = this.isStrictSandboxActiveForEngine();
-    const strictCheck = evaluateStrictWritePermission(params, {
-      strictEnabled,
+    // 决策链（question 拒绝 → strict guard → tool_approval_rules → agent_mode）
+    // 见 permission/permissionCoordinator.ts
+    const decision = this.permissions.evaluate(params, {
+      strictEnabled: this.isStrictSandboxActiveForEngine(),
       sandboxMode: this.sandboxMode,
       workspaceDir: this.config?.workspaceDir,
       projectWorkspaceDir: this.storedSandboxConfig?.projectWorkspaceDir,
@@ -2133,113 +1684,17 @@ User question: ${request.prompt}`;
         process.env.TEMP,
       ].filter(Boolean) as string[],
     });
-    if (strictEnabled) {
-      if (!this.strictPermissionSnapshotLoggedSessions.has(acpSessionId)) {
-        if (
-          this.strictPermissionSnapshotLoggedSessions.size >=
-          AcpEngine.MAX_SNAPSHOT_LOGGED_SESSIONS
-        ) {
-          const oldest = this.strictPermissionSnapshotLoggedSessions
-            .values()
-            .next().value;
-          if (oldest)
-            this.strictPermissionSnapshotLoggedSessions.delete(oldest);
-        }
-        this.strictPermissionSnapshotLoggedSessions.add(acpSessionId);
-        log.debug(`${this.logTag} strict writable roots snapshot`, {
-          acpSessionId,
-          workspaceDir: this.config?.workspaceDir,
-          projectWorkspaceDir: this.storedSandboxConfig?.projectWorkspaceDir,
-          isolatedHome: this.isolatedHome,
-          writableRoots: strictCheck.writableRoots,
-        });
-      }
-      const strictTrace = {
-        reason: strictCheck.reason,
-        isWriteRequest: strictCheck.isWriteRequest,
-        toolKind: params.toolCall.kind,
-        toolTitle: params.toolCall.title,
-        candidatePaths: strictCheck.candidatePaths,
-        resolvedPaths: strictCheck.resolvedPaths,
-        writableRoots: strictCheck.writableRoots,
+
+    if (decision.kind === "cancel") {
+      return { outcome: { outcome: "cancelled" } };
+    }
+    if (decision.kind === "select") {
+      return {
+        outcome: { outcome: "selected", optionId: decision.optionId },
       };
-      if (strictCheck.isWriteRequest) {
-        log.debug(`${this.logTag} strict permission evaluation`, strictTrace);
-      } else {
-        log.debug(
-          `${this.logTag} strict permission skipped (non-write request)`,
-          strictTrace,
-        );
-      }
-    }
-    if (strictCheck.blocked) {
-      log.warn(`${this.logTag} strict write permission blocked`, {
-        reason: strictCheck.reason,
-        toolKind: params.toolCall.kind,
-        toolTitle: params.toolCall.title,
-        candidatePaths: strictCheck.candidatePaths,
-        resolvedPaths: strictCheck.resolvedPaths,
-        writableRoots: strictCheck.writableRoots,
-      });
-      return { outcome: { outcome: "cancelled" } };
     }
 
-    const effectiveMode = this.getEffectiveMode(acpSessionId);
-
-    if (effectiveMode === "yolo") {
-      const strictWriteMode = strictEnabled && strictCheck.isWriteRequest;
-      const selected = strictWriteMode
-        ? params.options.find((o) => o.kind === "allow_once")
-        : params.options.find((o) => o.kind === "allow_always") ||
-          params.options.find((o) => o.kind === "allow_once") ||
-          params.options[0];
-
-      if (strictWriteMode && !selected) {
-        log.debug(
-          `${this.logTag} strict write permission blocked (allow_once option missing)`,
-          {
-            toolKind: params.toolCall.kind,
-            toolTitle: params.toolCall.title,
-          },
-        );
-        return { outcome: { outcome: "cancelled" } };
-      }
-
-      if (selected) {
-        if (
-          selected.kind !== "allow_always" &&
-          selected.kind !== "allow_once"
-        ) {
-          log.warn(`${this.logTag} yolo fallback selected non-allow option`, {
-            kind: selected.kind,
-            optionId: selected.optionId,
-            toolTitle: params.toolCall.title,
-          });
-        }
-        if (strictWriteMode) {
-          log.debug(`${this.logTag} strict write permission allowed_once`, {
-            toolKind: params.toolCall.kind,
-            toolTitle: params.toolCall.title,
-            optionId: selected.optionId,
-            candidatePaths: strictCheck.candidatePaths,
-            resolvedPaths: strictCheck.resolvedPaths,
-          });
-        } else {
-          log.info(
-            `${this.logTag} 🔓 Permission auto-approved (yolo): tool=${params.toolCall.title}, kind=${selected.kind}, optionId=${selected.optionId}`,
-          );
-        }
-        return {
-          outcome: { outcome: "selected", optionId: selected.optionId },
-        };
-      }
-
-      log.warn(
-        `${this.logTag} ⚠️ No selectable options; cancelling: tool=${params.toolCall.title}`,
-      );
-      return { outcome: { outcome: "cancelled" } };
-    }
-
+    // ask：走 approvalInterventionService 人工审批
     const appSessionId = acpSessionId;
 
     const { interventionRequest, acpResponsePromise } =
@@ -2259,7 +1714,7 @@ User question: ${request.prompt}`;
       acpSessionId,
       messageType: "acpRequestPermission",
       subType: "request_permission",
-      data: toRcoderPermissionProgressData({
+      data: toComputerPermissionProgressData({
         acpRequest: params,
         interventionId: interventionRequest.id,
         revision: interventionRequest.revision,
@@ -2271,10 +1726,12 @@ User question: ${request.prompt}`;
   }
 
   resolvePermissionIntervention(
-    payload: NotifyResolvedRequest | RcoderNotifyResolvedRequest,
+    payload: NotifyResolvedRequest | ComputerNotifyResolvedRequest,
   ): NotifyResolvedResponse {
-    if (isRcoderNotifyResolvedRequest(payload)) {
-      return approvalInterventionService.resolveFromRcoderCallback(payload);
+    if (isComputerPermissionResolveRequest(payload)) {
+      return approvalInterventionService.resolveFromComputerPermissionCallback(
+        payload,
+      );
     }
     return approvalInterventionService.resolveFromCallback(payload);
   }

@@ -11,8 +11,9 @@
 # 用法（在仓库根目录）:
 #   ./crates/agent-electron-client/scripts/sync-oss.sh <tag> [channel]
 # 示例（已有 Release 时只推 OSS，不触发构建）:
-#   ./scripts/sync-oss.sh electron-v0.9.0           # 默认 stable
-#   ./scripts/sync-oss.sh electron-v0.9.0 beta      # 仅更新 beta/latest.json
+#   ./scripts/sync-oss.sh electron-v0.9.0              # 默认 stable
+#   ./scripts/sync-oss.sh electron-v0.9.0 beta         # beta 指针（electron tag）
+#   ./scripts/sync-oss.sh prerelease-v0.11.34 beta     # beta 预发布（unsigned Windows 包）
 #
 # 依赖: gh (GitHub CLI)、jq，且需已 gh auth login。
 # Windows Git Bash 下若直接找不到 gh，可与 sign-release-win.sh 一样设置:
@@ -118,10 +119,15 @@ TAG="$1"
 CHANNEL="${2:-stable}"
 
 # 验证 tag 格式
-if [[ ! "$TAG" =~ ^electron-v ]]; then
-  echo "错误: tag 必须以 'electron-v' 开头"
+if [[ ! "$TAG" =~ ^electron-v ]] && [[ ! "$TAG" =~ ^prerelease-v ]]; then
+  echo "错误: tag 必须以 'electron-v' 或 'prerelease-v' 开头"
   echo "当前: $TAG"
   exit 1
+fi
+
+if [[ "$TAG" =~ ^prerelease-v ]] && [[ "$CHANNEL" != "beta" ]]; then
+  echo "提示: prerelease tag 请使用 channel=beta，例如: $0 $TAG beta"
+  CHANNEL="beta"
 fi
 
 if [[ "$CHANNEL" != "stable" && "$CHANNEL" != "beta" ]]; then

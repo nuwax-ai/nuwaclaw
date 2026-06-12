@@ -47,6 +47,7 @@ help:
 	@echo "  electron-prepare-gui-server - Prepare agent-gui-server for Electron"
 	@echo "  electron-prepare-sandbox-runtime - Sync Windows sandbox helper (skipped on non-Windows hosts)"
 	@echo "  electron-prepare-windows-mcp - Bundle windows-mcp into resources (Windows only, skipped elsewhere)"
+	@echo "  electron-prepare-ripgrep     - Bundle ripgrep (rg) binary into resources"
 	@echo "  electron-prepare            - Full prepare (install + rebuild + all binaries)"
 	@echo "  electron-bundle-unsigned    - Build Electron app (unsigned, current platform)"
 	@echo "  electron-bundle             - Build Electron app then sign on Windows via sign-release-win.sh"
@@ -195,8 +196,13 @@ electron-prepare-windows-mcp:
 	@echo ">>> Skipping electron-prepare-windows-mcp (Windows-only step, host=$(UNAME_S))"
 endif
 
+.PHONY: electron-prepare-ripgrep
+electron-prepare-ripgrep:
+	@echo ">>> Preparing bundled ripgrep for Electron..."
+	cd crates/$(ELECTRON_CLIENT) && npm run prepare:ripgrep
+
 .PHONY: electron-prepare
-electron-prepare: electron-install-deps electron-rebuild electron-prepare-sources electron-prepare-lanproxy electron-prepare-node electron-prepare-uv electron-prepare-mcp-proxy electron-prepare-nuwaxcode electron-prepare-codex-acp electron-prepare-gui-server electron-prepare-sandbox-runtime electron-prepare-windows-mcp
+electron-prepare: electron-install-deps electron-rebuild electron-prepare-sources electron-prepare-lanproxy electron-prepare-node electron-prepare-uv electron-prepare-mcp-proxy electron-prepare-nuwaxcode electron-prepare-codex-acp electron-prepare-gui-server electron-prepare-sandbox-runtime electron-prepare-windows-mcp electron-prepare-ripgrep
 	@echo ">>> Electron client prepared successfully"
 
 .PHONY: electron-bundle-unsigned

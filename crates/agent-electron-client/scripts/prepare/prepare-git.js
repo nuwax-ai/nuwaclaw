@@ -172,6 +172,52 @@ function pruneUnneededFiles() {
   console.log(`[prepare-git] 已删除 ${prunedCount} 个不需要的目录/文件`);
 }
 
+const MSYS_STDOUT_GUARD_MARKER = '# [NuwaClaw] MSYS2 stdout guard';
+const MSYS_STDOUT_GUARD_START = `${MSYS_STDOUT_GUARD_MARKER}
+exec 3>&1 4>&2 1>&2
+`;
+const MSYS_STDOUT_GUARD_END = `${MSYS_STDOUT_GUARD_MARKER} end
+exec 1>&3 2>&4 3>&- 4>&-
+`;
+
+/**
+ * Patch bundled Git /etc/profile so MSYS2 init noise goes to stderr, not stdout.
+ * Fixes Bash tool `rg: command not found` (exit 127): env probe must see a clean PATH
+ * that includes resources/ripgrep/bin, not MSYS2 diagnostic text as the first segment.
+ * @param {string} [gitRoot=GIT_ROOT]
+ * @returns {string[]} Patched profile paths
+ */
+function patchGitEtcProfile(gitRoot = GIT_ROOT) {
+  const profileRelPaths = [
+    path.join('etc', 'profile'),
+    path.join('usr', 'etc', 'profile'),
+    path.join('mingw64', 'etc', 'profile'),
+  ];
+
+  const patched = [];
+
+  for (const relPath of profileRelPaths) {
+    const profilePath = path.join(gitRoot, relPath);
+    if (!fs.existsSync(profilePath)) {
+      continue;
+    }
+
+    let content = fs.readFileSync(profilePath, 'utf-8');
+    if (content.includes(MSYS_STDOUT_GUARD_MARKER)) {
+      console.log(`[prepare-git] ${relPath} 已包含 stdout guard，跳过`);
+      patched.push(profilePath);
+      continue;
+    }
+
+    content = MSYS_STDOUT_GUARD_START + content.trimEnd() + '\n' + MSYS_STDOUT_GUARD_END + '\n';
+    fs.writeFileSync(profilePath, content, 'utf-8');
+    console.log(`[prepare-git] 已修补 ${relPath}（MSYS2 stdout guard，修复 Bash 中 rg 不可用）`);
+    patched.push(profilePath);
+  }
+
+  return patched;
+}
+
 /**
  * 使用 7zip-bin 解压 .7z.exe 到临时目录，再将内容移动到 GIT_ROOT
  * 归档内通常有一层根目录（如 PortableGit 或 mingw64），需把其内容移到 GIT_ROOT
@@ -297,6 +343,7 @@ async function ensurePortableGit(options = {}) {
   const existingBash = findPortableGitBash();
   if (existingBash) {
     console.log(`[prepare-git] PortableGit 已就绪: ${existingBash}`);
+    patchGitEtcProfile(GIT_ROOT);
     return { ok: true, skipped: false, bashPath: existingBash };
   }
 
@@ -315,6 +362,7 @@ async function ensurePortableGit(options = {}) {
   }
 
   pruneUnneededFiles();
+  patchGitEtcProfile(GIT_ROOT);
 
   const finalSize = getDirSize(GIT_ROOT);
   console.log(`[prepare-git] PortableGit 准备完成: ${resolvedBash}`);
@@ -338,6 +386,7 @@ if (require.main === module) {
 module.exports = {
   ensurePortableGit,
   findPortableGitBash,
+  patchGitEtcProfile,
   GIT_VERSION,
   GIT_ROOT,
 };

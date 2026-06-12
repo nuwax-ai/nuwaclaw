@@ -211,7 +211,7 @@ describe("dependencies", () => {
       const fileServerDep = deps.find((d) => d.name === "nuwax-file-server");
 
       expect(fileServerDep).toBeDefined();
-      expect(fileServerDep?.type).toBe("npm-local");
+      expect(fileServerDep?.type).toBe("bundled");
       expect(fileServerDep?.required).toBe(true);
       expect(fileServerDep?.binName).toBe("nuwax-file-server");
     });

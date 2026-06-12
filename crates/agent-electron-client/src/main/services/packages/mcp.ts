@@ -43,6 +43,7 @@ import { isGuiMcpManagedServerId } from "@shared/guiMcp";
 import { getGuiMcpEnabled } from "./guiMcpLocalConfig";
 import { getGuiAgentServerUrl } from "./guiAgentServer";
 import { getWindowsMcpUrl } from "./windowsMcp";
+import { discoverStdioMcpTools } from "./discoverStdioMcpTools";
 
 type PerfValue = string | number | boolean | null | undefined;
 
@@ -176,12 +177,6 @@ function resolveNpmCliCommand(
   return { command: `${base}.cmd`, args };
 }
 
-function quoteCmdArg(arg: string): string {
-  if (arg.length === 0) return '""';
-  if (!/[\s"]/g.test(arg)) return arg;
-  return `"${arg.replace(/"/g, '\\"')}"`;
-}
-
 function guessMcpDiscoverTimeoutMs(command: string, args: string[]): number {
   // Tool discovery is often backed by `npx -y <pkg>` (first run may download),
   // which can easily exceed 5s on Windows/slow networks. Use a larger timeout.
@@ -195,13 +190,6 @@ function guessMcpDiscoverTimeoutMs(command: string, args: string[]): number {
   // uv tool run may also install on first run, but generally faster than npx
   if (cmd === "uv" || cmd === "uvx") return 45_000;
   return 15_000;
-}
-
-function writeMcpStdioMessage(
-  stdin: { write: (chunk: string | Buffer) => void },
-  payload: unknown,
-): void {
-  stdin.write(`${JSON.stringify(payload)}\n`);
 }
 
 /**
@@ -1151,211 +1139,37 @@ class McpProxyManager {
       }
     }
 
-    // 解析命令和环境变量
+    // Reuse PersistentMcpBridge when this server is already running there
+    // (local mcp_local_config may omit `persistent` even though bridge has the server)
+    if (persistentMcpBridge.isRunning()) {
+      const bridgeUrl = persistentMcpBridge.getBridgeUrl(serverId);
+      if (bridgeUrl) {
+        log.info(
+          `[McpProxy] Tool discovery via PersistentMcpBridge: ${bridgeUrl}`,
+        );
+        try {
+          return await discoverRemoteMcpTools({
+            url: bridgeUrl,
+            transport: "streamable-http",
+          });
+        } catch (e) {
+          const msg = e instanceof Error ? e.message : String(e);
+          throw new Error(t("Claw.MCP.list.testFailed", msg));
+        }
+      }
+    }
+
     const resolved = resolveServersConfig({ [serverId]: entry });
     const resolvedEntry = resolved[serverId];
     if (!resolvedEntry || isRemoteEntry(resolvedEntry)) {
       throw new Error("Failed to resolve MCP server config");
     }
 
-    // 临时启动 MCP 服务器进程
-    const { spawn } = await import("child_process");
-    let proc: any = null;
-
-    try {
-      const env = { ...process.env, ...resolvedEntry.env };
-      const spawnOptions = {
-        env,
-        // child_process.SpawnOptions expects a mutable array
-        stdio: ["pipe", "pipe", "pipe"] as any,
-        windowsHide: true,
-        shell: false,
-      };
-
-      // Windows: spawning `.cmd/.bat` directly may throw spawn EINVAL.
-      // Route through cmd.exe to ensure consistent execution.
-      if (isWindows() && /\.(cmd|bat)$/i.test(resolvedEntry.command)) {
-        const cmdExe = process.env.COMSPEC || "C:\\Windows\\System32\\cmd.exe";
-        const cmdLine = [
-          quoteCmdArg(resolvedEntry.command),
-          ...resolvedEntry.args.map(quoteCmdArg),
-        ].join(" ");
-        // Important: when the first token is quoted (paths with spaces),
-        // cmd.exe requires an extra wrapping pair of quotes, otherwise it may
-        // misparse the command and exit immediately.
-        // Pattern: cmd.exe /d /s /c ""C:\path with spaces\tool.cmd" arg1 arg2"
-        proc = spawn(cmdExe, ["/d", "/s", "/c", `"${cmdLine}"`], spawnOptions);
-      } else {
-        proc = spawn(resolvedEntry.command, resolvedEntry.args, spawnOptions);
-      }
-
-      // 发送 MCP 初始化请求
-      const initRequest = {
-        jsonrpc: "2.0",
-        id: 1,
-        method: "initialize",
-        params: {
-          protocolVersion: "2024-11-05",
-          capabilities: {},
-          clientInfo: { name: "nuwax-agent", version: "1.0.0" },
-        },
-      };
-      writeMcpStdioMessage(proc.stdin, initRequest);
-
-      // 等待初始化响应
-      const timeoutMs = guessMcpDiscoverTimeoutMs(
-        resolvedEntry.command,
-        resolvedEntry.args,
-      );
-      await this.waitForMcpResponse(proc, 1, timeoutMs);
-
-      // Send initialized notification (required by MCP spec before any further requests)
-      writeMcpStdioMessage(proc.stdin, {
-        jsonrpc: "2.0",
-        method: "notifications/initialized",
-      });
-
-      // 发送 tools/list 请求
-      const toolsRequest = {
-        jsonrpc: "2.0",
-        id: 2,
-        method: "tools/list",
-        params: {},
-      };
-      writeMcpStdioMessage(proc.stdin, toolsRequest);
-
-      // 等待 tools/list 响应
-      const response = await this.waitForMcpResponse(proc, 2, timeoutMs);
-
-      // 验证响应格式
-      if (!response?.result?.tools || !Array.isArray(response.result.tools)) {
-        log.warn("[McpProxy] Invalid tools response:", response);
-        return [];
-      }
-
-      // 解析工具列表，过滤无效项
-      return response.result.tools
-        .filter((t: any) => t && typeof t.name === "string")
-        .map((t: { name: string }) => t.name);
-    } finally {
-      // 确保进程被正确清理
-      if (proc && !proc.killed) {
-        try {
-          proc.kill("SIGTERM");
-          // 如果 SIGTERM 失败，5 秒后强制 SIGKILL
-          const killTimer = setTimeout(() => {
-            if (proc && !proc.killed) {
-              proc.kill("SIGKILL");
-            }
-          }, 5000);
-
-          // 进程退出时清理定时器
-          proc.once("exit", () => {
-            clearTimeout(killTimer);
-          });
-        } catch (e) {
-          log.warn("[McpProxy] Failed to kill MCP discovery process:", e);
-        }
-      }
-    }
-  }
-
-  /**
-   * 等待 MCP 响应（辅助方法）
-   */
-  private async waitForMcpResponse(
-    proc: any,
-    requestId: number,
-    timeoutMs: number,
-  ): Promise<any> {
-    return new Promise((resolve, reject) => {
-      const timeout = setTimeout(() => {
-        reject(new Error("MCP response timeout"));
-      }, timeoutMs);
-
-      let buffer = Buffer.alloc(0);
-      const onData = (chunk: Buffer) => {
-        buffer = Buffer.concat([buffer, chunk]);
-
-        // 1) Prefer Content-Length framed messages
-        for (;;) {
-          const headerEnd = buffer.indexOf("\r\n\r\n");
-          if (headerEnd === -1) break;
-
-          const headerStr = buffer.slice(0, headerEnd).toString("utf8");
-          const m = headerStr.match(/Content-Length:\s*(\d+)/i);
-          if (!m) {
-            // Not a framed header; fall back to newline parsing below.
-            break;
-          }
-          const contentLength = Number(m[1]);
-          if (
-            !Number.isFinite(contentLength) ||
-            contentLength < 0 ||
-            contentLength > 10_000_000
-          ) {
-            buffer = buffer.slice(headerEnd + 4);
-            continue;
-          }
-          const bodyStart = headerEnd + 4;
-          const bodyEnd = bodyStart + contentLength;
-          if (buffer.length < bodyEnd) break;
-
-          const body = buffer.slice(bodyStart, bodyEnd).toString("utf8");
-          buffer = buffer.slice(bodyEnd);
-
-          try {
-            const msg = JSON.parse(body);
-            if (msg?.id === requestId) {
-              clearTimeout(timeout);
-              proc.stdout.off("data", onData);
-              if (msg.error) {
-                reject(new Error(msg.error.message || "MCP error"));
-              } else {
-                resolve(msg);
-              }
-              return;
-            }
-          } catch {
-            // Ignore parse errors and continue consuming
-          }
-        }
-
-        // 2) Backward compatible: newline-delimited JSON
-        const text = buffer.toString("utf8");
-        const lastNl = text.lastIndexOf("\n");
-        if (lastNl === -1) return;
-        const complete = text.slice(0, lastNl);
-        const rest = text.slice(lastNl + 1);
-        buffer = Buffer.from(rest, "utf8");
-
-        for (const line of complete.split("\n")) {
-          const trimmed = line.replace(/\r$/, "").trim();
-          if (!trimmed) continue;
-          try {
-            const msg = JSON.parse(trimmed);
-            if (msg?.id === requestId) {
-              clearTimeout(timeout);
-              proc.stdout.off("data", onData);
-              if (msg.error) {
-                reject(new Error(msg.error.message || "MCP error"));
-              } else {
-                resolve(msg);
-              }
-              return;
-            }
-          } catch {
-            // ignore
-          }
-        }
-      };
-
-      proc.stdout.on("data", onData);
-      proc.on("error", (err: Error) => {
-        clearTimeout(timeout);
-        reject(err);
-      });
-    });
+    const timeoutMs = guessMcpDiscoverTimeoutMs(
+      resolvedEntry.command,
+      resolvedEntry.args,
+    );
+    return discoverStdioMcpTools(resolvedEntry, { timeoutMs });
   }
 
   /**

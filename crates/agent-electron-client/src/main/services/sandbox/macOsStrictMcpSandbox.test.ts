@@ -26,6 +26,7 @@ vi.mock("@main/services/system/dependencies", () => ({
     () => "/mock/resources/node/darwin-arm64/bin/node",
   ),
   getUvBinPath: vi.fn(() => "/mock/resources/uv/bin/uv"),
+  getRipgrepBinPath: vi.fn(() => "/mock/resources/ripgrep/rg"),
 }));
 
 describe("macOsStrictMcpSandbox", () => {

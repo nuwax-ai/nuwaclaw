@@ -18,6 +18,7 @@ import {
   DEFAULT_FILE_SERVER_PORT,
   DEFAULT_GUI_MCP_PORT,
   DEFAULT_ADMIN_SERVER_PORT,
+  DEFAULT_TTYD_PORT,
 } from "@shared/constants";
 import { syncSessionCookie } from "../utils/sessionUrl";
 import { logger } from "../utils/logService";
@@ -287,6 +288,8 @@ async function getLocalSandboxValue(): Promise<SandboxValue> {
     guiMcpPort: step1Config?.guiMcpPort ?? DEFAULT_GUI_MCP_PORT,
     // Admin Server 已合并到 Computer Server，端口与 agentPort 相同
     adminServerPort: step1Config?.agentPort ?? DEFAULT_AGENT_RUNNER_PORT,
+    // ttyd Web 终端端口（仅回环监听）。后端字段名待定，先以 ttydPort 上报占位。
+    ttydPort: DEFAULT_TTYD_PORT,
     apiKey: "",
     maxUsers: 1,
   };

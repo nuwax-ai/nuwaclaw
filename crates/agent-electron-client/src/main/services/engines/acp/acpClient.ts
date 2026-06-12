@@ -35,6 +35,7 @@ import { createPlatformAdapter } from "../../system/platformAdapter";
 import { spawnJsFile, resolveNpmPackageEntry } from "../../utils/spawnNoWindow";
 import { processRegistry } from "../../system/processRegistry";
 import { killProcessTreeGraceful } from "../../utils/processTree";
+import { writeShellProfiles } from "../../utils/shellProfile";
 import { perfEmitter } from "../perf/perfEmitter";
 import { firstTokenTrace } from "../perf/firstTokenTrace";
 import { buildSandboxedSpawnArgs } from "../../sandbox/sandboxProcessWrapper";
@@ -680,6 +681,14 @@ export async function createAcpConnection(
 
   // 获取应用隔离环境变量（包含隔离的 PATH、npm、uv 配置等）
   const appEnv = getAppEnv();
+
+  // Prepend bundled ripgrep to isolated HOME profiles so Bash tool can run `rg`.
+  // getAppEnv() already puts ripgrep on PATH, but Windows env probe may corrupt PATH;
+  // ~/.bash_profile / ~/.bashrc (sourced by claude.exe) sanitize + prepend ripgrep bin.
+  writeShellProfiles(
+    isolatedHome,
+    [appEnv.CLAUDE_CODE_RIPGREP_DIR].filter(Boolean),
+  );
 
   // 构建最终环境变量：以 appEnv 为基础，添加 ACP 特定配置
   const env: Record<string, string> = {

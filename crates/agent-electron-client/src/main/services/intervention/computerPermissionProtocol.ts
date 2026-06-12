@@ -2,12 +2,12 @@ import type {
   AcpPermissionRequest,
   AcpPermissionResponse,
   NotifyResolvedResponse,
-  RcoderNotifyResolvedRequest,
-  RcoderPermissionProgressData,
-  RcoderPermissionSaveRule,
+  ComputerNotifyResolvedRequest,
+  ComputerPermissionProgressData,
+  ComputerPermissionSaveRule,
 } from "@shared/types/intervention";
 
-export interface RcoderPermissionResolveCommand {
+export interface ComputerPermissionResolveCommand {
   acpSessionId: string;
   toolCallId: string;
   acpResponse: AcpPermissionResponse;
@@ -16,31 +16,31 @@ export interface RcoderPermissionResolveCommand {
   userId?: string;
 }
 
-export function isRcoderNotifyResolvedRequest(
+export function isComputerPermissionResolveRequest(
   body: unknown,
-): body is RcoderNotifyResolvedRequest {
+): body is ComputerNotifyResolvedRequest {
   return (
     !!body && typeof body === "object" && "permission_resolve_request" in body
   );
 }
 
-export function validateRcoderNotifyResolvedRequest(
+export function validateComputerPermissionResolveRequest(
   body: unknown,
 ): { ok: true } | { ok: false; message: string } {
-  const parsed = parseRcoderNotifyResolvedRequest(body);
+  const parsed = parseComputerPermissionResolveRequest(body);
   if (parsed.ok) return { ok: true };
   return { ok: false, message: parsed.response.error?.message ?? "invalid" };
 }
 
-export function parseRcoderNotifyResolvedRequest(
+export function parseComputerPermissionResolveRequest(
   body: unknown,
 ):
-  | { ok: true; command: RcoderPermissionResolveCommand }
+  | { ok: true; command: ComputerPermissionResolveCommand }
   | { ok: false; response: NotifyResolvedResponse } {
   if (!isRecord(body)) {
     return validationError("request body is required");
   }
-  if (!isRcoderNotifyResolvedRequest(body)) {
+  if (!isComputerPermissionResolveRequest(body)) {
     return validationError("permission_resolve_request is required");
   }
 
@@ -83,6 +83,17 @@ export function parseRcoderNotifyResolvedRequest(
     };
   } else if ("Cancelled" in outcome) {
     acpResponse = { outcome: { outcome: "cancelled" } };
+  } else if (outcome.outcome === "selected") {
+    const optionId =
+      typeof outcome.optionId === "string" ? outcome.optionId : undefined;
+    if (!optionId) {
+      return validationError("Legacy selected outcome requires optionId");
+    }
+    acpResponse = {
+      outcome: { outcome: "selected", optionId },
+    };
+  } else if (outcome.outcome === "cancelled") {
+    acpResponse = { outcome: { outcome: "cancelled" } };
   } else {
     return validationError("outcome must be Selected or Cancelled");
   }
@@ -102,11 +113,11 @@ export function parseRcoderNotifyResolvedRequest(
   };
 }
 
-export function toRcoderPermissionProgressData(args: {
+export function toComputerPermissionProgressData(args: {
   acpRequest: AcpPermissionRequest;
   interventionId?: string;
   revision?: number;
-}): RcoderPermissionProgressData {
+}): ComputerPermissionProgressData {
   const { acpRequest, interventionId, revision } = args;
   const toolCall = acpRequest.toolCall;
   const toolCallId = toolCall.toolCallId;
@@ -117,23 +128,21 @@ export function toRcoderPermissionProgressData(args: {
 
   return {
     request_permission_request: {
-      session_id: acpRequest.sessionId,
-      tool_call: {
-        tool_call_id: toolCallId,
+      sessionId: acpRequest.sessionId,
+      toolCall: {
+        toolCallId: toolCallId,
         kind: toolCall.kind ?? "tool",
         status: toolCall.status ?? "pending",
         title: toolCall.title ?? toolCall.kind ?? "tool",
         content: Array.isArray(toolCall.content) ? toolCall.content : [],
-        raw_input: toolCall.rawInput ?? {},
-        _meta: {},
+        rawInput: toolCall.rawInput ?? {},
+        locations: toolCall.locations ?? [],
       },
       options: acpRequest.options.map((option) => ({
-        option_id: option.optionId,
+        optionId: option.optionId,
         name: option.name,
         kind: option.kind,
-        _meta: {},
       })),
-      _meta: {},
     },
     tool_call_id: toolCallId,
     ...(saveRule ? { save_rule: saveRule } : {}),
@@ -143,7 +152,7 @@ export function toRcoderPermissionProgressData(args: {
 
 function buildSaveRuleSuggestion(
   acpRequest: AcpPermissionRequest,
-): RcoderPermissionSaveRule | undefined {
+): ComputerPermissionSaveRule | undefined {
   const command = extractCommand(acpRequest.toolCall.rawInput);
   if (!command) return undefined;
 

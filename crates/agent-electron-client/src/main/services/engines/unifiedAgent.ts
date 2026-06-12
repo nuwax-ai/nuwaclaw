@@ -7,12 +7,9 @@
  */
 
 import { EventEmitter } from "events";
-import * as fs from "fs";
-import * as os from "os";
-import * as path from "path";
 import log from "electron-log";
 import { memoryService } from "../memory";
-import type { ModelConfig } from "../memory/types";
+import { buildModelConfig } from "./utils/buildModelConfig";
 import { perfEmitter } from "./perf/perfEmitter";
 import { firstTokenTrace } from "./perf/firstTokenTrace";
 
@@ -22,8 +19,15 @@ export { mapAgentCommand, resolveAgentEnv } from "./agentHelpers";
 
 import { AcpEngine } from "./acp/acpEngine";
 import { loadAcpSdk } from "./acp/acpClient";
-import { resolveOpenAICompatModel } from "./acp/openAICompatRouting";
-import { mapAgentCommand, resolveAgentEnv } from "./agentHelpers";
+import { mapAgentCommand } from "./agentHelpers";
+import {
+  parseContextServers,
+  resolveRequestEngineParams,
+  resolveMcpServersForEngine,
+  buildEffectiveConfig,
+} from "./requestConfigResolver";
+import { detectEngineConfigChange } from "./configChangeDetector";
+import { attachEngineEventForwarders } from "./engineEventForwarder";
 import { EngineWarmup } from "./engineWarmup";
 import { buildSandboxPolicyFingerprint } from "./sandboxPolicyFingerprint";
 import dependencies from "../system/dependencies";
@@ -47,215 +51,63 @@ import type {
   ComputerChatRequest,
   ModelProviderConfig,
 } from "@shared/types/computerTypes";
-import { APP_DATA_DIR_NAME } from "../constants";
 import type { McpServerEntry } from "../packages/mcp";
-
-interface McpServersConfig {
-  mcpServers: Record<string, McpServerEntry>;
-}
 import {
   filterBridgeEntries,
   rawMcpServersEqual,
 } from "../packages/mcpHelpers";
+
+interface McpServersConfig {
+  mcpServers: Record<string, McpServerEntry>;
+}
 import { getCachedSandboxPolicy } from "../sandbox/policyCache";
-import { resolveComputerProjectWorkspaceDir } from "../workspacePaths";
-
-/** 环境变量记录类型 */
-type EnvRecord = Record<string, string | undefined>;
-
-function maskUrlForLog(raw: string | undefined): string {
-  if (!raw) return "(not set)";
-  try {
-    const parsed = new URL(raw);
-    return `${parsed.protocol}//${parsed.host}${parsed.pathname}`;
-  } catch {
-    return "(invalid-url)";
-  }
-}
-
-function shouldNormalizeCodexModelToOpenAICompat(args: {
-  engine: AgentEngineType | null | undefined;
-  apiProtocol?: string | null;
-  baseUrl?: string | null;
-  model?: string | null;
-}): boolean {
-  if (args.engine !== "codex-cli") return false;
-  const model = (args.model || "").trim();
-  if (!model || model.includes("/")) return false;
-  const protocol = (args.apiProtocol || "").trim().toLowerCase();
-  if (protocol !== "anthropic") return false;
-  const baseUrl = (args.baseUrl || "").trim().toLowerCase();
-  return baseUrl.includes("open.bigmodel.cn/api/anthropic");
-}
 
 // ==================== Types ====================
+// 共享类型定义在 ./types（避免 acp/ ↔ unifiedAgent 循环 import），
+// 此处 re-export 保持外部 import 路径不变。
 
-import type { AgentConfig, AgentEngineType } from "./types";
+import type {
+  AgentConfig,
+  AgentEngineType,
+  SdkSession,
+  TextPartInput,
+  FilePartInput,
+  PromptOptions,
+  MessageWithParts,
+} from "./types";
 export type { AgentConfig, AgentEngineType };
+export type {
+  AcpSessionStatus,
+  MessageRole,
+  PartType,
+  BasePart,
+  TextPart,
+  ReasoningPart,
+  FilePart,
+  ToolPart,
+  StepStartPart,
+  StepFinishPart,
+  SnapshotPart,
+  PatchPart,
+  Part,
+  BaseMessage,
+  UserMessage,
+  AssistantMessage,
+  Message,
+  TextPartInput,
+  FilePartInput,
+  FileDiff,
+  MessageWithParts,
+  PromptOptions,
+  CommandOptions,
+  SdkSession,
+  SessionStatus,
+  ToolInfo,
+  ProviderInfo,
+} from "./types";
 
-export type AcpSessionStatus = "idle" | "pending" | "active" | "terminating";
-
-// ==================== Message Types (replacing SDK types) ====================
-
-export type MessageRole = "user" | "system" | "assistant";
-
-export type PartType =
-  | "text"
-  | "reasoning"
-  | "file"
-  | "tool"
-  | "step_start"
-  | "step_finish"
-  | "snapshot"
-  | "patch";
-
-export interface BasePart {
-  type: PartType;
-}
-
-export interface TextPart extends BasePart {
-  type: "text";
-  text: string;
-}
-
-export interface ReasoningPart extends BasePart {
-  type: "reasoning";
-  thinking: string;
-}
-
-export interface FilePart extends BasePart {
-  type: "file";
-  uri?: string;
-  mimeType?: string;
-}
-
-export interface ToolPart extends BasePart {
-  type: "tool";
-  toolCallId: string;
-  name: string;
-  kind?: string;
-  status?: string;
-  input?: string;
-  output?: string;
-  content?: string;
-}
-
-export interface StepStartPart extends BasePart {
-  type: "step_start";
-  stepId: string;
-  title?: string;
-}
-
-export interface StepFinishPart extends BasePart {
-  type: "step_finish";
-  stepId: string;
-  title?: string;
-  result?: unknown;
-}
-
-export interface SnapshotPart extends BasePart {
-  type: "snapshot";
-  snapshotId: string;
-}
-
-export interface PatchPart extends BasePart {
-  type: "patch";
-  patchId: string;
-  filePath?: string;
-}
-
-export type Part =
-  | TextPart
-  | ReasoningPart
-  | FilePart
-  | ToolPart
-  | StepStartPart
-  | StepFinishPart
-  | SnapshotPart
-  | PatchPart;
-
-export interface BaseMessage {
-  role: MessageRole;
-  content: Part[];
-}
-
-export interface UserMessage extends BaseMessage {
-  role: "user";
-}
-
-export interface AssistantMessage extends BaseMessage {
-  role: "assistant";
-}
-
-export type Message = UserMessage | AssistantMessage;
-
-export interface TextPartInput {
-  type: "text";
-  text: string;
-}
-
-export interface FilePartInput {
-  type: "file";
-  uri?: string;
-  mimeType?: string;
-}
-
-export interface FileDiff {
-  filePath: string;
-  oldContent?: string;
-  newContent?: string;
-  hunks?: unknown[];
-}
-
-export interface MessageWithParts {
-  info: Message;
-  parts: Part[];
-}
-
-export interface PromptOptions {
-  model?: { providerID: string; modelID: string };
-  agent?: string;
-  noReply?: boolean;
-  system?: string;
-  tools?: Record<string, boolean>;
-  messageID?: string;
-  mcpInitPolicy?: "blocking" | "non_blocking";
-  mcpInitTimeoutMs?: number;
-}
-
-export interface CommandOptions {
-  agent?: string;
-  model?: string;
-  messageID?: string;
-}
-
-export interface SdkSession {
-  id: string;
-  parentID?: string;
-  title?: string;
-  time?: { created: number; updated?: number };
-  [key: string]: unknown;
-}
-
-export interface SessionStatus {
-  [sessionId: string]: {
-    status: string;
-    [key: string]: unknown;
-  };
-}
-
-export interface ToolInfo {
-  name: string;
-  description?: string;
-  parameters?: Record<string, unknown>;
-}
-
-export interface ProviderInfo {
-  id: string;
-  name?: string;
-  models?: Array<{ id: string; name?: string }>;
-  [key: string]: unknown;
-}
+// 请求 → 引擎配置解析逻辑在 ./requestConfigResolver，此处 re-export 保持导出面不变
+export { resolveRequiredAgentEngine } from "./requestConfigResolver";
 
 // ==================== UnifiedAgentService ====================
 
@@ -330,12 +182,10 @@ export class UnifiedAgentService extends EventEmitter {
       });
 
       // Provide model config to scheduler for cron-triggered LLM consolidation
-      const modelConfig: ModelConfig = {
-        provider: config.engine === "claude-code" ? "anthropic" : "openai",
-        model: config.model || "",
-        apiKey: config.apiKey || "",
-        baseUrl: config.baseUrl,
-      };
+      const modelConfig = buildModelConfig(
+        config.engine || "claude-code",
+        config,
+      );
       memoryService.setSchedulerModelConfig(modelConfig);
 
       log.info(
@@ -379,12 +229,10 @@ export class UnifiedAgentService extends EventEmitter {
 
     // Trigger session-end memory extraction for each project
     if (memoryService.isInitialized() && this.baseConfig) {
-      const modelConfig: ModelConfig = {
-        provider: this.engineType === "claude-code" ? "anthropic" : "openai",
-        model: this.baseConfig.model || "",
-        apiKey: this.baseConfig.apiKey || "",
-        baseUrl: this.baseConfig.baseUrl,
-      };
+      const modelConfig = buildModelConfig(
+        this.engineType || "claude-code",
+        this.baseConfig,
+      );
 
       for (const projectId of this.engines.keys()) {
         try {
@@ -800,8 +648,6 @@ export class UnifiedAgentService extends EventEmitter {
     const t0 = Date.now();
     let t1 = t0,
       t2 = t0,
-      t3 = t0,
-      t4 = t0,
       t5 = t0;
 
     // 只要 session_id 相同就复用同一引擎；无 session_id 时用 project_id。
@@ -810,63 +656,11 @@ export class UnifiedAgentService extends EventEmitter {
     const registryKey = this.resolveEngineKey(engineKey) || engineKey; // 引擎在 Map 中实际使用的 key
 
     // 性能优化：先解析 context_servers（仅解析，不同步），用于后续的快速路径判断
-    const requestMcpServersEarly: Record<string, McpServerEntry> = {};
-    if (request.agent_config?.context_servers) {
-      let mcpModule: {
-        resolveUvCommand: (
-          cmd: string,
-          args: string[],
-          dir?: string,
-        ) => { command: string; args: string[] };
-        extractRealMcpServers: (
-          cmd: string,
-          args: string[],
-          env?: Record<string, string>,
-          dir?: string,
-        ) => Record<string, import("../packages/mcp").McpServerEntry> | null;
-      } | null = null;
-      try {
-        mcpModule = await import("../packages/mcp");
-      } catch {
-        // mcp module not available, proceed without resolution
-      }
-      for (const [name, srv] of Object.entries(
-        request.agent_config.context_servers,
-      )) {
-        if (srv.enabled === false || !srv.command) continue;
-        const command = srv.command;
-        const args = srv.args || [];
-        if (mcpModule) {
-          if (
-            command === "mcp-proxy" ||
-            path.basename(command) === "mcp-proxy"
-          ) {
-            const extracted = mcpModule.extractRealMcpServers(
-              command,
-              args,
-              srv.env,
-            );
-            if (extracted) {
-              for (const [innerName, innerSrv] of Object.entries(extracted)) {
-                requestMcpServersEarly[innerName] = innerSrv;
-              }
-            }
-          } else {
-            const resolved = mcpModule.resolveUvCommand(command, args);
-            requestMcpServersEarly[name] = {
-              command: resolved.command,
-              args: resolved.args,
-              env: srv.env,
-            };
-          }
-        } else {
-          requestMcpServersEarly[name] = { command, args, env: srv.env };
-        }
-      }
-      t1 = Date.now();
-    } else {
-      t1 = Date.now();
-    }
+    // 解析逻辑见 requestConfigResolver.ts
+    const requestMcpServersEarly = await parseContextServers(
+      request.agent_config?.context_servers,
+    );
+    t1 = Date.now();
 
     // Dev mode: force engine type for testing, bypasses agent_server.command
     if (
@@ -890,58 +684,14 @@ export class UnifiedAgentService extends EventEmitter {
       );
     }
 
-    // Dev mode: when agent_config.type differs from request's agent_server.command,
-    // override the remote command to respect local dev settings
-    if (
-      process.env.NODE_ENV === "development" &&
-      this.engineType &&
-      request.agent_config?.agent_server?.command &&
-      mapAgentCommand(request.agent_config.agent_server.command) !==
-        this.engineType
-    ) {
-      log.info(
-        `[UnifiedAgent] Dev mode: overriding remote engine "${request.agent_config.agent_server.command}" → "${this.engineType}"`,
-      );
-      request.agent_config.agent_server.command = this.engineType;
-    }
-
     const agentServer = request.agent_config?.agent_server;
     const mp = request.model_provider;
-    const requiredEngine = agentServer?.command
-      ? mapAgentCommand(agentServer.command)
-      : this.engineType;
-    const resolvedEnv = agentServer?.env
-      ? resolveAgentEnv(agentServer.env, mp)
-      : undefined;
-    const resolvedOpenAICompatModel = resolveOpenAICompatModel({
-      model: mp?.model,
-      defaultModel: mp?.default_model,
-      envModel:
-        resolvedEnv?.OPENCODE_MODEL ||
-        resolvedEnv?.ANTHROPIC_MODEL ||
-        resolvedEnv?.CODEX_MODEL,
-    });
-    let requestedModel =
-      resolvedOpenAICompatModel?.rawModel ||
-      mp?.model ||
-      mp?.default_model ||
-      resolvedEnv?.OPENCODE_MODEL ||
-      resolvedEnv?.ANTHROPIC_MODEL ||
-      resolvedEnv?.CODEX_MODEL ||
-      this.baseConfig?.model;
-    if (
-      shouldNormalizeCodexModelToOpenAICompat({
-        engine: requiredEngine,
-        apiProtocol: mp?.api_protocol,
-        baseUrl: mp?.base_url,
-        model: requestedModel,
-      })
-    ) {
-      requestedModel = `openai-compatible/${requestedModel}`;
-      log.info(
-        `[UnifiedAgent] normalized codex model to OpenAI-compatible variant: ${requestedModel}`,
-      );
-    }
+    const { requiredEngine, resolvedEnv, requestedModel } =
+      resolveRequestEngineParams({
+        request,
+        fallbackEngine: this.engineType,
+        baseModel: this.baseConfig?.model,
+      });
 
     // 性能优化：快速路径检测
     const existingEngine = this.getEngineForProject(engineKey);
@@ -1077,141 +827,24 @@ export class UnifiedAgentService extends EventEmitter {
       workspaceDir: "",
     };
 
-    if (!model) {
-      log.warn(
-        `[UnifiedAgent] ⚠️ Model not set! model_provider.model and agent_config env both have no model info`,
-      );
-    }
-
-    const mergedEnv = { ...(base.env || {}), ...(resolvedEnv || {}) };
-
-    // OPENCODE_LOG_DIR 容器路径本地化
-    if (
-      mergedEnv.OPENCODE_LOG_DIR &&
-      !fs.existsSync(mergedEnv.OPENCODE_LOG_DIR)
-    ) {
-      const localLogDir = path.join(os.homedir(), APP_DATA_DIR_NAME, "logs");
-      log.info(
-        `[UnifiedAgent] 📂 OPENCODE_LOG_DIR localized: ${mergedEnv.OPENCODE_LOG_DIR} → ${localLogDir}`,
-      );
-      mergedEnv.OPENCODE_LOG_DIR = localLogDir;
-    }
-
     // 动态 MCP server 已由 syncMcpConfigToProxyAndReload() 同步到 proxy，
-    // 使用 getAgentMcpConfig() 获取最新的 proxy 配置
-    // 使用 ACP 请求中的 MCP 配置（requestMcpServersEarly）
-    let freshMcpServers: AgentConfig["mcpServers"] | undefined;
-    if (Object.keys(requestMcpServersRuntime).length > 0) {
-      // 处理 bridge 入口（mcp-proxy）：提取内部真实 MCP 服务器配置
-      // 并转换为 bridge URL 格式（用于传递给 agent）
-      const { extractRealMcpServers } = await import("../packages/mcp");
-      const realMcpServers: Record<
-        string,
-        import("../packages/mcp").McpServerEntry
-      > = {};
-      for (const [name, entry] of Object.entries(requestMcpServersRuntime)) {
-        if (!("command" in entry)) {
-          // URL 类型（RemoteMcpServerEntry），直接保留
-          realMcpServers[name] = entry;
-          continue;
-        }
-        // command 类型：检查是否为 bridge 入口
-        const isBridge =
-          entry.command === "mcp-proxy" ||
-          path.basename(entry.command) === "mcp-proxy";
-        if (isBridge) {
-          // Bridge 入口：提取内部真实 MCP 服务器配置
-          const extracted = extractRealMcpServers(
-            entry.command,
-            entry.args || [],
-            entry.env,
-          );
-          if (extracted) {
-            // 将提取的服务器配置添加到 realMcpServers
-            for (const [innerName, innerEntry] of Object.entries(extracted)) {
-              realMcpServers[innerName] = innerEntry;
-            }
-          }
-        } else {
-          // 非 bridge 入口：直接保留
-          realMcpServers[name] = entry;
-        }
-      }
-      t3 = Date.now();
-      perfEmitter.duration("engine.extractMcp", t3 - t2);
+    // bridge 提取与 agent 视角配置见 requestConfigResolver.ts
+    const freshMcpServers = await resolveMcpServersForEngine({
+      requestMcpServersRuntime,
+      engineKey,
+      perfStartMs: t2,
+    });
 
-      if (Object.keys(realMcpServers).length > 0) {
-        freshMcpServers = realMcpServers;
-        // 暂存到 proxy manager 并启动 bridge
-        const { mcpProxyManager } = await import("../packages/mcp");
-        // 合并现有配置（保留默认服务如 chrome-devtools）
-        mcpProxyManager.setConfig({
-          ...mcpProxyManager.getConfig(),
-          mcpServers: {
-            ...(mcpProxyManager.getConfig().mcpServers || {}),
-            ...realMcpServers,
-          },
-        });
-        await mcpProxyManager.ensureBridgeStarted();
-        t4 = Date.now();
-        perfEmitter.duration("engine.ensureBridge(mcp)", t4 - t3);
-        // 获取代理格式的配置（包含 bridge URL 和 allowTools）
-        freshMcpServers =
-          mcpProxyManager.getAgentMcpConfig(engineKey) || undefined;
-      } else {
-        t4 = t3;
-      }
-    } else {
-      // 无动态 MCP 服务器时，仍需确保 bridge 启动（包含默认服务如 chrome-devtools）
-      const { mcpProxyManager } = await import("../packages/mcp");
-      t3 = Date.now();
-      await mcpProxyManager.ensureBridgeStarted();
-      t4 = Date.now();
-      perfEmitter.duration("engine.ensureBridge(no-mcp)", t4 - t3);
-      freshMcpServers =
-        mcpProxyManager.getAgentMcpConfig(engineKey) || undefined;
-    }
-    t4 = t4 || t3;
-
-    const effectiveConfig: AgentConfig = {
-      ...base,
-      engine: requiredEngine || base.engine,
-      apiKey: mp?.api_key || base.apiKey,
-      baseUrl: mp?.base_url || base.baseUrl,
+    const effectiveConfig = buildEffectiveConfig({
+      base,
+      requiredEngine,
+      mp,
       model,
-      apiProtocol: mp?.api_protocol || base.apiProtocol,
-      env: mergedEnv,
-      mcpServers: freshMcpServers,
-    };
-
-    // nuwax-codex-acp ignores ACP session cwd, so we must spawn the process
-    // directly in the project workspace to ensure correct working directory
-    if (
-      requiredEngine === "codex-cli" &&
-      request.project_id &&
-      request.user_id
-    ) {
-      effectiveConfig.workspaceDir = resolveComputerProjectWorkspaceDir(
-        effectiveConfig.workspaceDir,
-        request.user_id,
-        request.project_id,
-      );
-      fs.mkdirSync(effectiveConfig.workspaceDir, { recursive: true });
-      log.info(
-        `[UnifiedAgent] 🎯 codex-cli workspaceDir overridden to: ${effectiveConfig.workspaceDir}`,
-      );
-    }
-
-    log.info(
-      `[UnifiedAgent] 📌 Engine config for project ${engineKey}:\n` +
-        `├─ engine: ${effectiveConfig.engine}\n` +
-        `├─ config.model: ${effectiveConfig.model || "⚠️ not set"}\n` +
-        `├─ env OPENCODE_MODEL: ${effectiveConfig.env?.OPENCODE_MODEL || "(not set)"}\n` +
-        `├─ env ANTHROPIC_MODEL: ${effectiveConfig.env?.ANTHROPIC_MODEL || "(not set)"}\n` +
-        `├─ baseUrl: ${effectiveConfig.baseUrl || "(not set)"}\n` +
-        `├─ apiKeySet: ${!!effectiveConfig.apiKey}\n` +
-        `└─ mcpServers: ${effectiveConfig.mcpServers ? Object.keys(effectiveConfig.mcpServers).join(", ") : "(none)"}`,
-    );
+      resolvedEnv,
+      freshMcpServers,
+      request,
+      engineKey,
+    });
 
     // 传递 memoryReadyPromise，避免 getOrCreateEngine 重复等待 memory
     const engine = await this.getOrCreateEngine(
@@ -1256,128 +889,15 @@ export class UnifiedAgentService extends EventEmitter {
       requestMcpServersEarly: Record<string, McpServerEntry>;
     },
   ): boolean {
-    const { requiredEngine, resolvedEnv, model, mp, requestMcpServersEarly } =
-      params;
-    const currentConfig = this.engineConfigs.get(projectId) || this.baseConfig;
-
-    const needsSwitch =
-      !!requiredEngine && requiredEngine !== currentConfig?.engine;
-
-    // 先对 resolvedEnv 进行本地化处理（与 ensureEngineForRequest 中的逻辑一致）
-    // 避免因为路径本地化导致的误判
-    let normalizedResolvedEnv = resolvedEnv;
-    if (
-      resolvedEnv?.OPENCODE_LOG_DIR &&
-      !fs.existsSync(resolvedEnv.OPENCODE_LOG_DIR)
-    ) {
-      normalizedResolvedEnv = {
-        ...resolvedEnv,
-        OPENCODE_LOG_DIR: path.join(os.homedir(), APP_DATA_DIR_NAME, "logs"),
-      };
-    }
-
-    const currentEnvStr = currentConfig?.env
-      ? JSON.stringify(currentConfig.env, Object.keys(currentConfig.env).sort())
-      : "";
-    const newEnvStr = normalizedResolvedEnv
-      ? JSON.stringify(
-          normalizedResolvedEnv,
-          Object.keys(normalizedResolvedEnv).sort(),
-        )
-      : "";
-    const envChanged = !!normalizedResolvedEnv && newEnvStr !== currentEnvStr;
-
-    const modelChanged = !!model && model !== (currentConfig?.model || "");
-    const apiKeyChanged =
-      !!mp?.api_key && mp.api_key !== (currentConfig?.apiKey || "");
-    const baseUrlChanged =
-      !!mp?.base_url && mp.base_url !== (currentConfig?.baseUrl || "");
-
-    // MCP servers 变更检测 — 过滤掉 mcp-proxy bridge 入口，然后与上次请求的原始配置做同格式比较。
-    // 修复：engineConfigs.mcpServers 存储的是 proxy 包装格式（command=mcp-proxy），
-    //       而 requestMcpServersEarly 是原始格式（command=uvx/npx/...），两者直接对比永远不等。
-    //       改为将上次请求的原始格式存入 engineRawMcpServers，本次与之比较，消除跨格式误判。
-    const requestMcpServers = filterBridgeEntries(requestMcpServersEarly);
-    const storedRawMcp = this.engineRawMcpServers.get(projectId);
-    const mcpChanged = !rawMcpServersEqual(requestMcpServers, storedRawMcp);
-
-    const result =
-      needsSwitch ||
-      envChanged ||
-      modelChanged ||
-      apiKeyChanged ||
-      baseUrlChanged ||
-      mcpChanged;
-
-    // 调试日志：输出触发配置变更的具体原因
-    if (result) {
-      // 计算环境变量差异（敏感字段仅记录掩码，避免日志泄露 secret/token/apiKey）。
-      const envDiffDetails: Record<string, unknown> = {};
-      if (envChanged && resolvedEnv && currentConfig?.env) {
-        const currentEnv = currentConfig.env as EnvRecord;
-        const allKeys = new Set([
-          ...Object.keys(currentEnv),
-          ...Object.keys(resolvedEnv),
-        ]);
-        const isSensitiveEnvKey = (key: string) =>
-          /(key|token|secret|password|authorization|credential)/i.test(key);
-        const normalizeEnvValue = (key: string, value: string | undefined) => {
-          if (isSensitiveEnvKey(key)) return "***";
-          if (typeof value !== "string") return value;
-          return value.length > 50 ? value.slice(0, 50) + "..." : value;
-        };
-        for (const key of allKeys) {
-          const oldVal = currentEnv[key];
-          const newVal = resolvedEnv[key];
-          if (oldVal !== newVal) {
-            envDiffDetails[key] = {
-              old: normalizeEnvValue(key, oldVal),
-              new: normalizeEnvValue(key, newVal),
-            };
-          }
-        }
-      } else if (envChanged && resolvedEnv && !currentConfig?.env) {
-        envDiffDetails["reason"] =
-          "currentConfig.env is empty but resolvedEnv has values";
-        // 过滤敏感 key 名，避免泄露业务特征
-        const isSensitiveEnvKey = (key: string) =>
-          /(key|token|secret|password|authorization|credential)/i.test(key);
-        envDiffDetails["resolvedEnvKeys"] = Object.keys(resolvedEnv).filter(
-          (k) => !isSensitiveEnvKey(k),
-        );
-      }
-      log.info(
-        `[UnifiedAgent] 🔍 detectConfigChange(${projectId}): ${result ? "CHANGED" : "unchanged"}`,
-        {
-          needsSwitch,
-          envChanged,
-          modelChanged,
-          apiKeyChanged,
-          baseUrlChanged,
-          mcpChanged,
-          details: {
-            currentModel: currentConfig?.model,
-            newModel: model,
-            currentApiKeyLen: currentConfig?.apiKey?.length,
-            newApiKeyLen: mp?.api_key?.length,
-            currentBaseUrl: currentConfig?.baseUrl,
-            newBaseUrl: mp?.base_url,
-            storedMcpKeys: storedRawMcp ? Object.keys(storedRawMcp) : "(none)",
-            requestMcpKeys: Object.keys(requestMcpServers),
-            currentEnvKeys: currentConfig?.env
-              ? Object.keys(currentConfig.env)
-              : "(none)",
-            resolvedEnvKeys: resolvedEnv ? Object.keys(resolvedEnv) : "(none)",
-            envDiff:
-              Object.keys(envDiffDetails).length > 0
-                ? envDiffDetails
-                : "(no diff)",
-          },
-        },
-      );
-    }
-
-    return result;
+    // 比较逻辑见 configChangeDetector.ts；此处仅提供存量快照
+    return detectEngineConfigChange(
+      {
+        projectId,
+        currentConfig: this.engineConfigs.get(projectId) || this.baseConfig,
+        storedRawMcp: this.engineRawMcpServers.get(projectId),
+      },
+      params,
+    );
   }
 
   /**
@@ -1480,6 +1000,28 @@ export class UnifiedAgentService extends EventEmitter {
       all.push(...engine.listSessionsDetailed());
     }
     return all;
+  }
+
+  /**
+   * 返回最近活跃 session 所属引擎的 workspaceDir。
+   * 供 ttyd 等服务在启动时将 cwd 设置为最近的项目工作目录。
+   * 若无 ready 引擎或无 session，返回 null。
+   */
+  getRecentWorkspaceDir(): string | null {
+    let bestKey: string | null = null;
+    let bestActivity = 0;
+    for (const [key, engine] of this.engines) {
+      if (!engine.isReady) continue;
+      for (const s of engine.listSessionsDetailed()) {
+        const activity = s.lastActivity ?? s.createdAt;
+        if (activity > bestActivity) {
+          bestActivity = activity;
+          bestKey = key;
+        }
+      }
+    }
+    if (!bestKey) return null;
+    return this.engineConfigs.get(bestKey)?.workspaceDir ?? null;
   }
 
   /**
@@ -1639,12 +1181,10 @@ export class UnifiedAgentService extends EventEmitter {
     const content = textParts.map((p) => p.text).join("\n");
 
     // Build model config for memory extraction
-    const modelConfig: ModelConfig = {
-      provider: this.engineType === "claude-code" ? "anthropic" : "openai",
-      model: this.baseConfig.model || "",
-      apiKey: this.baseConfig.apiKey || "",
-      baseUrl: this.baseConfig.baseUrl,
-    };
+    const modelConfig = buildModelConfig(
+      this.engineType || "claude-code",
+      this.baseConfig!,
+    );
 
     // Delegate to MemoryService handleMessage (writes transcript + triggers segment extraction)
     memoryService.handleMessage(
@@ -1657,173 +1197,10 @@ export class UnifiedAgentService extends EventEmitter {
   // === Helpers ===
 
   private forwardEvents(engine: AcpEngine): void {
-    const events = [
-      "message.updated",
-      "message.removed",
-      "message.part.updated",
-      "message.part.removed",
-      "permission.updated",
-      "permission.replied",
-      "session.created",
-      "session.updated",
-      "session.deleted",
-      "session.status",
-      "session.idle",
-      "session.error",
-      "session.diff",
-      "file.edited",
-      "server.connected",
-      "error",
-      "ready",
-      "destroyed",
-      // rcoder-compat events
-      "computer:progress",
-      "computer:promptStart",
-      "computer:promptEnd",
-    ];
-
-    for (const event of events) {
-      engine.on(event, (...args: unknown[]) => {
-        // Debug: log event forwarding
-        if (
-          event === "message.part.updated" ||
-          event === "message.updated" ||
-          event === "computer:progress"
-        ) {
-          log.debug(
-            `[UnifiedAgent] 📤 Forwarding event: ${event}`,
-            JSON.stringify(args).substring(0, 200),
-          );
-        }
-        this.emit(event, ...args);
-      });
-    }
-
-    // --- Memory: buffer assistant text chunks and flush on promptEnd ---
-
-    // Clear buffer on promptStart to prevent stale data
-    engine.on("computer:promptStart", (...args: unknown[]) => {
-      try {
-        const data = args[0] as { sessionId?: string } | undefined;
-        const sessionId = data?.sessionId;
-        if (sessionId) {
-          this.assistantTextBuffers.delete(sessionId);
-        }
-      } catch {
-        /* non-blocking */
-      }
-    });
-
-    // Accumulate assistant text parts
-    engine.on("message.part.updated", (...args: unknown[]) => {
-      try {
-        const data = args[0] as
-          | { sessionId?: string; type?: string; text?: string }
-          | undefined;
-        if (!data || data.type !== "text" || !data.text) return;
-        const sessionId = data.sessionId;
-        if (!sessionId) return;
-        const existing = this.assistantTextBuffers.get(sessionId) ?? "";
-        this.assistantTextBuffers.set(sessionId, existing + data.text);
-      } catch {
-        /* non-blocking */
-      }
-    });
-
-    // Flush buffered assistant text to memory on promptEnd
-    engine.on("computer:promptEnd", (...args: unknown[]) => {
-      try {
-        const data = args[0] as
-          | { sessionId?: string; openLongMemory?: boolean }
-          | undefined;
-        const sessionId = data?.sessionId;
-        if (!sessionId) return;
-
-        // 检查记忆开关，默认 false
-        if (data?.openLongMemory !== true) return;
-
-        const buffered = this.assistantTextBuffers.get(sessionId);
-        this.assistantTextBuffers.delete(sessionId);
-
-        // Use engine's current config (may be updated from HTTP request model_provider)
-        const engineConfig = engine.currentConfig;
-        if (
-          !buffered ||
-          !buffered.trim() ||
-          !memoryService.isInitialized() ||
-          !engineConfig
-        )
-          return;
-
-        const modelConfig: ModelConfig = {
-          provider: engine.engineName.includes("claude")
-            ? "anthropic"
-            : "openai",
-          model: engineConfig.model || "",
-          apiKey: engineConfig.apiKey || "",
-          baseUrl: engineConfig.baseUrl,
-          apiProtocol: engineConfig.apiProtocol,
-        };
-
-        memoryService.handleMessage(
-          sessionId,
-          { role: "assistant", content: buffered },
-          modelConfig,
-        );
-      } catch (error) {
-        log.warn(
-          "[UnifiedAgent] Failed to flush assistant text to memory:",
-          error,
-        );
-      }
-    });
-
-    // Trigger incremental memory extraction when session becomes idle (after each prompt)
-    // Note: This calls onSessionEnd which internally checks getMaxCompletedMsgIndex()
-    // to only process new messages that haven't been extracted yet.
-    // This provides incremental extraction rather than re-processing all messages.
-    engine.on("session.idle", (...args: unknown[]) => {
-      try {
-        const data = args[0] as
-          | { sessionId?: string; openLongMemory?: boolean }
-          | undefined;
-        const sessionId = data?.sessionId;
-        // Use engine's current config (may be updated from HTTP request model_provider)
-        const engineConfig = engine.currentConfig;
-        // Skip if no sessionId, memory not initialized, or no engine config
-        if (!sessionId || !memoryService.isInitialized() || !engineConfig)
-          return;
-        // 检查记忆开关，默认 false
-        if (data?.openLongMemory !== true) return;
-        // Skip if no API key (required for LLM-based extraction)
-        if (!engineConfig.apiKey) {
-          log.debug(
-            "[UnifiedAgent] Skipping incremental extraction: no API key configured",
-          );
-          return;
-        }
-
-        const modelConfig: ModelConfig = {
-          provider: engine.engineName.includes("claude")
-            ? "anthropic"
-            : "openai",
-          model: engineConfig.model || "",
-          apiKey: engineConfig.apiKey,
-          baseUrl: engineConfig.baseUrl,
-          apiProtocol: engineConfig.apiProtocol,
-        };
-
-        // Trigger incremental extraction (async, non-blocking)
-        // This will extract any new messages since the last extraction
-        memoryService.onSessionEnd(sessionId, modelConfig).catch((err) => {
-          log.warn("[UnifiedAgent] Incremental memory extraction failed:", err);
-        });
-      } catch (error) {
-        log.warn(
-          "[UnifiedAgent] Failed to trigger incremental extraction:",
-          error,
-        );
-      }
+    // 事件白名单转发 + assistant 文本记忆缓冲见 engineEventForwarder.ts
+    attachEngineEventForwarders(engine, {
+      emit: (event, ...args) => this.emit(event, ...args),
+      assistantTextBuffers: this.assistantTextBuffers,
     });
   }
 }

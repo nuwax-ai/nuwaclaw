@@ -39,11 +39,15 @@ import {
 // Lazy-load the entire workbench UI tree to keep it out of the initial bundle.
 // The workbench pulls in react-markdown, rehype, remark, prism, mermaid, etc.
 // — none of which are needed until the user enters Agent Mode.
-const LazyAgentWorkbenchProvider = React.lazy(
-  () => import("@nuwax-ai/agent-workbench").then((m) => ({ default: m.AgentWorkbenchProvider })),
+const LazyAgentWorkbenchProvider = React.lazy(() =>
+  import("@nuwax-ai/agent-workbench").then((m) => ({
+    default: m.AgentWorkbenchProvider,
+  })),
 );
-const LazyAgentWorkbench = React.lazy(
-  () => import("@nuwax-ai/agent-workbench").then((m) => ({ default: m.AgentWorkbench })),
+const LazyAgentWorkbench = React.lazy(() =>
+  import("@nuwax-ai/agent-workbench").then((m) => ({
+    default: m.AgentWorkbench,
+  })),
 );
 import {
   setupService,
@@ -249,15 +253,15 @@ function createWorkbenchHostBridge(
     },
     onExit,
     onFilePreview: async (fileId, context) => {
-      const conversationId = context?.conversationId ?? '';
+      const conversationId = context?.conversationId ?? "";
       const staticBase = `${baseUrl}/api/computer/static/${conversationId}`;
-      const encodedPath = fileId.split('/').map(encodeURIComponent).join('/');
+      const encodedPath = fileId.split("/").map(encodeURIComponent).join("/");
       const src = `${staticBase}/${encodedPath}`;
       // Sync auth cookie before the workbench fetches the file
       await syncSessionCookie(new URL(baseUrl).origin, accessToken);
       return {
         src,
-        fileName: fileId.split('/').pop() ?? fileId,
+        fileName: fileId.split("/").pop() ?? fileId,
         staticFileBasePath: staticBase,
       };
     },
@@ -493,6 +497,13 @@ function App() {
     new Set(),
   );
   const servicesPollTimer = useRef<ReturnType<typeof setInterval> | null>(null);
+  /**
+   * 上一次同步给托盘的整体服务状态（true=有服务在跑 / false=全部停止）。
+   * 避免每 5 秒轮询都向主进程发一次 tray:updateServicesStatus IPC。
+   * UI 入口（services:restartAll/stopAll 等）走主进程同步，本 ref 仅兜底
+   * 渲染端通过逐个 IPC 启动服务（startServicesSequentially）的场景。
+   */
+  const lastSyncedTrayRunning = useRef<boolean | null>(null);
   /** 递增后通知 ClientPage 刷新账号状态（用户名等），与 reg 返回保持一致 */
   const [authRefreshTrigger, setAuthRefreshTrigger] = useState(0);
   const [updateState, setUpdateState] = useState<UpdateState>({
@@ -503,14 +514,14 @@ function App() {
     typeof setInterval
   > | null>(null);
   const statusExpectedKeys = useMemo(() => {
-    const keys = ["mcpProxy", "agent", "fileServer", "lanproxy"];
+    const keys = ["mcpProxy", "agent", "fileServer", "lanproxy", "ttyd"];
     if (FEATURES.ENABLE_GUI_AGENT_SERVER && guiMcpEnabled) {
       keys.splice(3, 0, "guiServer");
     }
     return keys;
   }, [guiMcpEnabled]);
   const getStartupServiceKeys = useCallback(async (): Promise<string[]> => {
-    const keys = ["mcpProxy", "agent", "fileServer", "lanproxy"];
+    const keys = ["mcpProxy", "agent", "fileServer", "lanproxy", "ttyd"];
     if (!FEATURES.ENABLE_GUI_AGENT_SERVER) return keys;
     try {
       const guiEnabledRes = await window.electronAPI?.guiServer?.isEnabled();
@@ -813,15 +824,10 @@ function App() {
   const pollServicesStatus = useCallback(async () => {
     try {
       const items: ServiceItem[] = [];
-      const [
-        fsStatus,
-        lpStatus,
-        agentSvcStatus,
-        mcpStatus,
-        csStatus,
-        guiStatus,
-        guiEnabledRes,
-      ] = await Promise.all([
+      // 任一 status() 抛错不应阻塞其他服务的轮询；用 allSettled 单点隔离。
+      // 渲染端 status 不会 reject（handlers 返回 {success, error}），但 IPC 通道缺失等
+      // 边缘场景仍可能 reject，统一处理避免冻结尾页 services 列表。
+      const settled = await Promise.allSettled([
         window.electronAPI?.fileServer.status(),
         window.electronAPI?.lanproxy.status(),
         window.electronAPI?.agent.serviceStatus(),
@@ -829,7 +835,18 @@ function App() {
         window.electronAPI?.computerServer.status(),
         window.electronAPI?.guiServer?.status(),
         window.electronAPI?.guiServer?.isEnabled(),
+        window.electronAPI?.ttyd.status(),
       ]);
+      const unwrap = <T,>(r: PromiseSettledResult<T>, fallback: T): T =>
+        r.status === "fulfilled" ? (r.value ?? fallback) : fallback;
+      const fsStatus = unwrap(settled[0], { running: false });
+      const lpStatus = unwrap(settled[1], { running: false });
+      const agentSvcStatus = unwrap(settled[2], { running: false });
+      const mcpStatus = unwrap(settled[3], { running: false });
+      const csStatus = unwrap(settled[4], { running: false });
+      const guiStatus = unwrap(settled[5], undefined);
+      const guiEnabledRes = unwrap(settled[6], undefined);
+      const ttydStatus = unwrap(settled[7], { running: false });
       const isGuiEnabled =
         FEATURES.ENABLE_GUI_AGENT_SERVER && (guiEnabledRes?.enabled ?? false);
       setGuiMcpEnabled(isGuiEnabled);
@@ -884,8 +901,28 @@ function App() {
         pid: lpStatus?.pid,
         error: lpStatus?.error,
       });
+      items.push({
+        key: "ttyd",
+        label: t("Claw.Service.ttyd"),
+        description: t("Claw.Service.ttydDesc"),
+        running: ttydStatus?.running ?? false,
+        pid: ttydStatus?.pid,
+        error: ttydStatus?.error,
+      });
       setServices(items);
       setPollFailCount(0);
+
+      // 兜底同步托盘：任一服务在跑 → running；全部停止 → stopped。
+      // 仅在状态发生变化时发 IPC，避免每 5 秒重复调用。
+      // 这里覆盖了 startServicesSequentially 逐个 IPC 启动服务的场景；
+      // services:restartAll/stopAll 等批量路径由主进程 processHandlers 直接同步。
+      const anyRunning = items.some((s) => s.running);
+      if (lastSyncedTrayRunning.current !== anyRunning) {
+        lastSyncedTrayRunning.current = anyRunning;
+        window.electronAPI?.tray
+          .updateServicesStatus(anyRunning)
+          .catch((e) => console.warn("[App] Failed to sync tray status:", e));
+      }
     } catch (error) {
       console.error("[App] pollServicesStatus failed:", error);
       setPollFailCount((count) => count + 1);
@@ -974,6 +1011,12 @@ function App() {
             result = await window.electronAPI?.mcp.start();
             log.info(
               `mcpProxy: ${result?.success ? "ok" : "failed"}`,
+              result?.error,
+            );
+          } else if (key === "ttyd") {
+            result = await window.electronAPI?.ttyd.start();
+            log.info(
+              `ttyd: ${result?.success ? "ok" : "failed"}`,
               result?.error,
             );
           }
@@ -1512,7 +1555,14 @@ function App() {
               message={t(I18N_KEYS.AgentMode.MOCK_BANNER)}
             />
           )}
-          <React.Suspense fallback={<Spin size="large" style={{ display: 'block', margin: '120px auto' }} />}>
+          <React.Suspense
+            fallback={
+              <Spin
+                size="large"
+                style={{ display: "block", margin: "120px auto" }}
+              />
+            }
+          >
             <LazyAgentWorkbenchProvider config={workbenchConfigState.config}>
               <LazyAgentWorkbench />
             </LazyAgentWorkbenchProvider>
@@ -1818,7 +1868,13 @@ function App() {
                           onWebviewChange={setWebviewActions}
                         />
                       )}
-                      {activeTab === "mcp" && <MCPSettings />}
+                      <div
+                        style={{
+                          display: activeTab === "mcp" ? "contents" : "none",
+                        }}
+                      >
+                        <MCPSettings isOpen={activeTab === "mcp"} />
+                      </div>
                       {activeTab === "settings" && <SettingsPage />}
                       {activeTab === "dependencies" && <DependenciesPage />}
                       {activeTab === "permissions" && <PermissionsPage />}

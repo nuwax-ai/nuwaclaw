@@ -12,7 +12,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import * as path from "path";
 import * as dependencies from "@main/services/system/dependencies";
 import * as sandboxPolicy from "@main/services/sandbox/policy";
-import * as opencodeAcpSandbox from "./opencodeAcpSandbox";
+import * as opencodeAcpSandbox from "./sandbox/opencodeAcpSandbox";
 
 vi.mock("electron", () => ({
   app: {
@@ -328,6 +328,64 @@ describe("AcpEngine.handleAcpSessionUpdate", () => {
     expect(onMessage).not.toHaveBeenCalled();
     expect(onProgress).not.toHaveBeenCalled();
   });
+
+  it("审批门控的交互工具在 completed 更新中带回 rawInput", () => {
+    const { engine, sessionId } = setupEngine("claude-code");
+    const onMessage = vi.fn();
+    const onProgress = vi.fn();
+    engine.on("message.part.updated", onMessage);
+    engine.on("computer:progress", onProgress);
+
+    const rawInput = {
+      schemaVersion: "custom.interactive.v1",
+      requestId: "tech_report_001",
+      revision: 1,
+      title: "技术调研报告配置",
+      ui: { version: "nuwax.interaction.v1", presentation: "inline" },
+    };
+    const rawOutput = JSON.stringify({
+      status: "pending",
+      requestId: "tech_report_001",
+      revision: 1,
+    });
+
+    (engine as any).handleAcpSessionUpdate(sessionId, {
+      _meta: { claudeCode: { toolName: "custom_interactive_tool" } },
+      sessionUpdate: "tool_call_update",
+      toolCallId: "tool-call-interactive",
+      rawInput,
+    });
+    (engine as any).handleAcpSessionUpdate(sessionId, {
+      _meta: { claudeCode: { toolName: "custom_interactive_tool" } },
+      sessionUpdate: "tool_call_update",
+      toolCallId: "tool-call-interactive",
+      status: "completed",
+      rawOutput,
+    });
+
+    expect(onProgress).toHaveBeenCalledTimes(1);
+    expect(onProgress.mock.calls[0][0]).toMatchObject({
+      sessionId,
+      subType: "tool_call_update",
+      data: {
+        toolCallId: "tool-call-interactive",
+        title: "custom_interactive_tool",
+        status: "completed",
+        rawInput,
+        rawOutput,
+      },
+    });
+    expect(onMessage).toHaveBeenCalledTimes(1);
+    expect(onMessage.mock.calls[0][0]).toMatchObject({
+      sessionId,
+      type: "tool",
+      toolCallId: "tool-call-interactive",
+      name: "custom_interactive_tool",
+      status: "completed",
+      input: rawInput,
+      output: rawOutput,
+    });
+  });
 });
 
 describe("AcpEngine.createSession", () => {
@@ -550,22 +608,22 @@ describe("AcpEngine.handlePermissionRequest(strict)", () => {
       subType: "request_permission",
       data: {
         request_permission_request: {
-          session_id: sessionId,
-          tool_call: {
-            tool_call_id: "tool-call-ask",
+          sessionId: sessionId,
+          toolCall: {
+            toolCallId: "tool-call-ask",
             kind: "execute",
             status: "pending",
             title: "Run command",
-            raw_input: { command: "cargo test" },
+            rawInput: { command: "cargo test" },
           },
           options: [
             {
-              option_id: "reject-once",
+              optionId: "reject-once",
               kind: "reject_once",
               name: "拒绝本次",
             },
             {
-              option_id: "allow-once",
+              optionId: "allow-once",
               kind: "allow_once",
               name: "允许本次",
             },

@@ -9,7 +9,7 @@ import {
   getBundledGitBashPath,
 } from "@main/services/system/dependencies";
 import type { SandboxProcessConfig } from "@shared/types/sandbox";
-import type { AcpEnvVariable, AcpMcpServer } from "./acpClient";
+import type { AcpEnvVariable, AcpMcpServer } from "../acpClient";
 import {
   canInjectSandboxedBashMcp,
   canInjectSandboxedFsMcp,

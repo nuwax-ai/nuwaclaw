@@ -824,6 +824,24 @@ export default function SettingsPage() {
                       </Form.Item>
                     </Col>
                   )}
+                  <Col span={12}>
+                    <Form.Item
+                      name="ttydPort"
+                      label={t("Claw.Settings.saveConfig.ttydPort")}
+                      rules={[
+                        {
+                          required: true,
+                          message: t("Claw.Settings.saveConfig.enterPort"),
+                        },
+                      ]}
+                    >
+                      <InputNumber
+                        min={1}
+                        max={65535}
+                        style={{ width: "100%" }}
+                      />
+                    </Form.Item>
+                  </Col>
                 </Row>
 
                 <Form.Item

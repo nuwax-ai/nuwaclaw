@@ -362,6 +362,9 @@ UNSIGNED_EXE="NuwaClaw-Setup-$VERSION-unsigned.exe"
 UNSIGNED_MSI="NuwaClaw-$VERSION-unsigned.msi"
 SIGNED_EXE="NuwaClaw.Setup.$VERSION.exe"
 SIGNED_MSI="NuwaClaw.$VERSION.msi"
+UNSIGNED_BLOCKMAP="${UNSIGNED_EXE}.blockmap"
+SIGNED_BLOCKMAP="${SIGNED_EXE}.blockmap"
+BLOCKMAP_SCRIPT="$SCRIPT_DIR/generate-blockmap.js"
 
 echo ""
 echo "==> Setting up directories"
@@ -490,6 +493,32 @@ else
     fi
 fi
 
+generate_signed_blockmap() {
+    echo ""
+    # 默认与客户端行为一致：Windows 默认关闭差分更新时，可跳过 blockmap 生成
+    # - SIGN_SKIP_BLOCKMAP=true  显式跳过
+    # - SIGN_SKIP_BLOCKMAP=false 显式生成（用于 MinIO 修好后验证差分）
+    if [[ -z "${SIGN_SKIP_BLOCKMAP:-}" ]]; then
+        if [[ "${NUWAX_DISABLE_DIFF_UPDATE:-}" != "0" ]]; then
+            SIGN_SKIP_BLOCKMAP=true
+        else
+            SIGN_SKIP_BLOCKMAP=false
+        fi
+    fi
+
+    if [[ "$SIGN_SKIP_BLOCKMAP" == "true" ]]; then
+        echo "==> Skipping blockmap generation (SIGN_SKIP_BLOCKMAP=true)"
+        return 0
+    fi
+
+    echo "==> Generating blockmap for differential updates"
+    node "$BLOCKMAP_SCRIPT" "$SIGNED_DIR/$SIGNED_EXE"
+    if [[ ! -f "$SIGNED_DIR/$SIGNED_BLOCKMAP" ]]; then
+        echo "错误: blockmap 未生成: $SIGNED_DIR/$SIGNED_BLOCKMAP"
+        exit 1
+    fi
+}
+
 if [[ "$UPLOAD_ONLY" == "true" ]]; then
     echo ""
     echo "==> Upload-only：跳过未签名包校验与签名，仅上传 Release"
@@ -500,8 +529,16 @@ if [[ "$UPLOAD_ONLY" == "true" ]]; then
         echo "（可用环境变量 SIGN_WORK_DIR 覆盖工作目录，默认 $WORK_DIR）"
         exit 1
     fi
+    if [[ ! -f "$SIGNED_DIR/$SIGNED_BLOCKMAP" ]]; then
+        generate_signed_blockmap
+    fi
     echo "  将上传: $SIGNED_DIR/$SIGNED_EXE"
     echo "  将上传: $SIGNED_DIR/$SIGNED_MSI"
+    if [[ -f "$SIGNED_DIR/$SIGNED_BLOCKMAP" ]]; then
+        echo "  将上传: $SIGNED_DIR/$SIGNED_BLOCKMAP"
+    else
+        echo "  将跳过: $SIGNED_DIR/$SIGNED_BLOCKMAP"
+    fi
 else
     # Verify files exist
     if [[ ! -f "$UNSIGNED_EXE_PATH" ]]; then
@@ -574,9 +611,10 @@ else
     echo "  $UNSIGNED_EXE -> $SIGNED_EXE"
     echo "  $UNSIGNED_MSI -> $SIGNED_MSI"
     echo "  Copied to: $SIGNED_DIR"
+    generate_signed_blockmap
 fi
 
-# Upload to GitHub
+# Upload to GitHub（已签名安装包 + 差分更新 blockmap）
 if [[ "$SKIP_UPLOAD" == "false" ]]; then
     echo ""
     echo "==> Uploading signed files to release electron-v$VERSION"
@@ -585,22 +623,38 @@ if [[ "$SKIP_UPLOAD" == "false" ]]; then
     if [[ "$GH_BIN" == __POWERSHELL_GH__:* ]]; then
         gh_release "gh release delete-asset \"electron-v$VERSION\" \"$UNSIGNED_EXE\" --yes --repo \"$REPO\"" 2>/dev/null || true
         gh_release "gh release delete-asset \"electron-v$VERSION\" \"$UNSIGNED_MSI\" --yes --repo \"$REPO\"" 2>/dev/null || true
+        gh_release "gh release delete-asset \"electron-v$VERSION\" \"$UNSIGNED_BLOCKMAP\" --yes --repo \"$REPO\"" 2>/dev/null || true
     else
         gh_release "" release delete-asset "electron-v$VERSION" "$UNSIGNED_EXE" --yes --repo "$REPO" 2>/dev/null || true
         gh_release "" release delete-asset "electron-v$VERSION" "$UNSIGNED_MSI" --yes --repo "$REPO" 2>/dev/null || true
+        gh_release "" release delete-asset "electron-v$VERSION" "$UNSIGNED_BLOCKMAP" --yes --repo "$REPO" 2>/dev/null || true
     fi
 
     # Upload signed files with original names
     if [[ "$GH_BIN" == __POWERSHELL_GH__:* ]]; then
         SIGNED_EXE_WIN="$(cygpath -w "$SIGNED_DIR/$SIGNED_EXE")"
         SIGNED_MSI_WIN="$(cygpath -w "$SIGNED_DIR/$SIGNED_MSI")"
-        gh_release "gh release upload \"electron-v$VERSION\" \"$SIGNED_EXE_WIN\" \"$SIGNED_MSI_WIN\" --clobber --repo \"$REPO\""
+        if [[ -f "$SIGNED_DIR/$SIGNED_BLOCKMAP" ]]; then
+            SIGNED_BLOCKMAP_WIN="$(cygpath -w "$SIGNED_DIR/$SIGNED_BLOCKMAP")"
+            gh_release "gh release upload \"electron-v$VERSION\" \"$SIGNED_EXE_WIN\" \"$SIGNED_MSI_WIN\" \"$SIGNED_BLOCKMAP_WIN\" --clobber --repo \"$REPO\""
+        else
+            gh_release "gh release upload \"electron-v$VERSION\" \"$SIGNED_EXE_WIN\" \"$SIGNED_MSI_WIN\" --clobber --repo \"$REPO\""
+        fi
     else
-        gh_release "" release upload "electron-v$VERSION" \
-            "$SIGNED_DIR/$SIGNED_EXE" \
-            "$SIGNED_DIR/$SIGNED_MSI" \
-            --clobber \
-            --repo "$REPO"
+        if [[ -f "$SIGNED_DIR/$SIGNED_BLOCKMAP" ]]; then
+            gh_release "" release upload "electron-v$VERSION" \
+                "$SIGNED_DIR/$SIGNED_EXE" \
+                "$SIGNED_DIR/$SIGNED_MSI" \
+                "$SIGNED_DIR/$SIGNED_BLOCKMAP" \
+                --clobber \
+                --repo "$REPO"
+        else
+            gh_release "" release upload "electron-v$VERSION" \
+                "$SIGNED_DIR/$SIGNED_EXE" \
+                "$SIGNED_DIR/$SIGNED_MSI" \
+                --clobber \
+                --repo "$REPO"
+        fi
     fi
 
     echo "  Uploaded successfully!"
@@ -626,6 +680,7 @@ echo ""
 echo "Files:"
 echo "  - $SIGNED_EXE"
 echo "  - $SIGNED_MSI"
+echo "  - $SIGNED_BLOCKMAP"
 
 if [[ "$SKIP_UPLOAD" == "false" ]]; then
     echo ""

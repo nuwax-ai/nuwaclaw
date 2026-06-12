@@ -124,7 +124,37 @@ function detectInstallerType(): InstallerType {
 
 **数据源规则**：OSS 上**只**维护并信任 `latest.json`（含 version、notes、pub_date、platforms 多架构与完整 OSS 下载地址）。Release 流程（`.github/workflows/release-electron.yml`）**必须**根据该 `latest.json` 的 `platforms` 生成 electron-updater 所需的 `latest-mac.yml`、`latest-linux.yml`、`latest.yml`，并写入 release-assets 后一并上传；**禁止**使用或上传 GitHub 自带的 yml；yml 内下载地址为相对路径（相对 feed 基地址即 OSS 版本化路径）。
 
-本地触发 OSS 同步时，可在本 crate 下执行 `scripts/sync-oss.sh <tag>`（如 `electron-v0.8.0`），会触发上述 workflow 并轮询直至完成；依赖 `gh`、`jq`。
+### Windows 差分更新（blockmap）
+
+electron-updater 在 `latest.yml` 含 `blockMapSize` 且 OSS 同目录存在 `{path}.blockmap` 时**可**启用差分下载。
+
+**当前客户端默认关闭 Windows 差分**（MinIO/nginx 暂不支持多段 Range 所需的 `206 multipart/byteranges`，否则会尝试差分失败后 fallback 全量）。Release 仍生成 blockmap 与 `blockMapSize`，便于服务端就绪后一键验证。
+
+| 环境变量 | 行为 |
+|----------|------|
+| 未设置（默认） | Windows NSIS 全量下载，跳过 blockmap |
+| `NUWAX_DISABLE_DIFF_UPDATE=1` | 显式关闭差分（与默认相同） |
+| `NUWAX_DISABLE_DIFF_UPDATE=0` | 尝试差分下载（MinIO 修好后 QA 验证用） |
+
+> 注意：`NUWAX_DISABLE_DIFF_UPDATE=0` 表示**开启**差分（双重否定），仅 QA 验证时使用。
+
+Windows QA 验证差分示例（cmd）：
+
+```bat
+set NUWAX_DISABLE_DIFF_UPDATE=0
+NuwaClaw.exe
+```
+
+验证差分生效：启动日志应出现 `Differential download enabled`，更新时日志应出现 `To download: X KB (Y%)`，且**无** `Cannot download differentially, fallback to full download`。
+
+| 通道 | feed 路径 | Windows 安装包 | blockmap |
+|------|-----------|----------------|----------|
+| **stable** | `nuwaclaw-electron/electron-v{version}/` | `NuwaClaw.Setup.{version}.exe`（本地签名后） | 签名后由 `generate-blockmap.js` 生成 |
+| **beta** | `nuwaclaw-electron/beta-build/prerelease-v{version}/` | `NuwaClaw-Setup-{version}-unsigned.exe`（不签名） | CI 产物，文件名与 exe 一致 |
+
+Stable：须先完成 [windows-signing.md](../windows-signing.md) 手签并上传 Release，再 sync OSS。Beta：`prerelease-v*` 构建后由 `release-electron-dev.yml` 自动 sync。
+
+本地触发 OSS 同步时，可在本 crate 下执行 `scripts/sync-oss.sh <tag> [channel]`（如 `electron-v0.8.0` 或 `prerelease-v0.11.34 beta`），会触发上述 workflow 并轮询直至完成；依赖 `gh`、`jq`。
 
 ## 自定义更新源
 

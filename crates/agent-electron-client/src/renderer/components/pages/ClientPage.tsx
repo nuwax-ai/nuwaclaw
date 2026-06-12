@@ -100,7 +100,7 @@ function ClientPage({
   onLoginStarted,
 }: ClientPageProps) {
   const getStartupServiceKeys = useCallback(async (): Promise<string[]> => {
-    const keys = ["mcpProxy", "agent", "fileServer", "lanproxy"];
+    const keys = ["mcpProxy", "agent", "fileServer", "lanproxy", "ttyd"];
     if (!FEATURES.ENABLE_GUI_AGENT_SERVER) return keys;
     try {
       const guiEnabledRes = await window.electronAPI?.guiServer?.isEnabled();
@@ -256,6 +256,10 @@ function ClientPage({
                 await window.electronAPI?.lanproxy.stop();
               else if (svc.key === "mcpProxy")
                 await window.electronAPI?.mcp.stop();
+              else if (svc.key === "guiServer")
+                await window.electronAPI?.guiServer?.stop();
+              else if (svc.key === "ttyd")
+                await window.electronAPI?.ttyd.stop();
             } catch (e) {
               console.error(`[ClientPage] Failed to stop ${svc.label}:`, e);
             }
@@ -320,6 +324,7 @@ function ClientPage({
     guiServer: "Claw.Service.guiMcp",
     lanproxy: "Claw.Service.proxy",
     mcpProxy: "Claw.Service.mcp",
+    ttyd: "Claw.Service.ttyd",
   };
   const getServiceLabel = (key: string) => t(serviceNameMap[key] || key);
 
@@ -400,6 +405,8 @@ function ClientPage({
           return false;
         }
         result = await window.electronAPI?.guiServer?.start();
+      } else if (key === "ttyd") {
+        result = await window.electronAPI?.ttyd.start();
       }
 
       await onRefreshServices();
@@ -454,6 +461,7 @@ function ClientPage({
       else if (key === "lanproxy") await window.electronAPI?.lanproxy.stop();
       else if (key === "mcpProxy") await window.electronAPI?.mcp.stop();
       else if (key === "guiServer") await window.electronAPI?.guiServer?.stop();
+      else if (key === "ttyd") await window.electronAPI?.ttyd.stop();
     } catch (error) {
       message.error(t("Claw.Client.stopFailed", String(error)));
     } finally {
@@ -529,6 +537,7 @@ function ClientPage({
           else if (svc.key === "lanproxy")
             await window.electronAPI?.lanproxy.stop();
           else if (svc.key === "mcpProxy") await window.electronAPI?.mcp.stop();
+          else if (svc.key === "ttyd") await window.electronAPI?.ttyd.stop();
           else if (svc.key === "guiServer")
             await window.electronAPI?.guiServer?.stop();
         } catch (error) {

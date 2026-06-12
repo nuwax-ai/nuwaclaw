@@ -4,6 +4,7 @@ import log from "electron-log";
 import { z } from "zod";
 import type { HandlerContext } from "@shared/types/ipc";
 import { createServiceManager } from "../window/serviceManager";
+import { getTrayManager } from "../window/trayManager";
 import { checkLanproxyHealth } from "../services/packages/lanproxyHealth";
 import { getConfiguredPorts } from "../services/startupPorts";
 import { killProcessTreesListeningOnTcpPort } from "../services/utils/processTree";
@@ -58,6 +59,7 @@ export function registerProcessHandlers(ctx: HandlerContext): void {
     lanproxy: ctx.lanproxy,
     fileServer: ctx.fileServer,
     agentRunner: ctx.agentRunner,
+    ttyd: ctx.ttyd,
   });
 
   // 本地别名，确保 TypeScript 知道它已被赋值
@@ -361,6 +363,10 @@ export function registerProcessHandlers(ctx: HandlerContext): void {
       log.error("[Services] ComputerServer start failed:", e);
     }
 
+    // 同步托盘状态：基于 ManagedProcess.running 推断整体服务运行状态，
+    // 避免 UI 触发重启后托盘仍停留在 "stopped" 文案。
+    syncTrayStatusFromContext(ctx);
+
     log.info("[Services] All services restart complete:", results);
     return { success: true, results };
   });
@@ -388,6 +394,9 @@ export function registerProcessHandlers(ctx: HandlerContext): void {
       results.computerServer = { success: false, error: String(e) };
       log.error("[Services] ComputerServer stop failed:", e);
     }
+
+    // 同步托盘状态：停止后所有进程应已退出，托盘显示 "stopped"。
+    syncTrayStatusFromContext(ctx);
 
     log.info("[Services] All services stopped:", results);
     return { success: true, results };
@@ -418,10 +427,38 @@ export function registerProcessHandlers(ctx: HandlerContext): void {
       log.error("[Services] ComputerServer start failed:", e);
     }
 
+    // 同步托盘状态：基于 ManagedProcess.running 重新计算。
+    syncTrayStatusFromContext(ctx);
+
     log.info(
       "[Services] All services (except lanproxy) restart complete:",
       results,
     );
     return { success: true, results };
   });
+}
+
+/**
+ * 根据 HandlerContext 中各 ManagedProcess 的实际运行状态同步托盘。
+ *
+ * 设计要点：
+ * - 托盘的 running/stopped 文案是面向用户的"是否有服务在跑"概览，
+ *   只要任一基础设施进程（fileServer / lanproxy / agentRunner / ttyd）
+ *   处于运行中，就显示 running；全部停止时显示 stopped。
+ * - 与之前"只有托盘菜单点击才会更新托盘状态"相比，补充了 UI 入口
+ *   （services:restartAll / services:stopAll / services:restartAllExceptLanproxy）
+ *   触发的状态同步路径。
+ * - mcpProxy / agentService 是通过不同管理器（mcpProxyManager / agentService）
+ *   启动的子进程，未在 ctx 中；如需更精确判断"所有服务都运行中"，可在未来
+ *   引入 mcpProxyManager.isRunning() / agentService.isReady() 扩展此处。
+ */
+function syncTrayStatusFromContext(ctx: HandlerContext): void {
+  const tray = getTrayManager();
+  if (!tray) return;
+  const running =
+    ctx.fileServer.running ||
+    ctx.lanproxy.running ||
+    ctx.agentRunner.running ||
+    ctx.ttyd.running;
+  tray.updateServicesStatus(running);
 }
