@@ -21,6 +21,7 @@ import {
   ConversationState,
   answerPermissionAction,
   createConversationAction,
+  answerMcpAskAction,
   getMessageIndex,
   initialConversationState,
   loadConversationAction,
@@ -33,6 +34,8 @@ import {
 import type {
   WorkbenchApiAdapter,
   WorkbenchConversation,
+  WorkbenchMcpAskInteraction,
+  WorkbenchMcpAskRespondPayload,
   WorkbenchConversationMessages,
   WorkbenchMessage,
   WorkbenchSendMessageRequest,
@@ -720,6 +723,101 @@ describe('answerPermissionAction', () => {
     const { getState, dispatch } = createStore();
     await answerPermissionAction(getState, dispatch, makeDeps(adapter), 'once');
     expect(respondSpy).not.toHaveBeenCalled();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 7b. answerMcpAskAction
+// ---------------------------------------------------------------------------
+
+function makeMcpAskInteraction(): WorkbenchMcpAskInteraction {
+  return {
+    input: {
+      toolName: 'nuwax_ask_question',
+      schemaVersion: 'nuwax.mcp_ask.v1',
+      requestId: 'req-1',
+      revision: 1,
+      sessionId: 'sess-1',
+      title: 'Choose an option',
+      ui: {
+        version: '1',
+        presentation: 'inline',
+        title: 'Choose an option',
+        schema: {},
+      },
+    },
+    toolCallId: 'tc-1',
+    responseStatus: 'pending',
+  };
+}
+
+describe('answerMcpAskAction', () => {
+  it('sets submitting state then clears after success', async () => {
+    const adapter = createMockApiAdapter({ latencyMs: 0 });
+    const respondSpy = vi.spyOn(adapter, 'respondMcpAsk');
+    const { getState, dispatch } = createStore({
+      ...initialConversationState,
+      mcpAskInteraction: makeMcpAskInteraction(),
+    });
+    const payload: WorkbenchMcpAskRespondPayload = {
+      interventionId: 'req-1',
+      toolCallId: 'tc-1',
+      revision: 1,
+      source: 'mcp_ask',
+      protocol: 'mcp',
+      action: 'submit',
+      formData: { foo: 'bar' },
+    };
+    await answerMcpAskAction(getState, dispatch, makeDeps(adapter), payload);
+    expect(respondSpy).toHaveBeenCalledOnce();
+    expect(getState().mcpAskInteraction).toBeNull();
+  });
+
+  it('does nothing when there is no pending mcpAskInteraction', async () => {
+    const adapter = createMockApiAdapter({ latencyMs: 0 });
+    const respondSpy = vi.spyOn(adapter, 'respondMcpAsk');
+    const { getState, dispatch } = createStore();
+    await answerMcpAskAction(
+      getState,
+      dispatch,
+      makeDeps(adapter),
+      {
+        interventionId: 'req-1',
+        revision: 1,
+        source: 'mcp_ask',
+        protocol: 'mcp',
+        action: 'submit',
+      },
+    );
+    expect(respondSpy).not.toHaveBeenCalled();
+  });
+
+  it('marks the interaction as failed when the adapter throws', async () => {
+    const adapter = {
+      ...createMockApiAdapter({ latencyMs: 0 }),
+      async respondMcpAsk() {
+        throw new Error('boom');
+      },
+    };
+    const reportError = vi.fn();
+    const { getState, dispatch } = createStore({
+      ...initialConversationState,
+      mcpAskInteraction: makeMcpAskInteraction(),
+    });
+    await answerMcpAskAction(
+      getState,
+      dispatch,
+      makeDeps(adapter, { reportError }),
+      {
+        interventionId: 'req-1',
+        revision: 1,
+        source: 'mcp_ask',
+        protocol: 'mcp',
+        action: 'submit',
+      },
+    );
+    expect(getState().mcpAskInteraction?.responseStatus).toBe('failed');
+    expect(getState().mcpAskInteraction?.errorMessage).toBe('boom');
   });
 });
 

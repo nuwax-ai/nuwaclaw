@@ -43,6 +43,7 @@ export interface McpAskQuestionLabels {
   submitted?: string;
   cancelled?: string;
   skipped?: string;
+  requiredError?: string;
 }
 
 const DEFAULT_LABELS: Required<McpAskQuestionLabels> = {
@@ -56,7 +57,16 @@ const DEFAULT_LABELS: Required<McpAskQuestionLabels> = {
   submitted: 'Submitted',
   cancelled: 'Cancelled',
   skipped: 'Skipped',
+  requiredError: 'This field is required',
 };
+
+/** True when a value is empty enough to fail a required-field check. */
+export function isFieldValueEmpty(value: unknown): boolean {
+  if (value === undefined || value === null) return true;
+  if (typeof value === 'string') return value.trim() === '';
+  if (Array.isArray(value)) return value.length === 0;
+  return false;
+}
 
 export function McpAskQuestionCard({
   interaction,
@@ -69,6 +79,7 @@ export function McpAskQuestionCard({
 
   const [formData, setFormData] = useState<Record<string, unknown>>({});
   const [currentStep, setCurrentStep] = useState(0);
+  const [formErrors, setFormErrors] = useState<Record<string, string>>({});
 
   const isSubmitting = interaction.responseStatus === 'submitting';
   const isSubmitted = interaction.responseStatus === 'submitted';
@@ -88,6 +99,17 @@ export function McpAskQuestionCard({
     }
     return parseInteractionFields(ui);
   }, [ui, isWizard, steps.length, activeStep]);
+
+  const validateVisibleFields = useCallback((): boolean => {
+    const errors: Record<string, string> = {};
+    for (const field of visibleFields) {
+      if (field.required && isFieldValueEmpty(formData[field.name])) {
+        errors[field.name] = labels.requiredError;
+      }
+    }
+    setFormErrors(errors);
+    return Object.keys(errors).length === 0;
+  }, [visibleFields, formData, labels.requiredError]);
 
   const isLastStep = currentStep >= steps.length - 1;
   const title = input.title || ui.title;
@@ -120,11 +142,18 @@ export function McpAskQuestionCard({
 
   const handleFieldChange = useCallback((name: string, value: unknown) => {
     setFormData((prev) => ({ ...prev, [name]: value }));
+    setFormErrors((prev) => {
+      if (!prev[name]) return prev;
+      const next = { ...prev };
+      delete next[name];
+      return next;
+    });
   }, []);
 
   const handleSubmit = useCallback(() => {
+    if (!validateVisibleFields()) return;
     onRespond?.(buildPayload('submit', formData));
-  }, [onRespond, buildPayload, formData]);
+  }, [onRespond, buildPayload, formData, validateVisibleFields]);
 
   const handleCancel = useCallback(() => {
     onRespond?.(buildPayload('cancel'));
@@ -135,8 +164,9 @@ export function McpAskQuestionCard({
   }, [onRespond, buildPayload]);
 
   const handleNext = useCallback(() => {
+    if (!validateVisibleFields()) return;
     setCurrentStep((prev) => Math.min(prev + 1, steps.length - 1));
-  }, [steps.length]);
+  }, [steps.length, validateVisibleFields]);
 
   const handlePrev = useCallback(() => {
     setCurrentStep((prev) => Math.max(prev - 1, 0));
@@ -178,17 +208,21 @@ export function McpAskQuestionCard({
         </div>
       )}
 
-      <div className="mcp-ask-form">
-        {visibleFields.map((field) => (
-          <McpAskFormField
-            key={field.name}
-            field={field}
-            value={formData[field.name]}
-            onFieldChange={handleFieldChange}
-            disabled={disabled}
-          />
+     <div className="mcp-ask-form">
+       {visibleFields.map((field) => (
+          <div key={field.name} className="mcp-ask-field-wrap">
+            <McpAskFormField
+              field={field}
+              value={formData[field.name]}
+              onFieldChange={handleFieldChange}
+              disabled={disabled}
+            />
+            {formErrors[field.name] && (
+              <span className="mcp-ask-field-error">{formErrors[field.name]}</span>
+            )}
+          </div>
         ))}
-      </div>
+     </div>
 
       {!isSubmitted && !isCancelled && !isSkipped && (
         <footer className="mcp-ask-footer">

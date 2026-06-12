@@ -3514,6 +3514,17 @@
   margin-left: 2px;
 }
 
+.mcp-ask-field-wrap {
+  margin-bottom: 12px;
+}
+
+.mcp-ask-field-error {
+  display: block;
+  margin-top: 4px;
+  font-size: 12px;
+  color: #ef4444;
+}
+
 .mcp-ask-option-group {
   display: flex;
   flex-direction: column;

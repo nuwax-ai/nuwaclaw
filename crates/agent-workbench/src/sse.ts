@@ -338,53 +338,52 @@ function inferNuwaxEnvelopeType(payload: unknown): WorkbenchStreamEventType | nu
   ) {
     return 'permission';
   }
- // PROCESSING events that carry a nested request_permission_request
- if (eventType === 'PROCESSING') {
-   const result = getRecord(data?.result);
-   const procInput = getRecord(result?.input);
-   if (
-     getRecord(data?.request_permission_request) ||
-     getRecord(procInput?.request_permission_request) ||
-     getRecord(data?._intervention) ||
-     getRecord(data?.interventionRequest)
-   ) {
-     return 'permission';
-   }
-  // MCP Ask (nuwax_ask_question) tool calls
-  const subType = readString(data, [['subType'], ['sub_type']])?.toLowerCase();
-  const ext = getRecord(data?.ext);
-  const rawInputSource =
-    getRecord(data?.raw_input) ??
-    getRecord(data?.rawInput) ??
-    getRecord(ext?.raw_input) ??
-    getRecord(ext?.rawInput) ??
-    getRecord(procInput) ??
-    getRecord(getRecord(result?.ext)?.raw_input) ??
-    getRecord(getRecord(result?.ext)?.rawInput);
-  if (
-   (subType === 'tool_call' || subType === 'tool_call_update') &&
-    rawInputSource &&
-   typeof (rawInputSource as Record<string, unknown>).schemaVersion === 'string'
-  ) {
-    return 'mcp_ask';
+  // PROCESSING events that carry a nested request_permission_request or an
+  // MCP Ask tool call. The outer `subType` binding is reused here.
+  if (eventType === 'PROCESSING') {
+    const result = getRecord(data?.result);
+    const procInput = getRecord(result?.input);
+    if (
+      getRecord(data?.request_permission_request) ||
+      getRecord(procInput?.request_permission_request) ||
+      getRecord(data?._intervention) ||
+      getRecord(data?.interventionRequest)
+    ) {
+      return 'permission';
+    }
+    // MCP Ask (nuwax_ask_question) tool calls
+    const ext = getRecord(data?.ext);
+    const rawInputSource =
+      getRecord(data?.raw_input) ??
+      getRecord(data?.rawInput) ??
+      getRecord(ext?.raw_input) ??
+      getRecord(ext?.rawInput) ??
+      getRecord(procInput) ??
+      getRecord(getRecord(result?.ext)?.raw_input) ??
+      getRecord(getRecord(result?.ext)?.rawInput);
+    if (
+      (subType === 'tool_call' || subType === 'tool_call_update') &&
+      rawInputSource &&
+      typeof (rawInputSource as Record<string, unknown>).schemaVersion === 'string'
+    ) {
+      return 'mcp_ask';
+    }
+    // Also detect via executeId + result.input even without explicit subType.
+    if (
+      rawInputSource &&
+      typeof (rawInputSource as Record<string, unknown>).schemaVersion === 'string' &&
+      ['nuwaclaw.mcp_ask.v1', 'nuwax.mcp_ask.v1'].includes(
+        (rawInputSource as Record<string, unknown>).schemaVersion as string,
+      )
+    ) {
+      return 'mcp_ask';
+    }
+    return 'processing';
   }
-  // Also detect via executeId + result.input even without explicit subType.
-  if (
-    rawInputSource &&
-    typeof (rawInputSource as Record<string, unknown>).schemaVersion === 'string' &&
-    ['nuwaclaw.mcp_ask.v1', 'nuwax.mcp_ask.v1'].includes(
-      (rawInputSource as Record<string, unknown>).schemaVersion as string,
-    )
-  ) {
-    return 'mcp_ask';
-  }
-}
 
-if (eventType === 'PROCESSING') return 'processing';
   if (eventType === 'FINAL_RESULT') return 'final';
   if (eventType === 'ERROR') return 'error';
   if (eventType === 'MESSAGE') {
-   const data = getRecord(record.data) ?? record;
     const messageMode = readString(data, [['type']])?.toUpperCase();
     if (messageMode === 'THINK') return 'thought';
     return 'chunk';

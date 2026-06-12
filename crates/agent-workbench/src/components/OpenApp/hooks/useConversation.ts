@@ -127,7 +127,12 @@ export type ConversationAction =
   | { type: 'permissionShown'; request: WorkbenchPermissionRequest }
   | { type: 'permissionCleared' }
   | { type: 'mcpAskShown'; interaction: WorkbenchMcpAskInteraction }
-  | { type: 'mcpAskCleared' };
+  | { type: 'mcpAskCleared' }
+  | { type: 'mcpAskSubmitting' }
+  | {
+      type: 'mcpAskFailed';
+      error: string;
+    };
 
 /**
  * Pure state reducer. Exported for unit tests.
@@ -204,6 +209,27 @@ export function messagesReducer(
       return { ...state, permissionRequest: null };
     case 'mcpAskShown':
       return { ...state, mcpAskInteraction: action.interaction };
+    case 'mcpAskSubmitting':
+      return state.mcpAskInteraction
+        ? {
+            ...state,
+            mcpAskInteraction: {
+              ...state.mcpAskInteraction,
+              responseStatus: 'submitting',
+            },
+          }
+        : state;
+    case 'mcpAskFailed':
+      return state.mcpAskInteraction
+        ? {
+            ...state,
+            mcpAskInteraction: {
+              ...state.mcpAskInteraction,
+              responseStatus: 'failed',
+              errorMessage: action.error,
+            },
+          }
+        : state;
     case 'mcpAskCleared':
       return { ...state, mcpAskInteraction: null };
     default:
@@ -686,22 +712,28 @@ export async function answerPermissionAction(
 }
 
 export async function answerMcpAskAction(
-  _getState: GetState,
+  getState: GetState,
   dispatch: Dispatch,
   deps: ActionDeps,
   payload: WorkbenchMcpAskRespondPayload,
 ): Promise<void> {
+  const current = getState();
+  if (!current.mcpAskInteraction) return;
+  dispatch({ type: 'mcpAskSubmitting' });
   try {
     await deps.adapter.respondMcpAsk?.(payload, {
       agentId: deps.agentId,
     });
+    dispatch({ type: 'mcpAskCleared' });
   } catch (cause) {
     deps.reportError(cause, {
       phase: 'respondMcpAsk',
       interventionId: payload.interventionId,
     });
-  } finally {
-    dispatch({ type: 'mcpAskCleared' });
+    dispatch({
+      type: 'mcpAskFailed',
+      error: cause instanceof Error ? cause.message : 'Failed to respond',
+    });
   }
 }
 
