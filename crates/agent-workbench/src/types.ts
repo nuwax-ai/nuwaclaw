@@ -38,6 +38,41 @@ export interface WorkbenchPermissionChoice {
   id: string;
   label: string;
   destructive?: boolean;
+  /** ACP option kind: allow_once | allow_always | reject_once | reject_always */
+  kind?: WorkbenchPermissionOptionKind;
+}
+
+export type WorkbenchPermissionOptionKind =
+  | 'allow_once'
+  | 'allow_always'
+  | 'reject_once'
+  | 'reject_always';
+
+export type WorkbenchAcpToolKind =
+  | 'read'
+  | 'edit'
+  | 'delete'
+  | 'move'
+  | 'search'
+  | 'execute'
+  | 'think'
+  | 'fetch'
+  | 'switch_mode'
+  | 'other';
+
+/**
+ * Tool-call context for an ACP permission request. Describes what the agent
+ * is asking permission to do (e.g. "edit file X").
+ */
+export interface WorkbenchAcpToolCall {
+  toolCallId?: string;
+  title?: string;
+  /** Tool action category. */
+  kind?: WorkbenchAcpToolKind | string;
+  /** File paths / line numbers the tool will touch. */
+  locations?: Array<{ path: string; line?: number | null }>;
+  status?: 'pending' | 'in_progress' | 'completed' | 'failed' | string;
+  rawInput?: unknown;
 }
 
 export interface WorkbenchPermissionRequest {
@@ -45,6 +80,9 @@ export interface WorkbenchPermissionRequest {
   title: string;
   description?: string;
   choices?: WorkbenchPermissionChoice[];
+  /** ACP tool-call context, if available. */
+  toolCall?: WorkbenchAcpToolCall;
+  /** ACP option kind for each choice, if the backend sent structured options. */
   metadata?: Record<string, unknown>;
 }
 

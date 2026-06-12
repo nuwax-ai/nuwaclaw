@@ -149,3 +149,71 @@ describe('SSE parser', () => {
     ]);
   });
 });
+
+describe('SSE parser — ACP structured permission events', () => {
+  it('parses acpRequestPermission messageType event', () => {
+    const events = parseSseText(
+      [
+        'data: {"eventType":"PROCESSING","data":{"messageType":"acpRequestPermission","subType":"AcpRequestPermission","data":{"sessionId":"s1","tool_call_id":"tc1","request_permission_request":{"sessionId":"s1","toolCall":{"toolCallId":"tc1","title":"Edit file.ts","kind":"edit","status":"pending","locations":[{"path":"/src/file.ts","line":42}]},"options":[{"optionId":"opt-1","kind":"allow_once","name":"Allow once"},{"optionId":"opt-2","kind":"allow_always","name":"Allow always"},{"optionId":"opt-3","kind":"reject_once","name":"Reject"},{"optionId":"opt-4","kind":"reject_always","name":"Reject always"}]}}}}',
+        '',
+      ].join('\n'),
+    );
+    expect(events).toHaveLength(1);
+    expect(events[0].type).toBe('permission');
+    const perm = events[0].permission!;
+    expect(perm.id).toContain('s1');
+    expect(perm.title).toBe('Edit file.ts');
+    expect(perm.toolCall?.kind).toBe('edit');
+    expect(perm.toolCall?.locations?.[0].path).toBe('/src/file.ts');
+    expect(perm.choices).toHaveLength(4);
+    expect(perm.choices?.[0]).toEqual({
+      id: 'opt-1', label: 'Allow once', kind: 'allow_once', destructive: false,
+    });
+    expect(perm.choices?.[3]).toEqual({
+      id: 'opt-4', label: 'Reject always', kind: 'reject_always', destructive: true,
+    });
+  });
+
+  it('parses PROCESSING event with nested result.input.request_permission_request', () => {
+    const events = parseSseText(
+      [
+        'data: {"eventType":"PROCESSING","data":{"subEventType":"REQUEST_PERMISSION","result":{"input":{"request_permission_request":{"sessionId":"s2","tool_call_id":"tc2","toolCall":{"toolCallId":"tc2","title":"Run command","kind":"execute"},"options":[{"optionId":"a1","kind":"allow_once","name":"Yes"},{"optionId":"r1","kind":"reject_once","name":"No"}]}}}}}',
+        '',
+      ].join('\n'),
+    );
+    expect(events).toHaveLength(1);
+    expect(events[0].type).toBe('permission');
+    expect(events[0].permission?.title).toBe('Run command');
+    expect(events[0].permission?.toolCall?.kind).toBe('execute');
+    expect(events[0].permission?.choices).toHaveLength(2);
+  });
+
+  it('parses intervention-wrapped ACP permission', () => {
+    const events = parseSseText(
+      [
+        'data: {"eventType":"PROCESSING","data":{"_intervention":{"id":"itv-abc","sessionId":"s3","acp":{"method":"session/request_permission","request":{"sessionId":"s3","toolCall":{"toolCallId":"tc3","title":"Delete file","kind":"delete","locations":[{"path":"/tmp/danger.txt"}]},"options":[{"optionId":"ok","kind":"allow_once","name":"Allow"},{"optionId":"no","kind":"reject_once","name":"Deny"}]}}}}}',
+        '',
+      ].join('\n'),
+    );
+    expect(events).toHaveLength(1);
+    expect(events[0].type).toBe('permission');
+    expect(events[0].permission?.id).toBe('itv-abc');
+    expect(events[0].permission?.title).toBe('Delete file');
+    expect(events[0].permission?.toolCall?.kind).toBe('delete');
+  });
+
+  it('still handles flat permission events (backwards compatible)', () => {
+    const events = parseSseText(
+      [
+        'event: permission',
+        'data: {"id":"p-old","title":"Old style","choices":[{"id":"yes","label":"OK"}]}',
+        '',
+      ].join('\n'),
+    );
+    expect(events).toHaveLength(1);
+    expect(events[0].type).toBe('permission');
+    expect(events[0].permission?.id).toBe('p-old');
+    expect(events[0].permission?.title).toBe('Old style');
+    expect(events[0].permission?.choices?.[0]).toEqual({ id: 'yes', label: 'OK', destructive: false });
+  });
+});

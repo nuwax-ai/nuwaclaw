@@ -15,6 +15,7 @@ import type {
   WorkbenchAgentDetail,
   WorkbenchGuidQuestion,
   WorkbenchMessage,
+  WorkbenchPermissionChoice,
   WorkbenchPermissionRequest,
 } from '../../types';
 import { AgentAvatar } from './icons';
@@ -123,28 +124,59 @@ export function PermissionCard({
   onRespond: (choiceId: string) => void;
   labels: Labels;
 }): JSX.Element {
-  const choices =
-    request.choices && request.choices.length > 0
-      ? request.choices
-      : [
-          { id: 'once', label: labels.allowOnce },
-          { id: 'reject', label: labels.reject, destructive: true },
-        ];
+  const tc = request.toolCall;
+
+  // Build choices: use structured ACP options if available, otherwise fall
+  // back to the flat choices[] or a default allow/reject pair.
+  let choices: Array<{
+    id: string;
+    label: string;
+    destructive?: boolean;
+    kind?: string;
+  }>;
+
+  if (request.choices && request.choices.length > 0) {
+    // Filter out reject_always — hidden in UI per nuwax convention.
+    choices = request.choices
+      .filter((c) => c.kind !== 'reject_always')
+      .map((c) => ({ ...c }));
+  } else {
+    choices = [
+      { id: 'once', label: labels.allowOnce },
+      { id: 'reject', label: labels.reject, destructive: true },
+    ];
+  }
+
   return (
     <div className="open-app-permission-card">
-      <div>
+      <div className="open-app-permission-info">
         <div className="open-app-permission-kicker">{labels.permissionTitle}</div>
         <div className="open-app-permission-title">{request.title}</div>
         {request.description && (
           <div className="open-app-permission-desc">{request.description}</div>
         )}
+        {tc?.locations && tc.locations.length > 0 && (
+          <div className="open-app-permission-locations">
+            {tc.locations.map((loc, i) => (
+              <span key={i} className="open-app-permission-location">
+                {loc.path}
+                {loc.line ? `:${loc.line}` : ''}
+              </span>
+            ))}
+          </div>
+        )}
       </div>
       <div className="open-app-permission-actions">
+        {tc?.kind && (
+          <span className="open-app-permission-kind-tag">{tc.kind}</span>
+        )}
         {choices.map((choice) => (
           <button
             key={choice.id}
             type="button"
-            className={choice.destructive ? 'open-app-btn danger' : 'open-app-btn primary'}
+            className={
+              choice.destructive ? 'open-app-btn danger' : 'open-app-btn primary'
+            }
             onClick={() => onRespond(choice.id)}
           >
             {choice.label}

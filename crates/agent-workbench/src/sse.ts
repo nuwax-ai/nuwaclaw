@@ -1,5 +1,8 @@
 import type {
   WorkbenchPermissionChoice,
+  WorkbenchAcpToolCall,
+  WorkbenchAcpToolKind,
+  WorkbenchPermissionOptionKind,
   WorkbenchPermissionRequest,
   WorkbenchStreamEvent,
   WorkbenchStreamEventType,
@@ -69,6 +72,137 @@ function readPermission(value: unknown): WorkbenchPermissionRequest | undefined 
     record;
   if (!source) return undefined;
 
+  // --- ACP structured permission detection ---
+  // nuwax feat-2026.6.18 sends ACP permissions in several envelope shapes:
+  //   1. messageType/message_type = 'acpRequestPermission'
+  //   2. subType/sub_type = 'AcpRequestPermission' or 'request_permission'
+  //   3. PROCESSING events with nested result.input.request_permission_request
+  const messageType =
+    readString(source, [['messageType'], ['message_type']])?.toLowerCase() ?? '';
+  const subType =
+    readString(source, [['subType'], ['sub_type']])?.toLowerCase() ?? '';
+  const subEventType =
+    readString(source, [['subEventType']])?.toLowerCase() ?? '';
+  const innerData = getRecord(source?.data) ?? source;
+  const result = getRecord(innerData?.result);
+  const processingInput = getRecord(result?.input);
+  const reqPerm =
+    getRecord(innerData?.request_permission_request) ??
+    getRecord(processingInput?.request_permission_request);
+  const intervention =
+    getRecord(innerData?._intervention) ??
+    getRecord(innerData?.interventionRequest);
+
+  const isAcpPermission =
+    messageType === 'acprequestpermission' ||
+    subType === 'acprequestpermission' ||
+    subType === 'request_permission' ||
+    subEventType === 'request_permission' ||
+    Boolean(reqPerm) ||
+    Boolean(intervention?.acp);
+
+  if (isAcpPermission) {
+    if (reqPerm) return parseAcpPermission(reqPerm, intervention);
+    const acpReq = getRecord(getRecord(intervention?.acp)?.request);
+    if (acpReq) return parseAcpPermission(acpReq, intervention);
+  }
+
+  return parseFlatPermission(source);
+}
+
+const VALID_TOOL_KINDS: WorkbenchAcpToolKind[] = [
+  'read', 'edit', 'delete', 'move', 'search',
+  'execute', 'think', 'fetch', 'switch_mode', 'other',
+];
+
+function normalizeToolKind(raw: unknown): WorkbenchAcpToolKind {
+  if (typeof raw === 'string' && (VALID_TOOL_KINDS as string[]).includes(raw)) {
+    return raw as WorkbenchAcpToolKind;
+  }
+  return 'other';
+}
+
+const VALID_OPTION_KINDS: WorkbenchPermissionOptionKind[] = [
+  'allow_once', 'allow_always', 'reject_once', 'reject_always',
+];
+
+function normalizeOptionKind(raw: unknown): WorkbenchPermissionOptionKind | undefined {
+  if (typeof raw === 'string' && (VALID_OPTION_KINDS as string[]).includes(raw)) {
+    return raw as WorkbenchPermissionOptionKind;
+  }
+  return undefined;
+}
+
+function parseAcpPermission(
+  reqPerm: Record<string, unknown>,
+  intervention?: Record<string, unknown> | null,
+): WorkbenchPermissionRequest | undefined {
+  const sessionId =
+    readString(reqPerm, [['sessionId'], ['session_id']]) ??
+    readString(intervention, [['sessionId']]) ?? '';
+  const toolCallRaw =
+    getRecord(reqPerm?.toolCall) ??
+    getRecord(reqPerm?.tool_call) ??
+    getRecord(getRecord(getRecord(intervention?.acp)?.request)?.toolCall);
+  const toolCallId =
+    readString(reqPerm, [['tool_call_id']]) ??
+    readString(toolCallRaw, [['toolCallId'], ['tool_call_id']]) ?? '';
+
+  if (!sessionId && !toolCallId) return undefined;
+
+  const optionsRaw = Array.isArray(reqPerm?.options)
+    ? reqPerm.options
+    : Array.isArray(getRecord(getRecord(intervention?.acp)?.request)?.options)
+      ? getRecord(getRecord(intervention?.acp)?.request)?.options
+      : [];
+
+  const choices: WorkbenchPermissionChoice[] = (optionsRaw as unknown[])
+    .map((optionRaw): WorkbenchPermissionChoice | null => {
+      const opt = getRecord(optionRaw);
+      if (!opt) return null;
+      const optionId = readString(opt, [['optionId'], ['option_id']]);
+      if (!optionId) return null;
+      const kind = normalizeOptionKind(opt.kind);
+      const name = readString(opt, [['name']]) ?? optionId;
+      return {
+        id: optionId,
+        label: name,
+        kind,
+        destructive: kind === 'reject_once' || kind === 'reject_always',
+      };
+    })
+    .filter((c): c is WorkbenchPermissionChoice => Boolean(c));
+
+  const toolCall: WorkbenchAcpToolCall | undefined = toolCallRaw
+    ? {
+        toolCallId: toolCallId || undefined,
+        title: readString(toolCallRaw, [['title']]) ?? undefined,
+        kind: normalizeToolKind(toolCallRaw?.kind),
+        status: readString(toolCallRaw, [['status']]) ?? undefined,
+        locations: Array.isArray(toolCallRaw?.locations)
+          ? toolCallRaw.locations
+          : undefined,
+        rawInput: toolCallRaw?.rawInput ?? toolCallRaw?.raw_input,
+      }
+    : undefined;
+
+  const id =
+    readString(intervention, [['id']]) ??
+    readString(reqPerm, [['_meta', 'nuwaclaw_intervention_id']]) ??
+    `itv_${sessionId || 'unknown'}_${toolCallId || Date.now()}`;
+
+  return {
+    id,
+    title: toolCall?.title ?? 'Permission required',
+    choices: choices.length > 0 ? choices : undefined,
+    toolCall,
+    metadata: intervention ?? reqPerm,
+  };
+}
+
+function parseFlatPermission(
+  source: Record<string, unknown>,
+): WorkbenchPermissionRequest | undefined {
   const id = readString(source, [['id'], ['permissionId'], ['permission_id']]);
   if (!id) return undefined;
 
@@ -112,11 +246,44 @@ function inferNuwaxEnvelopeType(payload: unknown): WorkbenchStreamEventType | nu
   const eventType = readString(record, [['eventType'], ['event_type']])?.toUpperCase();
   if (!eventType) return null;
 
+  // ACP permission events can arrive as their own eventType or nested inside
+  // PROCESSING. Check before the generic PROCESSING → 'processing' mapping
+  // so the permission parser gets a chance to extract structured data.
+  if (
+    eventType === 'ACP_REQUEST_PERMISSION' ||
+    eventType === 'ACP_REQUEST_PERM'
+  ) {
+    return 'permission';
+  }
+  const data = getRecord(record.data) ?? record;
+  const messageType = readString(data, [['messageType'], ['message_type']])?.toLowerCase();
+  const subType = readString(data, [['subType'], ['sub_type']])?.toLowerCase();
+  if (
+    messageType === 'acprequestpermission' ||
+    subType === 'acprequestpermission' ||
+    subType === 'request_permission'
+  ) {
+    return 'permission';
+  }
+  // PROCESSING events that carry a nested request_permission_request
+  if (eventType === 'PROCESSING') {
+    const result = getRecord(data?.result);
+    const procInput = getRecord(result?.input);
+    if (
+      getRecord(data?.request_permission_request) ||
+      getRecord(procInput?.request_permission_request) ||
+      getRecord(data?._intervention) ||
+      getRecord(data?.interventionRequest)
+    ) {
+      return 'permission';
+    }
+  }
+
   if (eventType === 'PROCESSING') return 'processing';
   if (eventType === 'FINAL_RESULT') return 'final';
   if (eventType === 'ERROR') return 'error';
   if (eventType === 'MESSAGE') {
-    const data = getRecord(record.data) ?? record;
+   const data = getRecord(record.data) ?? record;
     const messageMode = readString(data, [['type']])?.toUpperCase();
     if (messageMode === 'THINK') return 'thought';
     return 'chunk';
