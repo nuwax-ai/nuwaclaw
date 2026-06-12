@@ -7,6 +7,7 @@ export interface HistoryConversationLabels {
   searchPlaceholder: string;
   rename: string;
   delete: string;
+  share: string;
   firstConversationTip?: string;
 }
 
@@ -17,6 +18,7 @@ export interface HistoryConversationProps {
   onLoadConversation: (conversation: WorkbenchConversation) => void | Promise<void>;
   onRenameConversation: (conversation: WorkbenchConversation) => void | Promise<void>;
   onDeleteConversation: (conversation: WorkbenchConversation) => void | Promise<void>;
+  onShareConversation?: (conversation: WorkbenchConversation) => void | Promise<void>;
   onClose: () => void;
   labels: HistoryConversationLabels;
   /** Pre-computed filtered list. Caller is responsible for filtering. */
@@ -31,6 +33,7 @@ export function HistoryConversation(props: HistoryConversationProps): JSX.Elemen
     onLoadConversation,
     onRenameConversation,
     onDeleteConversation,
+    onShareConversation,
     onClose,
     labels,
     filteredConversations,
@@ -85,6 +88,17 @@ export function HistoryConversation(props: HistoryConversationProps): JSX.Elemen
               >
                 {labels.delete}
               </button>
+              {onShareConversation && (
+                <button
+                  type="button"
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    void onShareConversation(item);
+                  }}
+                >
+                  {labels.share}
+                </button>
+              )}
             </div>
           </div>
         ))}

@@ -599,6 +599,20 @@ export function createWebApiAdapter(options: WebApiAdapterOptions): WorkbenchApi
         },
       );
     },
+    async shareConversation(conversationId) {
+      const payload = await requestJson<unknown>(
+        apiPath('/agent/conversation/share'),
+        {
+          method: 'POST',
+          body: { id: toApiId(conversationId) },
+        },
+      );
+      const data = unwrapData<unknown>(payload);
+      const record = isRecord(data) ? data : {};
+      const url =
+        readString(record, ['url', 'shareUrl', 'share_url']) ?? '';
+      return url;
+    },
 
     async getConversation(
       agentId,

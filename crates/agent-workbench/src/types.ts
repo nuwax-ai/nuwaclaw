@@ -206,6 +206,7 @@ export interface WorkbenchApiAdapter {
     values: { title?: string; topic?: string },
   ): Promise<WorkbenchConversation>;
   deleteConversation?(conversationId: string): Promise<void>;
+  shareConversation?(conversationId: string): Promise<string>;
   sendMessage(request: WorkbenchSendMessageRequest): AsyncIterable<WorkbenchStreamEvent>;
   stopChat?(
     requestIdOrConversationId: string,

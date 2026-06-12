@@ -392,6 +392,18 @@ export function NuwaxOpenApp() {
     }
   }, [createConversation, labels.newConversation, reportError]);
 
+
+  // Cmd/Ctrl+J — quick new conversation (mirrors nuwax BaseTemplate)
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === 'j') {
+        e.preventDefault();
+        void openNewConversation();
+      }
+    };
+    document.addEventListener('keydown', onKeyDown);
+    return () => document.removeEventListener('keydown', onKeyDown);
+  }, [openNewConversation]);
   useEffect(() => {
     if (!agentId) return;
     // Skip if same agent already loaded to avoid redundant fetch
@@ -723,6 +735,21 @@ export function NuwaxOpenApp() {
     [activeConversation?.id, adapter, conv, labels.deleteConfirm, navigate, reportError],
   );
 
+  const shareConversation = useCallback(
+    async (conversation: WorkbenchConversation) => {
+      try {
+        const url = await adapter.shareConversation?.(conversation.id);
+        if (url) {
+          await navigator.clipboard.writeText(url);
+          window.alert(labels.shareCopied + ': ' + url);
+        }
+      } catch (cause) {
+        reportError(cause, labels.shareFailed, { phase: 'shareConversation' });
+      }
+    },
+    [adapter, labels.shareCopied, labels.shareFailed, reportError],
+  );
+
   const filteredConversations = useMemo(() => {
     const keyword = historyKeyword.trim().toLowerCase();
     if (!keyword) return conversations;
@@ -781,6 +808,7 @@ export function NuwaxOpenApp() {
               onLoadConversation={loadConversation}
               onRenameConversation={renameConversation}
               onDeleteConversation={deleteConversation}
+              onShareConversation={shareConversation}
               onClose={() => void navigate({ name: 'app' })}
               filteredConversations={filteredConversations}
               labels={{
@@ -788,6 +816,7 @@ export function NuwaxOpenApp() {
                 searchPlaceholder: labels.searchPlaceholder,
                 rename: labels.rename,
                 delete: labels.delete,
+                share: labels.share,
                 firstConversationTip: labels.firstConversationTip,
               }}
             />
@@ -814,6 +843,15 @@ export function NuwaxOpenApp() {
                 <button type="button" onClick={() => void openEditor()} disabled={!config.hostBridge?.onOpenEditor}>
                   {labels.openEditor}
                 </button>
+                {activeConversation && (
+                  <button
+                    type="button"
+                    onClick={() => void shareConversation(activeConversation)}
+                    disabled={!adapter.shareConversation}
+                  >
+                    {labels.share}
+                  </button>
+                )}
               </header>
               {error && <div className="open-app-error">{error}</div>}
               <div

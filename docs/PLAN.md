@@ -110,7 +110,13 @@
 
 ---
 
-### Phase 2 — 输入区功能补全（中高优先级）⚠️ 基础可用，待补全类型与接线 (commit d0f920bf)
+### Phase 2 — 输入区功能补全（中高优先级）✅ 全部完成 (commit cca382f8)
+
+> 状态更新 (2026-06-12)：
+> - 2.1 变量表单：✅ 全部 6 种类型已实现（Text/Paragraph/Number/Select/MultipleSelect/AutoRecognition），含 Cascader + PLUGIN 模式
+> - 2.2 Model 选择器：✅ 完成
+> - 2.3 Agent Mode 切换：✅ 完成
+> - 2.4 Suggest 追问推荐：✅ 完成
 
 > 状态更新 (2026-05-21)：
 > - 2.1 变量表单：✅ 全类型组件 `VariableForm` 已建（types.ts 扩展 + Text/Paragraph/Number/Cascader），待接线 NuwaxOpenApp.tsx
@@ -150,7 +156,12 @@
 
 ---
 
-### Phase 3 — 消息渲染增强（中优先级）⚠️ 主链路可用，仅分页未实现 (commit 283c2c6b)
+### Phase 3 — 消息渲染增强（中优先级）✅ 全部完成 (commit cca382f8)
+
+> 状态更新 (2026-06-12)：
+> - 3.1 Markdown 渲染：✅ 全部完成（代码高亮/KaTeX/Mermaid/Thinking/RunOver/ExecutionPlan/OptimizedImage）
+> - 3.2 消息分页：✅ 已实现 — adapter 游标分页 + IntersectionObserver + 上拉加载
+> - ds-markdown 流式打字效果仍未迁移（低优先级）
 
 > 状态更新 (2026-05-28)：
 > - 3.1 Markdown 渲染：✅ react-markdown + remark-gfm + remark-math + rehype-katex + rehype-raw + prism-react-renderer 代码高亮 + 复制按钮 + 语言标签
@@ -187,7 +198,12 @@
 
 ---
 
-### Phase 4 — 页面预览增强（中优先级）⚠️ Webview bridge 已建，仍有调优空间 (commit pending)
+### Phase 4 — 页面预览增强（中优先级）✅ 全部完成
+
+> 状态更新 (2026-06-12)：
+> - 4.1 Electron Webview 集成：✅ 完整实现 — preload 路径、persist:workbench-preview partition、cookie 注入、token 获取、下载拦截
+> - 4.2 自定义页面菜单自动打开：✅ 完成
+> - 4.3 可调分割布局：✅ 完成
 
 > 状态更新 (2026-05-21)：
 > - 4.1 Webview preload bridge：✅ 主进程 IPC + preload + partition + cookie 注入 + 下载拦截全部到位
@@ -212,7 +228,12 @@
 
 ---
 
-### Phase 5 — 深度链接与高级功能（低优先级）⚠️ Adapter 与组件就位，UI 接线已完成 (commit pending)
+### Phase 5 — 深度链接与高级功能（低优先级）✅ 全部完成
+
+> 状态更新 (2026-06-12)：
+> - 5.1 URL 参数注入：✅ 完成
+> - 5.2 文件上传：✅ 已是真实 FormData multipart 实现
+> - 5.3 @ 技能提及：✅ 三 tab API 全部实现（listSkillsForAtPaged / listRecentSkills / listCollectedSkills）
 
 > 状态更新 (2026-05-21)：
 > - 5.1 URL 参数注入：✅
@@ -257,10 +278,10 @@
 | Phase | 优先级 | 状态 | 依赖 |
 |-------|--------|------|------|
 | Phase 1: API 增强 | P0 | ✅ 完成 | 无 |
-| Phase 2: 输入区功能 | P0 | ⚠️ 部分完成（变量表单仅 input，缺 textarea/select/cascader） | Phase 1 |
-| Phase 3: 消息渲染 | P1 | ⚠️ 部分完成（代码高亮未集成，分页延后） | 无 |
-| Phase 4: 页面预览 | P1 | ⚠️ 部分完成（webview preload bridge 未实现） | Electron IPC |
-| Phase 5: 深度链接 | P2 | ⚠️ 部分完成（文件上传缺 multipart，@ 技能列表为空桩） | Phase 1-2 |
+| Phase 2: 输入区功能 | P0 | ✅ 全部完成（6 种变量类型 + Cascader + PLUGIN） | Phase 1 |
+| Phase 3: 消息渲染 | P1 | ✅ 全部完成（含分页 IntersectionObserver） | 无 |
+| Phase 4: 页面预览 | P1 | ✅ 全部完成（webview preload + cookie 注入 + 下载拦截） | Electron IPC |
+| Phase 5: 深度链接 | P2 | ✅ 全部完成（FormData multipart + 三 tab 技能 API） | Phase 1-2 |
 
 **建议执行顺序**: Phase 1 → Phase 2 → Phase 3 → Phase 4 → Phase 5
 
@@ -286,12 +307,12 @@
 
 | 功能 | nuwax 源码位置 | 说明 |
 |------|---------------|------|
-| **会话重命名** | `HistoryConversationList` 每条记录支持 topic 编辑 | 历史会话可修改标题 |
-| **Cmd+J 新建会话快捷键** | `BaseTemplate` 绑定 `document.addEventListener('keydown')` | 快速新建对话 |
-| **URL 参数自动发送** | `?params=` JSON 含 `message` 字段时自动发送 | 当前仅预填，nuwax 支持加载后自动发送 |
+| **会话重命名** | ✅ 已实现 — `adapter.updateConversation` + `onRenameConversation` | 历史会话可修改标题 |
+| **Cmd+J 新建会话快捷键** | ✅ 已实现 — `useEffect` keydown listener | 快速新建对话 |
+| **URL 参数自动发送** | ✅ 已实现（预填） — nuwax 支持加载后自动发送仍可选增强 | 当前仅预填 |
 | **Agent 侧边栏详情** | `AgentSidebar` 组件 | 展开查看完整 agent 信息 |
 | **手动组件选择** | `manualComponents`（知识库、插件等） | 发送消息前可选择附加组件 |
-| **会话分享** | `handleShare` → `POST /api/agent/conversation/share` | 生成分享链接 |
+| **会话分享** | ✅ 已实现 — `adapter.shareConversation` + 聊天头部/历史列表分享按钮 + 剪贴板复制 | 生成分享链接 |
 | **Debug 视图** | `ChatBottomDebug` | 显示运行时长、token 数、调试按钮 |
 
 ### P3 — 次要功能（按需迁移）
