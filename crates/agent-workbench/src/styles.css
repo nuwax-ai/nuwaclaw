@@ -3275,3 +3275,43 @@
   color: var(--open-app-accent, #6366f1);
   border-color: var(--open-app-accent, #6366f1);
 }
+
+/* ===== DebugBar ===== */
+.open-app-debug-bar {
+  display: flex;
+  gap: 8px;
+  padding: 2px 0 8px;
+  margin-left: auto;
+  width: fit-content;
+}
+
+.open-app-debug-item {
+  font-size: 11px;
+  color: var(--open-app-text-tertiary, #9ca3af);
+  background: var(--open-app-bg-secondary, #f3f4f6);
+  padding: 2px 8px;
+  border-radius: 10px;
+  line-height: 1.4;
+}
+
+/* ===== Agent Detail Panel (Sidebar) ===== */
+.open-app-agent-detail {
+  padding: 0 12px 8px;
+  border-bottom: 1px solid var(--open-app-border, #e5e7eb);
+}
+
+.open-app-agent-description {
+  font-size: 12px;
+  color: var(--open-app-text-secondary, #6b7280);
+  line-height: 1.5;
+  margin: 0 0 4px;
+  word-break: break-word;
+}
+
+.open-app-agent-opening {
+  font-size: 11px;
+  color: var(--open-app-text-tertiary, #9ca3af);
+  line-height: 1.4;
+  margin: 0;
+  font-style: italic;
+}

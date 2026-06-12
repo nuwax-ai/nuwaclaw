@@ -12,6 +12,7 @@ import type {
 import { ChatInputHome } from '../../ChatInputHome';
 import { ConversationStatus } from '../ConversationStatus';
 import { AgentChatEmpty, ChatMessage, PermissionCard } from '../Message';
+import { DebugBar } from '../DebugBar';
 import { VariableForm } from './VariableFormWrapper';
 import type { Labels } from '../labels';
 import { questionText } from '../utils';
@@ -141,9 +142,24 @@ export function ChatArea(props: ChatAreaProps): JSX.Element {
           </button>
         )}
         {messages.length > 0 ? (
-          messages.map((message) => (
-            <ChatMessage key={message.id} message={message} agent={agent} onFilePreview={onFilePreview} conversationId={conversationId} />
-          ))
+          <>
+            {messages.map((message) => (
+              <ChatMessage key={message.id} message={message} agent={agent} onFilePreview={onFilePreview} conversationId={conversationId} />
+            ))}
+            {!streaming && (() => {
+              const lastAssistant = [...messages].reverse().find((m) => m.role === 'assistant' && m.status === 'complete');
+              if (!lastAssistant) return null;
+              return (
+                <DebugBar
+                  message={lastAssistant}
+                  labels={{
+                    debugTokens: 'tokens',
+                    debugTime: 'time',
+                  }}
+                />
+              );
+            })()}
+          </>
         ) : activeConversation && !streaming ? (
           <div className="open-app-loading-indicator">
             <div className="open-app-loading-dots">

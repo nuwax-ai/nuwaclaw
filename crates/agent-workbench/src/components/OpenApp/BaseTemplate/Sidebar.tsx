@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import type { WorkbenchAgentDetail, WorkbenchConversation, WorkbenchCustomPageNavItem } from '../../../types';
 import { AgentAvatar, Icon, IconButton } from '../icons';
 import { ConversationItem } from './ConversationItem';
@@ -58,15 +59,34 @@ export function Sidebar(props: SidebarProps): JSX.Element {
     labels,
   } = props;
 
+  const [detailOpen, setDetailOpen] = useState(false);
+
   return (
     <aside className={visible ? 'open-app-sidebar' : 'open-app-sidebar collapsed'}>
       <header className="open-app-sidebar-top">
-        <div className="open-app-agent-title">
+        <div
+ className="open-app-agent-title"
+ onClick={() => setDetailOpen((v) => !v)}
+ role="button"
+ tabIndex={0}
+ style={{ cursor: 'pointer' }}
+ title={agent?.description ?? agent?.name}
+ >
           <AgentAvatar agent={agent} />
           <span>{agent?.name ?? `Agent ${agentId}`}</span>
         </div>
         <IconButton title={labels.collapseNav} icon="sidebar" onClick={() => onToggle(false)} />
       </header>
+      {visible && detailOpen && (agent?.description || agent?.openingChatMsg) && (
+        <div className="open-app-agent-detail">
+          {agent?.description && (
+            <p className="open-app-agent-description">{agent.description}</p>
+          )}
+          {agent?.openingChatMsg && (
+            <p className="open-app-agent-opening">{agent.openingChatMsg}</p>
+          )}
+        </div>
+      )}
 
       {visible ? (
         <>

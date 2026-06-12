@@ -260,6 +260,22 @@ export function streamEventToMessagePatch(
       if (Array.isArray(meta.runOverSteps) && (meta.runOverSteps as unknown[]).length > 0) {
         meta.runOverStatus = 'done';
       }
+      // Extract token usage from the final event's raw payload.
+      // nuwax sends it under tokenUsage / usage / token_usage.
+      const raw = event.raw as Record<string, unknown> | undefined;
+      if (raw) {
+        const usage =
+          (raw.tokenUsage as Record<string, unknown> | undefined) ??
+          (raw.usage as Record<string, unknown> | undefined) ??
+          (raw.token_usage as Record<string, unknown> | undefined);
+        if (usage) {
+          meta.tokenUsage = {
+            input: Number(usage.input ?? usage.prompt_tokens ?? usage.promptTokens ?? 0),
+            output: Number(usage.output ?? usage.completion_tokens ?? usage.completionTokens ?? 0),
+            total: Number(usage.total ?? usage.total_tokens ?? usage.totalTokens ?? 0),
+          };
+        }
+      }
       return {
         ...message,
         content: event.content || message.content,
