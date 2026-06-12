@@ -167,6 +167,8 @@
 | P1-4: ChatUploadFile 上传状态 | ✅ 评估完成 | workbench 实现已足够, 无需改动 |
 | P2-6: 流式渲染全量重推 | ✅ 评估完成 | workbench 的 MarkdownRenderer 已正确处理自定义标签, 无需改动 |
 | P1-3: 技能订阅/付费 | ⏳ 待定 | 需要后端 API 就绪后迁移 |
+| ACP Permission (权限审批) | ✅ 完成 | Phase 1: 结构化 options (allow_once/allow_always/reject), toolCall 上下文, SSE 多格式解析, PermissionCard 升级 |
+| MCP Ask (表单问答) | ✅ 完成 | Phase 2: 全 schema 解析器, 8 种字段控件, wizard 多步, McpAskQuestionCard 组件 |
 
 ## 不迁移项
 
