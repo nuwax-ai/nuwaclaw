@@ -8,6 +8,7 @@ import { registerProcessHandlers } from "./processHandlers";
 import { registerDependencyHandlers } from "./dependencyHandlers";
 import { registerEngineHandlers } from "./engineHandlers";
 import { registerAppHandlers } from "./appHandlers";
+import { registerSessionHandlers } from "./sessionHandlers";
 import { registerEventForwarders } from "./eventForwarders";
 import { registerMemoryHandlers } from "./memoryHandlers";
 import { registerSandboxHandlers } from "./sandboxHandlers";
@@ -27,6 +28,7 @@ export function registerAllHandlers(ctx: HandlerContext): void {
   registerDependencyHandlers();
   registerEngineHandlers();
   registerAppHandlers(ctx);
+  registerSessionHandlers(ctx);
   registerEventForwarders(ctx);
   registerMemoryHandlers();
   registerSandboxHandlers();

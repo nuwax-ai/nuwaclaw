@@ -21,6 +21,7 @@ import type {
   UpdateProgress,
 } from "@shared/types/updateTypes";
 import { readSetting } from "../db";
+import { compareVersions } from "./system/dependencyUtils";
 import { t } from "./i18n";
 import {
   getWindowsDownloadUrl,
@@ -242,21 +243,6 @@ export function shouldDisableDifferentialDownload(
 }
 
 // ==================== 更新状态管理 ====================
-
-/**
- * 语义化版本比较: a > b 返回 1, a < b 返回 -1, 相等返回 0
- */
-function compareVersions(a: string, b: string): number {
-  const pa = a.replace(/^v/, "").split(".").map(Number);
-  const pb = b.replace(/^v/, "").split(".").map(Number);
-  for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
-    const na = pa[i] || 0;
-    const nb = pb[i] || 0;
-    if (na > nb) return 1;
-    if (na < nb) return -1;
-  }
-  return 0;
-}
 
 /**
  * MVP 仅支持 x.y.z 纯数字版本，避免 compareVersions 对 prerelease 得到 NaN
