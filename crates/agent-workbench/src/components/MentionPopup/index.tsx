@@ -33,6 +33,8 @@ const DEFAULT_LABELS: Required<MentionPopupLabels> = {
   empty: 'No skills',
   loading: 'Loading…',
   loadingMore: 'Loading more…',
+  paidTag: 'Paid',
+  subscribedTag: 'Subscribed',
 };
 
 const TAB_ORDER: MentionPopupTab[] = ['all', 'recent', 'collect'];
@@ -49,6 +51,8 @@ export function MentionPopup(props: MentionPopupProps): JSX.Element | null {
     pageSize,
     debounceMs,
   } = props;
+
+  const enableSubscription = props.enableSubscription ?? false;
 
   const labels = { ...DEFAULT_LABELS, ...(labelsProp ?? {}) };
 
@@ -275,15 +279,18 @@ export function MentionPopup(props: MentionPopupProps): JSX.Element | null {
         ) : showEmpty ? (
           <div className="mention-popup-item-empty">{labels.empty}</div>
         ) : (
-          items.map((skill, idx) => (
-            <MentionPopupItem
-              key={skill.id}
-              skill={skill}
-              active={idx === activeIndex}
-              onClick={onPick}
-              onHover={() => setActiveIndex(idx)}
-            />
-          ))
+         items.map((skill, idx) => (
+           <MentionPopupItem
+             key={skill.id}
+             skill={skill}
+             active={idx === activeIndex}
+             onClick={onPick}
+             onHover={() => setActiveIndex(idx)}
+              enableSubscription={enableSubscription}
+              paidTag={labels.paidTag}
+              subscribedTag={labels.subscribedTag}
+           />
+         ))
         )}
         {tab === 'all' && search.hasMore && items.length > 0 ? (
           <div

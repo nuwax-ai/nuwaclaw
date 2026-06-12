@@ -17,6 +17,12 @@ export interface MentionPopupItemProps {
    * fight hover state when the cursor sits over a non-active row.
    */
   onHover?: (skill: WorkbenchSkillOption) => void;
+  /** Whether to show the subscription price tag for paid skills. */
+  enableSubscription?: boolean;
+  /** Label for "Paid" tag. */
+  paidTag?: string;
+  /** Label for "Subscribed" tag. */
+  subscribedTag?: string;
 }
 
 export function MentionPopupItem({
@@ -24,6 +30,9 @@ export function MentionPopupItem({
   active,
   onClick,
   onHover,
+  enableSubscription = false,
+  paidTag = 'Paid',
+  subscribedTag = 'Subscribed',
 }: MentionPopupItemProps): JSX.Element {
   const className =
     'mention-popup-item' + (active ? ' mention-popup-item--active' : '');
@@ -37,6 +46,9 @@ export function MentionPopupItem({
   const handleMouseMove: MouseEventHandler<HTMLDivElement> = () => {
     onHover?.(skill);
   };
+
+  const showPaymentTag = enableSubscription && skill.paymentRequired === true;
+  const isSubscribed = skill.subscribed === true;
 
   return (
     <div
@@ -62,6 +74,19 @@ export function MentionPopupItem({
           <div className="mention-popup-item-desc">{skill.description}</div>
         ) : null}
       </div>
+      {showPaymentTag ? (
+        <span
+          className={
+            'mention-popup-item-tag' +
+            (isSubscribed
+              ? ' mention-popup-item-tag--subscribed'
+              : ' mention-popup-item-tag--paid')
+          }
+          data-testid={`mention-popup-item-tag-${skill.id}`}
+        >
+          {isSubscribed ? subscribedTag : paidTag}
+        </span>
+      ) : null}
     </div>
   );
 }

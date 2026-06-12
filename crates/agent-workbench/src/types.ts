@@ -179,6 +179,12 @@ export interface WorkbenchSkillOption {
   name: string;
   description?: string;
   icon?: string;
+  /** Whether the skill requires payment (subscription). */
+  paymentRequired?: boolean;
+  /** Whether the current user has already subscribed. */
+  subscribed?: boolean;
+  /** Price in the tenant's currency, if paymentRequired. */
+  price?: number;
 }
 
 export interface WorkbenchSendMessageRequest {

@@ -62,6 +62,11 @@ export interface ChatInputHomeProps {
    * call sites that don't yet thread the agent detail through unchanged.
    */
   allowAtSkill?: boolean;
+  /**
+   * When true (tenant-level config), paid skills display a price / subscription
+   * tag in the MentionPopup. Mirrors nuwax `tenantConfig.enableSubscription`.
+   */
+  enableSubscription?: boolean;
 }
 
 export function ChatInputHome({
@@ -86,6 +91,7 @@ export function ChatInputHome({
   adapter,
   agentId,
   allowAtSkill = true,
+  enableSubscription = false,
 }: ChatInputHomeProps) {
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const [mentionOpen, setMentionOpen] = useState(false);
@@ -280,21 +286,24 @@ export function ChatInputHome({
                     marginBottom: 4,
                   }}
                 >
-                  <MentionPopup
-                    open={mentionOpen}
-                    agentId={agentId}
-                    adapter={adapter}
-                    onSelect={handleMentionSelect}
-                    onClose={() => setMentionOpen(false)}
-                    labels={{
-                      tabAll: labels.skillTabAll,
-                      tabRecent: labels.skillTabRecent,
-                      tabCollect: labels.skillTabCollect,
-                      empty: labels.noSkills,
-                      loading: labels.loadingMoreMessages,
-                      loadingMore: labels.loadingMoreMessages,
-                    }}
-                  />
+                 <MentionPopup
+                   open={mentionOpen}
+                   agentId={agentId}
+                   adapter={adapter}
+                   onSelect={handleMentionSelect}
+                   onClose={() => setMentionOpen(false)}
+                    enableSubscription={enableSubscription}
+                   labels={{
+                     tabAll: labels.skillTabAll,
+                     tabRecent: labels.skillTabRecent,
+                     tabCollect: labels.skillTabCollect,
+                     empty: labels.noSkills,
+                     loading: labels.loadingMoreMessages,
+                     loadingMore: labels.loadingMoreMessages,
+                      paidTag: labels.skillPaidTag,
+                      subscribedTag: labels.skillSubscribedTag,
+                   }}
+                 />
                 </div>
               )}
             </div>

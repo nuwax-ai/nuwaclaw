@@ -108,6 +108,34 @@ function readString(value: unknown, keys: string[]): string | undefined {
   return undefined;
 }
 
+function readBool(value: unknown, keys: string[]): boolean | undefined {
+  const record = isRecord(value) ? value : {};
+  for (const key of keys) {
+    const raw = record[key];
+    if (typeof raw === 'boolean') return raw;
+    // Backend may send 0/1 instead of true/false.
+    if (typeof raw === 'number') return raw !== 0;
+    if (typeof raw === 'string') {
+      if (raw === 'true' || raw === '1') return true;
+      if (raw === 'false' || raw === '0') return false;
+    }
+  }
+  return undefined;
+}
+
+function readNumber(value: unknown, keys: string[]): number | undefined {
+  const record = isRecord(value) ? value : {};
+  for (const key of keys) {
+    const raw = record[key];
+    if (typeof raw === 'number' && !Number.isNaN(raw)) return raw;
+    if (typeof raw === 'string' && raw.trim()) {
+      const parsed = Number(raw);
+      if (!Number.isNaN(parsed)) return parsed;
+    }
+  }
+  return undefined;
+}
+
 function readCollection(value: unknown): unknown[] {
   if (Array.isArray(value)) return value;
   if (!isRecord(value)) return [];
@@ -298,6 +326,9 @@ function normalizeSkillOption(raw: unknown): WorkbenchSkillOption | null {
     name: readString(item, ['name', 'skillName', 'skill_name', 'title']) ?? id,
     description: readString(item, ['description', 'desc', 'summary']),
     icon: readString(item, ['icon', 'avatar', 'logo']),
+    paymentRequired: readBool(item, ['paymentRequired', 'payment_required']),
+    subscribed: readBool(item, ['subscribed']),
+    price: readNumber(item, ['price']),
   };
 }
 

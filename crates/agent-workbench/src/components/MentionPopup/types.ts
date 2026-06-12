@@ -36,6 +36,10 @@ export interface MentionPopupLabels {
   loading?: string;
   /** Shown above the load-more sentinel while paginating. Default: "Loading more…". */
   loadingMore?: string;
+  /** Tag text for a paid skill that the user has not subscribed to. Default: "Paid". */
+  paidTag?: string;
+  /** Tag text for a paid skill that the user has already subscribed to. Default: "Subscribed". */
+  subscribedTag?: string;
 }
 
 export interface MentionPopupProps {
@@ -64,4 +68,9 @@ export interface MentionPopupProps {
    * to disable. Default 300ms.
    */
   debounceMs?: number;
+  /**
+   * When true (tenant-level config), paid skills display a price /
+   * subscription tag. Mirrors nuwax `enableSubscription`.
+   */
+  enableSubscription?: boolean;
 }
