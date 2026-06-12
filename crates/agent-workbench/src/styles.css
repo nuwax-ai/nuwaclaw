@@ -221,6 +221,18 @@
   --xagi-badge-text: #46617a;
   --xagi-mode-notice-bg: #171717;
   --xagi-mode-notice-text: #ffffff;
+
+  /* Markdown content text (was hardcoded rgba(0,0,0,...)) */
+  --xagi-md-text-primary: rgba(0, 0, 0, 0.88);
+  --xagi-md-text-body: rgba(0, 0, 0, 0.65);
+  --xagi-md-text-muted: rgba(0, 0, 0, 0.45);
+  --xagi-md-surface-hover: rgba(0, 0, 0, 0.06);
+  --xagi-md-border-faint: rgba(0, 0, 0, 0.06);
+  --xagi-md-btn-bg: rgba(0, 0, 0, 0.04);
+
+  /* Overlay / frosted backgrounds (was hardcoded rgba(255,255,255,...)) */
+  --xagi-overlay-frosted: rgba(255, 255, 255, 0.8);
+  --xagi-overlay-solid: rgba(255, 255, 255, 0.92);
 }
 
 .nuwax-open-app,
@@ -382,6 +394,18 @@ body[data-theme="dark"] .nuwax-open-app,
   --xagi-badge-text: #a1a1aa;
   --xagi-mode-notice-bg: #fbbf24;
   --xagi-mode-notice-text: #18181b;
+
+  /* Markdown content text — light values for dark bg */
+  --xagi-md-text-primary: rgba(255, 255, 255, 0.92);
+  --xagi-md-text-body: rgba(255, 255, 255, 0.65);
+  --xagi-md-text-muted: rgba(255, 255, 255, 0.45);
+  --xagi-md-surface-hover: rgba(255, 255, 255, 0.08);
+  --xagi-md-border-faint: rgba(255, 255, 255, 0.08);
+  --xagi-md-btn-bg: rgba(255, 255, 255, 0.08);
+
+  /* Overlay backgrounds */
+  --xagi-overlay-frosted: rgba(24, 24, 27, 0.8);
+  --xagi-overlay-solid: rgba(39, 39, 42, 0.92);
 }
 
 /* ---- System preference fallback (standalone, no explicit theme attr) ---- */
@@ -486,6 +510,18 @@ body[data-theme="dark"] .nuwax-open-app,
     --xagi-badge-text: #a1a1aa;
     --xagi-mode-notice-bg: #fbbf24;
     --xagi-mode-notice-text: #18181b;
+
+    /* Markdown content text */
+    --xagi-md-text-primary: rgba(255, 255, 255, 0.92);
+    --xagi-md-text-body: rgba(255, 255, 255, 0.65);
+    --xagi-md-text-muted: rgba(255, 255, 255, 0.45);
+    --xagi-md-surface-hover: rgba(255, 255, 255, 0.08);
+    --xagi-md-border-faint: rgba(255, 255, 255, 0.08);
+    --xagi-md-btn-bg: rgba(255, 255, 255, 0.08);
+
+    /* Overlay backgrounds */
+    --xagi-overlay-frosted: rgba(24, 24, 27, 0.8);
+    --xagi-overlay-solid: rgba(39, 39, 42, 0.92);
   }
 }
 
@@ -831,7 +867,7 @@ body[data-theme="dark"] .nuwax-open-app,
   min-height: 48px;
   padding: 0 20px;
   border-bottom: 1px solid var(--xagi-color-border-secondary);
-  background: rgba(255, 255, 255, 80%);
+  background: var(--xagi-overlay-frosted);
   backdrop-filter: blur(10px);
   color: var(--xagi-color-text);
   font-size: 14px;
@@ -1123,7 +1159,7 @@ body[data-theme="dark"] .nuwax-open-app,
 }
 
 .open-app-skill-dropdown button:hover {
-  background: var(--open-app-hover, rgba(0, 0, 0, 0.04));
+  background: var(--xagi-md-btn-bg);
 }
 
 .open-app-skill-dropdown button.active {
@@ -2197,7 +2233,7 @@ body[data-theme="dark"] .nuwax-open-app,
   padding: 0 8px;
   border: 0;
   border-radius: 4px;
-  background: rgba(0, 0, 0, 0.04);
+  background: var(--xagi-md-btn-bg);
   color: inherit;
   font: inherit;
   font-size: 12px;
@@ -2413,11 +2449,11 @@ body[data-theme="dark"] .nuwax-open-app,
 .md-runover-summary-label {
   flex: 1;
   font-weight: 400;
-  color: rgba(0, 0, 0, 0.65);
+  color: var(--xagi-md-text-body);
 }
 
 .md-runover-summary-count {
-  color: rgba(0, 0, 0, 0.45);
+  color: var(--xagi-md-text-muted);
   font-size: 12px;
 }
 
@@ -2575,7 +2611,7 @@ body[data-theme="dark"] .nuwax-open-app,
 
 .md-plan-progress {
   font-size: 12px;
-  color: rgba(0, 0, 0, 0.45);
+  color: var(--xagi-md-text-muted);
 }
 
 .md-plan-toggle {
@@ -2586,7 +2622,7 @@ body[data-theme="dark"] .nuwax-open-app,
   height: 24px;
   border: none;
   background: transparent;
-  color: rgba(0, 0, 0, 0.45);
+  color: var(--xagi-md-text-muted);
   cursor: pointer;
   border-radius: 4px;
   padding: 0;
@@ -2594,13 +2630,13 @@ body[data-theme="dark"] .nuwax-open-app,
 }
 
 .md-plan-toggle:hover {
-  background: rgba(0, 0, 0, 0.06);
-  color: rgba(0, 0, 0, 0.88);
+  background: var(--xagi-md-surface-hover);
+  color: var(--xagi-md-text-primary);
 }
 
 .md-plan-content {
   padding: 8px 12px 12px;
-  border-top: 1px solid rgba(0, 0, 0, 0.06);
+  border-top: 1px solid var(--xagi-md-border-faint);
   max-height: 400px;
   overflow-y: auto;
 }
@@ -2649,17 +2685,17 @@ body[data-theme="dark"] .nuwax-open-app,
 .md-plan-task-text {
   flex: 1;
   font-size: 13px;
-  color: rgba(0, 0, 0, 0.65);
+  color: var(--xagi-md-text-body);
   line-height: 1.5;
 }
 
 .md-plan-task--completed .md-plan-task-text {
-  color: rgba(0, 0, 0, 0.45);
+  color: var(--xagi-md-text-muted);
   text-decoration: line-through;
 }
 
 .md-plan-task--failed .md-plan-task-text {
-  color: rgba(0, 0, 0, 0.88);
+  color: var(--xagi-md-text-primary);
 }
 
 /* OptimizedImage + lightbox */
@@ -2742,7 +2778,7 @@ body[data-theme="dark"] .nuwax-open-app,
   place-items: center;
   border: 0;
   border-radius: 999px;
-  background: rgba(255, 255, 255, 0.92);
+  background: var(--xagi-overlay-solid);
   color: var(--xagi-text-strong);
   font-size: 22px;
   font-weight: 600;
@@ -3417,7 +3453,7 @@ body[data-theme="dark"] .nuwax-open-app,
 .md-process-group-title {
   flex: 1;
   text-align: left;
-  color: rgba(0, 0, 0, 0.65);
+  color: var(--xagi-md-text-body);
 }
 .md-process-group-right {
   display: flex;
@@ -3425,7 +3461,7 @@ body[data-theme="dark"] .nuwax-open-app,
   gap: 6px;
 }
 .md-process-group-count {
-  color: rgba(0, 0, 0, 0.45);
+  color: var(--xagi-md-text-muted);
   font-size: 12px;
 }
 .md-process-group-chevron {
@@ -3589,7 +3625,7 @@ body[data-theme="dark"] .nuwax-open-app,
   background: var(--xagi-color-bg-container, var(--xagi-color-bg-container));
   border-top: 1px solid var(--xagi-color-border-secondary, var(--xagi-border-soft));
   font-size: 13px;
-  color: rgba(0, 0, 0, 0.45);
+  color: var(--xagi-md-text-muted);
 }
 
 .conversation-status-left {
@@ -3613,13 +3649,13 @@ body[data-theme="dark"] .nuwax-open-app,
 }
 
 .conversation-status-text {
-  color: rgba(0, 0, 0, 0.65);
+  color: var(--xagi-md-text-body);
 }
 
 .conversation-status-timer {
   font-family: Monaco, Menlo, 'Ubuntu Mono', monospace;
   font-weight: 600;
-  color: rgba(0, 0, 0, 0.45);
+  color: var(--xagi-md-text-muted);
   min-width: 50px;
   text-align: right;
 }
