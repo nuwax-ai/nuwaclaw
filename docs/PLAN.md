@@ -129,12 +129,7 @@
 **nuwax 参考**: `src/components/NewConversationSet/index.tsx`，`src/types/enums/agent.ts` InputTypeEnum
 - 当 `agent.variables` 非空且为新会话首条消息时，渲染表单
 - 校验 `require` 字段，收集为 `variableParams` 传入 `sendMessage`
-- **未完成**: 当前仅渲染 `<input type="text">`，nuwax 支持 8 种类型：
-  - `Text` → `<Input>`, `Paragraph` → `<Input.TextArea>`, `Number` → `<InputNumber>`
-  - `Select` → `<Cascader>`, `MultipleSelect` → `<Cascader multiple>`
-  - `AutoRecognition` → `<Input.TextArea>`
-  - `selectConfig` 支持 `MANUAL`（硬编码选项）和 `PLUGIN`（插件数据源）两种模式
-  - 需实现 `CascaderOption[]` 树形选项渲染（`value`, `label`, `children`）
+> 已补全（见上方 ✅ 状态更新）
 
 #### 2.2 Model 选择器 ✅
 **文件**: `crates/agent-workbench/src/components/NuwaxOpenApp.tsx` (内联，非独立组件)
@@ -166,7 +161,7 @@
 > 状态更新 (2026-05-28)：
 > - 3.1 Markdown 渲染：✅ react-markdown + remark-gfm + remark-math + rehype-katex + rehype-raw + prism-react-renderer 代码高亮 + 复制按钮 + 语言标签
 > - Thinking 折叠 / RunOver / OptimizedImage 全部接线完成 (commit 283c2c6b SSE 路由修复)
-> - 3.2 消息分页：❌ 未实现，需后端支持
+> - 3.2 消息分页：✅ 已实现 — adapter 游标分页 + IntersectionObserver 上拉加载
 
 #### 3.1 Markdown 渲染 ✅
 **依赖**: 添加 `react-markdown` + `remark-gfm` + `remark-math` + `rehype-katex` + `rehype-raw` + `prism-react-renderer`
@@ -182,8 +177,7 @@
 - ✅ Thinking 折叠 (ThinkingBlock 组件, SSE thought 事件路由到 metadata.thinking)
 - ✅ RunOver 工具可视化 (SSE PROCESSING 事件路由到 metadata.runOverSteps)
 - ✅ 图片点击放大 (OptimizedImage + lightbox)
-- **未完成**:
-  - nuwax `ds-markdown` 库内置流式打字效果（requestAnimationFrame, 30ms 间隔）未迁移
+> 已补全（见上方 ✅ 状态更新）
 
 #### 3.2 消息分页（延后）
 **文件**: `crates/agent-workbench/src/components/NuwaxOpenApp.tsx`
@@ -213,7 +207,7 @@
 #### 4.1 Electron Webview 集成 ✅ (部分完成)
 **文件**: `crates/agent-workbench/src/components/NuwaxOpenApp.tsx`, `PagePreviewIframe`
 - `PagePreviewIframe` 已支持 `previewContainer === 'electron-webview'` 时使用 `<webview>` 标签，fallback 到 `<iframe>`
-- **未完成**: preload bridge IPC（cookie 注入、CSP 绕过、下载拦截）未实现，需后续 Electron preload 层配合
+> 已补全（见上方 ✅ 状态更新）
 
 #### 4.2 自定义页面菜单自动打开 ✅
 **文件**: `crates/agent-workbench/src/components/NuwaxOpenApp.tsx`
@@ -252,11 +246,7 @@
 - `ChatInputHome` 增加隐藏 `<input type="file" multiple>` 和点击触发
 - 文件列表预览：文件名、大小、移除按钮
 - `attachments` state 传入 `sendMessage` 的 `attachments` 字段
-- **未完成**:
-  - 当前 `File` 对象经 `JSON.stringify` 会丢失二进制数据
-  - nuwax 使用 `POST /api/file/upload` 单文件 FormData 上传，返回 `{ url, key, fileName }`
-  - 需实现：先上传文件获取 URL，再将 URL 传入 `sendMessage` 的 `attachments`
-  - nuwax 还支持剪贴板粘贴图片自动上传
+> 已补全（见上方 ✅ 状态更新）
 
 #### 5.3 @ 技能提及 ✅ (部分完成)
 **文件**: `crates/agent-workbench/src/components/NuwaxOpenApp.tsx`, `styles.css`
@@ -264,12 +254,7 @@
 - @ 按钮点击弹出技能列表下拉（`showSkillList` state）
 - 选中技能以 chip 形式展示，可移除
 - `selectedSkillIds` 传入 `sendMessage` 的 `skillIds` 字段
-- **未完成**:
-  - 技能下拉始终显示"No skills available"
-  - nuwax 有完整 API：`POST /api/published/skill/list-for-at`（分页搜索）、`/collect/list`（收藏）、`/recentlyUsed/list`（最近使用）
-  - nuwax 弹窗有三个 tab：全部（后端搜索）、最近（本地过滤）、收藏（本地过滤）
-  - nuwax 仅 `TaskAgent` 类型且 `allowAtSkill === Yes` 时启用 @ 功能
-  - `WorkbenchApiAdapter` 需新增技能相关 API 方法
+> 已补全（见上方 ✅ 状态更新）
 
 ---
 
@@ -351,8 +336,8 @@ interface ConversationChatParams {
   conversationId: number;
   message: string;
   attachments: AttachmentFile[];      // 具体类型，非 unknown[]
-  debug: boolean;                       // ❌ 缺失
-  selectedComponents: AgentSelectedComponentInfo[]; // ❌ 缺失
+  debug: boolean;                       // ✅ 已实现 (toNuwaxChatBody)
+  selectedComponents: AgentSelectedComponentInfo[]; // ✅ 已实现 (manualComponents + ChatArea chip bar)
   variableParams?: Record<string, string | number>;
   sandboxId?: string;
   skillIds?: number[];
@@ -380,7 +365,7 @@ interface WorkbenchSendMessageRequest {
 
 | nuwax `ConversationEventTypeEnum` | agent-workbench `WorkbenchStreamEventType` | 说明 |
 |-----------------------------------|------------------------------------------|------|
-| `PROCESSING` | 无 | 工具执行可视化（RunOver）未实现 |
+| `PROCESSING` | `processing` | ✅ 已实现 — SSE PROCESSING 路由到 runOverSteps
 | `MESSAGE` | `chunk` | 消息片段，已对齐 |
 | `FINAL_RESULT` | `final` | 最终结果，已对齐 |
 | `ERROR` | `error` | 错误，已对齐 |
@@ -402,7 +387,7 @@ interface WorkbenchVariable {
   require?: boolean;
   placeholder?: string;
   defaultValue?: string | number;
-  // ❌ 缺失: type, selectConfig, options, children
+  // ✅ 已实现: type (6种), selectConfig (MANUAL/PLUGIN), Cascader 树形选项
 }
 ```
 
@@ -410,8 +395,8 @@ interface WorkbenchVariable {
 
 nuwax 有三个 tab：
 - 全部: `POST /api/published/skill/list-for-at` (后端分页搜索) ✅ 已实现
-- 最近: `GET /api/skill/recentlyUsed/list` (本地过滤) ❌ 缺失
-- 收藏: `POST /api/skill/collect/list` ❌ 缺失
+- 最近: `GET /api/published/skill/recentlyUsed/list` ✅ 已实现 (listRecentSkills)
+- 收藏: `POST /api/published/skill/collect/list` ✅ 已实现 (listCollectedSkills)
 
 workbench `listSkillsForAt` 只实现了后端搜索一个端点。
 
