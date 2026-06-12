@@ -4,6 +4,7 @@ import type {
   WorkbenchAcpToolKind,
   WorkbenchPermissionOptionKind,
   WorkbenchPermissionRequest,
+  WorkbenchMcpAskInteraction,
   WorkbenchStreamEvent,
   WorkbenchStreamEventType,
 } from './types';
@@ -236,6 +237,78 @@ function parseFlatPermission(
   };
 }
 
+// ---------------------------------------------------------------------------
+// MCP Ask (nuwax_ask_question) detection and parsing
+// ---------------------------------------------------------------------------
+
+/**
+ * Checks whether a PROCESSING/tool_call SSE event contains a nuwax_ask_question
+ * tool call input and, if so, returns a WorkbenchMcpAskInteraction.
+ *
+ * The raw input can appear in several locations:
+ *   - data.raw_input / data.rawInput
+ *   - data.ext.raw_input / data.ext.rawInput
+ *   - data.result.input
+ *   - data.result.ext.raw_input / data.result.ext.rawInput
+ */
+function readMcpAsk(value: unknown): WorkbenchMcpAskInteraction | undefined {
+  const record = getRecord(value);
+  if (!record) return undefined;
+  const innerData = getRecord(record?.data) ?? record;
+
+  // Extract raw_input from the various nested locations.
+  const ext = getRecord(innerData?.ext);
+  const result = getRecord(innerData?.result);
+  const resultExt = getRecord(result?.ext);
+
+  function nonEmptyObj(rec: unknown): Record<string, unknown> | undefined {
+    return rec && typeof rec === 'object' && !Array.isArray(rec) && Object.keys(rec).length > 0
+      ? (rec as Record<string, unknown>)
+      : undefined;
+  }
+
+  const rawInput =
+    nonEmptyObj(innerData?.raw_input) ??
+    nonEmptyObj(innerData?.rawInput) ??
+    nonEmptyObj(ext?.raw_input) ??
+    nonEmptyObj(ext?.rawInput) ??
+    nonEmptyObj(result?.input) ??
+    nonEmptyObj(resultExt?.raw_input) ??
+    nonEmptyObj(resultExt?.rawInput);
+
+  if (!rawInput) return undefined;
+
+  // Validate schema version + toolName.
+  if (typeof rawInput.schemaVersion !== 'string') return undefined;
+  if (
+    !['nuwaclaw.mcp_ask.v1', 'nuwax.mcp_ask.v1'].includes(rawInput.schemaVersion)
+  ) {
+    return undefined;
+  }
+  const toolName = rawInput.toolName ?? 'nuwax_ask_question';
+  if (toolName !== 'nuwax_ask_question') return undefined;
+  if (typeof rawInput.requestId !== 'string') return undefined;
+  if (!rawInput.ui || typeof rawInput.ui !== 'object') return undefined;
+
+  const ui = rawInput.ui as Record<string, unknown>;
+  if (typeof ui.version !== 'string') return undefined;
+  if (!['nuwaclaw.interaction.v1', 'nuwax.interaction.v1'].includes(ui.version)) {
+    return undefined;
+  }
+
+  const toolCallId =
+    readString(innerData, [['tool_call_id'], ['toolCallId']]) ??
+    readString(innerData, [['executeId']]) ??
+    readString(result, [['executeId']]) ??
+    rawInput.requestId;
+
+  return {
+    input: { ...rawInput, toolName: 'nuwax_ask_question' } as WorkbenchMcpAskInteraction['input'],
+    toolCallId,
+    responseStatus: 'pending',
+  };
+}
+
 /**
  * nuwax OpenApp SSE：ConversationChatResponse.eventType
  * 可用值 PROCESSING | MESSAGE | FINAL_RESULT | ERROR
@@ -265,21 +338,49 @@ function inferNuwaxEnvelopeType(payload: unknown): WorkbenchStreamEventType | nu
   ) {
     return 'permission';
   }
-  // PROCESSING events that carry a nested request_permission_request
-  if (eventType === 'PROCESSING') {
-    const result = getRecord(data?.result);
-    const procInput = getRecord(result?.input);
-    if (
-      getRecord(data?.request_permission_request) ||
-      getRecord(procInput?.request_permission_request) ||
-      getRecord(data?._intervention) ||
-      getRecord(data?.interventionRequest)
-    ) {
-      return 'permission';
-    }
+ // PROCESSING events that carry a nested request_permission_request
+ if (eventType === 'PROCESSING') {
+   const result = getRecord(data?.result);
+   const procInput = getRecord(result?.input);
+   if (
+     getRecord(data?.request_permission_request) ||
+     getRecord(procInput?.request_permission_request) ||
+     getRecord(data?._intervention) ||
+     getRecord(data?.interventionRequest)
+   ) {
+     return 'permission';
+   }
+  // MCP Ask (nuwax_ask_question) tool calls
+  const subType = readString(data, [['subType'], ['sub_type']])?.toLowerCase();
+  const ext = getRecord(data?.ext);
+  const rawInputSource =
+    getRecord(data?.raw_input) ??
+    getRecord(data?.rawInput) ??
+    getRecord(ext?.raw_input) ??
+    getRecord(ext?.rawInput) ??
+    getRecord(procInput) ??
+    getRecord(getRecord(result?.ext)?.raw_input) ??
+    getRecord(getRecord(result?.ext)?.rawInput);
+  if (
+   (subType === 'tool_call' || subType === 'tool_call_update') &&
+    rawInputSource &&
+   typeof (rawInputSource as Record<string, unknown>).schemaVersion === 'string'
+  ) {
+    return 'mcp_ask';
   }
+  // Also detect via executeId + result.input even without explicit subType.
+  if (
+    rawInputSource &&
+    typeof (rawInputSource as Record<string, unknown>).schemaVersion === 'string' &&
+    ['nuwaclaw.mcp_ask.v1', 'nuwax.mcp_ask.v1'].includes(
+      (rawInputSource as Record<string, unknown>).schemaVersion as string,
+    )
+  ) {
+    return 'mcp_ask';
+  }
+}
 
-  if (eventType === 'PROCESSING') return 'processing';
+if (eventType === 'PROCESSING') return 'processing';
   if (eventType === 'FINAL_RESULT') return 'final';
   if (eventType === 'ERROR') return 'error';
   if (eventType === 'MESSAGE') {
@@ -428,10 +529,24 @@ export function normalizeSseMessage(message: RawSseMessage): WorkbenchStreamEven
         ...ids,
       };
     }
-    return { type, permission, raw: payload, ...ids };
+   return { type, permission, raw: payload, ...ids };
+ }
+
+  if (type === 'mcp_ask') {
+    const mcpAsk = readMcpAsk(payload);
+    if (!mcpAsk) {
+      return {
+        type: 'processing',
+        content: contentFromPayload(payload) ?? '',
+        processingData: getRecord(getRecord(payload)?.data) ?? undefined,
+        raw: payload,
+        ...ids,
+      };
+    }
+    return { type, mcpAsk, raw: payload, ...ids };
   }
 
-  if (type === 'error') {
+ if (type === 'error') {
     const record = getRecord(payload);
     const data = getRecord(record?.data) ?? record;
     return {

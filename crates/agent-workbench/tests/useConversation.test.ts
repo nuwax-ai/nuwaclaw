@@ -99,12 +99,13 @@ describe('messagesReducer', () => {
     expect(initialConversationState).toEqual({
       activeConversation: null,
       messages: [],
-      streaming: false,
-      activeRequestId: null,
-      permissionRequest: null,
-      hasMoreMessages: false,
-      loadingMoreMessages: false,
-    });
+     streaming: false,
+     activeRequestId: null,
+     permissionRequest: null,
+     mcpAskInteraction: null,
+     hasMoreMessages: false,
+     loadingMoreMessages: false,
+   });
   });
 
   it('clears messages and flags when switching active conversation', () => {
@@ -197,11 +198,12 @@ describe('messagesReducer', () => {
     const before: ConversationState = {
       activeConversation: makeConversation(),
       messages: [makeMessage()],
-      streaming: true,
-      activeRequestId: 'req',
-      permissionRequest: { id: 'p', title: 't' },
-      hasMoreMessages: true,
-      loadingMoreMessages: true,
+     streaming: true,
+     activeRequestId: 'req',
+     permissionRequest: { id: 'p', title: 't' },
+     mcpAskInteraction: null,
+     hasMoreMessages: true,
+     loadingMoreMessages: true,
     };
     expect(messagesReducer(before, { type: 'reset' })).toEqual(
       initialConversationState,

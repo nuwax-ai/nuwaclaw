@@ -217,3 +217,91 @@ describe('SSE parser — ACP structured permission events', () => {
     expect(events[0].permission?.choices?.[0]).toEqual({ id: 'yes', label: 'OK', destructive: false });
   });
 });
+
+describe('SSE parser — MCP Ask (nuwax_ask_question) events', () => {
+  it('parses tool_call event with nuwax_ask_question raw_input', () => {
+    const payload = JSON.stringify({
+      eventType: 'PROCESSING',
+      data: {
+        subType: 'tool_call',
+        tool_call_id: 'tc-ask-1',
+        raw_input: {
+          toolName: 'nuwax_ask_question',
+          schemaVersion: 'nuwaclaw.mcp_ask.v1',
+          requestId: 'req-1',
+          revision: 1,
+          sessionId: 's1',
+          title: 'Choose option',
+          ui: {
+            version: 'nuwaclaw.interaction.v1',
+            presentation: 'inline',
+            title: 'Choose option',
+            schema: {
+              type: 'object',
+              properties: {
+                choice: { type: 'string', enum: ['a', 'b'], title: 'Choice' },
+              },
+              required: ['choice'],
+            },
+          },
+        },
+      },
+    });
+    const events = parseSseText(`data: ${payload}\n\n`);
+    expect(events).toHaveLength(1);
+    expect(events[0].type).toBe('mcp_ask');
+    expect(events[0].mcpAsk?.input.requestId).toBe('req-1');
+    expect(events[0].mcpAsk?.input.title).toBe('Choose option');
+    expect(events[0].mcpAsk?.toolCallId).toBe('tc-ask-1');
+    expect(events[0].mcpAsk?.input.ui.presentation).toBe('inline');
+  });
+
+  it('parses PROCESSING event with result.input containing mcp_ask data', () => {
+    const payload = JSON.stringify({
+      eventType: 'PROCESSING',
+      data: {
+        executeId: 'tc-ask-2',
+        result: {
+          input: {
+            toolName: 'nuwax_ask_question',
+            schemaVersion: 'nuwax.mcp_ask.v1',
+            requestId: 'req-2',
+            revision: 1,
+            sessionId: 's2',
+            title: 'Feedback',
+            ui: {
+              version: 'nuwax.interaction.v1',
+              presentation: 'modal',
+              title: 'Feedback',
+              schema: {
+                type: 'object',
+                properties: {
+                  rating: { type: 'string', enum: ['good', 'bad'] },
+                },
+              },
+            },
+          },
+        },
+      },
+    });
+    const events = parseSseText(`data: ${payload}\n\n`);
+    expect(events).toHaveLength(1);
+    expect(events[0].type).toBe('mcp_ask');
+    expect(events[0].mcpAsk?.input.requestId).toBe('req-2');
+    expect(events[0].mcpAsk?.toolCallId).toBe('tc-ask-2');
+  });
+
+  it('falls back to processing when raw_input is not an mcp_ask tool', () => {
+    const payload = JSON.stringify({
+      eventType: 'PROCESSING',
+      data: {
+        subType: 'tool_call',
+        tool_call_id: 'tc-other',
+        raw_input: { toolName: 'read_file', path: '/tmp/test.txt' },
+      },
+    });
+    const events = parseSseText(`data: ${payload}\n\n`);
+    expect(events).toHaveLength(1);
+    expect(events[0].type).toBe('processing');
+  });
+});

@@ -558,11 +558,15 @@ export function createMockApiAdapter(options: MockApiAdapterOptions = {}): Workb
       });
     },
 
-    async respondPermission() {
+   async respondPermission() {
+     await sleep(Math.max(20, Math.floor(latencyMs / 2)));
+   },
+
+    async respondMcpAsk() {
       await sleep(Math.max(20, Math.floor(latencyMs / 2)));
     },
 
-    async stopChat() {
+   async stopChat() {
       await sleep(Math.max(20, Math.floor(latencyMs / 2)));
     },
 

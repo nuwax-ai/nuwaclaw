@@ -15,10 +15,11 @@ import {
 import type {
   PreviewState,
   WorkbenchAgentDetail,
-  WorkbenchConversation,
-  WorkbenchModelOption,
-  WorkbenchSkillOption,
-  WorkbenchUploadedFile,
+ WorkbenchConversation,
+ WorkbenchModelOption,
+  WorkbenchMcpAskRespondPayload,
+ WorkbenchSkillOption,
+ WorkbenchUploadedFile,
 } from '../types';
 import { useAgentWorkbenchContext } from './AgentWorkbenchProvider';
 import { HistoryConversation } from './OpenApp/HistoryConversation';
@@ -276,6 +277,7 @@ export function NuwaxOpenApp() {
     messages,
     streaming,
     permissionRequest,
+    mcpAskInteraction,
     hasMoreMessages,
     loadingMoreMessages,
   } = conv;
@@ -667,6 +669,11 @@ export function NuwaxOpenApp() {
 
   const stopStream = useCallback(() => conv.stopStream(), [conv]);
 
+  const answerMcpAsk = useCallback(
+    (payload: WorkbenchMcpAskRespondPayload) => conv.answerMcpAsk(payload),
+    [conv],
+  );
+
   const answerPermission = useCallback(
     (choiceId: string) => conv.answerPermission(choiceId),
     [conv],
@@ -893,6 +900,7 @@ export function NuwaxOpenApp() {
                   messages={messages}
                   streaming={streaming}
                   permissionRequest={permissionRequest}
+                  mcpAskInteraction={mcpAskInteraction}
                   hasMoreMessages={hasMoreMessages}
                   loadingMoreMessages={loadingMoreMessages}
                   suggestQuestions={suggestQuestions}
@@ -923,6 +931,7 @@ export function NuwaxOpenApp() {
                   }
                   onStopStream={() => void stopStream()}
                   onAnswerPermission={answerPermission}
+                  onAnswerMcpAsk={answerMcpAsk}
                   onLoadMoreMessages={() => void conv.loadMoreMessages()}
                   onSubmitVariableForm={(params) => {
                     setVariableParams(params);

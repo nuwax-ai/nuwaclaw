@@ -22,6 +22,8 @@ import type {
   WorkbenchConversation,
   WorkbenchMessage,
   WorkbenchPermissionRequest,
+  WorkbenchMcpAskInteraction,
+  WorkbenchMcpAskRespondPayload,
   WorkbenchSendMessageRequest,
   WorkbenchStreamEvent,
 } from '../../../types';
@@ -57,6 +59,7 @@ export interface UseConversationApi {
   streaming: boolean;
   activeRequestId: string | null;
   permissionRequest: WorkbenchPermissionRequest | null;
+  mcpAskInteraction: WorkbenchMcpAskInteraction | null;
   hasMoreMessages: boolean;
   loadingMoreMessages: boolean;
 
@@ -66,6 +69,7 @@ export interface UseConversationApi {
   sendPrompt: (params: SendPromptParams) => Promise<void>;
   stopStream: () => Promise<void>;
   answerPermission: (choiceId: string) => Promise<void>;
+  answerMcpAsk: (payload: WorkbenchMcpAskRespondPayload) => Promise<void>;
   loadMoreMessages: () => Promise<void>;
   reset: () => void;
 }
@@ -80,6 +84,7 @@ export interface ConversationState {
   streaming: boolean;
   activeRequestId: string | null;
   permissionRequest: WorkbenchPermissionRequest | null;
+  mcpAskInteraction: WorkbenchMcpAskInteraction | null;
   hasMoreMessages: boolean;
   loadingMoreMessages: boolean;
 }
@@ -90,6 +95,7 @@ export const initialConversationState: ConversationState = {
   streaming: false,
   activeRequestId: null,
   permissionRequest: null,
+  mcpAskInteraction: null,
   hasMoreMessages: false,
   loadingMoreMessages: false,
 };
@@ -119,7 +125,9 @@ export type ConversationAction =
       patch: (msg: WorkbenchMessage) => WorkbenchMessage;
     }
   | { type: 'permissionShown'; request: WorkbenchPermissionRequest }
-  | { type: 'permissionCleared' };
+  | { type: 'permissionCleared' }
+  | { type: 'mcpAskShown'; interaction: WorkbenchMcpAskInteraction }
+  | { type: 'mcpAskCleared' };
 
 /**
  * Pure state reducer. Exported for unit tests.
@@ -142,6 +150,7 @@ export function messagesReducer(
         messages: [],
         hasMoreMessages: false,
         permissionRequest: null,
+        mcpAskInteraction: null,
         loadingMoreMessages: false,
         streaming: false,
         activeRequestId: null,
@@ -153,6 +162,7 @@ export function messagesReducer(
         messages: action.messages,
         hasMoreMessages: action.hasMore,
         permissionRequest: null,
+        mcpAskInteraction: null,
         loadingMoreMessages: false,
       };
     case 'prependMessages': {
@@ -175,6 +185,7 @@ export function messagesReducer(
         streaming: true,
         activeRequestId: action.requestId,
         permissionRequest: null,
+        mcpAskInteraction: null,
       };
     case 'setActiveRequestId':
       return { ...state, activeRequestId: action.requestId };
@@ -191,6 +202,10 @@ export function messagesReducer(
       return { ...state, permissionRequest: action.request };
     case 'permissionCleared':
       return { ...state, permissionRequest: null };
+    case 'mcpAskShown':
+      return { ...state, mcpAskInteraction: action.interaction };
+    case 'mcpAskCleared':
+      return { ...state, mcpAskInteraction: null };
     default:
       return state;
   }
@@ -584,6 +599,10 @@ export async function sendPromptAction(
         dispatch({ type: 'permissionShown', request: event.permission });
         continue;
       }
+      if (event.type === 'mcp_ask' && event.mcpAsk) {
+        dispatch({ type: 'mcpAskShown', interaction: event.mcpAsk });
+        continue;
+      }
       const patch = streamEventToMessagePatch(event);
       if (patch) {
         dispatch({ type: 'patchMessage', messageId: assistantId, patch });
@@ -666,6 +685,26 @@ export async function answerPermissionAction(
   }
 }
 
+export async function answerMcpAskAction(
+  _getState: GetState,
+  dispatch: Dispatch,
+  deps: ActionDeps,
+  payload: WorkbenchMcpAskRespondPayload,
+): Promise<void> {
+  try {
+    await deps.adapter.respondMcpAsk?.(payload, {
+      agentId: deps.agentId,
+    });
+  } catch (cause) {
+    deps.reportError(cause, {
+      phase: 'respondMcpAsk',
+      interventionId: payload.interventionId,
+    });
+  } finally {
+    dispatch({ type: 'mcpAskCleared' });
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Hook
 // ---------------------------------------------------------------------------
@@ -724,13 +763,19 @@ export function useConversation(opts: UseConversationOptions): UseConversationAp
     [deps, getState],
   );
 
-  const answerPermission = useCallback(
-    (choiceId: string) =>
-      answerPermissionAction(getState, dispatch, deps, choiceId),
+ const answerPermission = useCallback(
+   (choiceId: string) =>
+     answerPermissionAction(getState, dispatch, deps, choiceId),
+   [deps, getState],
+ );
+
+  const answerMcpAsk = useCallback(
+    (payload: WorkbenchMcpAskRespondPayload) =>
+      answerMcpAskAction(getState, dispatch, deps, payload),
     [deps, getState],
   );
 
-  const loadMoreMessages = useCallback(
+ const loadMoreMessages = useCallback(
     () => loadMoreMessagesAction(getState, dispatch, deps),
     [deps, getState],
   );
@@ -764,25 +809,28 @@ export function useConversation(opts: UseConversationOptions): UseConversationAp
       streaming: state.streaming,
       activeRequestId: state.activeRequestId,
       permissionRequest: state.permissionRequest,
+    mcpAskInteraction: state.mcpAskInteraction,
       hasMoreMessages: state.hasMoreMessages,
       loadingMoreMessages: state.loadingMoreMessages,
       loadConversation,
       createConversation,
       sendPrompt,
       stopStream,
-      answerPermission,
-      loadMoreMessages,
-      reset,
-    }),
-    [
-      state,
-      loadConversation,
-      createConversation,
-      sendPrompt,
-      stopStream,
-      answerPermission,
-      loadMoreMessages,
-      reset,
-    ],
+     answerPermission,
+     answerMcpAsk,
+     loadMoreMessages,
+     reset,
+   }),
+   [
+     state,
+     loadConversation,
+     createConversation,
+     sendPrompt,
+     stopStream,
+     answerPermission,
+     answerMcpAsk,
+     loadMoreMessages,
+     reset,
+   ],
   );
 }

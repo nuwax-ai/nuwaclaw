@@ -5,11 +5,14 @@ import type {
   WorkbenchApiAdapter,
   WorkbenchConversation,
   WorkbenchMessage,
+  WorkbenchMcpAskInteraction,
+  WorkbenchMcpAskRespondPayload,
   WorkbenchModelOption,
   WorkbenchPermissionRequest,
   WorkbenchSkillOption,
 } from '../../../types';
 import { ChatInputHome } from '../../ChatInputHome';
+import { McpAskQuestionCard } from '../../McpAskQuestion';
 import { ConversationStatus } from '../ConversationStatus';
 import { AgentChatEmpty, ChatMessage, PermissionCard } from '../Message';
 import { DebugBar } from '../DebugBar';
@@ -30,6 +33,7 @@ export interface ChatAreaProps {
   messages: WorkbenchMessage[];
   streaming: boolean;
   permissionRequest: WorkbenchPermissionRequest | null;
+  mcpAskInteraction: WorkbenchMcpAskInteraction | null;
   hasMoreMessages: boolean;
   loadingMoreMessages: boolean;
   suggestQuestions: string[];
@@ -62,6 +66,7 @@ export interface ChatAreaProps {
   ) => void | Promise<void>;
   onStopStream: () => void | Promise<void>;
   onAnswerPermission: (choiceId: string) => void | Promise<void>;
+  onAnswerMcpAsk: (payload: WorkbenchMcpAskRespondPayload) => void | Promise<void>;
   onLoadMoreMessages: () => void | Promise<void>;
   onSubmitVariableForm: (params: Record<string, unknown>) => void;
   onCancelVariableForm: () => void;
@@ -92,6 +97,8 @@ export function ChatArea(props: ChatAreaProps): JSX.Element {
     messages,
     streaming,
     permissionRequest,
+    mcpAskInteraction,
+    onAnswerMcpAsk,
     hasMoreMessages,
     loadingMoreMessages,
     suggestQuestions,
@@ -188,6 +195,12 @@ export function ChatArea(props: ChatAreaProps): JSX.Element {
       </div>
       {permissionRequest && (
         <PermissionCard request={permissionRequest} labels={labels} onRespond={onAnswerPermission} />
+      )}
+      {mcpAskInteraction && (
+        <McpAskQuestionCard
+          interaction={mcpAskInteraction}
+          onRespond={(payload) => void onAnswerMcpAsk(payload)}
+        />
       )}
       {showVariableForm && agent?.variables && agent.variables.length > 0 && (
         <VariableForm

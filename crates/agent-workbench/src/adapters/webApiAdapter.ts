@@ -791,23 +791,36 @@ export function createWebApiAdapter(options: WebApiAdapterOptions): WorkbenchApi
       );
     },
 
-    async respondPermission(permissionId, choiceId, context) {
-      await requestJson(
-        apiPath(
-          `/agent/conversation/permission/${encodeURIComponent(permissionId)}`,
-        ),
-        {
-          method: 'POST',
-          body: {
-            agentId: context.agentId,
-            conversationId: context.conversationId,
-            choiceId,
-          },
-        },
-      );
-    },
+   async respondPermission(permissionId, choiceId, context) {
+     await requestJson(
+       apiPath(
+         `/agent/conversation/permission/${encodeURIComponent(permissionId)}`,
+       ),
+       {
+         method: 'POST',
+         body: {
+           agentId: context.agentId,
+           conversationId: context.conversationId,
+           choiceId,
+         },
+       },
+     );
+   },
 
-    async getSuggestQuestions(conversationId, _agentId, variableParams, lastMessage) {
+   async respondMcpAsk(payload, context) {
+     await requestJson(
+       apiPath('/agent/conversation/intervention/respond'),
+       {
+         method: 'POST',
+         body: {
+           ...payload,
+           context,
+         },
+       },
+     );
+   },
+
+   async getSuggestQuestions(conversationId, _agentId, variableParams, lastMessage) {
       const data = await requestJson<unknown>(
         apiPath('/agent/conversation/chat/suggest'),
         {

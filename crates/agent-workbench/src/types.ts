@@ -93,6 +93,122 @@ export interface WorkbenchCustomPageNavItem {
   selected?: boolean;
 }
 
+// ---------------------------------------------------------------------------
+// MCP Ask (nuwax_ask_question) — schema-driven form interaction
+// Mirrors nuwax feat-2026.6.18 AgentIntervention mcp-ask subsystem.
+// ---------------------------------------------------------------------------
+
+export const MCP_ASK_SCHEMA_VERSION = 'nuwaclaw.mcp_ask.v1';
+export const MCP_ASK_SCHEMA_VERSION_ALIASES = ['nuwax.mcp_ask.v1'];
+export const INTERACTION_UI_SCHEMA_VERSION = 'nuwaclaw.interaction.v1';
+export const INTERACTION_UI_SCHEMA_VERSION_ALIASES = ['nuwax.interaction.v1'];
+
+export type WorkbenchMcpAskFieldWidget =
+  | 'radio'
+  | 'checkboxes'
+  | 'select'
+  | 'text'
+  | 'textarea'
+  | 'radio-with-custom'
+  | 'list'
+  | 'file';
+
+export interface WorkbenchJsonSchemaProperty {
+  type?: string | string[];
+  title?: string;
+  description?: string;
+  enum?: string[];
+  items?: WorkbenchJsonSchemaProperty;
+  minLength?: number;
+  maxLength?: number;
+  minItems?: number;
+  maxItems?: number;
+  uniqueItems?: boolean;
+}
+
+export interface WorkbenchInteractionUiOptions {
+  allowSkip?: boolean;
+  skipLabel?: string;
+  allowCustom?: boolean;
+  otherValue?: string;
+  otherField?: string;
+  enumNames?: string[];
+  placeholder?: string;
+  accept?: string;
+  multiple?: boolean;
+}
+
+export interface WorkbenchInteractionUiStep {
+  id: string;
+  title: string;
+  description?: string;
+  fields: string[];
+}
+
+export interface WorkbenchInteractionUiSchema {
+  version: string;
+  presentation: 'modal' | 'inline' | 'wizard' | 'table';
+  title: string;
+  description?: string;
+  schema: Record<string, unknown>;
+  uiSchema?: Record<string, unknown>;
+  steps?: WorkbenchInteractionUiStep[];
+  initialValue?: Record<string, unknown>;
+  submitLabel?: string;
+  cancelLabel?: string;
+  skipLabel?: string;
+}
+
+export interface WorkbenchMcpAskToolInput {
+  toolName: 'nuwax_ask_question';
+  schemaVersion: string;
+  requestId: string;
+  revision: number;
+  sessionId: string;
+  title: string;
+  description?: string;
+  ui: WorkbenchInteractionUiSchema;
+  timeoutMs?: number;
+}
+
+export type WorkbenchMcpAskResponseStatus =
+  | 'pending'
+  | 'submitting'
+  | 'submitted'
+  | 'cancelled'
+  | 'skipped'
+  | 'failed';
+
+export interface WorkbenchMcpAskInteraction {
+  input: WorkbenchMcpAskToolInput;
+  toolCallId: string;
+  responseStatus?: WorkbenchMcpAskResponseStatus;
+  formData?: Record<string, unknown>;
+  errorMessage?: string;
+}
+
+export interface WorkbenchParsedMcpAskField {
+  name: string;
+  property: WorkbenchJsonSchemaProperty;
+  widget: WorkbenchMcpAskFieldWidget;
+  required: boolean;
+  options: WorkbenchInteractionUiOptions;
+  enumValues: string[];
+  enumLabels: string[];
+}
+
+export type WorkbenchMcpAskRespondAction = 'submit' | 'cancel' | 'skip' | 'timeout';
+
+export interface WorkbenchMcpAskRespondPayload {
+  interventionId: string;
+  toolCallId?: string;
+  revision: number;
+  source: 'mcp_ask';
+  protocol: 'mcp';
+  action: WorkbenchMcpAskRespondAction;
+  formData?: Record<string, unknown>;
+}
+
 export interface WorkbenchGuidQuestion {
   id?: string;
   question?: string;
@@ -164,7 +280,8 @@ export type WorkbenchStreamEventType =
   | 'processing'
   | 'final'
   | 'error'
-  | 'permission';
+  | 'permission'
+  | 'mcp_ask';
 
 export interface WorkbenchStreamEvent {
   type: WorkbenchStreamEventType;
@@ -175,6 +292,8 @@ export interface WorkbenchStreamEvent {
   content?: string;
   error?: string;
   permission?: WorkbenchPermissionRequest;
+  /** MCP Ask (nuwax_ask_question) interaction request. */
+  mcpAsk?: WorkbenchMcpAskInteraction;
   /** Structured payload from nuwax PROCESSING events (processingList entry). */
   processingData?: Record<string, unknown>;
   raw?: unknown;
@@ -276,6 +395,10 @@ export interface WorkbenchApiAdapter {
     permissionId: string,
     choiceId: string,
     context: { agentId: string; conversationId: string },
+  ): Promise<void>;
+  respondMcpAsk?(
+    payload: WorkbenchMcpAskRespondPayload,
+    context: { agentId: string },
   ): Promise<void>;
   getSuggestQuestions?(
     conversationId: string,
