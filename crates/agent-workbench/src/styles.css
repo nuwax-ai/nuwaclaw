@@ -1709,6 +1709,19 @@ body[data-theme="dark"] .nuwax-open-app,
   color: var(--xagi-color-text);
 }
 
+/* Right-aligned group: model chip + send button */
+.open-app-right-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: auto;
+}
+
+/* Mode segment pushed to the right edge of the left tools group */
+.open-app-input-tools .open-app-mode-segment {
+  margin-left: auto;
+}
+
 /* ref: nuwax .box.send-box (36px round, primary color) */
 .open-app-send-button {
   display: grid;

@@ -264,124 +264,126 @@ export function ChatInputHome({
           ))}
         </div>
       )}
-      <div className="open-app-input-footer">
-        <div className="open-app-input-tools">
-          {allowAtSkill && (
-            <div style={{ position: 'relative' }}>
-              <button
-                type="button"
-                title={labels.mentionSkill}
-                disabled={disabled || streaming}
-                onClick={() => setMentionOpen((v) => !v)}
-                data-testid="open-app-mention-trigger"
-              >
-                @
-              </button>
-              {mentionOpen && (
-                <div
-                  style={{
-                    position: 'absolute',
-                    bottom: '100%',
-                    left: 0,
-                    marginBottom: 4,
+     <div className="open-app-input-footer">
+       <div className="open-app-input-tools">
+         {allowAtSkill && (
+           <div style={{ position: 'relative' }}>
+             <button
+               type="button"
+               title={labels.mentionSkill}
+               disabled={disabled || streaming}
+               onClick={() => setMentionOpen((v) => !v)}
+               data-testid="open-app-mention-trigger"
+             >
+               @
+             </button>
+             {mentionOpen && (
+               <div
+                 style={{
+                   position: 'absolute',
+                   bottom: '100%',
+                   left: 0,
+                   marginBottom: 4,
+                 }}
+               >
+                <MentionPopup
+                  open={mentionOpen}
+                  agentId={agentId}
+                  adapter={adapter}
+                  onSelect={handleMentionSelect}
+                  onClose={() => setMentionOpen(false)}
+                   enableSubscription={enableSubscription}
+                  labels={{
+                    tabAll: labels.skillTabAll,
+                    tabRecent: labels.skillTabRecent,
+                    tabCollect: labels.skillTabCollect,
+                    empty: labels.noSkills,
+                    loading: labels.loadingMoreMessages,
+                    loadingMore: labels.loadingMoreMessages,
+                     paidTag: labels.skillPaidTag,
+                     subscribedTag: labels.skillSubscribedTag,
                   }}
-                >
-                 <MentionPopup
-                   open={mentionOpen}
-                   agentId={agentId}
-                   adapter={adapter}
-                   onSelect={handleMentionSelect}
-                   onClose={() => setMentionOpen(false)}
-                    enableSubscription={enableSubscription}
-                   labels={{
-                     tabAll: labels.skillTabAll,
-                     tabRecent: labels.skillTabRecent,
-                     tabCollect: labels.skillTabCollect,
-                     empty: labels.noSkills,
-                     loading: labels.loadingMoreMessages,
-                     loadingMore: labels.loadingMoreMessages,
-                      paidTag: labels.skillPaidTag,
-                      subscribedTag: labels.skillSubscribedTag,
-                   }}
-                 />
-                </div>
-              )}
-            </div>
-          )}
-          <ChatUploadFile
-            adapter={adapter}
-            entries={uploadEntries}
-            onEntriesChange={setUploadEntries}
-            maxFileSize={50 * 1024 * 1024}
-            multiple
-            disabled={disabled || streaming}
-            labels={{
-              upload: labels.uploadAttachment,
-              uploading: labels.uploadAttachment,
-            }}
-          />
-          <button type="button" title={labels.enableTools} disabled={disabled || streaming}>
-            <Icon name="tools" />
-          </button>
-        </div>
-        <div className="open-app-mode-segment" aria-label={labels.agentMode}>
+                />
+               </div>
+             )}
+           </div>
+         )}
+         <ChatUploadFile
+           adapter={adapter}
+           entries={uploadEntries}
+           onEntriesChange={setUploadEntries}
+           maxFileSize={50 * 1024 * 1024}
+           multiple
+           disabled={disabled || streaming}
+           labels={{
+             upload: labels.uploadAttachment,
+             uploading: labels.uploadAttachment,
+           }}
+         />
+         <button type="button" title={labels.enableTools} disabled={disabled || streaming}>
+           <Icon name="tools" />
+         </button>
+          <div className="open-app-mode-segment" aria-label={labels.agentMode}>
+            <button
+              type="button"
+              className={agentMode === 'ask' ? 'active' : ''}
+              disabled={disabled || streaming}
+              onClick={() => onModeChange('ask')}
+            >
+              {labels.askMode}
+            </button>
+            <button
+              type="button"
+              className={agentMode === 'yolo' ? 'active' : ''}
+              disabled={disabled || streaming}
+              onClick={() => onModeChange('yolo')}
+            >
+              {labels.yoloMode}
+            </button>
+          </div>
+       </div>
+        <div className="open-app-right-actions">
+          <div className="open-app-model-chip-wrapper">
+           <button
+             className="open-app-model-chip"
+             type="button"
+             disabled={disabled || streaming}
+             onClick={onToggleModelDropdown}
+           >
+             <span>{selectedModel?.name ?? labels.model}</span>
+           </button>
+           {showModelDropdown && (
+             <div className="open-app-model-dropdown">
+               {modelOptions.length > 0 ? (
+                 modelOptions.map((model) => (
+                   <button
+                     key={model.id}
+                     type="button"
+                     className={model.id === selectedModelId ? 'active' : ''}
+                     onClick={() => {
+                       onModelSelect(model.id);
+                       onToggleModelDropdown();
+                     }}
+                   >
+                     {model.name}
+                   </button>
+                 ))
+               ) : (
+                 <div className="open-app-model-empty">{labels.noModels}</div>
+               )}
+             </div>
+           )}
+          </div>
           <button
-            type="button"
-            className={agentMode === 'ask' ? 'active' : ''}
-            disabled={disabled || streaming}
-            onClick={() => onModeChange('ask')}
+            className={streaming ? 'open-app-send-button streaming' : 'open-app-send-button'}
+            type="submit"
+            title={streaming ? labels.stop : labels.send}
+            disabled={!streaming && !canSend}
           >
-            {labels.askMode}
+            <Icon name={streaming ? 'stop' : 'send'} />
           </button>
-          <button
-            type="button"
-            className={agentMode === 'yolo' ? 'active' : ''}
-            disabled={disabled || streaming}
-            onClick={() => onModeChange('yolo')}
-          >
-            {labels.yoloMode}
-          </button>
-        </div>
-        <div className="open-app-model-chip-wrapper">
-          <button
-            className="open-app-model-chip"
-            type="button"
-            disabled={disabled || streaming}
-            onClick={onToggleModelDropdown}
-          >
-            <span>{selectedModel?.name ?? labels.model}</span>
-          </button>
-          {showModelDropdown && (
-            <div className="open-app-model-dropdown">
-              {modelOptions.length > 0 ? (
-                modelOptions.map((model) => (
-                  <button
-                    key={model.id}
-                    type="button"
-                    className={model.id === selectedModelId ? 'active' : ''}
-                    onClick={() => {
-                      onModelSelect(model.id);
-                      onToggleModelDropdown();
-                    }}
-                  >
-                    {model.name}
-                  </button>
-                ))
-              ) : (
-                <div className="open-app-model-empty">{labels.noModels}</div>
-              )}
-            </div>
-          )}
-        </div>
-        <button
-          className={streaming ? 'open-app-send-button streaming' : 'open-app-send-button'}
-          type="submit"
-          title={streaming ? labels.stop : labels.send}
-          disabled={!streaming && !canSend}
-        >
-          <Icon name={streaming ? 'stop' : 'send'} />
-        </button>
-      </div>
+       </div>
+     </div>
     </form>
   );
 }
