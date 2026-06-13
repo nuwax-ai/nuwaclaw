@@ -33,7 +33,10 @@ import { buildSandboxPolicyFingerprint } from "./sandboxPolicyFingerprint";
 import dependencies from "../system/dependencies";
 import { getSandboxPolicy } from "../sandbox/policy";
 import { processRegistry } from "../system/processRegistry";
-import { ensureWorkspaceChildAccess } from "../system/workspaceAccessProbe";
+import {
+  checkWorkspaceAccessAndPrompt,
+  probeWorkspaceAccessWithPrompt,
+} from "../system/workspaceAccessProbe";
 import type { DetailedSession } from "@shared/types/sessions";
 import { ENGINE_DESTROY_TIMEOUT } from "@shared/constants";
 
@@ -211,7 +214,7 @@ export class UnifiedAgentService extends EventEmitter {
     // macOS TCC: 提前探测工作区目录对引擎子进程是否可访问，被拦则弹窗引导用户授权
     // (不阻塞启动；真正的拦截兜底在 getOrCreateEngine)
     if (config.workspaceDir) {
-      void ensureWorkspaceChildAccess(config.workspaceDir).catch(() => {});
+      void checkWorkspaceAccessAndPrompt(config.workspaceDir).catch(() => {});
     }
     // 后台预热 nuwaxcode 引擎（非阻塞，省掉首次会话 ~2s 冷启动）
     // 始终预热 nuwaxcode，与 init engineType 无关
@@ -536,13 +539,17 @@ export class UnifiedAgentService extends EventEmitter {
     // (nuwaxcode: "An unknown error occurred"; claude-code: "uv_cwd EPERM")。
     // 这里提前探测并弹窗引导授权，替代不可读的 "Failed to create engine"。
     if (effectiveConfig.workspaceDir) {
-      const access = await ensureWorkspaceChildAccess(
+      // macOS TCC: 探测工作区 cwd 是否可被子进程访问。被拦时异步弹窗(不阻塞请求)，
+      // 并抛清晰错误替代不可读的 "Failed to create engine"。
+      const access = await probeWorkspaceAccessWithPrompt(
         effectiveConfig.workspaceDir,
       );
       if (!access.ok) {
         throw new Error(
-          `Workspace directory not accessible by engine (macOS TCC): ${effectiveConfig.workspaceDir}. ` +
-            `Grant Full Disk Access in System Settings → Privacy & Security, then restart the app.`,
+          access.reason === "missing_dir"
+            ? `Workspace directory does not exist: ${effectiveConfig.workspaceDir}`
+            : `Workspace directory not accessible by engine (macOS TCC): ${effectiveConfig.workspaceDir}. ` +
+                `Grant Full Disk Access in System Settings → Privacy & Security, then restart the app.`,
         );
       }
     }
