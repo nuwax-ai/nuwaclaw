@@ -68,7 +68,7 @@
     "lint:fix": "eslint src --fix"
   },
   "dependencies": {
-    "@agentclientprotocol/sdk": "^0.21.1",
+    "@agentclientprotocol/sdk": "^0.25.0",
     "@ant-design/icons": "^5.6.1",
     "@anthropic-ai/sdk": "^0.39.0",
     "@modelcontextprotocol/sdk": "^1.27.1",
