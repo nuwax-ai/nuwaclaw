@@ -28,7 +28,7 @@ const { URL } = require('url');
 const { execSync, execFileSync } = require('child_process');
 const { getProjectRoot } = require('../utils/project-paths');
 
-const NUWAXCODE_VERSION = '1.3.0-beta.6';
+const NUWAXCODE_VERSION = '1.3.0-beta.7';
 const NUWAXCODE_REPO = process.env.NUWAXCODE_REPO || 'nuwax-ai/nuwaxcode';
 
 /** CI 通过 GH_TOKEN 传入 github.token，避免未认证 API 触发 403 限流 */
