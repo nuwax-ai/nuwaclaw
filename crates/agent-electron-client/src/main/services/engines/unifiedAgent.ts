@@ -33,10 +33,7 @@ import { buildSandboxPolicyFingerprint } from "./sandboxPolicyFingerprint";
 import dependencies from "../system/dependencies";
 import { getSandboxPolicy } from "../sandbox/policy";
 import { processRegistry } from "../system/processRegistry";
-import {
-  checkWorkspaceAccessAndPrompt,
-  probeWorkspaceAccessWithPrompt,
-} from "../system/workspaceAccessProbe";
+import { probeWorkspaceAccessWithPrompt } from "../system/workspaceAccessProbe";
 import type { DetailedSession } from "@shared/types/sessions";
 import { ENGINE_DESTROY_TIMEOUT } from "@shared/constants";
 
@@ -211,11 +208,8 @@ export class UnifiedAgentService extends EventEmitter {
     }
     // 后台预热 MCP proxy bridge
     this.warmupMcpBridge();
-    // macOS TCC: 提前探测工作区目录对引擎子进程是否可访问，被拦则弹窗引导用户授权
-    // (不阻塞启动；真正的拦截兜底在 getOrCreateEngine)
-    if (config.workspaceDir) {
-      void checkWorkspaceAccessAndPrompt(config.workspaceDir).catch(() => {});
-    }
+    // macOS TCC 探测 + 授权弹窗统一由首次创建引擎的 getOrCreateEngine 负责，
+    // 不在启动期重复探测(避免 init 与 gate 双开子进程；详见 workspaceAccessProbe)。
     // 后台预热 nuwaxcode 引擎（非阻塞，省掉首次会话 ~2s 冷启动）
     // 始终预热 nuwaxcode，与 init engineType 无关
     this.warmup.start(this.baseConfig, (e) => this.forwardEvents(e));
