@@ -33,6 +33,7 @@ import { buildSandboxPolicyFingerprint } from "./sandboxPolicyFingerprint";
 import dependencies from "../system/dependencies";
 import { getSandboxPolicy } from "../sandbox/policy";
 import { processRegistry } from "../system/processRegistry";
+import { ensureWorkspaceChildAccess } from "../system/workspaceAccessProbe";
 import type { DetailedSession } from "@shared/types/sessions";
 import { ENGINE_DESTROY_TIMEOUT } from "@shared/constants";
 
@@ -207,6 +208,11 @@ export class UnifiedAgentService extends EventEmitter {
     }
     // 后台预热 MCP proxy bridge
     this.warmupMcpBridge();
+    // macOS TCC: 提前探测工作区目录对引擎子进程是否可访问，被拦则弹窗引导用户授权
+    // (不阻塞启动；真正的拦截兜底在 getOrCreateEngine)
+    if (config.workspaceDir) {
+      void ensureWorkspaceChildAccess(config.workspaceDir).catch(() => {});
+    }
     // 后台预热 nuwaxcode 引擎（非阻塞，省掉首次会话 ~2s 冷启动）
     // 始终预热 nuwaxcode，与 init engineType 无关
     this.warmup.start(this.baseConfig, (e) => this.forwardEvents(e));
@@ -524,6 +530,22 @@ export class UnifiedAgentService extends EventEmitter {
     }
     t2 = Date.now();
     perfEmitter.duration("engine.evictCheck", t2 - t1);
+
+    // macOS TCC 兜底：确认引擎子进程能访问工作区 cwd。
+    // 若被拦(工作区落在 ~/Downloads 等保护目录且未授权)，nuwaxcode/claude-code 启动即崩
+    // (nuwaxcode: "An unknown error occurred"; claude-code: "uv_cwd EPERM")。
+    // 这里提前探测并弹窗引导授权，替代不可读的 "Failed to create engine"。
+    if (effectiveConfig.workspaceDir) {
+      const access = await ensureWorkspaceChildAccess(
+        effectiveConfig.workspaceDir,
+      );
+      if (!access.ok) {
+        throw new Error(
+          `Workspace directory not accessible by engine (macOS TCC): ${effectiveConfig.workspaceDir}. ` +
+            `Grant Full Disk Access in System Settings → Privacy & Security, then restart the app.`,
+        );
+      }
+    }
 
     const engineType =
       effectiveConfig.engine || this.engineType || "claude-code";
