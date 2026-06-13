@@ -17,7 +17,7 @@ echo "[prepare-source-claude-code-acp-ts] 开始准备源码..."
 # 1. 克隆或更新源码
 if [ -d "$SOURCE_DIR/.git" ]; then
     echo "[prepare-source-claude-code-acp-ts] 更新源码..."
-    cd "$SOURCE_DIR" && git checkout "$BRANCH" && git pull
+    cd "$SOURCE_DIR" && git checkout "$BRANCH" && git checkout -- . && git pull
 else
     echo "[prepare-source-claude-code-acp-ts] 克隆源码..."
     mkdir -p "$(dirname "$SOURCE_DIR")"
