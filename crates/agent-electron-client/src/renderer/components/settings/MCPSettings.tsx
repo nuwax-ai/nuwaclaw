@@ -4,7 +4,7 @@
  * 使用稳定的文本编辑 + 解析校验，避免第三方可视化编辑器导致的不可编辑问题。
  */
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import {
   Card,
   Button,
@@ -15,6 +15,7 @@ import {
   List,
   Switch,
   Tag,
+  Tooltip,
   Empty,
   message,
   Alert,
@@ -32,6 +33,7 @@ import {
   CheckCircleOutlined,
   EditOutlined,
   DeleteOutlined,
+  UndoOutlined,
 } from "@ant-design/icons";
 import CodeEditor from "@uiw/react-textarea-code-editor";
 import type {
@@ -67,6 +69,9 @@ function MCPSettings({ isOpen = true }: MCPSettingsProps) {
   const [deletingServerId, setDeletingServerId] = useState<string | null>(null);
   const [testingServerId, setTestingServerId] = useState<string | null>(null);
   const [hasUnsavedEdits, setHasUnsavedEdits] = useState(false);
+  // 上次保存/加载的基线文本：撤销时恢复到此值。仅由 loadAll 与保存成功后更新。
+  const [savedConfigText, setSavedConfigText] = useState("{}");
+  const [showResetConfirm, setShowResetConfirm] = useState(false);
 
   // 监听主题变化
   useEffect(() => {
@@ -186,10 +191,15 @@ function MCPSettings({ isOpen = true }: MCPSettingsProps) {
         window.electronAPI?.mcp.getConfig(),
         window.electronAPI?.mcp.status(),
       ]);
-      if (savedConfig && !hasUnsavedEdits) {
-        // 加载时即按"手动启用"策略规范化，便于列表模式直观管理开关状态。
-        // 仅在没有未保存编辑时覆盖，防止丢失用户正在编辑的内容。
-        applyConfigToEditor(savedConfig, false);
+      if (savedConfig) {
+        // 基线始终刷新为服务端已保存状态（按"手动启用"策略规范化）。
+        const text = formatConfigForEditor(normalizeConfig(savedConfig, false));
+        setSavedConfigText(text);
+        // 编辑器仅在无未保存编辑时覆盖，防止丢失用户正在编辑的内容。
+        if (!hasUnsavedEdits) {
+          setConfigText(text);
+          setConfigTextError("");
+        }
       }
       if (currentStatus) setStatus(currentStatus);
     } catch (error) {
@@ -197,7 +207,7 @@ function MCPSettings({ isOpen = true }: MCPSettingsProps) {
     } finally {
       setLoading(false);
     }
-  }, [applyConfigToEditor, hasUnsavedEdits]);
+  }, [formatConfigForEditor, normalizeConfig, hasUnsavedEdits]);
 
   useEffect(() => {
     if (isOpen) {
@@ -222,6 +232,9 @@ function MCPSettings({ isOpen = true }: MCPSettingsProps) {
     }
     try {
       await window.electronAPI?.mcp.setConfig(nextConfig);
+      // 用计算出的 canonical 文本捕获基线（syncConfigFromText 已异步重排 configText，
+      // 此处闭包内的 configText 仍是旧值，不能直接读）。
+      setSavedConfigText(formatConfigForEditor(nextConfig));
       setHasUnsavedEdits(false);
       message.success(t("Claw.MCP.message.configSaved"));
     } catch {
@@ -238,6 +251,7 @@ function MCPSettings({ isOpen = true }: MCPSettingsProps) {
     setActionLoading(true);
     try {
       await window.electronAPI?.mcp.setConfig(nextConfig);
+      setSavedConfigText(formatConfigForEditor(nextConfig));
       setHasUnsavedEdits(false);
       const result = await window.electronAPI?.mcp.start();
       if (result?.success) {
@@ -266,6 +280,7 @@ function MCPSettings({ isOpen = true }: MCPSettingsProps) {
     setActionLoading(true);
     try {
       await window.electronAPI?.mcp.setConfig(nextConfig);
+      setSavedConfigText(formatConfigForEditor(nextConfig));
       setHasUnsavedEdits(false);
       const result = await window.electronAPI?.mcp.restart();
       if (result?.success) {
@@ -284,6 +299,38 @@ function MCPSettings({ isOpen = true }: MCPSettingsProps) {
       setActionLoading(false);
     }
   };
+
+  const handleResetConfig = () => {
+    // 撤销未保存改动：恢复到上次保存的基线。仅动前端 state，不调用 IPC。
+    setConfigText(savedConfigText);
+    setConfigTextError("");
+    setHasUnsavedEdits(false);
+    setPageMode("list"); // 退出单 server 编辑器（如在）
+    setShowResetConfirm(false);
+    message.info(t("Claw.MCP.message.resetDone"));
+  };
+
+  // 精确脏状态：归一化后深比较当前配置与已保存基线。
+  // 优于手动标志 hasUnsavedEdits（改动一次即永久 true，改回原样也不会回落）。
+  // 解析失败（如 JSON 编辑中途）时回退到标志，保守显示为未保存。
+  const isDirty = useMemo(() => {
+    let currentObj: unknown;
+    let savedObj: unknown;
+    try {
+      currentObj = JSON.parse(configText);
+    } catch {
+      return hasUnsavedEdits;
+    }
+    try {
+      savedObj = JSON.parse(savedConfigText);
+    } catch {
+      return hasUnsavedEdits;
+    }
+    return (
+      JSON.stringify(normalizeConfig(currentObj as McpServersConfig, false)) !==
+      JSON.stringify(normalizeConfig(savedObj as McpServersConfig, false))
+    );
+  }, [configText, savedConfigText, hasUnsavedEdits, normalizeConfig]);
 
   const handleExportConfirm = async () => {
     try {
@@ -524,6 +571,11 @@ function MCPSettings({ isOpen = true }: MCPSettingsProps) {
         }
         extra={
           <Space>
+            {isDirty && (
+              <Tag color="orange" style={{ marginInlineEnd: 4 }}>
+                ● {t("Claw.MCP.unsavedChanges")}
+              </Tag>
+            )}
             <Button
               icon={<ImportOutlined />}
               onClick={handleImport}
@@ -538,10 +590,20 @@ function MCPSettings({ isOpen = true }: MCPSettingsProps) {
             >
               {t("Claw.MCP.importExport.export")}
             </Button>
+            <Tooltip title={t("Claw.MCP.action.resetTooltip")}>
+              <Button
+                icon={<UndoOutlined />}
+                onClick={() => setShowResetConfirm(true)}
+                disabled={!isDirty}
+                size="small"
+              >
+                {t("Claw.MCP.action.reset")}
+              </Button>
+            </Tooltip>
             <Button
               icon={<SaveOutlined />}
               onClick={handleSaveConfig}
-              type="primary"
+              type={isDirty ? "primary" : "default"}
               size="small"
             >
               {t("Claw.Common.save")}
@@ -840,6 +902,27 @@ function MCPSettings({ isOpen = true }: MCPSettingsProps) {
       >
         <Alert
           message={t("Claw.MCP.importExport.exportWarningContent")}
+          type="warning"
+          showIcon
+        />
+      </Modal>
+
+      {/* 撤销未保存改动确认 Modal */}
+      <Modal
+        title={
+          <Space>
+            <WarningOutlined style={{ color: "#faad14" }} />
+            {t("Claw.MCP.resetConfirm.title")}
+          </Space>
+        }
+        open={showResetConfirm}
+        onOk={handleResetConfig}
+        onCancel={() => setShowResetConfirm(false)}
+        okText={t("Claw.Common.confirm")}
+        cancelText={t("Claw.Common.cancel")}
+      >
+        <Alert
+          message={t("Claw.MCP.resetConfirm.content")}
           type="warning"
           showIcon
         />
