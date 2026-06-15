@@ -858,6 +858,14 @@ export class UnifiedAgentService extends EventEmitter {
       perfStartMs: t2,
     });
 
+    // Determine custom agent command (when agent_server.command is not a known engine)
+    const agentCommand = request.agent_config?.agent_server?.command;
+    const agentArgs = request.agent_config?.agent_server?.args;
+    const customEngineCommand =
+      agentCommand && !mapAgentCommand(agentCommand) ? agentCommand : undefined;
+    const customEngineArgs =
+      customEngineCommand && agentArgs?.length ? agentArgs : undefined;
+
     const effectiveConfig = buildEffectiveConfig({
       base,
       requiredEngine,
@@ -867,6 +875,8 @@ export class UnifiedAgentService extends EventEmitter {
       freshMcpServers,
       request,
       engineKey,
+      customEngineCommand,
+      customEngineArgs,
     });
 
     // 传递 memoryReadyPromise，避免 getOrCreateEngine 重复等待 memory

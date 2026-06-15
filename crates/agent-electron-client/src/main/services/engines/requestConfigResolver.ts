@@ -269,6 +269,10 @@ export function buildEffectiveConfig(args: {
   freshMcpServers: AgentConfig["mcpServers"] | undefined;
   request: ComputerChatRequest;
   engineKey: string;
+  /** Custom agent command (when agent_server.command is not a known engine) */
+  customEngineCommand?: string;
+  /** Custom agent args (from agent_server.args) */
+  customEngineArgs?: string[];
 }): AgentConfig {
   const {
     base,
@@ -279,6 +283,8 @@ export function buildEffectiveConfig(args: {
     freshMcpServers,
     request,
     engineKey,
+    customEngineCommand,
+    customEngineArgs,
   } = args;
 
   if (!model) {
@@ -304,6 +310,8 @@ export function buildEffectiveConfig(args: {
   const effectiveConfig: AgentConfig = {
     ...base,
     engine: requiredEngine || base.engine,
+    customEngineCommand: customEngineCommand || base.customEngineCommand,
+    customEngineArgs: customEngineArgs || base.customEngineArgs,
     apiKey: mp?.api_key || base.apiKey,
     baseUrl: mp?.base_url || base.baseUrl,
     model,

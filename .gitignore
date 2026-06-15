@@ -103,3 +103,4 @@ crates/agent-electron-client/resources/gateway/
 crates/gateway-server/.env
 
 .kilo/
+tmp/

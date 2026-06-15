@@ -164,9 +164,9 @@ export class AcpEngine extends EventEmitter {
   private activePromptRejects = new Map<string, (reason: Error) => void>();
   private logTag: string;
 
-  private readonly _engineName: AgentEngineType;
+  private readonly _engineName: string;
 
-  constructor(engineName: AgentEngineType = "claude-code") {
+  constructor(engineName: string = "claude-code") {
     super();
     this._engineName = engineName;
     this.logTag = `[AcpEngine:${engineName}]`;
@@ -179,7 +179,7 @@ export class AcpEngine extends EventEmitter {
 
   /** Engine type (claude-code | nuwaxcode), used by UnifiedAgent for provider detection */
   get engineName(): AgentEngineType {
-    return this._engineName;
+    return this._engineName as AgentEngineType;
   }
 
   /** Number of active sessions in this engine */
@@ -388,7 +388,17 @@ export class AcpEngine extends EventEmitter {
       const configTimer = perfEmitter.start();
 
       // Resolve binary path and args for the engine type
-      const { binPath, binArgs, isNative } = resolveAcpBinary(this.engineName);
+      // For custom agents, use customEngineCommand; otherwise use engineName
+      const resolveEngine = config.customEngineCommand || this.engineName;
+      const {
+        binPath,
+        binArgs: resolvedBinArgs,
+        isNative,
+      } = resolveAcpBinary(resolveEngine);
+      // For custom agents, append agent_server.args as spawn arguments
+      const binArgs = config.customEngineArgs
+        ? [...resolvedBinArgs, ...config.customEngineArgs]
+        : resolvedBinArgs;
 
       // For nuwaxcode: inject config via OPENCODE_CONFIG_CONTENT env var
       const spawnEnv = { ...(config.env || {}) };
@@ -802,7 +812,7 @@ export class AcpEngine extends EventEmitter {
     return Array.from(this.sessions.values()).map((s) => ({
       id: s.id,
       title: s.title,
-      engineType: this._engineName,
+      engineType: this._engineName as AgentEngineType,
       projectId: s.projectId,
       status: s.status,
       createdAt: s.createdAt,

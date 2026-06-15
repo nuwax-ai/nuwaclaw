@@ -29,7 +29,7 @@ import {
   getClaudeCodeAcpBundledDir,
 } from "../../system/dependencies";
 import { APP_DATA_DIR_NAME, LOGS_DIR_NAME } from "../../constants";
-import { APP_NAME_IDENTIFIER } from "../../../../shared/constants";
+import { getAppDataDir } from "../../system/appPaths";
 import { isWindows } from "../../system/shellEnv";
 import { createPlatformAdapter } from "../../system/platformAdapter";
 import { spawnJsFile, resolveNpmPackageEntry } from "../../utils/spawnNoWindow";
@@ -38,6 +38,7 @@ import { killProcessTreeGraceful } from "../../utils/processTree";
 import { writeShellProfiles } from "../../utils/shellProfile";
 import { perfEmitter } from "../perf/perfEmitter";
 import { firstTokenTrace } from "../perf/firstTokenTrace";
+import { resolveCustomAgentBinary } from "../../agentInstaller";
 import { buildSandboxedSpawnArgs } from "../../sandbox/sandboxProcessWrapper";
 import type { SandboxProcessConfig } from "@shared/types/sandbox";
 import {
@@ -509,7 +510,7 @@ function getNuwaxcodePersistentLogDir(): string {
  * (not via `node`).
  */
 export function resolveAcpBinary(
-  engine: "claude-code" | "nuwaxcode" | "codex" | "codex-cli",
+  engine: "claude-code" | "nuwaxcode" | "codex" | "codex-cli" | (string & {}),
 ): {
   binPath: string;
   binArgs: string[];
@@ -589,8 +590,20 @@ export function resolveAcpBinary(
     return { binPath: "nuwax-codex-acp", binArgs: [], isNative: true };
   }
 
-  // Should not reach here — all engine types handled above
-  throw new Error(`Unknown engine type: ${engine}`);
+  // Unknown engine type → try to resolve as custom agent
+  log.info(
+    `[AcpClient] Unknown engine "${engine}", attempting custom agent resolution`,
+  );
+  const customBinPath = resolveCustomAgentBinary(engine);
+  if (customBinPath) {
+    return { binPath: customBinPath, binArgs: [], isNative: true };
+  }
+
+  // Final fallback: assume the command is in PATH
+  log.warn(
+    `[AcpClient] Custom agent "${engine}" not found, assuming it's in PATH`,
+  );
+  return { binPath: engine, binArgs: [], isNative: true };
 }
 
 /**
@@ -672,11 +685,9 @@ export async function createAcpConnection(
 
   // Create isolated HOME directory with empty .claude/ config
   // This prevents Claude Code from reading user's global ~/.claude/settings.json
+  // 使用 ~/.nuwaclaw/run/ 而非 os.tmpdir()，避免 Unix socket 路径过长（macOS 限制 104 字符）
   const runId = `acp-${Date.now()}-${Math.random().toString(36).substring(2, 8)}`;
-  const isolatedHome = path.join(
-    os.tmpdir(),
-    `${APP_NAME_IDENTIFIER}-${runId}`,
-  );
+  const isolatedHome = path.join(getAppDataDir(), "run", runId);
   fs.mkdirSync(path.join(isolatedHome, ".claude"), { recursive: true });
 
   // 获取应用隔离环境变量（包含隔离的 PATH、npm、uv 配置等）

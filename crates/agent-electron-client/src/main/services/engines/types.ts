@@ -10,6 +10,10 @@ export type AgentEngineType = "nuwaxcode" | "claude-code" | "codex-cli";
 
 export interface AgentConfig {
   engine: AgentEngineType;
+  /** Custom agent command (when engine type is unknown, use this as the binary command) */
+  customEngineCommand?: string;
+  /** Custom agent args (from agent_server.args, appended to spawn args) */
+  customEngineArgs?: string[];
   apiKey?: string;
   baseUrl?: string;
   model?: string;
