@@ -433,13 +433,24 @@ export function resolveServersConfig(
 
 // ========== Types ==========
 
-/** 默认 mcpServers 配置 */
+/**
+ * 默认 mcpServers 配置（系统级内置服务，始终保留）
+ * - chrome-devtools：persistent，由 PersistentMcpBridge 长连接托管
+ * - ask-question：非 persistent，随 agent 会话由 mcp-proxy 按需 stdio spawn
+ */
 export const DEFAULT_MCP_PROXY_CONFIG: McpServersConfig = {
   mcpServers: {
     "chrome-devtools": {
       command: "npx",
       args: ["-y", "chrome-devtools-mcp@latest"],
       persistent: true,
+    },
+    // ask-question：交互式提问 MCP（nuwax_ask_question 工具，rawInput 带 ui 表单），
+    // 需始终对 agent 可用以便向用户发起澄清提问。作为内置默认服务但不 persistent，
+    // 每会话独立 stdio spawn（避免跨会话共享状态）。
+    "ask-question": {
+      command: "npx",
+      args: ["-y", "nuwax-ask-question-mcp@latest"],
     },
   },
 };
@@ -1266,7 +1277,7 @@ export async function syncMcpConfigToProxyAndReload(
   await withSyncMcpLock(async () => {
     const syncStartedAt = Date.now();
     // 注意：mcpServers 可以为空（用户删除了所有动态 MCP).此时应重置为仅默认服务，
-    // 不在这里提前返回，让后续逻辑重置 bridge 到仅含 chrome-devtools 的状态。
+    // 不在这里提前返回，让后续逻辑重置 bridge 到仅含 persistent 默认服务（chrome-devtools）的状态。
 
     // 提取真实服务（过滤旧桥接项 command==='mcp-proxy')
     const extractStartedAt = Date.now();
@@ -1291,12 +1302,12 @@ export async function syncMcpConfigToProxyAndReload(
     }
     const extractMs = Date.now() - extractStartedAt;
     // realOnly 为空时（用户删除了所有动态 MCP）不提前返回，
-    // 继续执行以确保 bridge 仅运行默认服务（chrome-devtools）
+    // 继续执行以确保 bridge 仅运行 persistent 默认服务（chrome-devtools）
 
     // 始终以默认服务为基础，再叠加动态 MCP：
-    //   - 用户删除所有动态 MCP → merged 仅含 chrome-devtools
-    //   - 用户删除部分动态 MCP → merged 含 chrome-devtools + 剩余动态 MCP
-    //   - 用户新增动态 MCP    → merged 含 chrome-devtools + 所有动态 MCP
+    //   - 用户删除所有动态 MCP → merged 仅含默认服务（chrome-devtools、ask-question）
+    //   - 用户删除部分动态 MCP → merged 含默认服务 + 剩余动态 MCP
+    //   - 用户新增动态 MCP    → merged 含默认服务 + 所有动态 MCP
     const merged: Record<string, McpServerEntry> = {
       ...DEFAULT_MCP_PROXY_CONFIG.mcpServers,
       ...realOnly,
