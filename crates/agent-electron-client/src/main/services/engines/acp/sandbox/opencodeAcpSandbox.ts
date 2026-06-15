@@ -15,6 +15,18 @@ export const OPENCODE_NATIVE_SANDBOX_CONFIG_MIN_VERSION = "1.2.0";
 
 export const OPENCODE_NATIVE_SANDBOX_CONFIG_ENABLED = true;
 
+/**
+ * Versions that satisfy semver >= 1.2.0 but reject top-level `sandbox` in
+ * OPENCODE_CONFIG_CONTENT (e.g. 1.3.0-beta.* before native sandbox is merged).
+ */
+export function isOpencodeNativeSandboxBlockedVersion(
+  engineVersion?: string | null,
+): boolean {
+  const v = engineVersion?.trim();
+  if (!v) return false;
+  return /^1\.3\.0-beta/i.test(v);
+}
+
 export function parseSemverTriplet(
   version: string,
 ): [number, number, number] | null {
@@ -38,6 +50,7 @@ export function supportsOpencodeConfigSandbox(
 ): boolean {
   if (!OPENCODE_NATIVE_SANDBOX_CONFIG_ENABLED) return false;
   if (!engineVersion?.trim()) return false;
+  if (isOpencodeNativeSandboxBlockedVersion(engineVersion)) return false;
   return (
     compareSemver(
       engineVersion.trim(),
