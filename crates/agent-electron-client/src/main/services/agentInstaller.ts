@@ -83,14 +83,9 @@ function getAgentRegistryPath(): string {
   return path.join(getAgentInstallDir(), REGISTRY_FILE);
 }
 
-/** 获取 Agent bin 目录 */
+/** 获取 Agent bin 目录（符号链接目录） */
 function getAgentBinDir(): string {
   return path.join(getAgentInstallDir(), BIN_DIR);
-}
-
-/** 获取 Agent lib 目录 */
-function getAgentLibDir(): string {
-  return path.join(getAgentInstallDir(), LIB_DIR);
 }
 
 /** 获取下载缓存目录 */
@@ -98,14 +93,27 @@ function getCacheDir(): string {
   return path.join(getAgentInstallDir(), CACHE_DIR);
 }
 
+/**
+ * 获取指定 agent 的版本隔离目录
+ * 结构: {install_dir}/{agent_id}/{version}/
+ */
+function getAgentVersionDir(agentId: string, version: string): string {
+  return path.join(getAgentInstallDir(), agentId, version);
+}
+
+/** 获取指定 agent 版本的 bin 目录 */
+function getAgentVersionBinDir(agentId: string, version: string): string {
+  return path.join(getAgentVersionDir(agentId, version), BIN_DIR);
+}
+
+/** 获取指定 agent 版本的 lib 目录 */
+function getAgentVersionLibDir(agentId: string, version: string): string {
+  return path.join(getAgentVersionDir(agentId, version), LIB_DIR);
+}
+
 /** 确保所有必要目录存在 */
 function ensureDirectories(): void {
-  const dirs = [
-    getAgentInstallDir(),
-    getAgentBinDir(),
-    getAgentLibDir(),
-    getCacheDir(),
-  ];
+  const dirs = [getAgentInstallDir(), getAgentBinDir(), getCacheDir()];
   for (const dir of dirs) {
     fs.mkdirSync(dir, { recursive: true });
   }
@@ -596,14 +604,19 @@ export async function installFromUrl(
     log.info("[AgentInstaller] SHA-256 verification passed");
   }
 
-  // 6. 检测文件类型并安装
+  // 6. 检测文件类型并安装（多版本并存结构）
   const fileType = detectFileType(downloadResult.filePath);
-  const binDir = getAgentBinDir();
-  const targetBinaryPath = path.join(binDir, command);
+  const versionBinDir = getAgentVersionBinDir(agent_id, normalizedVersion);
+  const versionLibDir = getAgentVersionLibDir(agent_id, normalizedVersion);
+  const targetBinaryPath = path.join(versionBinDir, command);
   let fileCount: number | undefined;
 
+  // 创建版本目录
+  fs.mkdirSync(versionBinDir, { recursive: true });
+  fs.mkdirSync(versionLibDir, { recursive: true });
+
   if (fileType === "executable") {
-    // 单文件：直接复制到 bin
+    // 单文件：直接复制到版本 bin 目录
     fs.copyFileSync(downloadResult.filePath, targetBinaryPath);
     fs.chmodSync(targetBinaryPath, 0o755);
   } else {
@@ -629,17 +642,15 @@ export async function installFromUrl(
       );
     }
 
-    // 移动入口文件到 bin
+    // 移动入口文件到版本 bin 目录
     fs.copyFileSync(entryFile, targetBinaryPath);
     fs.chmodSync(targetBinaryPath, 0o755);
 
-    // 其余文件移动到 lib/{agent_id}/
-    const libAgentDir = path.join(getAgentLibDir(), agent_id);
-    fs.mkdirSync(libAgentDir, { recursive: true });
+    // 其余文件移动到版本 lib 目录
     for (const file of extractedFiles) {
       if (file !== entryFile) {
         const relativePath = path.relative(tmpExtractDir, file);
-        const targetPath = path.join(libAgentDir, relativePath);
+        const targetPath = path.join(versionLibDir, relativePath);
         fs.mkdirSync(path.dirname(targetPath), { recursive: true });
         fs.copyFileSync(file, targetPath);
       }
@@ -647,6 +658,28 @@ export async function installFromUrl(
 
     // 清理临时解压目录
     fs.rmSync(tmpExtractDir, { recursive: true, force: true });
+  }
+
+  // 7. 创建/更新符号链接到全局 bin 目录
+  const globalBinDir = getAgentBinDir();
+  fs.mkdirSync(globalBinDir, { recursive: true });
+  const symlinkPath = path.join(globalBinDir, command);
+
+  // 如果符号链接已存在，先删除
+  if (fs.existsSync(symlinkPath)) {
+    fs.unlinkSync(symlinkPath);
+  }
+
+  // 创建符号链接指向当前版本
+  try {
+    fs.symlinkSync(targetBinaryPath, symlinkPath);
+  } catch (err) {
+    // Windows 可能不支持符号链接，改用复制
+    if (process.platform === "win32") {
+      fs.copyFileSync(targetBinaryPath, symlinkPath);
+    } else {
+      throw err;
+    }
   }
 
   // 7. 更新注册表
@@ -862,6 +895,7 @@ export function uninstallAgent(
   }
 
   const removedVersions: string[] = [];
+  const command = manifests[0].command;
 
   if (version) {
     // 只卸载指定版本
@@ -871,9 +905,10 @@ export function uninstallAgent(
     );
     if (target) {
       removedVersions.push(target.version || normalizedVersion);
-      // 删除二进制文件
-      if (fs.existsSync(target.binary_path)) {
-        fs.unlinkSync(target.binary_path);
+      // 删除版本目录
+      const versionDir = getAgentVersionDir(agentId, normalizedVersion);
+      if (fs.existsSync(versionDir)) {
+        fs.rmSync(versionDir, { recursive: true, force: true });
       }
     }
     const remaining = manifests.filter(
@@ -881,26 +916,32 @@ export function uninstallAgent(
     );
     if (remaining.length > 0) {
       registry.set(agentId, remaining);
+      // 更新符号链接指向最新版本
+      const latest = remaining.sort(
+        (a, b) => b.installed_at - a.installed_at,
+      )[0];
+      updateSymlink(agentId, command, latest.binary_path);
     } else {
-      // 所有版本都已删除，清理 lib 目录和注册表
+      // 所有版本都已删除，清理 agent 目录和符号链接
       registry.delete(agentId);
-      const libAgentDir = path.join(getAgentLibDir(), agentId);
-      if (fs.existsSync(libAgentDir)) {
-        fs.rmSync(libAgentDir, { recursive: true, force: true });
+      const agentDir = path.join(getAgentInstallDir(), agentId);
+      if (fs.existsSync(agentDir)) {
+        fs.rmSync(agentDir, { recursive: true, force: true });
       }
+      removeSymlink(command);
     }
   } else {
     // 卸载所有版本
     for (const manifest of manifests) {
       removedVersions.push(manifest.version || "unknown");
-      if (fs.existsSync(manifest.binary_path)) {
-        fs.unlinkSync(manifest.binary_path);
-      }
     }
-    const libAgentDir = path.join(getAgentLibDir(), agentId);
-    if (fs.existsSync(libAgentDir)) {
-      fs.rmSync(libAgentDir, { recursive: true, force: true });
+    // 删除整个 agent 目录
+    const agentDir = path.join(getAgentInstallDir(), agentId);
+    if (fs.existsSync(agentDir)) {
+      fs.rmSync(agentDir, { recursive: true, force: true });
     }
+    // 删除符号链接
+    removeSymlink(command);
     registry.delete(agentId);
   }
 
@@ -916,6 +957,48 @@ export function uninstallAgent(
     install_type: manifests[0].install_type,
     removed_versions: removedVersions,
   };
+}
+
+// =============================================================================
+// 符号链接管理
+// =============================================================================
+
+/** 更新符号链接指向新的二进制路径 */
+function updateSymlink(
+  agentId: string,
+  command: string,
+  newBinaryPath: string,
+): void {
+  const globalBinDir = getAgentBinDir();
+  const symlinkPath = path.join(globalBinDir, command);
+
+  // 删除旧符号链接
+  if (fs.existsSync(symlinkPath)) {
+    fs.unlinkSync(symlinkPath);
+  }
+
+  // 创建新符号链接
+  try {
+    fs.symlinkSync(newBinaryPath, symlinkPath);
+  } catch (err) {
+    if (process.platform === "win32") {
+      fs.copyFileSync(newBinaryPath, symlinkPath);
+    } else {
+      log.warn(
+        `[AgentInstaller] Failed to update symlink for ${command}: ${err}`,
+      );
+    }
+  }
+}
+
+/** 删除符号链接 */
+function removeSymlink(command: string): void {
+  const globalBinDir = getAgentBinDir();
+  const symlinkPath = path.join(globalBinDir, command);
+
+  if (fs.existsSync(symlinkPath)) {
+    fs.unlinkSync(symlinkPath);
+  }
 }
 
 // =============================================================================
