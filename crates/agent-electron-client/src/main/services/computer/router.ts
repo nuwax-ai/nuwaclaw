@@ -56,7 +56,6 @@ import {
   resolveAgentEnvPaths,
   resolveComputerProjectWorkspaceDir,
 } from "../workspacePaths";
-import { getAgentInstallDir } from "../agentInstaller";
 import { getAppDataDir } from "../system/appPaths";
 
 // ==================== Helpers ====================
@@ -380,8 +379,8 @@ export async function handleComputerChat(
         );
         envPrefix = cmdPrefix; // devcomputer: env 和 command/args 一致
       } else {
-        // 正式使用：command/args 用 acp-agent 目录，env 用 logs 目录
-        cmdPrefix = getAgentInstallDir();
+        // 正式使用：command/args 用应用数据目录（args 中已包含 acp-agent/），env 用 logs 目录
+        cmdPrefix = getAppDataDir();
         envPrefix = path.join(getAppDataDir(), "logs", "agent_logs");
       }
 

@@ -440,10 +440,15 @@ async function extractArchive(
   fs.mkdirSync(destDir, { recursive: true });
 
   if (fileType === "tar.gz") {
-    return extractTarGz(filePath, destDir);
+    await extractTarGz(filePath, destDir);
   } else {
-    return extractZip(filePath, destDir);
+    await extractZip(filePath, destDir);
   }
+
+  // 规范化目录结构（兼容单一文件夹根目录的压缩包）
+  normalizeExtractedDir(destDir);
+
+  return listFilesRecursive(destDir);
 }
 
 /** 解压 tar.gz */
@@ -507,6 +512,45 @@ function listFilesRecursive(dir: string): string[] {
   }
 
   return files;
+}
+
+/**
+ * 规范化解压目录结构
+ *
+ * 兼容两种压缩包结构：
+ * 1. 根目录是单一文件夹 → 提取文件夹内容到 destDir
+ * 2. 根目录是多个文件/目录 → 保持原样
+ *
+ * 示例：
+ * - 压缩包：agent-2978-1.0.0.tar.gz
+ *   解压后：destDir/agent-2978-1.0.0/dist/bundle.mjs
+ *   规范化后：destDir/dist/bundle.mjs
+ */
+function normalizeExtractedDir(destDir: string): void {
+  const entries = fs.readdirSync(destDir, { withFileTypes: true });
+
+  // 过滤掉 .DS_Store 等隐藏文件
+  const visibleEntries = entries.filter((e) => !e.name.startsWith("."));
+
+  // 如果只有一个子目录，且是目录，则提取内容
+  if (visibleEntries.length === 1 && visibleEntries[0].isDirectory()) {
+    const subDir = path.join(destDir, visibleEntries[0].name);
+    const subEntries = fs.readdirSync(subDir);
+
+    // 移动子目录内容到 destDir
+    for (const entry of subEntries) {
+      const srcPath = path.join(subDir, entry);
+      const destPath = path.join(destDir, entry);
+      fs.renameSync(srcPath, destPath);
+    }
+
+    // 删除空的子目录
+    fs.rmdirSync(subDir);
+
+    log.info(
+      `[AgentInstaller] Normalized archive structure: extracted "${visibleEntries[0].name}" contents`,
+    );
+  }
 }
 
 // =============================================================================
@@ -606,6 +650,7 @@ export async function installFromUrl(
 
   // 6. 检测文件类型并安装（多版本并存结构）
   const fileType = detectFileType(downloadResult.filePath);
+  const versionDir = getAgentVersionDir(agent_id, normalizedVersion);
   const versionBinDir = getAgentVersionBinDir(agent_id, normalizedVersion);
   const versionLibDir = getAgentVersionLibDir(agent_id, normalizedVersion);
   const targetBinaryPath = path.join(versionBinDir, command);
@@ -620,7 +665,7 @@ export async function installFromUrl(
     fs.copyFileSync(downloadResult.filePath, targetBinaryPath);
     fs.chmodSync(targetBinaryPath, 0o755);
   } else {
-    // 压缩包：解压到临时目录，查找入口文件
+    // 压缩包：解压到临时目录
     const tmpExtractDir = path.join(
       getCacheDir(),
       agent_id,
@@ -634,25 +679,40 @@ export async function installFromUrl(
     );
     fileCount = extractedFiles.length;
 
-    // 查找入口可执行文件（与 command 同名）
-    const entryFile = findEntryFile(tmpExtractDir, command);
-    if (!entryFile) {
-      throw new Error(
-        `Entry file not found: ${command} (extracted ${extractedFiles.length} files)`,
+    if (isSystemCommand(command)) {
+      // 系统命令（如 node、python）：所有文件直接解压到版本目录根目录
+      // 入口文件由系统/运行时提供，不需要在压缩包中查找
+      // args 中的路径相对于版本目录，如 {PREFIX_WORKSPACE_DIR}/acp-agent/2978/1.0.0/dist/bundle.mjs
+      log.info(
+        `[AgentInstaller] System command "${command}", extracting all files to version dir`,
       );
-    }
-
-    // 移动入口文件到版本 bin 目录
-    fs.copyFileSync(entryFile, targetBinaryPath);
-    fs.chmodSync(targetBinaryPath, 0o755);
-
-    // 其余文件移动到版本 lib 目录
-    for (const file of extractedFiles) {
-      if (file !== entryFile) {
+      for (const file of extractedFiles) {
         const relativePath = path.relative(tmpExtractDir, file);
-        const targetPath = path.join(versionLibDir, relativePath);
+        const targetPath = path.join(versionDir, relativePath);
         fs.mkdirSync(path.dirname(targetPath), { recursive: true });
         fs.copyFileSync(file, targetPath);
+      }
+    } else {
+      // 自定义命令：查找入口可执行文件
+      const entryFile = findEntryFile(tmpExtractDir, command);
+      if (!entryFile) {
+        throw new Error(
+          `Entry file not found: ${command} (extracted ${extractedFiles.length} files)`,
+        );
+      }
+
+      // 移动入口文件到版本 bin 目录
+      fs.copyFileSync(entryFile, targetBinaryPath);
+      fs.chmodSync(targetBinaryPath, 0o755);
+
+      // 其余文件移动到版本 lib 目录
+      for (const file of extractedFiles) {
+        if (file !== entryFile) {
+          const relativePath = path.relative(tmpExtractDir, file);
+          const targetPath = path.join(versionLibDir, relativePath);
+          fs.mkdirSync(path.dirname(targetPath), { recursive: true });
+          fs.copyFileSync(file, targetPath);
+        }
       }
     }
 
@@ -660,35 +720,42 @@ export async function installFromUrl(
     fs.rmSync(tmpExtractDir, { recursive: true, force: true });
   }
 
-  // 7. 创建/更新符号链接到全局 bin 目录
-  const globalBinDir = getAgentBinDir();
-  fs.mkdirSync(globalBinDir, { recursive: true });
-  const symlinkPath = path.join(globalBinDir, command);
+  // 7. 创建/更新符号链接到全局 bin 目录（系统命令跳过）
+  if (!isSystemCommand(command)) {
+    const globalBinDir = getAgentBinDir();
+    fs.mkdirSync(globalBinDir, { recursive: true });
+    const symlinkPath = path.join(globalBinDir, command);
 
-  // 如果符号链接已存在，先删除
-  if (fs.existsSync(symlinkPath)) {
-    fs.unlinkSync(symlinkPath);
-  }
+    // 如果符号链接已存在，先删除
+    if (fs.existsSync(symlinkPath)) {
+      fs.unlinkSync(symlinkPath);
+    }
 
-  // 创建符号链接指向当前版本
-  try {
-    fs.symlinkSync(targetBinaryPath, symlinkPath);
-  } catch (err) {
-    // Windows 可能不支持符号链接，改用复制
-    if (process.platform === "win32") {
-      fs.copyFileSync(targetBinaryPath, symlinkPath);
-    } else {
-      throw err;
+    // 创建符号链接指向当前版本
+    try {
+      fs.symlinkSync(targetBinaryPath, symlinkPath);
+    } catch (err) {
+      // Windows 可能不支持符号链接，改用复制
+      if (process.platform === "win32") {
+        fs.copyFileSync(targetBinaryPath, symlinkPath);
+      } else {
+        throw err;
+      }
     }
   }
 
-  // 7. 更新注册表
+  // 8. 更新注册表
+  // 系统命令的 binary_path 指向版本目录根目录（args 中的脚本路径相对于此）
+  const manifestBinaryPath = isSystemCommand(command)
+    ? versionDir
+    : targetBinaryPath;
+
   const manifest: AgentManifest = {
     agent_id,
     install_type: "url",
     command,
     args,
-    binary_path: targetBinaryPath,
+    binary_path: manifestBinaryPath,
     version: normalizedVersion,
     source: platformEntry.url,
     platform: platformKey,
@@ -726,6 +793,27 @@ export async function installFromUrl(
     previous_version: undefined,
     platform: platformKey,
   };
+}
+
+/**
+ * 判断是否是系统/运行时命令（不需要在压缩包中查找）
+ *
+ * 这些命令由系统或 Electron 内置提供，Agent 压缩包中只包含脚本/资源文件。
+ */
+function isSystemCommand(command: string): boolean {
+  const systemCommands = new Set([
+    "node",
+    "python",
+    "python3",
+    "bash",
+    "sh",
+    "zsh",
+    "ruby",
+    "perl",
+    "java",
+    "dotnet",
+  ]);
+  return systemCommands.has(path.basename(command));
 }
 
 /** 在解压目录中查找入口可执行文件 */

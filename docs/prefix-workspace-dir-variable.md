@@ -12,12 +12,13 @@
 
 | 字段 | `/devcomputer/chat` 替换为 | `/computer/chat` 替换为 |
 |------|--------------------------|----------------------|
-| `command` | `{WORKSPACE}/computer-project-workspace/{user_id}` | `{APP_DATA_DIR}/acp-agent/` |
-| `args` | `{WORKSPACE}/computer-project-workspace/{user_id}` | `{APP_DATA_DIR}/acp-agent/` |
+| `command` | `{WORKSPACE}/computer-project-workspace/{user_id}` | `{APP_DATA_DIR}/` |
+| `args` | `{WORKSPACE}/computer-project-workspace/{user_id}` | `{APP_DATA_DIR}/` |
 | `env` 值 | `{WORKSPACE}/computer-project-workspace/{user_id}` | `{APP_DATA_DIR}/logs/agent_logs/` |
 
 > - `{WORKSPACE}` = 用户配置的工作目录（`workspaceDir`），默认 `{APP_DATA_DIR}/workspace`
 > - `{APP_DATA_DIR}` = 应用数据目录，由 `getAppDataDir()` 返回（即 `path.join(os.homedir(), ".nuwaclaw")`）
+> - `/computer/chat` 的 args 中通常包含 `acp-agent/{agent_id}/{version}/...`，所以替换后路径为 `~/.nuwaclaw/acp-agent/{agent_id}/{version}/...`
 
 ---
 
@@ -80,7 +81,7 @@
 
 **用途**：使用已安装的 ACP Agent 执行正式任务。
 
-**command/args 替换路径**：`{APP_DATA_DIR}/acp-agent/`
+**command/args 替换路径**：`{APP_DATA_DIR}/`（args 中已包含 `acp-agent/`）
 
 **env 替换路径**：`{APP_DATA_DIR}/logs/agent_logs/`
 
@@ -90,8 +91,8 @@
 {
   "agent_config": {
     "agent_server": {
-      "command": "{PREFIX_WORKSPACE_DIR}/bin/my-agent",
-      "args": ["--verbose"],
+      "command": "node",
+      "args": ["{PREFIX_WORKSPACE_DIR}/acp-agent/2978/1.0.0/dist/bundle.mjs"],
       "env": {
         "LOG_DIR": "{PREFIX_WORKSPACE_DIR}/{project_id}/logs"
       }
@@ -104,8 +105,8 @@
 
 ```json
 {
-  "command": "/Users/soddy/.nuwaclaw/acp-agent/bin/my-agent",
-  "args": ["--verbose"],
+  "command": "node",
+  "args": ["/Users/soddy/.nuwaclaw/acp-agent/2978/1.0.0/dist/bundle.mjs"],
   "env": {
     "LOG_DIR": "/Users/soddy/.nuwaclaw/logs/agent_logs/{project_id}/logs"
   }
@@ -116,8 +117,8 @@
 
 ```json
 {
-  "command": "C:\\Users\\soddy\\.nuwaclaw\\acp-agent\\bin\\my-agent",
-  "args": ["--verbose"],
+  "command": "node",
+  "args": ["C:\\Users\\soddy\\.nuwaclaw\\acp-agent\\2978\\1.0.0\\dist\\bundle.mjs"],
   "env": {
     "LOG_DIR": "C:\\Users\\soddy\\.nuwaclaw\\logs\\agent_logs\\{project_id}\\logs"
   }
@@ -125,9 +126,9 @@
 ```
 
 **特点**：
-- Agent 二进制在 `acp-agent` 目录下（通过 `/agent-mgmt/agents/install-from-url` 安装）
+- Agent 脚本在 `acp-agent/{agent_id}/{version}/` 目录下（通过 `/agent-mgmt/agents/install-from-url` 安装）
 - 日志统一存放在 `logs/agent_logs/` 目录
-- 路径更短、更规范
+- args 中的路径相对于应用数据目录
 
 ---
 
@@ -137,10 +138,13 @@
 
 ```
 {APP_DATA_DIR}/                          ← 应用数据目录（默认 ~/.nuwaclaw/）
-├── acp-agent/                          ← /computer/chat 的 command/args 替换目标
-│   ├── bin/
-│   │   └── my-agent                    ← 已安装的 Agent 二进制
-│   ├── lib/
+├── acp-agent/                          ← Agent 安装目录
+│   ├── {agent_id}/
+│   │   └── {version}/
+│   │       ├── bin/                    ← 自定义命令的可执行文件
+│   │       ├── lib/                    ← 自定义命令的库文件
+│   │       └── dist/                   ← 系统命令的脚本文件（如 node agent）
+│   ├── bin/                            ← 全局符号链接
 │   ├── cache/
 │   └── registry.json
 ├── logs/
@@ -189,7 +193,7 @@ handleComputerChat(req, res, body, source)
     │
     ├── 计算替换路径
     │   ├── source="devcomputer" → cmdPrefix = envPrefix = workspaceDir/computer-project-workspace/{user_id}
-    │   └── source="computer"   → cmdPrefix = acp-agent/，envPrefix = logs/agent_logs/
+    │   └── source="computer"   → cmdPrefix = {APP_DATA_DIR}/，envPrefix = {APP_DATA_DIR}/logs/agent_logs/
     │
     ├── 替换 command/args → resolveAgentServerPaths()
     ├── 替换 env          → resolveAgentEnvPaths()
