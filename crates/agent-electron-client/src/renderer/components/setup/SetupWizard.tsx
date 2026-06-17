@@ -203,9 +203,11 @@ function SetupWizard({
       try {
         // 1. 保存 step1 配置
         const step1: Step1Config = {
+          ...DEFAULT_STEP1_CONFIG,
           serverHost: normalizeServerHost(config.serverHost),
           agentPort: config.agentPort,
           fileServerPort: config.fileServerPort,
+          ttydPort: config.ttydPort,
           workspaceDir: config.workspaceDir,
         };
         await setupService.saveStep1Config(step1);
@@ -316,6 +318,10 @@ function SetupWizard({
     }
     if (!step1Config.agentPort) {
       message.warning(t("Claw.Setup.basicConfig.agentPortRequired"));
+      return;
+    }
+    if (!step1Config.ttydPort) {
+      message.warning(t("Claw.Setup.basicConfig.ttydPortRequired"));
       return;
     }
     if (!step1Config.workspaceDir) {
@@ -458,6 +464,18 @@ function SetupWizard({
                 value={step1Config.agentPort}
                 onChange={(value) =>
                   setStep1Config({ ...step1Config, agentPort: value as number })
+                }
+                style={{ width: "100%" }}
+                min={1024}
+                max={65535}
+              />
+            </Form.Item>
+
+            <Form.Item label={t("Claw.Setup.basicConfig.ttydPort")} required>
+              <InputNumber
+                value={step1Config.ttydPort}
+                onChange={(value) =>
+                  setStep1Config({ ...step1Config, ttydPort: value as number })
                 }
                 style={{ width: "100%" }}
                 min={1024}

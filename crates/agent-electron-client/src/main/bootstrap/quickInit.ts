@@ -8,6 +8,7 @@
  *   NUWAX_SAVED_KEY        → savedKey          (必填)
  *   NUWAX_AGENT_PORT       → agentPort         (可选, 默认 60006)
  *   NUWAX_FILE_SERVER_PORT → fileServerPort    (可选, 默认 60005)
+ *   NUWAX_TTYD_PORT        → ttydPort          (可选, 默认 60009)
  *   NUWAX_WORKSPACE_DIR    → workspaceDir      (可选, 默认 ~/.nuwaclaw/workspace)
  *   NUWAX_USER_NAME        → username          (可选, 默认 '')
  *
@@ -26,6 +27,7 @@ import { APP_DATA_DIR_NAME } from "../services/constants";
 import {
   DEFAULT_AGENT_RUNNER_PORT,
   DEFAULT_FILE_SERVER_PORT,
+  DEFAULT_TTYD_PORT,
 } from "@shared/constants";
 import { type QuickInitConfig } from "@shared/types/quickInit";
 
@@ -35,12 +37,14 @@ let cachedConfig: QuickInitConfig | null | undefined;
 function readEnvVars() {
   const port = parseInt(process.env.NUWAX_AGENT_PORT || "", 10);
   const fsPort = parseInt(process.env.NUWAX_FILE_SERVER_PORT || "", 10);
+  const ttydPort = parseInt(process.env.NUWAX_TTYD_PORT || "", 10);
   return {
     serverHost: process.env.NUWAX_SERVER_HOST || undefined,
     savedKey: process.env.NUWAX_SAVED_KEY || undefined,
     username: process.env.NUWAX_USER_NAME || undefined,
     agentPort: port > 0 ? port : undefined,
     fileServerPort: fsPort > 0 ? fsPort : undefined,
+    ttydPort: ttydPort > 0 ? ttydPort : undefined,
     workspaceDir: process.env.NUWAX_WORKSPACE_DIR || undefined,
   };
 }
@@ -119,6 +123,7 @@ export function readQuickInitConfig(): QuickInitConfig | null {
     fileServerPort:
       pickPort(json?.fileServerPort, env.fileServerPort) ||
       DEFAULT_FILE_SERVER_PORT,
+    ttydPort: pickPort(json?.ttydPort, env.ttydPort) || DEFAULT_TTYD_PORT,
     workspaceDir:
       pickStr(json?.workspaceDir, env.workspaceDir) || defaultWorkspace,
   };
@@ -133,6 +138,7 @@ export function readQuickInitConfig(): QuickInitConfig | null {
     username: cachedConfig.username || "(empty)",
     agentPort: cachedConfig.agentPort,
     fileServerPort: cachedConfig.fileServerPort,
+    ttydPort: cachedConfig.ttydPort,
     workspaceDir: cachedConfig.workspaceDir,
   });
 
