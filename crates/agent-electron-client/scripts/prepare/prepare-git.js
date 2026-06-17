@@ -29,7 +29,7 @@ const { pipeline } = require('stream/promises');
 const { getProjectRoot } = require('../utils/project-paths');
 
 // 与 LobsterAI 保持一致
-const GIT_VERSION = '2.47.1';
+const GIT_VERSION = '2.55.0';
 const PORTABLE_GIT_FILE = `PortableGit-${GIT_VERSION}-64-bit.7z.exe`;
 const DEFAULT_PORTABLE_GIT_URL =
   `https://github.com/git-for-windows/git/releases/download/v${GIT_VERSION}.windows.1/${PORTABLE_GIT_FILE}`;
