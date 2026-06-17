@@ -16,10 +16,13 @@ import {
   getUvBinPath,
   ensureUvInAppBin,
   getRipgrepBinPath,
+  getTtydBinPath,
   getBundledNodeBinDir,
   getBundledGitBinDir,
   getBundledGitBashPath,
   getElectronNodeBinDir,
+  getNuwaxcodeBundledBinPath,
+  getCodexAcpBundledBinPath,
 } from "./binaryLocator";
 import { compareVersions } from "./dependencyUtils";
 
@@ -236,14 +239,30 @@ export function getAppEnv(opts?: GetAppEnvOptions): Record<string, string> {
     ? path.dirname(ripgrepBinPath)
     : "";
 
+  const ttydBinPath = getTtydBinPath();
+  const ttydBinDir = fs.existsSync(ttydBinPath)
+    ? path.dirname(ttydBinPath)
+    : "";
+
+  const nuwaxcodeBinPath = getNuwaxcodeBundledBinPath();
+  const nuwaxcodeBinDir = nuwaxcodeBinPath
+    ? path.dirname(nuwaxcodeBinPath)
+    : "";
+
+  const codexAcpBinPath = getCodexAcpBundledBinPath();
+  const codexAcpBinDir = codexAcpBinPath ? path.dirname(codexAcpBinPath) : "";
+
   const systemPathPaths = includeSystemPath ? getSystemPaths() : [];
 
   const priorityPathParts = [
     bundledNodeBinDir,
     electronNodeBinDir,
     bundledGitBinDir,
+    ttydBinDir,
     uvBin,
     ripgrepBinDir,
+    nuwaxcodeBinDir,
+    codexAcpBinDir,
     uvToolBinDir,
     pnpmHome,
     nodeModulesBin,

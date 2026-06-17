@@ -320,6 +320,12 @@ export function createServiceManager(ctx: ServiceManagerContext) {
     // cwd / wrapper 逻辑委托给 ttydHelper（见 services/packages/ttydHelper.ts）
     const initialCwd = ttydHelper.getTtydInitialCwd();
     ttydHelper.writeTtydCwdFile(initialCwd);
+    // 生成 ttyd 终端内置环境脚本（供 wrapper 加载）；写失败时不阻塞 ttyd 启动（降级为系统环境）
+    if (win) {
+      ttydHelper.ensureTtydWindowsEnvScript();
+    } else {
+      ttydHelper.ensureTtydEnvScript();
+    }
 
     // Unix：用 wrapper 脚本作为 ttyd 的子进程命令
     //   wrapper 解析 --cwd 参数（由 ttyd -a flag 从 URL query 传入），动态 cd 到目标目录
