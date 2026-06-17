@@ -26,6 +26,25 @@ import {
 } from "./binaryLocator";
 import { compareVersions } from "./dependencyUtils";
 
+let appEnvBuildCount = 0;
+
+function nextAppEnvLogLevel(): "info" | "debug" {
+  appEnvBuildCount += 1;
+  return appEnvBuildCount === 1 ? "info" : "debug";
+}
+
+function logAppEnv(
+  level: "info" | "debug",
+  message: string,
+  ...args: unknown[]
+): void {
+  if (level === "info") {
+    log.info(message, ...args);
+  } else {
+    log.debug(message, ...args);
+  }
+}
+
 // ==================== Mirror / Registry ====================
 
 /** 预置镜像源 */
@@ -280,34 +299,49 @@ export function getAppEnv(opts?: GetAppEnvOptions): Record<string, string> {
   }
   const priorityPath = dedupedParts.join(pathSep);
 
-  log.info(`[getAppEnv] PATH priority (${process.platform}):`);
-  log.info(
-    `[getAppEnv]   1. Bundled Node.js 24: ${bundledNodeBinDir || "(not found)"}`,
-  );
-  log.info(
-    `[getAppEnv]   2. Electron Node: ${electronNodeBinDir || "(not found)"}`,
-  );
-  log.info(
-    `[getAppEnv]   3. Bundled Git: ${bundledGitBinDir || (isWindows() ? "(not found)" : "(macOS/Linux using system)")}`,
-  );
-  log.info(
-    `[getAppEnv]   4. uv/uvx (bundled preferred): ${uvBin || "(not found, falling back to system PATH)"}`,
-  );
-  log.info(
-    `[getAppEnv]   4.5 ripgrep (bundled): ${ripgrepBinDir || "(not found)"}`,
-  );
-  log.info(`[getAppEnv]   5. node_modules: ${nodeModulesBin}`);
-  log.info(`[getAppEnv]   6. app bin: ${appBin}`);
-  log.info(
-    `[getAppEnv]   7. System PATH fallback: ${systemPathPaths.slice(0, 3).join(", ")}...`,
-  );
-  const pathSegments = priorityPath.split(pathSep);
-  const uvRelated = pathSegments.filter(
-    (p) => p && (p.includes("uv") || p.includes("nuwaclaw")),
-  );
-  log.info(
-    `[getAppEnv] uv/uvx trace: uv-related segments in PATH=${uvRelated.length}, top 5=${uvRelated.slice(0, 5).join(" | ") || "(none)"}`,
-  );
+  const detailLevel = nextAppEnvLogLevel();
+  if (detailLevel === "debug") {
+    logAppEnv(
+      "debug",
+      `[getAppEnv] PATH rebuilt (${process.platform}, segments=${dedupedParts.length}, includeSystemPath=${includeSystemPath})`,
+    );
+  } else {
+    logAppEnv("info", `[getAppEnv] PATH priority (${process.platform}):`);
+    logAppEnv(
+      "info",
+      `[getAppEnv]   1. Bundled Node.js 24: ${bundledNodeBinDir || "(not found)"}`,
+    );
+    logAppEnv(
+      "info",
+      `[getAppEnv]   2. Electron Node: ${electronNodeBinDir || "(not found)"}`,
+    );
+    logAppEnv(
+      "info",
+      `[getAppEnv]   3. Bundled Git: ${bundledGitBinDir || (isWindows() ? "(not found)" : "(macOS/Linux using system)")}`,
+    );
+    logAppEnv(
+      "info",
+      `[getAppEnv]   4. uv/uvx (bundled preferred): ${uvBin || "(not found, falling back to system PATH)"}`,
+    );
+    logAppEnv(
+      "info",
+      `[getAppEnv]   4.5 ripgrep (bundled): ${ripgrepBinDir || "(not found)"}`,
+    );
+    logAppEnv("info", `[getAppEnv]   5. node_modules: ${nodeModulesBin}`);
+    logAppEnv("info", `[getAppEnv]   6. app bin: ${appBin}`);
+    logAppEnv(
+      "info",
+      `[getAppEnv]   7. System PATH fallback: ${systemPathPaths.slice(0, 3).join(", ")}...`,
+    );
+    const pathSegments = priorityPath.split(pathSep);
+    const uvRelated = pathSegments.filter(
+      (p) => p && (p.includes("uv") || p.includes("nuwaclaw")),
+    );
+    logAppEnv(
+      "info",
+      `[getAppEnv] uv/uvx trace: uv-related segments in PATH=${uvRelated.length}, top 5=${uvRelated.slice(0, 5).join(" | ") || "(none)"}`,
+    );
+  }
 
   const env: Record<string, string | undefined> = {
     PATH: priorityPath,
@@ -382,7 +416,10 @@ export function getAppEnv(opts?: GetAppEnvOptions): Record<string, string> {
     for (const [key, value] of Object.entries(windowsCriticalEnvVars)) {
       if (!cleanEnv[key]) {
         cleanEnv[key] = value;
-        log.info(`[getAppEnv] Adding Windows system env var: ${key}=${value}`);
+        logAppEnv(
+          detailLevel,
+          `[getAppEnv] Adding Windows system env var: ${key}=${value}`,
+        );
       }
     }
 
@@ -409,7 +446,8 @@ export function getAppEnv(opts?: GetAppEnvOptions): Record<string, string> {
         .map((p) => p.replace(/\\/g, "/"))
         .join(":");
       cleanEnv.ORIGINAL_PATH = posixPath;
-      log.info(
+      logAppEnv(
+        detailLevel,
         `[getAppEnv] Set ORIGINAL_PATH (${limitedEntries.length}/${pathEntries.length} entries)`,
       );
     }
@@ -442,7 +480,8 @@ export function getAppEnv(opts?: GetAppEnvOptions): Record<string, string> {
           const missingEntries: string[] = [];
           for (const entry of registryEntries) {
             if (missingEntries.length >= MAX_REGISTRY_PATH_ENTRIES) {
-              log.info(
+              logAppEnv(
+                detailLevel,
                 `[getAppEnv] Registry PATH entry limit reached (${MAX_REGISTRY_PATH_ENTRIES}), skipping remaining entries`,
               );
               break;
@@ -454,7 +493,8 @@ export function getAppEnv(opts?: GetAppEnvOptions): Record<string, string> {
           }
           if (missingEntries.length > 0) {
             cleanEnv.PATH = currentPath + ";" + missingEntries.join(";");
-            log.info(
+            logAppEnv(
+              detailLevel,
               `[getAppEnv] Appended ${missingEntries.length} PATH entries from registry`,
             );
           }
@@ -463,7 +503,8 @@ export function getAppEnv(opts?: GetAppEnvOptions): Record<string, string> {
         log.warn(`[getAppEnv] Failed to read registry PATH: ${error}`);
       }
     } else {
-      log.info(
+      logAppEnv(
+        detailLevel,
         `[getAppEnv] Skipping registry PATH read (includeSystemPath=false)`,
       );
     }

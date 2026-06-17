@@ -28,6 +28,7 @@ import {
   pickTtydBundledEnv,
   toBashEnvScript,
   toPowerShellEnvScript,
+  toWindowsPowerShellFileContent,
 } from "../system/ttydBundledEnvExport";
 import { resolveNpmPackageEntry } from "../utils/spawnNoWindow";
 
@@ -41,6 +42,11 @@ const getWindowsWrapperPath = () =>
 const getEnvScriptPath = () => path.join(getAppDataDir(), "bin", "ttyd-env.sh");
 const getWindowsEnvScriptPath = () =>
   path.join(getAppDataDir(), "bin", "ttyd-env.ps1");
+
+function writeWindowsPowerShellFile(filePath: string, content: string): void {
+  fs.mkdirSync(path.dirname(filePath), { recursive: true });
+  fs.writeFileSync(filePath, toWindowsPowerShellFileContent(content), "utf8");
+}
 
 // ── 工作目录解析 ──────────────────────────────────────────────────────────────
 
@@ -122,8 +128,7 @@ export function ensureTtydWindowsEnvScript(): string | null {
     ensureTtydMcpProxyShim();
     const env = pickTtydBundledEnv(getAppEnv({ includeSystemPath: true }));
     const content = toPowerShellEnvScript(env);
-    fs.mkdirSync(path.dirname(envScriptPath), { recursive: true });
-    fs.writeFileSync(envScriptPath, content, "utf8");
+    writeWindowsPowerShellFile(envScriptPath, content);
     return envScriptPath;
   } catch (e) {
     log.warn("[ttydHelper] Failed to write Windows ttyd env script:", e);
@@ -401,8 +406,7 @@ if ([string]::IsNullOrWhiteSpace($shell)) {
 `;
 
   try {
-    fs.mkdirSync(path.dirname(wrapperPath), { recursive: true });
-    fs.writeFileSync(wrapperPath, script, "utf8");
+    writeWindowsPowerShellFile(wrapperPath, script);
     return wrapperPath;
   } catch (e) {
     log.warn("[ttydHelper] Failed to write Windows ttyd wrapper script:", e);

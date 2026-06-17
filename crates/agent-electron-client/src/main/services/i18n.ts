@@ -130,11 +130,7 @@ export function t(key: string, ...values: I18nValues): string {
     return normalizedKey;
   }
 
-  const result = formatText(template, values);
-  log.debug(
-    `[i18n] t("${normalizedKey}") resolved (currentLang="${currentLang}", len=${result.length})`,
-  );
-  return result;
+  return formatText(template, values);
 }
 
 /**
