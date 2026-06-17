@@ -29,7 +29,7 @@ const { pipeline } = require('stream/promises');
 const { getProjectRoot } = require('../utils/project-paths');
 
 // 与 LobsterAI 保持一致
-const GIT_VERSION = '2.55.0';
+const GIT_VERSION = '2.54.0';
 const PORTABLE_GIT_FILE = `PortableGit-${GIT_VERSION}-64-bit.7z.exe`;
 const DEFAULT_PORTABLE_GIT_URL =
   `https://github.com/git-for-windows/git/releases/download/v${GIT_VERSION}.windows.1/${PORTABLE_GIT_FILE}`;
@@ -134,6 +134,11 @@ function findPortableGitBash(baseDir = GIT_ROOT) {
 async function downloadArchive(url, destination) {
   const response = await fetch(url, { redirect: 'follow' });
   if (!response.ok || !response.body) {
+    try {
+      await response.body?.cancel();
+    } catch {
+      // ignore cancel errors on failed responses
+    }
     throw new Error(`下载失败 (${response.status} ${response.statusText}): ${url}`);
   }
   fs.mkdirSync(path.dirname(destination), { recursive: true });
@@ -344,6 +349,12 @@ async function ensurePortableGit(options = {}) {
 
   const archive = await resolveArchive(required);
   if (!archive) {
+    if (required) {
+      throw new Error(
+        '[prepare-git] PortableGit is required but no archive is available (download failed and no local cache). ' +
+          'Set NUWAX_PORTABLE_GIT_ARCHIVE or NUWAX_GIT_URL, or fix the default download URL.'
+      );
+    }
     return { ok: true, skipped: true, bashPath: null };
   }
 
@@ -368,14 +379,25 @@ async function ensurePortableGit(options = {}) {
 
 async function main() {
   const args = parseArgs(process.argv.slice(2));
-  await ensurePortableGit({ required: args.required });
+  const result = await ensurePortableGit({ required: args.required });
+  if (process.platform === 'win32' && result.skipped) {
+    throw new Error(
+      '[prepare-git] Bundled PortableGit is required on Windows but preparation was skipped. ' +
+        'Check network, NUWAX_PORTABLE_GIT_ARCHIVE, or NUWAX_GIT_URL.'
+    );
+  }
 }
 
 if (require.main === module) {
-  main().catch((error) => {
-    console.error('[prepare-git] 错误:', error instanceof Error ? error.message : String(error));
-    process.exit(1);
-  });
+  main()
+    .then(() => {
+      process.exit(0);
+    })
+    .catch((error) => {
+      console.error('[prepare-git] 错误:', error instanceof Error ? error.message : String(error));
+      // 仅设置 exitCode，让 Node 自然退出，避免 Windows 上 fetch/stream 未释放时 process.exit 触发 libuv 断言
+      process.exitCode = 1;
+    });
 }
 
 module.exports = {

@@ -30,20 +30,27 @@ function runScript(name) {
       return;
     }
 
-    const child = spawn(npmCmd, ['run', name], {
-      cwd: projectRoot,
-      stdio: 'inherit',
-      shell: true,
-    });
+    try {
+      const child = spawn(npmCmd, ['run', name], {
+        cwd: projectRoot,
+        stdio: 'inherit',
+        shell: true,
+      });
 
-    child.on('close', (code) => {
-      resolve({ name, code: code ?? 0 });
-    });
+      child.on('close', (code, signal) => {
+        const exitCode = typeof code === 'number' ? code : signal ? 1 : 1;
+        resolve({ name, code: exitCode });
+      });
 
-    child.on('error', (err) => {
-      console.error(`[prepare-all] ${name} 启动失败: ${err.message}`);
+      child.on('error', (err) => {
+        console.error(`[prepare-all] ${name} 启动失败: ${err.message}`);
+        resolve({ name, code: 1 });
+      });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      console.error(`[prepare-all] ${name} 启动失败: ${message}`);
       resolve({ name, code: 1 });
-    });
+    }
   });
 }
 
@@ -70,8 +77,16 @@ async function runParallel(scripts) {
 
   const failed = results.filter((r) => r.code !== 0);
   if (failed.length > 0) {
+    console.error(`[prepare-all] ${failed.length} script(s) failed:`);
     for (const r of failed) {
-      console.error(`[prepare-all] ${r.name} 失败 (exit ${r.code})`);
+      console.error(`[prepare-all]   - ${r.name} (exit ${r.code})`);
+    }
+    const critical = failed.filter((r) => r.name === 'prepare:git');
+    if (critical.length > 0 && process.platform === 'win32') {
+      console.error(
+        '[prepare-all] prepare:git failed on Windows: bundled Git Bash is required for dev/build. ' +
+          'Fix the error above, then re-run make electron-dev.'
+      );
     }
   }
 
@@ -85,18 +100,30 @@ async function main() {
 
   // Phase 1: 有依赖关系，必须顺序执行
   // prepare-sign-uv 需要 prepare-uv 产出的二进制才能签名
+  // Windows: prepare:git 也在 Phase 1 顺序执行，失败时立即终止，避免与 Phase 2 并行脚本争用 stdio 导致 libuv 崩溃
   const phase1 = ['prepare:uv', 'prepare:sign-uv'];
-  console.log('[prepare-all] Phase 1: 顺序执行 uv + sign-uv');
+  if (process.platform === 'win32') {
+    phase1.push('prepare:git');
+  }
+  console.log(
+    `[prepare-all] Phase 1: 顺序执行 ${phase1.join(' → ')}`,
+  );
   const r1 = await runSequential(phase1);
   if (r1.code !== 0) {
     console.error('[prepare-all] Phase 1 失败，终止');
+    if (r1.name === 'prepare:git') {
+      console.error(
+        '[prepare-all] prepare:git failed: bundled Git Bash is required on Windows. ' +
+          'Fix the error above, then re-run make electron-dev.',
+      );
+    }
     process.exit(1);
   }
 
   // Phase 2: 全部并行（各自操作不同的 resources/ 子目录）
   const phase2 = [
     'prepare:node',
-    'prepare:git',
+    ...(process.platform === 'win32' ? [] : ['prepare:git']),
     'prepare:ripgrep',
     'prepare:lanproxy',
     'prepare:ttyd',
