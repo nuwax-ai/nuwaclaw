@@ -6,6 +6,7 @@
 
 import * as path from "path";
 import * as fs from "fs";
+import { execSync } from "child_process";
 import { app } from "electron";
 import log from "electron-log";
 import { createFileServerPerfHandler } from "../ipc/perfHandlers";
@@ -26,7 +27,9 @@ import {
   getLanproxyBinPath,
   getTtydBinPath,
   getNuwaxFileServerBundledDir,
+  getBundledGitBashPath,
 } from "../services/system/dependencies";
+import { getBundledGitBinDir } from "../services/system/binaryLocator";
 import * as ttydHelper from "../services/packages/ttydHelper";
 import { agentService } from "../services/engines/unifiedAgent";
 import type { AgentConfig } from "../services/engines/unifiedAgent";
@@ -127,6 +130,37 @@ export function createServiceManager(ctx: ServiceManagerContext) {
       }
     }
 
+    // 获取 Git 和 Git Bash 路径
+    const gitBinDir = getBundledGitBinDir();
+    const gitBashPath = getBundledGitBashPath();
+    let gitPath = gitBinDir
+      ? path.join(gitBinDir, isWindows() ? "git.exe" : "git")
+      : "";
+
+    // 如果没有 bundled git，尝试查找系统 git
+    if (!gitPath) {
+      try {
+        const whichGit = isWindows() ? "where git" : "which git";
+        const result = execSync(whichGit, {
+          encoding: "utf-8",
+          timeout: 5000,
+        }).trim();
+        const firstLine = result.split("\n")[0].trim();
+        if (firstLine) {
+          gitPath = firstLine;
+          log.info(`[ServiceManager] Using system git: ${gitPath}`);
+        }
+      } catch {
+        // git not found in system PATH
+      }
+    }
+
+    log.info("[ServiceManager] Git environment for file server:", {
+      GIT_PATH: gitPath,
+      BASH_PATH: gitBashPath,
+      gitBinDir,
+    });
+
     log.info("[ServiceManager] Starting file server on port", port);
     const startResult = await ctx.fileServer.start({
       command: process.execPath,
@@ -137,6 +171,9 @@ export function createServiceManager(ctx: ServiceManagerContext) {
         PORT: String(port),
         NODE_ENV: "production",
         ELECTRON_RUN_AS_NODE: "1",
+        // Git 环境变量，供 nuwax-file-server 使用
+        GIT_PATH: gitPath,
+        BASH_PATH: gitBashPath,
       },
       startupDelayMs: DEFAULT_STARTUP_DELAY,
       onStdoutLine: createFileServerPerfHandler(),
