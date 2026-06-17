@@ -63,6 +63,20 @@ import { getAppDataDir } from "../system/appPaths";
 const MAX_BODY_SIZE = 10 * 1024 * 1024;
 
 /**
+ * 校验 agent_work_dir 格式：仅允许 [a-zA-Z0-9_-]，长度 1-64。
+ * 返回 null 表示合法，返回 string 表示错误信息。
+ */
+function validateAgentWorkDir(value: string): string | null {
+  if (value.length === 0 || value.length > 64) {
+    return "agent_work_dir must be 1-64 characters";
+  }
+  if (!/^[a-zA-Z0-9_-]+$/.test(value)) {
+    return "agent_work_dir may only contain [a-zA-Z0-9_-]";
+  }
+  return null;
+}
+
+/**
  * 检测项目工作空间目录是否存在，不存在则通过 file-server 创建空目录结构。
  *
  * 规则：
@@ -72,7 +86,7 @@ const MAX_BODY_SIZE = 10 * 1024 * 1024;
  */
 async function ensureProjectWorkspace(
   userId: string,
-  projectId: string,
+  agentWorkDir: string,
   fileServerPort: number,
 ): Promise<void> {
   const agentConfig = agentService.getAgentConfig();
@@ -87,7 +101,7 @@ async function ensureProjectWorkspace(
     agentConfig.workspaceDir,
     "computer-project-workspace",
     userId,
-    projectId,
+    agentWorkDir,
   );
   if (fs.existsSync(projectDir)) {
     log.debug(
@@ -131,7 +145,7 @@ async function ensureProjectWorkspace(
     `--${boundary}`,
     `Content-Disposition: form-data; name="cId"`,
     "",
-    projectId,
+    agentWorkDir,
     `--${boundary}--`,
   ].join("\r\n");
 
@@ -307,24 +321,40 @@ export async function handleComputerChat(
     );
     return;
   }
+
+  // 校验 agent_work_dir 格式（如果提供）
+  if (body.agent_work_dir) {
+    const validationError = validateAgentWorkDir(body.agent_work_dir);
+    if (validationError) {
+      sendJson(res, 400, httpError("VALIDATION_ERROR", validationError));
+      return;
+    }
+  }
+
+  // 兼容处理：未传 agent_work_dir 时，用 project_id 赋值
+  if (!body.agent_work_dir && body.project_id) {
+    body.agent_work_dir = body.project_id;
+  }
+
   t2 = Date.now();
   firstTokenTrace.trace(
     "chat.validated",
     {
       requestId: body.request_id,
       projectId: body.project_id,
+      agentWorkDir: body.agent_work_dir,
       sessionId: body.session_id,
     },
     { validateMs: t2 - t1 },
   );
   getPerfLogger().info(`[PERF] /chat.validate: ${t2 - t1}ms`);
 
-  if (body.project_id) {
+  if (body.agent_work_dir) {
     try {
       const { fileServer: fileServerPort } = getConfiguredPorts();
       await ensureProjectWorkspace(
         body.user_id,
-        body.project_id,
+        body.agent_work_dir,
         fileServerPort,
       );
     } catch (wsErr: any) {
@@ -340,6 +370,7 @@ export async function handleComputerChat(
     {
       requestId: body.request_id,
       projectId: body.project_id,
+      agentWorkDir: body.agent_work_dir,
       sessionId: body.session_id,
     },
     { workspaceMs: t2_5 - t2 },

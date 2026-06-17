@@ -118,7 +118,7 @@ async function handleDevcomputerChat(
 
   log.info(
     `[DevComputer] chat: user_id=${body.user_id}, project_id=${body.project_id}, ` +
-      `prompt_len=${body.prompt?.length}, auto_reload=enabled`,
+      `agent_work_dir=${body.agent_work_dir || "(not set)"}, prompt_len=${body.prompt?.length}, auto_reload=enabled`,
   );
 
   // 委托给 computer chat handler（source=devcomputer 用于 {PREFIX_WORKSPACE_DIR} 替换）
