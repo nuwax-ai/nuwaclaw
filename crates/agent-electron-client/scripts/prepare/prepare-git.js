@@ -308,17 +308,11 @@ async function resolveArchive(required) {
     console.log(`[prepare-git] 已下载 (${fileSizeMB} MB): ${DEFAULT_ARCHIVE_PATH}`);
     return { archivePath: DEFAULT_ARCHIVE_PATH, source: 'download' };
   } catch (error) {
+    const errorMsg = `无法获取 PortableGit 归档。可设置 NUWAX_PORTABLE_GIT_ARCHIVE 为本地离线包路径，或 NUWAX_GIT_URL 为可访问镜像。原始错误: ${error instanceof Error ? error.message : String(error)}`;
     if (required) {
-      throw new Error(
-        '无法获取 PortableGit 归档。' +
-        '可设置 NUWAX_PORTABLE_GIT_ARCHIVE 为本地离线包路径，或 NUWAX_GIT_URL 为可访问镜像。' +
-        `原始错误: ${error instanceof Error ? error.message : String(error)}`
-      );
+      throw new Error(errorMsg);
     }
-    console.warn(
-      '[prepare-git] PortableGit 归档不可用，已跳过（未使用 --required）。' +
-      `原因: ${error instanceof Error ? error.message : String(error)}`
-    );
+    console.warn(`[prepare-git] ${errorMsg}`);
     return null;
   }
 }
@@ -328,9 +322,10 @@ async function resolveArchive(required) {
  * @param {{ required?: boolean }} [options]
  */
 async function ensurePortableGit(options = {}) {
-  const required = Boolean(options.required);
   const isWindows = process.platform === 'win32';
   const force = process.env.NUWAX_SETUP_GIT_FORCE === '1';
+  // Windows 上 bundled git 是必需的，其他平台需要显式指定 --required 或 NUWAX_SETUP_GIT_FORCE=1
+  const required = Boolean(options.required) || isWindows;
   const shouldRun = isWindows || required || force;
 
   if (!shouldRun) {
