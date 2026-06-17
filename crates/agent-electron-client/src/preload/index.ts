@@ -215,8 +215,12 @@ contextBridge.exposeInMainWorld("electronAPI", {
         available: boolean;
         version?: string;
       }>,
-    /** 返回带 --cwd 参数的 WebSocket URL，前端直接用此 URL 建立终端连接 */
-    getWsUrl: () => ipcRenderer.invoke("ttyd:getWsUrl") as Promise<string>,
+    /** 返回 OpenAPI path 风格的 WebSocket URL，前端直接用此 URL 建立终端连接 */
+    getWsUrl: (options?: {
+      userId?: string;
+      projectId?: string;
+      cwd?: string;
+    }) => ipcRenderer.invoke("ttyd:getWsUrl", options) as Promise<string>,
     /** 刷新 ttyd-cwd 文件（工作区切换后调用，无需重启 ttyd） */
     updateCwd: () =>
       ipcRenderer.invoke("ttyd:updateCwd") as Promise<{

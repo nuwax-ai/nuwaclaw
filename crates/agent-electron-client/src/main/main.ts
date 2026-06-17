@@ -4,7 +4,6 @@ import {
   Menu,
   dialog,
   ipcMain,
-  Tray,
   nativeImage,
   session,
 } from "electron";
@@ -21,6 +20,7 @@ import { mcpProxyManager } from "./services/packages/mcp";
 import { stopGuiAgentServer } from "./services/packages/guiAgentServer";
 import { FEATURES } from "@shared/featureFlags";
 import { stopWindowsMcp } from "./services/packages/windowsMcp";
+import { stopTtydGateway } from "./services/packages/ttydGateway";
 import type { HandlerContext } from "@shared/types/ipc";
 import { DEFAULT_DEV_SERVER_PORT } from "./services/constants";
 import {
@@ -39,6 +39,8 @@ import { initAutoUpdater } from "./services/autoUpdater";
 import { migrateDataDir, migrateSettingsPaths } from "./bootstrap/migrate";
 import { getDeviceId, logSystemInfo } from "./services/system/deviceId";
 import { initWebviewPolicy } from "./services/system/webviewPolicy";
+import { stopAllEngines } from "./services/engines/engineManager";
+import { processRegistry } from "./services/system/processRegistry";
 
 // macOS 26 Tahoe 兼容性：禁用 Fontations 字体后端
 // 参考: https://github.com/electron/electron/issues/49522
@@ -394,6 +396,10 @@ async function cleanupAllProcesses(): Promise<void> {
     await stopComputerServer();
   });
 
+  await runCleanupStep("ttyd gateway stop", async () => {
+    await stopTtydGateway();
+  });
+
   await runCleanupStep("Event forwarders unregister", () => {
     unregisterEventForwarders();
   });
@@ -419,13 +425,11 @@ async function cleanupAllProcesses(): Promise<void> {
   }
 
   await runCleanupStep("Engine processes stop", () => {
-    const { stopAllEngines } = require("./services/engines/engineManager");
     stopAllEngines();
     log.info("[Cleanup] Engine processes stopped");
   });
 
   await runCleanupStep("Process registry killAll", async () => {
-    const { processRegistry } = require("./services/system/processRegistry");
     await processRegistry.killAll();
     log.info("[Cleanup] Process registry cleared");
   });

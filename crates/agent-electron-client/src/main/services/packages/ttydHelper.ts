@@ -24,6 +24,8 @@ import { getConfiguredPorts } from "../startupPorts";
 const getAppDataDir = () => path.join(app.getPath("home"), APP_DATA_DIR_NAME);
 const getCwdFilePath = () => path.join(getAppDataDir(), "ttyd-cwd");
 const getWrapperPath = () => path.join(getAppDataDir(), "bin", "ttyd-shell.sh");
+const getWindowsWrapperPath = () =>
+  path.join(getAppDataDir(), "bin", "ttyd-shell.ps1");
 
 // ── 工作目录解析 ──────────────────────────────────────────────────────────────
 
@@ -74,6 +76,22 @@ export function writeTtydCwdFile(cwd: string): void {
 
 // ── shell wrapper 脚本 ────────────────────────────────────────────────────────
 
+function psSingleQuote(value: string): string {
+  return `'${value.replace(/'/g, "''")}'`;
+}
+
+export function getWindowsPowerShellPath(): string {
+  const systemRoot = process.env.SystemRoot || "C:\\Windows";
+  const bundled = path.join(
+    systemRoot,
+    "System32",
+    "WindowsPowerShell",
+    "v1.0",
+    "powershell.exe",
+  );
+  return fs.existsSync(bundled) ? bundled : "powershell.exe";
+}
+
 /**
  * 写出 ttyd shell wrapper 脚本到 ~/.nuwaclaw/bin/ttyd-shell.sh（仅 Unix）。
  *
@@ -113,7 +131,7 @@ else
     echo "[ttyd-wrapper] WARNING: no valid cwd (--cwd=\${_NUWAX_CWD:-<unset>}, HOME=\${HOME:-<unset>}); staying in inherited cwd" >&2
 fi
 if [ -n "$_NUWAX_TARGET" ]; then
-    cd "$_NUWAX_TARGET" || echo "[ttyd-wrapper] WARNING: cd to '\$_NUWAX_TARGET' failed" >&2
+    cd "$_NUWAX_TARGET" || echo "[ttyd-wrapper] WARNING: cd to '$_NUWAX_TARGET' failed" >&2
 fi
 exec "\${SHELL:-/bin/bash}" -l
 `;
@@ -128,18 +146,95 @@ exec "\${SHELL:-/bin/bash}" -l
   }
 }
 
+/**
+ * 写出 Windows ttyd shell wrapper 脚本到 ~/.nuwaclaw/bin/ttyd-shell.ps1。
+ *
+ * Windows ttyd 仍保留 `-w initialCwd` 避免底层启动问题，同时通过 `-a`
+ * 将每条 WebSocket URL 的 `--cwd <dir>` 传给本 wrapper，实现 per-connection cwd。
+ */
+export function ensureTtydWindowsShellWrapper(): string | null {
+  const wrapperPath = getWindowsWrapperPath();
+  const cwdFile = getCwdFilePath();
+
+  const script = `$ErrorActionPreference = 'Continue'
+$cwdFile = ${psSingleQuote(cwdFile)}
+$nuwaxCwd = $null
+
+for ($i = 0; $i -lt $args.Count; $i++) {
+    if ($args[$i] -eq '--cwd' -and ($i + 1) -lt $args.Count) {
+        $nuwaxCwd = $args[$i + 1]
+        $i++
+    }
+}
+
+if ([string]::IsNullOrWhiteSpace($nuwaxCwd) -and (Test-Path -LiteralPath $cwdFile -PathType Leaf)) {
+    $nuwaxCwd = (Get-Content -LiteralPath $cwdFile -Raw).Trim()
+}
+
+$target = $null
+if (-not [string]::IsNullOrWhiteSpace($nuwaxCwd) -and (Test-Path -LiteralPath $nuwaxCwd -PathType Container)) {
+    $target = $nuwaxCwd
+} elseif (-not [string]::IsNullOrWhiteSpace($env:USERPROFILE) -and (Test-Path -LiteralPath $env:USERPROFILE -PathType Container)) {
+    $target = $env:USERPROFILE
+}
+
+if ($target) {
+    try {
+        Set-Location -LiteralPath $target
+    } catch {
+        [Console]::Error.WriteLine("[ttyd-wrapper] WARNING: cd to '$target' failed: $($_.Exception.Message)")
+    }
+} else {
+    [Console]::Error.WriteLine("[ttyd-wrapper] WARNING: no valid cwd (--cwd=$nuwaxCwd, USERPROFILE=$env:USERPROFILE); staying in inherited cwd")
+}
+
+$shell = $env:ComSpec
+if ([string]::IsNullOrWhiteSpace($shell)) {
+    $shell = 'C:\\Windows\\System32\\cmd.exe'
+}
+& $shell
+`;
+
+  try {
+    fs.mkdirSync(path.dirname(wrapperPath), { recursive: true });
+    fs.writeFileSync(wrapperPath, script, "utf8");
+    return wrapperPath;
+  } catch (e) {
+    log.warn("[ttydHelper] Failed to write Windows ttyd wrapper script:", e);
+    return null;
+  }
+}
+
 // ── WebSocket URL 构建 ────────────────────────────────────────────────────────
 
+export type TtydWsUrlOptions = {
+  userId?: string;
+  projectId?: string;
+  cwd?: string;
+};
+
 /**
- * 返回带当前工作区 --cwd 参数的 WebSocket URL，供前端建立终端连接时使用。
+ * 返回 OpenAPI path 风格的 WebSocket URL，供前端建立终端连接时使用。
  *
- * 格式：ws://127.0.0.1:<port>/ws?arg=--cwd&arg=<encoded_workspace>
+ * 格式：ws://127.0.0.1:<port>/computer/ttyd/<user_id>/<project_id>/ws
  *
- * ttyd 的 -a flag 将 URL query 参数透传给 wrapper 脚本 argv，
- * wrapper 解析 --cwd 后自动 cd 到目标目录。
+ * 如果调用方传入 userId/projectId，gateway 会根据 path 自动推导项目 cwd；
+ * 否则保持调试入口兼容性，URL 中显式带上当前 cwd。
  */
-export function getTtydWsUrl(): string {
+export function getTtydWsUrl(options: TtydWsUrlOptions = {}): string {
   const { ttyd: port } = getConfiguredPorts();
-  const cwd = getTtydInitialCwd();
-  return `ws://127.0.0.1:${port}/ws?arg=--cwd&arg=${encodeURIComponent(cwd)}`;
+  const userId = options.userId || "local";
+  const projectId = options.projectId || "default";
+  const base = `ws://127.0.0.1:${port}/computer/ttyd/${encodeURIComponent(
+    userId,
+  )}/${encodeURIComponent(projectId)}/ws`;
+
+  if (options.cwd) {
+    return `${base}?arg=--cwd&arg=${encodeURIComponent(options.cwd)}`;
+  }
+  if (!options.userId || !options.projectId) {
+    const cwd = getTtydInitialCwd();
+    return `${base}?arg=--cwd&arg=${encodeURIComponent(cwd)}`;
+  }
+  return base;
 }

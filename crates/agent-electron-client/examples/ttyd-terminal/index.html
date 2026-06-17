@@ -238,9 +238,9 @@
         $cwd.disabled     = connected;
     }
 
-    // 构建带 --cwd 参数的 WS URL
+    // 构建带 --cwd 参数的 WS URL（支持 OpenAPI path gateway）
     // ttyd -a 会把 URL query 的 arg=xxx 追加到子进程 argv
-    // 格式：ws://host/ws?arg=--cwd&arg=%2Fpath%2Fto%2Fdir
+    // 格式：ws://host/computer/ttyd/{user_id}/{project_id}/ws?arg=--cwd&arg=%2Fpath%2Fto%2Fdir
     function buildUrl() {
         let base = $wsUrl.value.trim();
         const cwd = $cwd.value.trim();
@@ -362,7 +362,7 @@
     term.writeln('\x1b[36m╚══════════════════════════════════════════╝\x1b[0m');
     term.writeln('');
 
-    // 在 Electron webview 内：自动从主进程获取带 --cwd 的 WS URL
+    // 在 Electron webview 内：自动从主进程获取 OpenAPI path 风格 WS URL
     // 在普通浏览器内：手动填写「初始目录」字段即可
     if (window.electronAPI?.ttyd?.getWsUrl) {
         window.electronAPI.ttyd.getWsUrl().then(url => {
