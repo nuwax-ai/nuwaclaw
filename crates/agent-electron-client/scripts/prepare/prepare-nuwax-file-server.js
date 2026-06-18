@@ -35,19 +35,53 @@ function exec(cmd, opts = {}) {
   execSync(cmd, { stdio: 'inherit', ...opts });
 }
 
+/**
+ * 获取 git commit hash
+ * @param {string} repoDir git 仓库目录
+ * @returns {string|null} commit hash 或 null
+ */
+function getGitCommitHash(repoDir) {
+  try {
+    return execSync('git rev-parse HEAD', { cwd: repoDir, encoding: 'utf8' }).trim();
+  } catch {
+    return null;
+  }
+}
+
 function main() {
-  // 0. 版本检查：若源码已存在且目标版本匹配，跳过全部工作
+  // 0. 版本和 commit hash 检查：若源码已存在且版本和 commit 都匹配，跳过全部工作
   const srcPkgPath = path.join(SOURCE_DIR, 'package.json');
   const destPkgPath = path.join(destDir, 'package.json');
+  const destCommitHashPath = path.join(destDir, '.commit-hash');
+
   if (fs.existsSync(srcPkgPath) && fs.existsSync(destPkgPath)) {
     try {
       const srcPkg = JSON.parse(fs.readFileSync(srcPkgPath, 'utf8'));
       const destPkg = JSON.parse(fs.readFileSync(destPkgPath, 'utf8'));
-      if (destPkg.version === srcPkg.version
-        && fs.existsSync(path.join(destDir, 'dist'))
-        && fs.existsSync(path.join(destDir, 'node_modules'))) {
-        console.log(`[prepare-nuwax-file-server] ${destPkg.version} 已是最新，跳过`);
+
+      // 获取源码的 commit hash
+      const srcCommitHash = getGitCommitHash(SOURCE_DIR);
+      // 读取目标目录保存的 commit hash
+      const destCommitHash = fs.existsSync(destCommitHashPath)
+        ? fs.readFileSync(destCommitHashPath, 'utf8').trim()
+        : null;
+
+      const versionMatch = destPkg.version === srcPkg.version;
+      const commitMatch = srcCommitHash && destCommitHash && srcCommitHash === destCommitHash;
+      const hasBuild = fs.existsSync(path.join(destDir, 'dist')) && fs.existsSync(path.join(destDir, 'node_modules'));
+
+      if (versionMatch && commitMatch && hasBuild) {
+        console.log(`[prepare-nuwax-file-server] ${destPkg.version} (${srcCommitHash.slice(0, 8)}) 已是最新，跳过`);
         return;
+      }
+
+      // 打印跳过原因
+      if (!versionMatch) {
+        console.log(`[prepare-nuwax-file-server] 版本变更: ${destPkg.version} -> ${srcPkg.version}，需要重新构建`);
+      } else if (!commitMatch) {
+        console.log(`[prepare-nuwax-file-server] 源码更新: ${destCommitHash?.slice(0, 8) || 'none'} -> ${srcCommitHash?.slice(0, 8) || 'none'}，需要重新构建`);
+      } else if (!hasBuild) {
+        console.log(`[prepare-nuwax-file-server] 构建产物缺失，需要重新构建`);
       }
     } catch { /* 版本文件损坏，继续执行 */ }
   }
@@ -111,6 +145,13 @@ function main() {
   const licenseSrc = path.join(SOURCE_DIR, 'LICENSE');
   if (fs.existsSync(licenseSrc)) {
     fs.copyFileSync(licenseSrc, path.join(destDir, 'LICENSE'));
+  }
+
+  // 11. 保存 commit hash 到目标目录
+  const commitHash = getGitCommitHash(SOURCE_DIR);
+  if (commitHash) {
+    fs.writeFileSync(path.join(destDir, '.commit-hash'), commitHash, 'utf8');
+    console.log(`[prepare-nuwax-file-server] 保存 commit hash: ${commitHash.slice(0, 8)}`);
   }
 
   console.log(`[prepare-nuwax-file-server] ✓ resources/nuwax-file-server/ (${srcPkg.version})`);
