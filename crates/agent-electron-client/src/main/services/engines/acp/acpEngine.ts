@@ -149,6 +149,8 @@ export class AcpEngine extends EventEmitter {
   /** Stored sandbox config for use in createSession (MCP Bash injection) */
   private storedSandboxConfig: SandboxProcessConfig | null = null;
   private sessions = new Map<string, AcpSession>();
+  /** session/update 可能在 newSession 完成注册前到达，避免丢弃早期事件 */
+  private pendingNewSessionRegistration = false;
   private permissionGatedToolRawInputs = new Map<
     string,
     PermissionGatedToolInputCache
@@ -749,11 +751,14 @@ export class AcpEngine extends EventEmitter {
     });
     const timer = perfEmitter.start();
     let acpResult: { sessionId: string };
+    this.pendingNewSessionRegistration = true;
     try {
       acpResult = await this.acpConnection.newSession(newSessionParams);
     } catch (err) {
       log.error(`${this.logTag} ❌ ACP newSession failed:`, err);
       throw err;
+    } finally {
+      this.pendingNewSessionRegistration = false;
     }
     const createMs = timer.end("acp.session.create", {
       mcpCount: mcpServers.length,
@@ -774,16 +779,18 @@ export class AcpEngine extends EventEmitter {
     );
 
     const sessionId = acpResult.sessionId;
-    const session: AcpSession = {
+    const existing = this.sessions.get(sessionId);
+    const session: AcpSession = existing ?? {
       id: sessionId,
-      title: opts?.title,
       acpSessionId: sessionId,
-      cwd: sessionCwd,
       createdAt: Date.now(),
       status: "idle",
-      mcpServerCount: mcpServers.length,
-      lastActivity: Date.now(),
     };
+    session.title = opts?.title;
+    session.cwd = sessionCwd;
+    session.mcpServerCount = mcpServers.length;
+    session.lastActivity = Date.now();
+    if (session.status === undefined) session.status = "idle";
     this.sessions.set(sessionId, session);
 
     log.info(`${this.logTag} Session created`, {
@@ -1613,6 +1620,20 @@ export class AcpEngine extends EventEmitter {
   ): void {
     const session = this.sessions.get(acpSessionId);
     if (!session) {
+      if (this.pendingNewSessionRegistration) {
+        const early: AcpSession = {
+          id: acpSessionId,
+          acpSessionId,
+          createdAt: Date.now(),
+          status: "idle",
+          lastActivity: Date.now(),
+        };
+        this.sessions.set(acpSessionId, early);
+        log.info(
+          `${this.logTag} Pre-registered session for early sessionUpdate: ${acpSessionId}`,
+        );
+        return this.handleAcpSessionUpdate(acpSessionId, update);
+      }
       log.warn(`${this.logTag} Unknown ACP session:`, acpSessionId);
       return;
     }

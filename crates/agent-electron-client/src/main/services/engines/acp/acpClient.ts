@@ -32,7 +32,11 @@ import { APP_DATA_DIR_NAME, LOGS_DIR_NAME } from "../../constants";
 import { getAppDataDir } from "../../system/appPaths";
 import { isWindows } from "../../system/shellEnv";
 import { createPlatformAdapter } from "../../system/platformAdapter";
-import { spawnJsFile, resolveNpmPackageEntry } from "../../utils/spawnNoWindow";
+import {
+  spawnJsFile,
+  resolveNpmPackageEntry,
+  resolveNpmBinShimSpawnTarget,
+} from "../../utils/spawnNoWindow";
 import { processRegistry } from "../../system/processRegistry";
 import { killProcessTreeGraceful } from "../../utils/processTree";
 import { writeShellProfiles } from "../../utils/shellProfile";
@@ -595,8 +599,20 @@ export function resolveAcpBinary(
     `[AcpClient] Unknown engine "${engine}", attempting custom agent resolution`,
   );
   const customBinPath = resolveCustomAgentBinary(engine);
-  if (customBinPath) {
-    return { binPath: customBinPath, binArgs: [], isNative: true };
+  const candidatePath =
+    customBinPath ??
+    (looksLikeFilesystemPath(engine) && fs.existsSync(engine) ? engine : null);
+
+  if (candidatePath) {
+    const shimResolved = resolveNpmBinShimSpawnTarget(candidatePath);
+    if (shimResolved) {
+      return {
+        binPath: shimResolved.binPath,
+        binArgs: [],
+        isNative: shimResolved.isNative,
+      };
+    }
+    return { binPath: candidatePath, binArgs: [], isNative: true };
   }
 
   // Final fallback: assume the command is in PATH
@@ -604,6 +620,16 @@ export function resolveAcpBinary(
     `[AcpClient] Custom agent "${engine}" not found, assuming it's in PATH`,
   );
   return { binPath: engine, binArgs: [], isNative: true };
+}
+
+function looksLikeFilesystemPath(command: string): boolean {
+  return (
+    path.isAbsolute(command) ||
+    /^[a-zA-Z]:[\\/]/.test(command) ||
+    command.startsWith("\\\\") ||
+    command.includes("/") ||
+    command.includes("\\")
+  );
 }
 
 /**
