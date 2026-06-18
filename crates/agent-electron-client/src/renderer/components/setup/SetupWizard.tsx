@@ -51,16 +51,39 @@ import {
   getAuthErrorMessage,
   logout,
 } from "../../services/core/auth";
-import { AUTH_KEYS } from "@shared/constants";
+import { AUTH_KEYS, APP_DISPLAY_NAME } from "@shared/constants";
 import type { QuickInitConfig } from "@shared/types/quickInit";
+import {
+  isValidSetupWizardPort,
+  SETUP_WIZARD_PORT_MAX,
+  SETUP_WIZARD_PORT_MIN,
+} from "@shared/startupPorts";
 import SetupDependencies, {
   type MockDependenciesApi,
 } from "./SetupDependencies";
 
 const { Text } = Typography;
-
-import { APP_DISPLAY_NAME } from "@shared/constants";
 const APP_NAME = APP_DISPLAY_NAME;
+
+/** 初始化向导中各服务端口输入框的共用约束 */
+const SETUP_WIZARD_PORT_INPUT_PROPS = {
+  style: { width: "100%" },
+  min: SETUP_WIZARD_PORT_MIN,
+  max: SETUP_WIZARD_PORT_MAX,
+} as const;
+
+/** Step1 必填端口字段及对应校验提示 */
+const STEP1_REQUIRED_PORTS: Array<{
+  key: keyof Pick<Step1Config, "fileServerPort" | "agentPort" | "ttydPort">;
+  messageKey: string;
+}> = [
+  {
+    key: "fileServerPort",
+    messageKey: "Claw.Setup.basicConfig.fileServerPortRequired",
+  },
+  { key: "agentPort", messageKey: "Claw.Setup.basicConfig.agentPortRequired" },
+  { key: "ttydPort", messageKey: "Claw.Setup.basicConfig.ttydPortRequired" },
+];
 
 interface SetupWizardProps {
   onComplete: () => void;
@@ -312,17 +335,11 @@ function SetupWizard({
   }, [retryCooldown]);
 
   const handleStep1Submit = async () => {
-    if (!step1Config.fileServerPort) {
-      message.warning(t("Claw.Setup.basicConfig.fileServerPortRequired"));
-      return;
-    }
-    if (!step1Config.agentPort) {
-      message.warning(t("Claw.Setup.basicConfig.agentPortRequired"));
-      return;
-    }
-    if (!step1Config.ttydPort) {
-      message.warning(t("Claw.Setup.basicConfig.ttydPortRequired"));
-      return;
+    for (const { key, messageKey } of STEP1_REQUIRED_PORTS) {
+      if (!isValidSetupWizardPort(step1Config[key])) {
+        message.warning(t(messageKey));
+        return;
+      }
     }
     if (!step1Config.workspaceDir) {
       message.warning(t("Claw.Setup.basicConfig.workspaceDirRequired"));
@@ -453,9 +470,7 @@ function SetupWizard({
                     fileServerPort: value as number,
                   })
                 }
-                style={{ width: "100%" }}
-                min={1024}
-                max={65535}
+                {...SETUP_WIZARD_PORT_INPUT_PROPS}
               />
             </Form.Item>
 
@@ -465,9 +480,7 @@ function SetupWizard({
                 onChange={(value) =>
                   setStep1Config({ ...step1Config, agentPort: value as number })
                 }
-                style={{ width: "100%" }}
-                min={1024}
-                max={65535}
+                {...SETUP_WIZARD_PORT_INPUT_PROPS}
               />
             </Form.Item>
 
@@ -477,9 +490,7 @@ function SetupWizard({
                 onChange={(value) =>
                   setStep1Config({ ...step1Config, ttydPort: value as number })
                 }
-                style={{ width: "100%" }}
-                min={1024}
-                max={65535}
+                {...SETUP_WIZARD_PORT_INPUT_PROPS}
               />
             </Form.Item>
 
