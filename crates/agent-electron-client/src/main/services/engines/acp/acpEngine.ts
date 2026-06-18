@@ -1355,17 +1355,24 @@ export class AcpEngine extends EventEmitter {
       if (request.session_id) {
         session = this.sessions.get(request.session_id);
       }
+      // 会话查找：优先使用 agent_work_dir
+      if (!session && request.agent_work_dir) {
+        session =
+          this.findSessionByProjectId(request.agent_work_dir) ?? undefined;
+      }
       if (!session && request.project_id) {
         session = this.findSessionByProjectId(request.project_id) ?? undefined;
       }
 
       if (!session) {
         isNewSession = true;
-        const projectId = request.project_id || `proj-${Date.now()}`;
+        // 工作目录构建：优先使用 agent_work_dir
+        const workDirId =
+          request.agent_work_dir || request.project_id || `proj-${Date.now()}`;
         const projectDir = resolveComputerProjectWorkspaceDir(
           this.config.workspaceDir,
           request.user_id,
-          projectId,
+          workDirId,
         );
         log.info(`${this.logTag} 📁 Project workspace: ${projectDir}`);
 
@@ -1385,20 +1392,22 @@ export class AcpEngine extends EventEmitter {
         }
 
         const newSession = await this.createSession({
-          title: projectId,
+          title: workDirId,
           cwd: projectDir,
           mcpServers: this.config.mcpServers,
           systemPrompt: request.system_prompt,
           requestId: request.request_id,
         });
         session = this.sessions.get(newSession.id)!;
-        session.projectId = request.project_id;
+        // 会话绑定：存储 agent_work_dir
+        session.projectId = request.agent_work_dir || request.project_id;
         firstTokenTrace.trace(
           "acp.chat.session_created",
           {
             requestId: request.request_id,
             sessionId: session.id,
             projectId: request.project_id,
+            agentWorkDir: request.agent_work_dir,
             engine: this.engineName,
           },
           { projectDir },
@@ -1408,6 +1417,7 @@ export class AcpEngine extends EventEmitter {
           requestId: request.request_id,
           sessionId: session.id,
           projectId: request.project_id,
+          agentWorkDir: request.agent_work_dir,
           engine: this.engineName,
         });
       }

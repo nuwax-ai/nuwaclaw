@@ -322,11 +322,12 @@ export function buildEffectiveConfig(args: {
 
   // nuwax-codex-acp ignores ACP session cwd, so we must spawn the process
   // directly in the project workspace to ensure correct working directory
-  if (requiredEngine === "codex-cli" && request.project_id && request.user_id) {
+  const workDirId = request.agent_work_dir || request.project_id;
+  if (requiredEngine === "codex-cli" && workDirId && request.user_id) {
     effectiveConfig.workspaceDir = resolveComputerProjectWorkspaceDir(
       effectiveConfig.workspaceDir,
       request.user_id,
-      request.project_id,
+      workDirId,
     );
     if (!ensuredDirs.has(effectiveConfig.workspaceDir)) {
       fs.mkdirSync(effectiveConfig.workspaceDir, { recursive: true });

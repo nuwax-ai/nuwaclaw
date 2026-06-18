@@ -3,6 +3,7 @@ import {
   pickTtydBundledEnv,
   toBashEnvScript,
   toPowerShellEnvScript,
+  toWindowsPowerShellFileContent,
 } from "./ttydBundledEnvExport";
 
 describe("ttydBundledEnvExport", () => {
@@ -49,5 +50,14 @@ describe("ttydBundledEnvExport", () => {
     );
     expect(script).toContain("$env:PATH =");
     expect(script).toContain("$env:PNPM_HOME =");
+  });
+
+  it("normalizes LF-only PowerShell scripts to CRLF", () => {
+    const script = `if (Test-Path -LiteralPath $envScript -PathType Leaf) {
+    . $envScript
+}`;
+    const normalized = toWindowsPowerShellFileContent(script);
+    expect(normalized).not.toMatch(/(?<!\r)\n/);
+    expect(normalized).toContain("    . $envScript\r\n");
   });
 });

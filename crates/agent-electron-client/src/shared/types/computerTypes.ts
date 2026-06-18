@@ -101,6 +101,8 @@ export interface ModelProviderConfig {
 export interface ComputerChatRequest {
   user_id: string;
   project_id?: string;
+  /** 自定义 Agent 工作目录标识符（可选）。有值时替代 project_id 参与工作目录路径拼接；无值时由入口处用 project_id 赋值 */
+  agent_work_dir?: string;
   prompt: string;
   session_id?: string;
   model_provider?: ModelProviderConfig;

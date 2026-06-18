@@ -256,10 +256,10 @@ electron-dev: electron-prepare
 	@echo ">>> Starting Electron dev mode..."
 	@echo ">>> 日志通过 .env.development 配置 (NUWAX_AGENT_LOG_FULL_SECRETS=true)"
 	@echo ">>> INJECT_GUI_MCP=true（通过 .env.development 配置，向 ACP 注入 gui-agent MCP）"
-	@echo ">>> Logs will be written to logs/electron-dev.log"
+	@echo ">>> Logs: logs/electron-dev.log (filtered) + ~/.nuwaclaw/logs/latest.log (full)"
 	mkdir -p logs
 	@echo "=== Electron Dev Started at $$(date) ===" > logs/electron-dev.log
-	cd crates/$(ELECTRON_CLIENT) && npm run dev 2>&1 | tee -a $(CURDIR)/logs/electron-dev.log
+	cd crates/$(ELECTRON_CLIENT) && npm run dev 2>&1 | node scripts/dev/electron-dev-log.mjs $(CURDIR)/logs/electron-dev.log
 
 # ============================================================================
 # 依赖管理

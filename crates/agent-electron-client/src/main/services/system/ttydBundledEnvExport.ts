@@ -8,6 +8,13 @@
 
 export type TtydEnvMap = Record<string, string>;
 
+/**
+ * PowerShell 5.x on Windows mis-parses LF-only .ps1 files (dot-source blocks fail).
+ */
+export function toWindowsPowerShellFileContent(content: string): string {
+  return content.replace(/\r?\n/g, "\r\n");
+}
+
 const EXPLICIT_KEYS = [
   "PATH",
   "NODE_PATH",
