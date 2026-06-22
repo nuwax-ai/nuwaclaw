@@ -20,6 +20,7 @@ import {
   checkAgent,
   uninstallAgent,
 } from "../agentInstaller";
+import { parseHttpJsonBody } from "./parseHttpJsonBody";
 
 // ==================== Helpers ====================
 
@@ -44,19 +45,11 @@ function error(code: string, message: string): HttpResult<null> {
 }
 
 async function parseBody(req: http.IncomingMessage): Promise<unknown> {
-  return new Promise((resolve, reject) => {
-    const chunks: Buffer[] = [];
-    req.on("data", (chunk: Buffer) => chunks.push(chunk));
-    req.on("end", () => {
-      try {
-        const body = Buffer.concat(chunks).toString("utf-8");
-        resolve(body ? JSON.parse(body) : {});
-      } catch (e) {
-        reject(new Error("Invalid JSON body"));
-      }
-    });
-    req.on("error", reject);
-  });
+  try {
+    return await parseHttpJsonBody(req);
+  } catch {
+    throw new Error("Invalid JSON body");
+  }
 }
 
 // ==================== Router ====================

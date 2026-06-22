@@ -57,6 +57,7 @@ import {
   resolveComputerProjectWorkspaceDir,
 } from "../workspacePaths";
 import { getAppDataDir } from "../system/appPaths";
+import { parseHttpJsonBody } from "./parseHttpJsonBody";
 
 // ==================== Helpers ====================
 
@@ -175,10 +176,11 @@ async function ensureProjectWorkspace(
     },
   );
 
-  let body = "";
+  const responseChunks: Buffer[] = [];
   for await (const chunk of response) {
-    body += chunk;
+    responseChunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
   }
+  const body = Buffer.concat(responseChunks).toString("utf-8");
 
   const result = JSON.parse(body);
   if (result.success || result.workspaceRoot) {
@@ -194,27 +196,7 @@ async function ensureProjectWorkspace(
 }
 
 export function parseBody(req: http.IncomingMessage): Promise<any> {
-  return new Promise((resolve, reject) => {
-    let body = "";
-    let size = 0;
-    req.on("data", (chunk) => {
-      size += chunk.length;
-      if (size > MAX_BODY_SIZE) {
-        req.destroy();
-        reject(new Error("Request body too large"));
-        return;
-      }
-      body += chunk;
-    });
-    req.on("end", () => {
-      try {
-        resolve(body ? JSON.parse(body) : {});
-      } catch (e) {
-        reject(e);
-      }
-    });
-    req.on("error", reject);
-  });
+  return parseHttpJsonBody(req, { maxBodySize: MAX_BODY_SIZE }) as Promise<any>;
 }
 
 function parseQuery(url: URL): Record<string, string> {
