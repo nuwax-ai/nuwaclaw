@@ -8,6 +8,7 @@ import {
   session,
 } from "electron";
 import * as path from "path";
+import * as fs from "fs";
 import log from "electron-log";
 import { initDatabase, closeDb, readSetting } from "./db";
 import { ManagedProcess } from "./processManager";
@@ -41,6 +42,20 @@ import { getDeviceId, logSystemInfo } from "./services/system/deviceId";
 import { initWebviewPolicy } from "./services/system/webviewPolicy";
 import { stopAllEngines } from "./services/engines/engineManager";
 import { processRegistry } from "./services/system/processRegistry";
+import { APP_DATA_DIR_NAME } from "@shared/constants";
+
+// 处理 EPIPE 错误（社区最佳实践）
+// 当 stdout/stderr 的接收端关闭时，写入操作会触发 EPIPE 错误
+// 这里静默忽略这些错误，防止 uncaughtException 无限循环
+process.stdout.on("error", (err) => {
+  if (err.code === "EPIPE") return;
+  throw err;
+});
+
+process.stderr.on("error", (err) => {
+  if (err.code === "EPIPE") return;
+  throw err;
+});
 
 // macOS 26 Tahoe 兼容性：禁用 Fontations 字体后端
 // 参考: https://github.com/electron/electron/issues/49522
@@ -628,11 +643,57 @@ app.on("will-quit", () => {
   log.info("[App] Will quit");
 });
 
-// Handle uncaught exceptions
+/**
+ * 直接写入错误日志到文件，完全绕过 electron-log 的 transport 机制
+ * 这样可以彻底避免 EPIPE 错误导致的无限循环
+ */
+function writeErrorLog(errorType: string, error: unknown): void {
+  try {
+    // 获取日志目录（使用预先导入的模块，避免在异常处理器中 require）
+    const nuwaxHome = path.join(app.getPath("home"), APP_DATA_DIR_NAME);
+    const logDir = path.join(nuwaxHome, "logs");
+    // 使用本地时间，与 logConfig.ts 中的 todayDateStr() 保持一致
+    const now = new Date();
+    const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+    const logFile = path.join(logDir, `main.${today}.log`);
+
+    // 确保目录存在
+    if (!fs.existsSync(logDir)) {
+      fs.mkdirSync(logDir, { recursive: true });
+    }
+
+    // 格式化错误信息
+    const timestamp = new Date().toISOString();
+    const errorMsg =
+      error instanceof Error ? error.stack || error.message : String(error);
+    const logEntry = `[${timestamp}] ERROR ${errorType}: ${errorMsg}\n`;
+
+    // 直接追加到文件
+    fs.appendFileSync(logFile, logEntry, { encoding: "utf8" });
+
+    // 同时尝试写入控制台（如果失败则忽略）
+    try {
+      process.stderr.write(logEntry);
+    } catch {
+      // 忽略 stderr 写入失败
+    }
+  } catch {
+    // 如果文件写入也失败，尝试最后的手段
+    try {
+      const errorMsg = error instanceof Error ? error.message : String(error);
+      process.stderr.write(`[FATAL] ${errorType}: ${errorMsg}\n`);
+    } catch {
+      // 完全失败，无法记录错误
+    }
+  }
+}
+
+// Handle uncaught exceptions - 使用直接文件写入，完全绕过 electron-log 的 transport 机制
 process.on("uncaughtException", (error) => {
-  log.error("Uncaught exception:", error);
+  writeErrorLog("uncaughtException", error);
 });
 
+// Handle unhandled rejections - 使用直接文件写入，避免可能的无限循环
 process.on("unhandledRejection", (reason) => {
-  log.error("Unhandled rejection:", reason);
+  writeErrorLog("unhandledRejection", reason);
 });
