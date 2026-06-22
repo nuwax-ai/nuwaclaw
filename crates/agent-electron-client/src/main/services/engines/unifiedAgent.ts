@@ -556,13 +556,15 @@ export class UnifiedAgentService extends EventEmitter {
     log.info(
       `[UnifiedAgent] Creating engine for project: ${projectId}, engine: ${engineType}`,
     );
-    const ok = await engine.init(effectiveConfig);
+    const initResult = await engine.init(effectiveConfig);
     t3 = Date.now();
 
-    if (!ok) {
+    if (!initResult.ok) {
       engine.removeAllListeners();
       await engine.destroy().catch(() => {});
-      throw new Error(`Failed to create engine for project ${projectId}`);
+      throw new Error(
+        `Failed to create engine for project ${projectId}: ${initResult.error || "unknown reason"}`,
+      );
     }
 
     this.engines.set(projectId, engine);

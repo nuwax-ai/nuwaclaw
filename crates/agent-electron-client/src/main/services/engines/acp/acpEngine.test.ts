@@ -768,7 +768,7 @@ describe("AcpEngine.init", () => {
       PROTOCOL_VERSION: "1.0.0",
     } as any);
 
-    const ok = await engine.init({
+    const initResult = await engine.init({
       engine: "nuwaxcode",
       workspaceDir: "/tmp",
       env: { NUWAX_AGENT_WARMUP: "1" },
@@ -781,7 +781,7 @@ describe("AcpEngine.init", () => {
       },
     } as any);
 
-    expect(ok).toBe(true);
+    expect(initResult.ok).toBe(true);
     expect(capturedEnv?.OPENCODE_CONFIG_CONTENT).toBeTruthy();
 
     const injected = JSON.parse(capturedEnv!.OPENCODE_CONFIG_CONTENT!);
@@ -832,7 +832,7 @@ describe("AcpEngine.init", () => {
       apiKey: "ak-test",
     } as any);
 
-    expect(ok).toBe(true);
+    expect(ok.ok).toBe(true);
     expect(authenticate).toHaveBeenCalledWith({ methodId: "codex-api-key" });
 
     await engine.destroy();
@@ -915,7 +915,7 @@ describe("AcpEngine.init", () => {
         model: "openai-compatible/glm-5",
       } as any);
 
-      expect(ok).toBe(true);
+      expect(ok.ok).toBe(true);
       const injected = JSON.parse(capturedEnv!.OPENCODE_CONFIG_CONTENT!);
       expect(injected.sandbox).toBeUndefined();
       expect(injected.permission.bash).toBe("deny");

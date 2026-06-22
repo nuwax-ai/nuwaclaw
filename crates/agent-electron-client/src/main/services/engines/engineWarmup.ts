@@ -178,13 +178,16 @@ export class EngineWarmup {
 
     engine
       .init(warmupConfig)
-      .then((ok) => {
-        if (ok && this.engines.has(WARMUP_KEY)) {
+      .then((initResult) => {
+        if (initResult.ok && this.engines.has(WARMUP_KEY)) {
           log.info(
             "[EngineWarmup] 🔥 nuwaxcode warm start complete, engine ready",
           );
         } else {
-          log.warn("[EngineWarmup] 🔥 Warm start failed (init returned false)");
+          log.warn(
+            "[EngineWarmup] 🔥 Warm start failed:",
+            initResult.error || "unknown reason",
+          );
           cleanup();
         }
       })

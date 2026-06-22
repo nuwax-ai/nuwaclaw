@@ -104,6 +104,12 @@ import type {
 } from "@shared/types/intervention";
 import { safeStringify } from "../utils/safeStringify";
 
+/** AcpEngine.init() 返回结果 */
+export interface EngineInitResult {
+  ok: boolean;
+  error?: string;
+}
+
 const MCP_RETRY_DELAY_MS = 1200;
 const MCP_RECONNECT_WINDOW_MS = 4000;
 const COMPAT_MCP_WARMUP_DELAY_MS = 1200;
@@ -371,7 +377,7 @@ export class AcpEngine extends EventEmitter {
 
   // === Lifecycle ===
 
-  async init(config: AgentConfig): Promise<boolean> {
+  async init(config: AgentConfig): Promise<EngineInitResult> {
     const timer = perfEmitter.start();
     firstTokenTrace.trace("acp.init.start", { engine: this.engineName });
     this.config = config;
@@ -578,20 +584,19 @@ export class AcpEngine extends EventEmitter {
       this.emit("ready");
       timer.end("acp.init.total", { engine: this.engineName });
       firstTokenTrace.trace("acp.init.ready", { engine: this.engineName });
-      return true;
+      return { ok: true };
     } catch (error) {
+      const reason =
+        error instanceof Error
+          ? error.message
+          : typeof error === "object"
+            ? safeStringify(error)
+            : String(error);
       log.error(`${this.logTag} Init failed:`, error);
       firstTokenTrace.trace(
         "acp.init.failed",
         { engine: this.engineName },
-        {
-          error:
-            error instanceof Error
-              ? error.message
-              : typeof error === "object"
-                ? safeStringify(error)
-                : String(error),
-        },
+        { error: reason },
       );
       // Ensure spawned process is cleaned up on init failure
       await this.destroy().catch(() => {});
@@ -599,7 +604,7 @@ export class AcpEngine extends EventEmitter {
         "error",
         error instanceof Error ? error : new Error(String(error)),
       );
-      return false;
+      return { ok: false, error: reason };
     }
   }
 
@@ -1342,11 +1347,11 @@ export class AcpEngine extends EventEmitter {
               request.model_provider.api_protocol || this.config.apiProtocol,
           };
           await this.destroy();
-          const ok = await this.init(newConfig);
-          if (!ok) {
+          const initResult = await this.init(newConfig);
+          if (!initResult.ok) {
             return {
               code: "5000",
-              message: "Failed to reinit with new model_provider",
+              message: `Failed to reinit with new model_provider: ${initResult.error || "unknown reason"}`,
               data: null,
               tid: null,
               success: false,

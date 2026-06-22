@@ -83,7 +83,7 @@ vi.mock("./acp/acpEngine", () => {
     config: { apiKey?: string; baseUrl?: string; model?: string } = {},
   ) => ({
     currentConfig: { apiKey: "k", baseUrl: "u", model: "m", ...config },
-    init: vi.fn().mockResolvedValue(true),
+    init: vi.fn().mockResolvedValue({ ok: true }),
     updateConfig: vi.fn(),
     removeAllListeners: vi.fn(),
     destroy: vi.fn().mockResolvedValue(undefined),
@@ -903,7 +903,7 @@ describe("UnifiedAgentService — warmupEngine 热启动", () => {
 
     const mockWarmupEngine = {
       currentConfig: { apiKey: "k", baseUrl: "u", model: "m" },
-      init: vi.fn().mockResolvedValue(true),
+      init: vi.fn().mockResolvedValue({ ok: true }),
       updateConfig: vi.fn(),
       removeAllListeners: vi.fn(),
       destroy: vi.fn().mockResolvedValue(undefined),
@@ -915,7 +915,7 @@ describe("UnifiedAgentService — warmupEngine 热启动", () => {
     };
     const mockNewEngine = {
       currentConfig: { apiKey: "k", baseUrl: "u", model: "m" },
-      init: vi.fn().mockResolvedValue(true),
+      init: vi.fn().mockResolvedValue({ ok: true }),
       updateConfig: vi.fn(),
       removeAllListeners: vi.fn(),
       destroy: vi.fn().mockResolvedValue(undefined),
@@ -1176,7 +1176,7 @@ describe("UnifiedAgentService — warmupEngine 热启动", () => {
 
       const mockWarmupEngine = {
         currentConfig: { apiKey: "k", baseUrl: "u", model: "m" },
-        init: vi.fn().mockResolvedValue(true),
+        init: vi.fn().mockResolvedValue({ ok: true }),
         updateConfig: vi.fn(),
         removeAllListeners: vi.fn(),
         destroy: vi.fn().mockResolvedValue(undefined),
@@ -1188,7 +1188,7 @@ describe("UnifiedAgentService — warmupEngine 热启动", () => {
       };
       const mockNewEngine = {
         currentConfig: { apiKey: "k", baseUrl: "u", model: "m" },
-        init: vi.fn().mockResolvedValue(true),
+        init: vi.fn().mockResolvedValue({ ok: true }),
         updateConfig: vi.fn(),
         removeAllListeners: vi.fn(),
         destroy: vi.fn().mockResolvedValue(undefined),
@@ -1248,7 +1248,7 @@ describe("UnifiedAgentService — warmupEngine 热启动", () => {
     // 后续创建的 engine 用正常 mock（快速 resolve）
     const mockNewEngine = {
       currentConfig: { apiKey: "k", baseUrl: "u", model: "m" },
-      init: vi.fn().mockResolvedValue(true),
+      init: vi.fn().mockResolvedValue({ ok: true }),
       updateConfig: vi.fn(),
       removeAllListeners: vi.fn(),
       destroy: vi.fn().mockResolvedValue(undefined),
