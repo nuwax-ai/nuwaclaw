@@ -15,6 +15,7 @@ import * as https from "https";
 import * as http from "http";
 import { execFile, execFileSync } from "child_process";
 import { promisify } from "util";
+import AdmZip from "adm-zip";
 import log from "electron-log";
 import { getAppDataDir } from "./system/appPaths";
 import type {
@@ -481,20 +482,20 @@ async function extractZip(
   destDir: string,
 ): Promise<string[]> {
   try {
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
-    const AdmZip = require("adm-zip");
     const zip = new AdmZip(filePath);
     zip.extractAllTo(destDir, true);
-  } catch {
-    // 回退到系统 unzip 命令
+    return listFilesRecursive(destDir);
+  } catch (primaryErr) {
+    log.warn(`[AgentInstaller] adm-zip extract failed: ${primaryErr}`);
     try {
       await execFileAsync("unzip", ["-o", filePath, "-d", destDir]);
-    } catch {
-      throw new Error("Failed to extract zip: no extraction method available");
+      return listFilesRecursive(destDir);
+    } catch (fallbackErr) {
+      throw new Error(
+        `Failed to extract zip: adm-zip=${primaryErr}; unzip=${fallbackErr}`,
+      );
     }
   }
-
-  return listFilesRecursive(destDir);
 }
 
 /** 递归列出目录下的所有文件 */
