@@ -659,6 +659,9 @@ export async function handleRequest(
             },
             timestamp: new Date().toISOString(),
           };
+          log.debug(
+            `[SSE] Sending heartbeat: session_id=${sessionId}, time=${new Date().toISOString()}`,
+          );
           res.write(`event: ping\ndata: ${JSON.stringify(hb)}\n\n`);
         } catch {
           /* client disconnected */
