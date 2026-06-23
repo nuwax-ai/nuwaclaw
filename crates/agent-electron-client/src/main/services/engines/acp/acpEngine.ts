@@ -870,19 +870,8 @@ export class AcpEngine extends EventEmitter {
         }
       }
 
-      // 1. Reject local prompt immediately for fast UX feedback.
-      const reject = this.activePromptRejects.get(sessionId);
-      if (reject) {
-        reject(createSessionCancelledError());
-        this.activePromptRejects.delete(sessionId);
-      }
-
-      this.activePromptSessions.delete(sessionId);
-
-      approvalInterventionService.cancelByAcpSession(sessionId);
-      this.permissions.clearSession(sessionId);
-
-      // 2. Send cancel to ACP binary
+      // 1. Send cancel to ACP binary first, so the agent can stop processing
+      //    and return stopReason: "cancelled" before we reject the local prompt.
       let timer: ReturnType<typeof setTimeout> | undefined;
       try {
         await Promise.race([
@@ -899,6 +888,18 @@ export class AcpEngine extends EventEmitter {
       } finally {
         if (timer !== undefined) clearTimeout(timer);
       }
+
+      // 2. Reject local prompt after ACP binary has received the cancel.
+      const reject = this.activePromptRejects.get(sessionId);
+      if (reject) {
+        reject(createSessionCancelledError());
+        this.activePromptRejects.delete(sessionId);
+      }
+
+      this.activePromptSessions.delete(sessionId);
+
+      approvalInterventionService.cancelByAcpSession(sessionId);
+      this.permissions.clearSession(sessionId);
 
       session.status = "idle";
       session.lastActivity = Date.now();

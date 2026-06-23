@@ -168,7 +168,7 @@ describe("AcpEngine.abortSession", () => {
     vi.useRealTimers();
   });
 
-  it("先 reject 本地 prompt，再等待 ACP cancel", async () => {
+  it("先发送 ACP cancel，再 reject 本地 prompt", async () => {
     const { engine, sessionId, session, acpConnection } = setupEngine();
     const reject = vi.fn();
     (engine as any).activePromptSessions.add(sessionId);
@@ -179,12 +179,16 @@ describe("AcpEngine.abortSession", () => {
 
     const abortPromise = engine.abortSession(sessionId);
 
-    expect(reject).toHaveBeenCalledTimes(1);
-    expect((engine as any).activePromptSessions.has(sessionId)).toBe(false);
+    // cancel 已发送但未完成，reject 还没被调用
+    expect(reject).toHaveBeenCalledTimes(0);
+    expect((engine as any).activePromptSessions.has(sessionId)).toBe(true);
     expect(session.status).toBe("terminating");
 
+    // ACP binary 响应 cancel 后，reject 才被调用
     deferred.resolve();
     await expect(abortPromise).resolves.toBe(true);
+    expect(reject).toHaveBeenCalledTimes(1);
+    expect((engine as any).activePromptSessions.has(sessionId)).toBe(false);
     expect(session.status).toBe("idle");
   });
 
