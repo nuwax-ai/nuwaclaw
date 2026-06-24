@@ -32,7 +32,7 @@ import {
   DEFAULT_WINDOW_MIN_WIDTH,
   DEFAULT_WINDOW_WIDTH,
 } from "@shared/constants";
-import { initLogging } from "./bootstrap/logConfig";
+import { initLogging, updateLogLevel } from "./bootstrap/logConfig";
 import { initI18n, setMainLang } from "./services/i18n";
 import { createTrayManager, TrayStatus } from "./window/trayManager";
 import { createServiceManager } from "./window/serviceManager";
@@ -522,6 +522,10 @@ app.whenReady().then(async () => {
   initDatabase();
   migrateSettingsPaths();
   getDeviceId();
+
+  // 数据库就绪后，根据更新通道设置日志级别
+  const updateChannel = readSetting("update_channel") as string | undefined;
+  updateLogLevel(updateChannel || "stable");
 
   // 数据库就绪后，同步语言到主进程 i18n
   // 优先级：本地保存 > Electron 系统语言 > 英文兜底

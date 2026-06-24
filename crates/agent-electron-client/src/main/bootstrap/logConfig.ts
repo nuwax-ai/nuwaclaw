@@ -298,5 +298,27 @@ export function initLogging(): void {
   initPerfLogging(logDir);
 }
 
+/**
+ * 更新日志级别（数据库初始化后调用）
+ *
+ * beta 通道：文件日志级别为 debug
+ * stable 通道：文件日志级别为 info（开发环境为 debug）
+ */
+export function updateLogLevel(updateChannel: string): void {
+  const isBeta = updateChannel === "beta";
+
+  if (isBeta) {
+    log.transports.file.level = "debug";
+    log.info("[LogConfig] Beta channel: file log level set to debug");
+  } else {
+    const dev = isDev();
+    log.transports.file.level = dev ? "debug" : "info";
+    log.info(
+      "[LogConfig] Stable channel: file log level set to",
+      log.transports.file.level,
+    );
+  }
+}
+
 /** 供 IPC/客户端解析：优先读取的日志入口文件名（始终为当前主进程日志） */
 export const LATEST_LOG_BASENAME = LATEST_LOG_FILENAME;
