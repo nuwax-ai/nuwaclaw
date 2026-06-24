@@ -44,7 +44,10 @@ export interface MCPAPI {
   setConfig: (
     config: McpServersConfig,
   ) => Promise<{ success: boolean; error?: string }>;
-  discoverTools: (serverId: string) => Promise<{
+  discoverTools: (
+    serverId: string,
+    draftConfig?: McpServersConfig,
+  ) => Promise<{
     success: boolean;
     tools?: string[];
     error?: string;

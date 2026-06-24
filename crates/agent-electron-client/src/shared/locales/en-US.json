@@ -869,6 +869,7 @@
   "Claw.MCP.editor.tabForm": "Form",
   "Claw.MCP.editor.tabJson": "JSON",
   "Claw.MCP.editor.jsonHint": "Paste a single server entry {\"server-name\": {...}} or a full mcpServers config",
+  "Claw.MCP.editor.draftHint": "Changes auto-sync to the list draft. Click Save on the main screen to apply.",
   "Claw.MCP.switch.enable": "Enable",
   "Claw.MCP.switch.disable": "Disable",
   "Claw.MCP.addServer.modalTitle": "Add MCP Server",

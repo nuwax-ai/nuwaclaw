@@ -473,5 +473,6 @@ export const I18N_KEYS = {
     EDITOR_TAB_FORM: "Claw.MCP.editor.tabForm",
     EDITOR_TAB_JSON: "Claw.MCP.editor.tabJson",
     EDITOR_JSON_HINT: "Claw.MCP.editor.jsonHint",
+    EDITOR_DRAFT_HINT: "Claw.MCP.editor.draftHint",
   },
 } as const;

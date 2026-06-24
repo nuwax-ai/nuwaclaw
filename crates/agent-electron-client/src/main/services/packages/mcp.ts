@@ -1108,20 +1108,27 @@ class McpProxyManager {
    * 发现指定 MCP 服务器的工具列表
    * 临时启动 MCP 服务器，调用 tools/list，然后关闭
    */
-  async discoverTools(serverId: string): Promise<string[]> {
-    // 直接从 SQLite 读取最新配置，不依赖 this.config 内存快照
-    const { getDb } = await import("../../db");
-    const db = getDb();
-    const saved = db
-      ?.prepare("SELECT value FROM settings WHERE key = ?")
-      .get("mcp_local_config") as { value: string } | undefined;
+  async discoverTools(
+    serverId: string,
+    draftConfig?: McpServersConfig,
+  ): Promise<string[]> {
+    // 优先使用调用方传入的草稿配置（编辑器测试、未保存的列表项），否则读 SQLite
     let servers: Record<string, McpServerEntry> = {};
-    if (saved) {
-      try {
-        const config = JSON.parse(saved.value);
-        servers = config?.mcpServers ?? {};
-      } catch {
-        // 解析失败时 servers 保持为空
+    if (draftConfig?.mcpServers) {
+      servers = draftConfig.mcpServers;
+    } else {
+      const { getDb } = await import("../../db");
+      const db = getDb();
+      const saved = db
+        ?.prepare("SELECT value FROM settings WHERE key = ?")
+        .get("mcp_local_config") as { value: string } | undefined;
+      if (saved) {
+        try {
+          const config = JSON.parse(saved.value);
+          servers = config?.mcpServers ?? {};
+        } catch {
+          // 解析失败时 servers 保持为空
+        }
       }
     }
     let entry = servers[serverId];
@@ -1434,6 +1441,9 @@ export async function syncMcpConfigToProxyAndReload(
 /**
  * 发现指定 MCP 服务器的工具列表
  */
-export async function discoverMcpTools(serverId: string): Promise<string[]> {
-  return mcpProxyManager.discoverTools(serverId);
+export async function discoverMcpTools(
+  serverId: string,
+  draftConfig?: McpServersConfig,
+): Promise<string[]> {
+  return mcpProxyManager.discoverTools(serverId, draftConfig);
 }

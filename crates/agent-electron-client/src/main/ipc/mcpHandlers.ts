@@ -2,10 +2,13 @@ import { ipcMain, dialog } from "electron";
 import { getDb } from "../db";
 import {
   mcpProxyManager,
-  DEFAULT_MCP_PROXY_CONFIG,
   discoverMcpTools,
+  syncMcpConfigToProxyAndReload,
 } from "../services/packages/mcp";
-import type { McpServersConfig } from "../services/packages/mcp";
+import type {
+  McpServersConfig,
+  McpServerEntry,
+} from "../services/packages/mcp";
 import {
   applyGuiMcpLocalConfigPolicy,
   getGuiMcpEnabled,
@@ -13,6 +16,21 @@ import {
 import log from "electron-log";
 import * as fs from "fs";
 import * as path from "path";
+
+/** 从本地配置中提取已启用的 MCP（与 UnifiedAgent 合并逻辑一致）。 */
+function getEnabledMcpServers(
+  config: McpServersConfig,
+): Record<string, McpServerEntry> {
+  const enabled: Record<string, McpServerEntry> = {};
+  for (const [name, entry] of Object.entries(config.mcpServers ?? {})) {
+    if (!entry) continue;
+    const isEnabled = !("enabled" in entry) || entry.enabled !== false;
+    if (isEnabled) {
+      enabled[name] = entry;
+    }
+  }
+  return enabled;
+}
 
 export function registerMcpHandlers(): void {
   // 启动 MCP Proxy（仅验证 binary 可用性）
@@ -65,29 +83,32 @@ export function registerMcpHandlers(): void {
         "INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)",
       ).run("mcp_local_config", configJson);
 
-      // 注意：不再调用 mcpProxyManager.setConfig()
-      // 因为 mcpProxyManager 的配置应该由 syncMcpConfigToProxyAndReload() 统一管理
+      // 主界面统一保存后同步到 MCP Proxy 内存，使改名/启用状态立即对 Agent 生效
+      await syncMcpConfigToProxyAndReload(getEnabledMcpServers(normalized));
 
-      log.info("[McpProxy] Local config saved");
+      log.info("[McpProxy] Local config saved and synced to proxy");
       return { success: true };
     } catch (error) {
       return { success: false, error: String(error) };
     }
   });
 
-  // 发现 MCP 工具
-  ipcMain.handle("mcp:discoverTools", async (_, serverId: string) => {
-    try {
-      const tools = await discoverMcpTools(serverId);
-      return { success: true, tools };
-    } catch (error) {
-      log.error("[McpProxy] Tool discovery failed:", error);
-      return {
-        success: false,
-        error: error instanceof Error ? error.message : String(error),
-      };
-    }
-  });
+  // 发现 MCP 工具（可选传入草稿配置，避免测试前写入 DB）
+  ipcMain.handle(
+    "mcp:discoverTools",
+    async (_, serverId: string, draftConfig?: McpServersConfig) => {
+      try {
+        const tools = await discoverMcpTools(serverId, draftConfig);
+        return { success: true, tools };
+      } catch (error) {
+        log.error("[McpProxy] Tool discovery failed:", error);
+        return {
+          success: false,
+          error: error instanceof Error ? error.message : String(error),
+        };
+      }
+    },
+  );
 
   // 导出配置到文件
   ipcMain.handle("mcp:exportConfig", async () => {

@@ -869,6 +869,7 @@
   "Claw.MCP.editor.tabForm": "表單",
   "Claw.MCP.editor.tabJson": "JSON",
   "Claw.MCP.editor.jsonHint": "貼上單條服務配置 {\"server-name\": {...}} 或完整的 mcpServers 配置",
+  "Claw.MCP.editor.draftHint": "修改會自動同步到列表草稿；返回主界面後點擊「保存」才會生效。",
   "Claw.MCP.switch.enable": "啟用",
   "Claw.MCP.switch.disable": "停用",
   "Claw.MCP.addServer.modalTitle": "新增 MCP 服務",

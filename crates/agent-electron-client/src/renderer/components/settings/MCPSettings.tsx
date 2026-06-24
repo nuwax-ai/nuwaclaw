@@ -44,6 +44,7 @@ import type {
 import { isGuiMcpManagedServerId } from "@shared/guiMcp";
 import { t } from "../../services/core/i18n";
 import MCPServerEditor from "./MCPServerEditor";
+import { applyMcpServerDraft } from "./mcpServerEditorUtils";
 
 const { Text } = Typography;
 
@@ -467,12 +468,11 @@ function MCPSettings({ isOpen = true }: MCPSettingsProps) {
     if (testingServerId) return;
     setTestingServerId(serverId);
     try {
-      // 先确保内存中的最新配置已持久化到 DB，再调用 discoverTools
       const latest = getCurrentConfigForUi();
-      if (latest) {
-        await window.electronAPI?.mcp.setConfig(latest);
-      }
-      const result = await window.electronAPI?.mcp.discoverTools(serverId);
+      const result = await window.electronAPI?.mcp.discoverTools(
+        serverId,
+        latest ?? undefined,
+      );
       if (result?.success) {
         const toolCount = result.tools?.length ?? 0;
         message.success(t("Claw.MCP.list.testSuccess", { 0: toolCount }));
@@ -503,27 +503,41 @@ function MCPSettings({ isOpen = true }: MCPSettingsProps) {
     setPageMode("editor");
   };
 
-  const handleEditorSave = (serverId: string, entry: McpServerEntry) => {
+  const handleEditorDraftChange = (
+    serverId: string,
+    entry: McpServerEntry,
+    previousServerId?: string,
+  ) => {
     const latest = getCurrentConfigForUi();
     if (!latest) {
-      message.error(t("Claw.MCP.message.invalidJson"));
       return;
     }
-    const nextConfig: McpServersConfig = {
-      ...latest,
-      mcpServers: {
-        ...latest.mcpServers,
-        [serverId]: entry,
-      },
-    };
+    const nextConfig = applyMcpServerDraft(
+      latest,
+      serverId,
+      entry,
+      previousServerId,
+    ) as McpServersConfig;
     updateConfigFromUi(nextConfig);
+    if (
+      editorMode === "edit" &&
+      previousServerId &&
+      previousServerId !== serverId
+    ) {
+      setEditingServerId(serverId);
+    }
     setHasUnsavedEdits(true);
-    setPageMode("list");
-    message.success(
-      editorMode === "create"
-        ? t("Claw.MCP.addServer.addSuccess")
-        : t("Claw.MCP.message.configSaved"),
-    );
+  };
+
+  const handleEditorDraftRemove = (serverId: string) => {
+    const latest = getCurrentConfigForUi();
+    if (!latest?.mcpServers?.[serverId]) {
+      return;
+    }
+    const nextServers = { ...latest.mcpServers };
+    delete nextServers[serverId];
+    updateConfigFromUi({ ...latest, mcpServers: nextServers });
+    setHasUnsavedEdits(true);
   };
 
   const handleEditorBack = () => {
@@ -545,7 +559,8 @@ function MCPSettings({ isOpen = true }: MCPSettingsProps) {
           existingServerIds={Object.keys(currentServers)}
           isDarkMode={isDarkMode}
           fullConfig={currentConfig ?? undefined}
-          onSave={handleEditorSave}
+          onDraftChange={handleEditorDraftChange}
+          onDraftRemove={handleEditorDraftRemove}
           onBack={handleEditorBack}
         />
       </div>
