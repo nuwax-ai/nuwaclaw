@@ -44,6 +44,7 @@ import { getGuiMcpEnabled } from "./guiMcpLocalConfig";
 import { getGuiAgentServerUrl } from "./guiAgentServer";
 import { getWindowsMcpUrl } from "./windowsMcp";
 import { discoverStdioMcpTools } from "./discoverStdioMcpTools";
+import { mergeMcpServerConfigs } from "../utils/mcpServerMerge";
 
 type PerfValue = string | number | boolean | null | undefined;
 
@@ -1315,10 +1316,10 @@ export async function syncMcpConfigToProxyAndReload(
     //   - 用户删除所有动态 MCP → merged 仅含默认服务（chrome-devtools、ask-question）
     //   - 用户删除部分动态 MCP → merged 含默认服务 + 剩余动态 MCP
     //   - 用户新增动态 MCP    → merged 含默认服务 + 所有动态 MCP
-    const merged: Record<string, McpServerEntry> = {
-      ...DEFAULT_MCP_PROXY_CONFIG.mcpServers,
-      ...realOnly,
-    };
+    const merged = mergeMcpServerConfigs(
+      DEFAULT_MCP_PROXY_CONFIG.mcpServers,
+      realOnly,
+    );
 
     // 为所有 MCP 服务器注入基础环境变量（包括 PATH）
     const prepareStartedAt = Date.now();

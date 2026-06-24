@@ -755,24 +755,15 @@ export class UnifiedAgentService extends EventEmitter {
     const needCreateEngine = !existingEngine || !existingEngine.isReady;
     let memoryReadyPromise: Promise<void> | null = null;
 
-    // 加载本地 MCP 配置并合并到请求配置中
-    // 优先级：ACP context_servers > 本地配置
+    // 加载本地 MCP 并与 context_servers 在配置层合并去重：同名 key 以本地为准
     const localMcpConfig = await this.loadLocalMcpConfig();
-    const mergedMcpServers: Record<string, McpServerEntry> = {
-      ...localMcpConfig, // 本地配置作为基础
-      ...requestMcpServersRuntime, // ACP 配置覆盖本地配置
-    };
-
-    // 过滤掉 enabled === false 的服务器
-    const enabledMcpServers: Record<string, McpServerEntry> = {};
-    for (const [name, entry] of Object.entries(mergedMcpServers)) {
-      // 检查 enabled 字段，默认为 true
-      // 使用 'in' 操作符进行类型安全检查
-      const isEnabled = !("enabled" in entry) || entry.enabled !== false;
-      if (isEnabled) {
-        enabledMcpServers[name] = entry;
-      }
-    }
+    const { mergeRemoteAndLocalMcpConfigs, filterEnabledMcpServers } =
+      await import("../utils/mcpServerMerge");
+    const mergedMcpServers = mergeRemoteAndLocalMcpConfigs(
+      requestMcpServersRuntime,
+      localMcpConfig,
+    );
+    const enabledMcpServers = filterEnabledMcpServers(mergedMcpServers);
 
     if (mcpChanged) {
       try {

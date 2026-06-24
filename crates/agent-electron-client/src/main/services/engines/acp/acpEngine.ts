@@ -1445,7 +1445,6 @@ export class AcpEngine extends EventEmitter {
         const newSession = await this.createSession({
           title: workDirId,
           cwd: projectDir,
-          mcpServers: this.config.mcpServers,
           systemPrompt: request.system_prompt,
           requestId: request.request_id,
         });

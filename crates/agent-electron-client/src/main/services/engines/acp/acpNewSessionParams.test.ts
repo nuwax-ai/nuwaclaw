@@ -65,4 +65,36 @@ describe("buildNewSessionParams — MCP name sanitization", () => {
     expect(names).toContain("chrome-devtools");
     expect(names.every((n) => MCP_IDENTIFIER_PATTERN.test(n))).toBe(true);
   });
+
+  it("dedupes duplicate server keys when opts repeats config (no _2 suffix)", () => {
+    const askQuestion = {
+      command: "npx",
+      args: ["-y", "nuwax-ask-question-mcp@latest"],
+    };
+    const config = {
+      workspaceDir: "/workspace",
+      mcpServers: {
+        "ask-question": askQuestion,
+        context7: { command: "npx", args: ["-y", "@upstash/context7-mcp"] },
+      },
+    } as AgentConfig;
+
+    const { mcpServers } = buildNewSessionParams(
+      { mcpServers: config.mcpServers },
+      {
+        config,
+        storedSandboxConfig: null,
+        engineName: "nuwaxcode",
+        logTag: "[test]",
+      },
+    );
+
+    const names = mcpServers.map((m) => m.name);
+    expect(
+      names.filter(
+        (n) => n === "ask-question" || n.startsWith("ask-question_"),
+      ),
+    ).toEqual(["ask-question"]);
+    expect(names).toHaveLength(2);
+  });
 });

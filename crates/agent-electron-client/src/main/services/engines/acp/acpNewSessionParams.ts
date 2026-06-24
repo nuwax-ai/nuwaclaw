@@ -25,11 +25,10 @@ import {
 import type { SandboxProcessConfig } from "@shared/types/sandbox";
 import type { AgentConfig, AgentEngineType } from "../types";
 import type { AcpMcpServer, AcpEnvVariable } from "./acpClient";
+import type { McpServerEntry } from "../../packages/mcp";
 import { injectSandboxedMcpForSession } from "./sandbox/acpSandboxedMcpSession";
-import {
-  allocateAcpMcpServerName,
-  peekAcpMcpServerName,
-} from "@main/services/utils/mcpServerName";
+import { allocateAcpMcpServerName } from "@main/services/utils/mcpServerName";
+import { mergeMcpServerConfigs } from "@main/services/utils/mcpServerMerge";
 
 export interface NewSessionMcpServerInput {
   command?: string;
@@ -123,20 +122,14 @@ export function buildNewSessionParams(
   const mcpServers: AcpMcpServer[] = [];
   const usedMcpNames = new Set<string>();
 
-  // 1. Global MCP servers from config
-  if (config.mcpServers) {
-    for (const [name, srv] of Object.entries(config.mcpServers)) {
-      pushAcpMcpServer(mcpServers, usedMcpNames, name, srv, logTag);
-    }
-  }
+  // 在配置层合并去重：opts 仅补充 config 中不存在的 key；同 key 以 config（含本地优先结果）为准
+  const mergedMcpServerRecords = mergeMcpServerConfigs(
+    opts?.mcpServers as Record<string, McpServerEntry> | undefined,
+    config.mcpServers,
+  );
 
-  // 2. Per-request MCP servers
-  if (opts?.mcpServers) {
-    for (const [name, srv] of Object.entries(opts.mcpServers)) {
-      const canonical = peekAcpMcpServerName(name, usedMcpNames);
-      if (mcpServers.some((m) => m.name === canonical)) continue;
-      pushAcpMcpServer(mcpServers, usedMcpNames, name, srv, logTag);
-    }
+  for (const [name, srv] of Object.entries(mergedMcpServerRecords)) {
+    pushAcpMcpServer(mcpServers, usedMcpNames, name, srv, logTag);
   }
 
   const sandboxEnabled = storedSandboxConfig?.enabled === true;

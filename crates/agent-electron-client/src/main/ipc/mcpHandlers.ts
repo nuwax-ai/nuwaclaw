@@ -5,10 +5,7 @@ import {
   discoverMcpTools,
   syncMcpConfigToProxyAndReload,
 } from "../services/packages/mcp";
-import type {
-  McpServersConfig,
-  McpServerEntry,
-} from "../services/packages/mcp";
+import type { McpServersConfig } from "../services/packages/mcp";
 import {
   applyGuiMcpLocalConfigPolicy,
   getGuiMcpEnabled,
@@ -17,20 +14,7 @@ import log from "electron-log";
 import * as fs from "fs";
 import * as path from "path";
 
-/** 从本地配置中提取已启用的 MCP（与 UnifiedAgent 合并逻辑一致）。 */
-function getEnabledMcpServers(
-  config: McpServersConfig,
-): Record<string, McpServerEntry> {
-  const enabled: Record<string, McpServerEntry> = {};
-  for (const [name, entry] of Object.entries(config.mcpServers ?? {})) {
-    if (!entry) continue;
-    const isEnabled = !("enabled" in entry) || entry.enabled !== false;
-    if (isEnabled) {
-      enabled[name] = entry;
-    }
-  }
-  return enabled;
-}
+import { filterEnabledMcpServers } from "../services/utils/mcpServerMerge";
 
 export function registerMcpHandlers(): void {
   // 启动 MCP Proxy（仅验证 binary 可用性）
@@ -84,7 +68,9 @@ export function registerMcpHandlers(): void {
       ).run("mcp_local_config", configJson);
 
       // 主界面统一保存后同步到 MCP Proxy 内存，使改名/启用状态立即对 Agent 生效
-      await syncMcpConfigToProxyAndReload(getEnabledMcpServers(normalized));
+      await syncMcpConfigToProxyAndReload(
+        filterEnabledMcpServers(normalized.mcpServers ?? {}),
+      );
 
       log.info("[McpProxy] Local config saved and synced to proxy");
       return { success: true };
