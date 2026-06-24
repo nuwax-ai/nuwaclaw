@@ -26,6 +26,10 @@ import type { SandboxProcessConfig } from "@shared/types/sandbox";
 import type { AgentConfig, AgentEngineType } from "../types";
 import type { AcpMcpServer, AcpEnvVariable } from "./acpClient";
 import { injectSandboxedMcpForSession } from "./sandbox/acpSandboxedMcpSession";
+import {
+  allocateAcpMcpServerName,
+  peekAcpMcpServerName,
+} from "@main/services/utils/mcpServerName";
 
 export interface NewSessionMcpServerInput {
   command?: string;
@@ -60,7 +64,6 @@ function toAcpMcpServer(
   name: string,
   srv: NewSessionMcpServerInput,
 ): AcpMcpServer {
-  // HTTP/SSE URL 类型（来自 PersistentMcpBridge）
   if ("url" in srv && srv.url) {
     return {
       name,
@@ -89,6 +92,27 @@ function toAcpMcpServer(
   };
 }
 
+/**
+ * 将 MCP server 加入 ACP 列表：规范 server 名（中文 → `_`）并去重。
+ * 本地配置保留原始名；仅 ACP 下发侧替换，与 deepagents-flow-ts 消费侧规则一致。
+ */
+function pushAcpMcpServer(
+  mcpServers: AcpMcpServer[],
+  usedNames: Set<string>,
+  rawName: string,
+  srv: NewSessionMcpServerInput,
+  logTag: string,
+): void {
+  const { name, sanitized } = allocateAcpMcpServerName(rawName, usedNames);
+  if (sanitized) {
+    log.warn(
+      `${logTag} MCP server name sanitized for ACP (LLM tool name compatibility)`,
+      { rawName, name },
+    );
+  }
+  mcpServers.push(toAcpMcpServer(name, srv));
+}
+
 export function buildNewSessionParams(
   opts: NewSessionOpts | undefined,
   ctx: NewSessionParamsContext,
@@ -97,19 +121,21 @@ export function buildNewSessionParams(
 
   // Build mcpServers array for ACP (McpServerStdio format)
   const mcpServers: AcpMcpServer[] = [];
+  const usedMcpNames = new Set<string>();
 
   // 1. Global MCP servers from config
   if (config.mcpServers) {
     for (const [name, srv] of Object.entries(config.mcpServers)) {
-      mcpServers.push(toAcpMcpServer(name, srv));
+      pushAcpMcpServer(mcpServers, usedMcpNames, name, srv, logTag);
     }
   }
 
   // 2. Per-request MCP servers
   if (opts?.mcpServers) {
     for (const [name, srv] of Object.entries(opts.mcpServers)) {
-      if (mcpServers.some((m) => m.name === name)) continue;
-      mcpServers.push(toAcpMcpServer(name, srv));
+      const canonical = peekAcpMcpServerName(name, usedMcpNames);
+      if (mcpServers.some((m) => m.name === canonical)) continue;
+      pushAcpMcpServer(mcpServers, usedMcpNames, name, srv, logTag);
     }
   }
 
