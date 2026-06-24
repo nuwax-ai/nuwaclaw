@@ -1,8 +1,10 @@
 import { describe, it, expect } from "vitest";
 import {
+  applyOpencodeWindowsShellConfig,
   buildOpencodeSpawnConfig,
   buildOpencodeMcpSection,
   describeOpencodeSandboxActive,
+  resolveOpencodeWindowsShellPath,
 } from "./opencodeAcpSpawnConfig";
 import type { SandboxProcessConfig } from "@shared/types/sandbox";
 
@@ -61,5 +63,39 @@ describe("opencodeAcpSpawnConfig", () => {
       doom_loop: "ask",
       question: "deny",
     });
+  });
+
+  it("resolveOpencodeWindowsShellPath returns path only on Windows", () => {
+    const bash = "C:\\Program Files\\Git\\bin\\bash.exe";
+    if (process.platform === "win32") {
+      expect(resolveOpencodeWindowsShellPath(bash)).toBe(bash);
+      expect(resolveOpencodeWindowsShellPath("  ")).toBeUndefined();
+    } else {
+      expect(resolveOpencodeWindowsShellPath(bash)).toBeUndefined();
+    }
+  });
+
+  it("buildOpencodeSpawnConfig injects Git Bash shell without sandbox", () => {
+    const bash = "C:\\tools\\Git\\bin\\bash.exe";
+    if (process.platform !== "win32") {
+      const { configObj } = buildOpencodeSpawnConfig({
+        workspaceDir: "/ws",
+        gitBashPath: bash,
+      });
+      expect(configObj.shell).toBeUndefined();
+      return;
+    }
+    const { configObj, sandboxApply } = buildOpencodeSpawnConfig({
+      workspaceDir: "/ws",
+      gitBashPath: bash,
+    });
+    expect(configObj.shell).toBe(bash);
+    expect(sandboxApply).toBeUndefined();
+  });
+
+  it("applyOpencodeWindowsShellConfig is no-op when path missing", () => {
+    const configObj: Record<string, unknown> = {};
+    expect(applyOpencodeWindowsShellConfig(configObj)).toBe(false);
+    expect(configObj.shell).toBeUndefined();
   });
 });

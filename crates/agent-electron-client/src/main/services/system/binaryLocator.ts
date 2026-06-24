@@ -252,7 +252,7 @@ export function getBundledGitBinDir(): string {
   return "";
 }
 
-/** 获取 bundled git-bash 路径（仅 Windows） */
+/** 获取 bundled git-bash 路径（仅 Windows，不探测系统 Git for Windows） */
 export function getBundledGitBashPath(): string {
   if (!isWindows()) return "";
   const resourcesPath = getResourcesPath();
@@ -271,6 +271,11 @@ export function getBundledGitBashPath(): string {
     }
   }
   return "";
+}
+
+/** @deprecated 使用 getBundledGitBashPath；仅返回应用包内 bundled Git Bash */
+export function resolveGitBashExecutable(): string {
+  return getBundledGitBashPath();
 }
 
 // ==================== lanproxy ====================

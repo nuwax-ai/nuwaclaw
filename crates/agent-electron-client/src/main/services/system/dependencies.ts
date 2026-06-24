@@ -42,6 +42,7 @@ import {
   getUvBinPath,
   getLanproxyBinPath,
   getBundledGitBashPath,
+  resolveGitBashExecutable,
 } from "./binaryLocator";
 import {
   getAppEnv,
@@ -98,6 +99,7 @@ export {
   getCodexAcpBundledDir,
   getWindowsMcpBinPath,
   getBundledGitBashPath,
+  resolveGitBashExecutable,
   getNuwaxFileServerBundledDir,
   getClaudeCodeAcpBundledDir,
 } from "./binaryLocator";
@@ -437,6 +439,7 @@ export default {
   getUvBinPath,
   getLanproxyBinPath,
   getBundledGitBashPath,
+  resolveGitBashExecutable,
   getAppEnv,
   setMirrorConfig,
   getMirrorConfig,

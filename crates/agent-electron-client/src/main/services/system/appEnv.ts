@@ -383,6 +383,7 @@ export function getAppEnv(opts?: GetAppEnvOptions): Record<string, string> {
   }
 
   if (bundledGitBashPath) {
+    // claude-code-acp-ts 等引擎读取；nuwaxcode 走 OPENCODE_CONFIG_CONTENT.shell（见 acpEngine）
     cleanEnv.NUWAXCODE_GIT_BASH_PATH = bundledGitBashPath;
     cleanEnv.CLAUDE_CODE_GIT_BASH_PATH = bundledGitBashPath;
     cleanEnv.MSYS2_PATH_TYPE = "inherit";
