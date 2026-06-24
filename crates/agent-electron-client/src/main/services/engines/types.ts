@@ -14,6 +14,8 @@ export interface AgentConfig {
   customEngineCommand?: string;
   /** Custom agent args (from agent_server.args, appended to spawn args) */
   customEngineArgs?: string[];
+  /** agent_server.agent_id，用于自定义引擎在 ACP 握手前展示 */
+  customAgentId?: string;
   apiKey?: string;
   baseUrl?: string;
   model?: string;

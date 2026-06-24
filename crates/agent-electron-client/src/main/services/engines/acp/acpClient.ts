@@ -215,6 +215,7 @@ export interface AcpClientSideConnection {
     clientCapabilities?: Record<string, unknown>;
   }): Promise<{
     protocolVersion: number;
+    agentInfo?: { name?: string; version?: string };
     agentCapabilities?: Record<string, unknown>;
   }>;
 

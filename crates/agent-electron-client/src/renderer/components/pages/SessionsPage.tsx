@@ -260,11 +260,15 @@ function SessionsPage({
     }
   };
 
-  const getEngineTag = (engineType: DetailedSession["engineType"]) => {
-    if (engineType === "claude-code") {
+  const getEngineTag = (session: DetailedSession) => {
+    // 自定义下发引擎：展示 ACP/配置侧名称，不走内置引擎 i18n 标签
+    if (session.engineDisplayName) {
+      return <Tag color="cyan">{session.engineDisplayName}</Tag>;
+    }
+    if (session.engineType === "claude-code") {
       return <Tag color="blue">{t("Claw.Sessions.engine01")}</Tag>;
     }
-    if (engineType === "codex-cli") {
+    if (session.engineType === "codex-cli") {
       return <Tag color="orange">{t("Claw.Sessions.engine03")}</Tag>;
     }
     return <Tag color="purple">{t("Claw.Sessions.engine02")}</Tag>;
@@ -357,7 +361,7 @@ function SessionsPage({
                       {session.title || session.id.substring(0, 12)}
                     </span>
                     <div className={styles.sessionMeta}>
-                      {getEngineTag(session.engineType)}
+                      {getEngineTag(session)}
                       {getStatusTag(session.status)}
                       <span>{formatTime(session.createdAt)}</span>
                       {session.lastActivity && (

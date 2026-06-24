@@ -57,6 +57,7 @@ import {
   recordUserMessageToMemory,
   buildMemoryEnhancedPrompt,
 } from "./acpChatMemory";
+import { resolveCustomEngineDisplayName } from "../agentHelpers";
 import { mapAcpUpdateToEvents } from "./acpUpdateMapper";
 import type {
   AgentConfig,
@@ -174,6 +175,8 @@ export class AcpEngine extends EventEmitter {
   private logTag: string;
 
   private readonly _engineName: string;
+  /** ACP initialize 返回的 agentInfo.name，用于自定义下发引擎的会话列表展示 */
+  private _acpAgentName: string | null = null;
 
   constructor(engineName: string = "claude-code") {
     super();
@@ -189,6 +192,19 @@ export class AcpEngine extends EventEmitter {
   /** Engine type (claude-code | nuwaxcode), used by UnifiedAgent for provider detection */
   get engineName(): AgentEngineType {
     return this._engineName as AgentEngineType;
+  }
+
+  /**
+   * 会话列表展示名：内置引擎返回 undefined（由 UI 走 i18n）；
+   * 自定义下发引擎返回 ACP agentInfo.name / agent_id / command 文件名。
+   */
+  getEngineDisplayName(): string | undefined {
+    if (!this.config?.customEngineCommand) return undefined;
+    return resolveCustomEngineDisplayName({
+      acpAgentName: this._acpAgentName,
+      agentId: this.config.customAgentId,
+      customCommand: this.config.customEngineCommand,
+    });
   }
 
   /** Number of active sessions in this engine */
@@ -586,9 +602,17 @@ export class AcpEngine extends EventEmitter {
 
       handshakeTimer.end("acp.init.handshake", { engine: this.engineName });
 
+      // 记录 ACP 侧自报的 agent 名称，供自定义引擎在会话列表展示
+      const acpAgentName = initResult.agentInfo?.name?.trim();
+      if (acpAgentName) {
+        this._acpAgentName = acpAgentName;
+        log.info(`${this.logTag} ACP agentInfo.name=${acpAgentName}`);
+      }
+
       log.info(`${this.logTag} ACP initialized`, {
         protocolVersion: initResult.protocolVersion,
         agentCapabilities: initResult.agentCapabilities,
+        agentInfoName: acpAgentName || undefined,
       });
 
       this._ready = true;
@@ -719,6 +743,7 @@ export class AcpEngine extends EventEmitter {
     this.permissions.destroy();
     approvalInterventionService.destroy();
     this.config = null;
+    this._acpAgentName = null;
     this._ready = false;
     log.info(`${this.logTag} Destroyed`);
     this.emit("destroyed");
@@ -832,10 +857,12 @@ export class AcpEngine extends EventEmitter {
    * List sessions with detailed status info (for Sessions tab).
    */
   listSessionsDetailed(): DetailedSession[] {
+    const engineDisplayName = this.getEngineDisplayName();
     return Array.from(this.sessions.values()).map((s) => ({
       id: s.id,
       title: s.title,
       engineType: this._engineName as AgentEngineType,
+      engineDisplayName,
       projectId: s.projectId,
       status: s.status,
       createdAt: s.createdAt,

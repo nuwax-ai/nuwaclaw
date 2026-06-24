@@ -312,6 +312,8 @@ export function buildEffectiveConfig(args: {
     engine: requiredEngine || base.engine,
     customEngineCommand: customEngineCommand || base.customEngineCommand,
     customEngineArgs: customEngineArgs || base.customEngineArgs,
+    customAgentId:
+      request.agent_config?.agent_server?.agent_id || base.customAgentId,
     apiKey: mp?.api_key || base.apiKey,
     baseUrl: mp?.base_url || base.baseUrl,
     model,

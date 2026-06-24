@@ -1181,4 +1181,29 @@ describe("AcpEngine.listSessionsDetailed", () => {
     expect(list[0].id).toBe(sessionId);
     expect(list[0].title).toBe(expectedTitle);
   });
+
+  it("自定义下发引擎应返回 engineDisplayName（ACP agentInfo.name）", () => {
+    const { engine, sessionId } = setupEngine();
+    (engine as any).config = {
+      customEngineCommand: "/path/to/custom-agent",
+      customAgentId: "3182",
+    };
+    (engine as any)._acpAgentName = "deepagents-flow-ts";
+
+    const list = engine.listSessionsDetailed();
+
+    expect(list).toHaveLength(1);
+    expect(list[0].id).toBe(sessionId);
+    expect(list[0].engineDisplayName).toBe("deepagents-flow-ts");
+    expect(list[0].engineType).toBe("nuwaxcode");
+  });
+
+  it("内置引擎不应设置 engineDisplayName", () => {
+    const { engine } = setupEngine();
+    (engine as any).config = { engine: "nuwaxcode" };
+
+    const list = engine.listSessionsDetailed();
+
+    expect(list[0].engineDisplayName).toBeUndefined();
+  });
 });

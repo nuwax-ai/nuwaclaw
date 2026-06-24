@@ -17,7 +17,11 @@ vi.mock("electron-log", () => ({
   },
 }));
 
-import { mapAgentCommand, resolveAgentEnv } from "./agentHelpers";
+import {
+  mapAgentCommand,
+  resolveAgentEnv,
+  resolveCustomEngineDisplayName,
+} from "./agentHelpers";
 import type { ModelProviderConfig } from "./unifiedAgent";
 
 const mockLog = require("electron-log").default;
@@ -213,6 +217,35 @@ describe("agentHelpers", () => {
       expect(result).toEqual({
         URL: "https://api.anthropic.com/v1/models/claude-3-5-sonnet-20241022",
       });
+    });
+  });
+
+  describe("resolveCustomEngineDisplayName", () => {
+    it("应优先使用 ACP agentInfo.name", () => {
+      expect(
+        resolveCustomEngineDisplayName({
+          acpAgentName: "deepagents-flow-ts",
+          agentId: "3182",
+          customCommand: "/path/to/tsx",
+        }),
+      ).toBe("deepagents-flow-ts");
+    });
+
+    it("无 ACP 名称时应回退到 agent_id", () => {
+      expect(
+        resolveCustomEngineDisplayName({
+          agentId: "3182",
+          customCommand: "/path/to/tsx",
+        }),
+      ).toBe("3182");
+    });
+
+    it("应回退到 command 文件名", () => {
+      expect(
+        resolveCustomEngineDisplayName({
+          customCommand: "/opt/agents/run.sh",
+        }),
+      ).toBe("run.sh");
     });
   });
 });

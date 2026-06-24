@@ -1,3 +1,4 @@
+import * as path from "path";
 import log from "electron-log";
 import type { AgentEngineType } from "./types";
 import type { ModelProviderConfig } from "@shared/types/computerTypes";
@@ -15,6 +16,27 @@ export function mapAgentCommand(command: string): AgentEngineType | null {
     return "codex-cli";
   }
   return null;
+}
+
+/**
+ * 解析自定义下发引擎在会话列表中的展示名。
+ * 优先级：ACP agentInfo.name > agent_server.agent_id > command 文件名。
+ */
+export function resolveCustomEngineDisplayName(args: {
+  acpAgentName?: string | null;
+  agentId?: string | null;
+  customCommand?: string | null;
+}): string | undefined {
+  const acpName = args.acpAgentName?.trim();
+  if (acpName) return acpName;
+
+  const agentId = args.agentId?.trim();
+  if (agentId) return agentId;
+
+  const command = args.customCommand?.trim();
+  if (command) return path.basename(command);
+
+  return undefined;
 }
 
 /**
