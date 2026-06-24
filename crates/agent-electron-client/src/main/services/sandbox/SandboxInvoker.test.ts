@@ -47,6 +47,18 @@ vi.mock("electron-log", () => ({
   },
 }));
 
+const mockWrapWindowsCommandWithGitBash = vi.fn(
+  (command: string, args: string[]) => ({ command, args }),
+);
+
+vi.mock("../system/windowsGitBashCommand", () => ({
+  wrapWindowsCommandWithGitBash: (
+    command: string,
+    args: string[],
+  ): { command: string; args: string[] } =>
+    mockWrapWindowsCommandWithGitBash(command, args),
+}));
+
 // Import after mocks are set up
 import { SandboxInvoker } from "./SandboxInvoker";
 import { SandboxError, SandboxErrorCode } from "@shared/errors/sandbox";
@@ -601,8 +613,13 @@ describe("SandboxInvoker - linux-bwrap", () => {
 
 describe("SandboxInvoker - windows-sandbox", () => {
   const fakeHelperPath = "C:\\tools\\nuwax-sandbox-helper.exe";
+  const fakeBashPath = "C:\\tools\\git\\bin\\bash.exe";
 
   beforeEach(() => {
+    mockWrapWindowsCommandWithGitBash.mockImplementation((command, args) => ({
+      command,
+      args,
+    }));
     mockFsExistsSync.mockImplementation((p: string) => {
       if (p.includes("nuwax-sandbox-helper")) return true;
       return true;
@@ -782,7 +799,11 @@ describe("SandboxInvoker - windows-sandbox", () => {
       });
     });
 
-    it("should place original command and args after -- separator", async () => {
+    it("should wrap run commands with Git Bash on Windows", async () => {
+      mockWrapWindowsCommandWithGitBash.mockImplementation((command, args) => ({
+        command: fakeBashPath,
+        args: ["-c", [command, ...args].join(" ")],
+      }));
       await withPlatform("win32", async () => {
         const invoker = new SandboxInvoker("windows-sandbox", {
           windowsSandboxHelperPath: fakeHelperPath,
@@ -794,8 +815,50 @@ describe("SandboxInvoker - windows-sandbox", () => {
         expect(separatorIdx).toBeGreaterThanOrEqual(0);
 
         const afterSeparator = result.args.slice(separatorIdx + 1);
+        expect(afterSeparator[0]).toMatch(/bash\.exe$/i);
+        expect(afterSeparator[1]).toBe("-c");
+        expect(afterSeparator[2]).toBe("node.exe --version");
+      });
+    });
+
+    it("should not wrap serve subcommand with Git Bash", async () => {
+      await withPlatform("win32", async () => {
+        const invoker = new SandboxInvoker("windows-sandbox", {
+          windowsSandboxHelperPath: fakeHelperPath,
+        });
+        const params = makeParams({
+          command: "node.exe",
+          args: ["--version"],
+          subcommand: "serve",
+        });
+        const result = await invoker.buildInvocation(params);
+
+        const separatorIdx = result.args.indexOf("--");
+        const afterSeparator = result.args.slice(separatorIdx + 1);
         expect(afterSeparator[0]).toBe("node.exe");
         expect(afterSeparator[1]).toBe("--version");
+      });
+    });
+
+    it("should wrap .sh scripts for run subcommand", async () => {
+      mockWrapWindowsCommandWithGitBash.mockImplementation((command, args) => ({
+        command: fakeBashPath,
+        args: ["-c", [command, ...args].join(" ")],
+      }));
+      await withPlatform("win32", async () => {
+        const invoker = new SandboxInvoker("windows-sandbox", {
+          windowsSandboxHelperPath: fakeHelperPath,
+        });
+        const params = makeParams({
+          command: "./scripts/update-config.sh",
+          args: ["--help"],
+        });
+        const result = await invoker.buildInvocation(params);
+
+        const separatorIdx = result.args.indexOf("--");
+        const afterSeparator = result.args.slice(separatorIdx + 1);
+        expect(afterSeparator[0]).toMatch(/bash\.exe$/i);
+        expect(afterSeparator[2]).toBe("./scripts/update-config.sh --help");
       });
     });
   });

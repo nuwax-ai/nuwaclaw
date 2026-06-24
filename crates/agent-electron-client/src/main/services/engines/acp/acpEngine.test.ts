@@ -67,6 +67,19 @@ vi.mock("@main/services/system/dependencies", () => ({
   getBundledGitBashPath: vi.fn(() => null),
 }));
 
+const mockGetBundledGitBashPath = vi.fn(() => "");
+
+vi.mock("@main/services/system/binaryLocator", async (importOriginal) => {
+  const mod =
+    await importOriginal<
+      typeof import("@main/services/system/binaryLocator")
+    >();
+  return {
+    ...mod,
+    getBundledGitBashPath: () => mockGetBundledGitBashPath(),
+  };
+});
+
 vi.mock("@main/services/sandbox/policy", () => ({
   getSandboxPolicy: vi.fn(() => ({
     enabled: false,
@@ -731,6 +744,7 @@ describe("AcpEngine.handlePermissionRequest(strict)", () => {
 
 describe("AcpEngine.init", () => {
   afterEach(() => {
+    mockGetBundledGitBashPath.mockReturnValue("");
     vi.restoreAllMocks();
   });
 
@@ -793,6 +807,65 @@ describe("AcpEngine.init", () => {
     expect(injected.mcp["chrome-devtools"]).toBeDefined();
     expect(injected.permission.question).toBe("deny");
 
+    await engine.destroy();
+  });
+
+  it("nuwaxcode init 在 Windows 且 bundled Git Bash 可用时注入 OPENCODE shell", async () => {
+    const bundledBash = "C:\\mock\\resources\\git\\bin\\bash.exe";
+    mockGetBundledGitBashPath.mockReturnValue(bundledBash);
+
+    const engine = new AcpEngine("nuwaxcode");
+    let capturedEnv: Record<string, string> | undefined;
+
+    const mockConnection = {
+      initialize: vi.fn().mockResolvedValue({ protocolVersion: "1.0.0" }),
+    } as any;
+
+    const mockProcess = {
+      pid: 12345,
+      on: vi.fn(),
+      stdout: { removeAllListeners: vi.fn() },
+      stderr: { removeAllListeners: vi.fn() },
+      stdin: { removeAllListeners: vi.fn() },
+      removeAllListeners: vi.fn(),
+      kill: vi.fn(),
+    } as any;
+
+    vi.spyOn(acpClient, "resolveAcpBinary").mockReturnValue({
+      binPath: "nuwaxcode",
+      binArgs: ["acp"],
+      isNative: false,
+    });
+    vi.spyOn(acpClient, "createAcpConnection").mockImplementation(
+      async (cfg: any) => {
+        capturedEnv = cfg.env as Record<string, string>;
+        return {
+          connection: mockConnection,
+          process: mockProcess,
+          isolatedHome: null,
+          cleanup: vi.fn(),
+        } as any;
+      },
+    );
+    vi.spyOn(acpClient, "loadAcpSdk").mockResolvedValue({
+      PROTOCOL_VERSION: "1.0.0",
+    } as any);
+
+    const initResult = await engine.init({
+      engine: "nuwaxcode",
+      workspaceDir: "/tmp",
+      env: { NUWAX_AGENT_WARMUP: "1" },
+    } as any);
+
+    expect(initResult.ok).toBe(true);
+    const injected = JSON.parse(capturedEnv!.OPENCODE_CONFIG_CONTENT!);
+    if (process.platform === "win32") {
+      expect(injected.shell).toBe(bundledBash);
+    } else {
+      expect(injected.shell).toBeUndefined();
+    }
+
+    mockGetBundledGitBashPath.mockReturnValue("");
     await engine.destroy();
   });
 

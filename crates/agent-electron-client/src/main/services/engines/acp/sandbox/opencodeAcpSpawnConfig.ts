@@ -83,12 +83,34 @@ export type BuildOpencodeSpawnConfigOptions = {
   model?: string;
   sandboxConfig?: SandboxProcessConfig;
   workspaceDir: string;
+  /** Windows Git Bash path → OPENCODE_CONFIG_CONTENT.shell (no sandbox required). */
+  gitBashPath?: string;
   applySandbox?: (options: {
     configObj: Record<string, unknown>;
     sandboxConfig: SandboxProcessConfig;
     workspaceDir: string;
   }) => ApplyOpencodeSandboxConfigResult;
 };
+
+/** Resolve shell path for OpenCode on Windows (bundled Git Bash from app package). */
+export function resolveOpencodeWindowsShellPath(
+  gitBashPath?: string | null,
+): string | undefined {
+  if (process.platform !== "win32") return undefined;
+  const trimmed = gitBashPath?.trim();
+  return trimmed || undefined;
+}
+
+/** Inject Git Bash into spawn config so nuwaxcode runs bash tool via Git Bash, not cmd. */
+export function applyOpencodeWindowsShellConfig(
+  configObj: Record<string, unknown>,
+  gitBashPath?: string | null,
+): boolean {
+  const shell = resolveOpencodeWindowsShellPath(gitBashPath);
+  if (!shell) return false;
+  configObj.shell = shell;
+  return true;
+}
 
 export type BuildOpencodeSpawnConfigResult = {
   configObj: Record<string, unknown>;
@@ -122,6 +144,8 @@ export function buildOpencodeSpawnConfig(
   if (provider) {
     configObj.provider = provider;
   }
+
+  applyOpencodeWindowsShellConfig(configObj, options.gitBashPath);
 
   return { configObj, sandboxApply };
 }

@@ -20,6 +20,7 @@ import {
   isOpencodeAcpEngine,
 } from "./sandbox/acpEngineSandbox";
 import { resolveAcpSandboxProcessConfig } from "./sandbox/acpSandboxPolicy";
+import { getBundledGitBashPath } from "@main/services/system/binaryLocator";
 import {
   buildOpencodeSpawnConfig,
   describeOpencodeSandboxActive,
@@ -429,6 +430,7 @@ export class AcpEngine extends EventEmitter {
             model: config.model,
             sandboxConfig,
             workspaceDir: config.workspaceDir,
+            gitBashPath: getBundledGitBashPath() || undefined,
             applySandbox: (opts) =>
               this.sandboxCaps.applyOpencodeSpawnSandbox(opts),
           });
@@ -443,6 +445,8 @@ export class AcpEngine extends EventEmitter {
           );
         }
         const effectivePerm = configObj.permission as Record<string, string>;
+        const injectedShell =
+          typeof configObj.shell === "string" ? configObj.shell : undefined;
         log.info(
           `${this.logTag} 🔌 OpenCode ACP config injected (OPENCODE_CONFIG_CONTENT)`,
           {
@@ -455,8 +459,15 @@ export class AcpEngine extends EventEmitter {
               : [],
             permission: effectivePerm,
             sandbox_active: describeOpencodeSandboxActive(opencodeSandboxApply),
+            opencode_shell: injectedShell ?? "(default)",
+            opencode_shell_injected: Boolean(injectedShell),
           },
         );
+        if (!injectedShell && process.platform === "win32") {
+          log.warn(
+            `${this.logTag} Bundled Git Bash not found; OPENCODE_CONFIG_CONTENT.shell not injected. Run npm run prepare:git to avoid Windows .sh open-with dialog in nuwaxcode bash tool.`,
+          );
+        }
         if (opencodeSandboxApply) {
           if (opencodeSandboxApply.opencodeSandboxConfigInjected) {
             log.info(

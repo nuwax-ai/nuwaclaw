@@ -31,6 +31,7 @@ import {
   buildSandboxHelperEnv,
   resolveSandboxWorkingDirectory,
 } from "./sandboxed-bash-security.mjs";
+import { resolveGitBashPath } from "./resolve-git-bash.mjs";
 
 // ---- Configuration from environment ----
 
@@ -42,7 +43,6 @@ const WRITABLE_ROOTS = JSON.parse(
   process.env.NUWAX_SANDBOX_WRITABLE_ROOTS || "[]",
 );
 const SANDBOX_PATH = process.env.NUWAX_SANDBOX_PATH || "";
-const GIT_BASH_PATH = process.env.NUWAX_SANDBOX_GIT_BASH_PATH || "";
 
 if (!HELPER_PATH) {
   process.stderr.write(
@@ -55,9 +55,13 @@ if (!HELPER_PATH) {
 // 1. Git Bash (supports &&, ||, 2>/dev/null, pipes, etc.) — preferred
 // 2. Fallback: PowerShell (limited bash compat but always available)
 function resolveShell() {
-  if (GIT_BASH_PATH) {
-    return { cmd: GIT_BASH_PATH, args: ["-c"], type: "bash" };
+  const bashPath = resolveGitBashPath();
+  if (bashPath) {
+    return { cmd: bashPath, args: ["-c"], type: "bash" };
   }
+  process.stderr.write(
+    "[sandboxed-bash] WARN: Bundled Git Bash not found; falling back to PowerShell. Script files (.sh/.ps1/.js/.py…) may fail or show open-with dialog. Run npm run prepare:git.\n",
+  );
   return {
     cmd: "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
     args: ["-NoProfile", "-NonInteractive", "-Command"],
