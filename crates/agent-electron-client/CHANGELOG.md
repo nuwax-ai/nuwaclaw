@@ -9,7 +9,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+#### Windows：Agent 执行 `.sh` 不再弹出「打开方式」对话框
+- **方案 A（无沙箱）** — 启动 nuwaxcode 时在 `OPENCODE_CONFIG_CONTENT` 注入 bundled `shell`（`resources/git/bin/bash.exe`），内置 bash 工具经 Git Bash 解释命令，而非 Windows ShellExecute
+- **windowsGitBashCommand.ts** — 直连终端与 sandbox `run` 子命令包装为 `bash -c`；bundled bash 缺失时回退 `shell: true`（cmd）
+- **binaryLocator** — `getBundledGitBashPath()` 仅解析应用包内 Git；`resolveGitBashExecutable()` 改为同名 deprecated 别名
+- **sandboxed-bash MCP** — 新增 `resolve-git-bash.mjs`，与主进程 bundled 路径探测一致
+- **acpEngine** — 日志输出 `opencode_shell` / `opencode_shell_injected`，便于确认注入是否生效
+
 ### Added
+
+#### Windows Git Bash 相关测试
+- **windowsGitBashCommand.test.ts** — 脚本包装、引号转义、缺失 bash 时 warn
+- **acpTerminalManager.spawn.test.ts** — 有/无 bundled bash 时 spawn 参数
+- **opencodeAcpSpawnConfig.test.ts** — 无沙箱时 `shell` 注入
+- **acpEngine.test.ts** — init 时 `OPENCODE_CONFIG_CONTENT.shell` 断言
+- **resolve-git-bash.test.ts** — MCP 侧 bundled bash 探测
 
 #### 会话过滤回归测试
 - **unifiedAgent.test.ts** — 新增 `listAllSessionsDetailed` 过滤非 ready 引擎的测试
