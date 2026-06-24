@@ -44,7 +44,11 @@ import { getGuiMcpEnabled } from "./guiMcpLocalConfig";
 import { getGuiAgentServerUrl } from "./guiAgentServer";
 import { getWindowsMcpUrl } from "./windowsMcp";
 import { discoverStdioMcpTools } from "./discoverStdioMcpTools";
-import { mergeMcpServerConfigs } from "../utils/mcpServerMerge";
+import {
+  filterEnabledMcpServers,
+  mergeMcpServerConfigs,
+} from "../utils/mcpServerMerge";
+import { readSetting } from "../../db";
 
 type PerfValue = string | number | boolean | null | undefined;
 
@@ -84,6 +88,22 @@ function logMcpPerfSummary(
 }
 
 // ========== Shared Helpers ==========
+
+/**
+ * 同步读取本地 MCP 配置（mcp_local_config，用户在设置界面配置的 MCP）。
+ * 供 getAgentMcpConfig 合并：本地优先级最高（本地 > ACP 下发 > 内置 DEFAULT），
+ * 同名 server 以本地为准（例如本地 ask-question 覆盖内置 npm 版本）。
+ */
+function readLocalMcpServers(): Record<string, McpServerEntry> {
+  try {
+    const config = readSetting("mcp_local_config") as {
+      mcpServers?: Record<string, McpServerEntry>;
+    } | null;
+    return config?.mcpServers ?? {};
+  } catch {
+    return {};
+  }
+}
 
 /**
  * Returns the directory containing the app-internal `uv` binary.
@@ -927,7 +947,12 @@ class McpProxyManager {
     string,
     { command: string; args: string[]; env?: Record<string, string> }
   > | null {
-    const servers = this.config.mcpServers;
+    // 本地配置优先级最高:本地 > this.config（内置 DEFAULT + ACP 下发）。
+    // 在 getAgentMcpConfig 内合并（而非只在 ensureEngineForRequest 的 sync 里），
+    // 确保启动/warmup/请求所有路径都让本地同名 server 覆盖内置（如 ask-question）。
+    const servers = filterEnabledMcpServers(
+      mergeMcpServerConfigs(this.config.mcpServers, readLocalMcpServers()),
+    );
     if (!servers || Object.keys(servers).length === 0) {
       return null;
     }
