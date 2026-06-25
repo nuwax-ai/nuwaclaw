@@ -175,6 +175,8 @@ export {
   pushSseEvent,
   clearSseEventBuffer,
   clearAllSseEventBuffers,
+  closeSseClientsForSession,
+  shouldCloseSseAfterPromptEnd,
   getSseEventBufferSize,
   hasSessionFirstTokenContext,
   setSessionFirstTokenContextForTest,

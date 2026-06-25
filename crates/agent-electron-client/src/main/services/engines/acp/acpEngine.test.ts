@@ -9,7 +9,10 @@
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import * as fs from "fs";
+import * as os from "os";
 import * as path from "path";
+import { ACP_SESSION_CANCELLED_ERROR_CODE } from "@shared/constants";
 import * as dependencies from "@main/services/system/dependencies";
 import * as sandboxPolicy from "@main/services/sandbox/policy";
 import * as opencodeAcpSandbox from "./sandbox/opencodeAcpSandbox";
@@ -22,6 +25,15 @@ vi.mock("electron", () => ({
     getVersion: vi.fn(() => "0.0.0-test"),
     isPackaged: false,
   },
+}));
+
+const mockAppDataDir = path.join(
+  os.tmpdir(),
+  `nuwaclaw-acp-engine-test-${process.pid}`,
+);
+
+vi.mock("../../system/appPaths", () => ({
+  getAppDataDir: () => mockAppDataDir,
 }));
 
 vi.mock("electron-log", () => ({
@@ -325,6 +337,25 @@ describe("AcpEngine.prompt", () => {
     const event = onPromptEnd.mock.calls.at(-1)?.[0];
     expect(event.reason).toBe("mcp_reconnecting");
   });
+
+  it("本地 Session cancelled 时 promptEnd reason 为 cancelled", async () => {
+    const { engine, sessionId, acpConnection } = setupEngine("nuwaxcode");
+    const onPromptEnd = vi.fn();
+    engine.on("computer:promptEnd", onPromptEnd);
+
+    const cancelled = new Error("Session cancelled");
+    Object.assign(cancelled, { code: ACP_SESSION_CANCELLED_ERROR_CODE });
+    acpConnection.prompt.mockRejectedValueOnce(cancelled);
+
+    await engine.prompt(sessionId, [{ type: "text", text: "hi" }]);
+
+    expect(onPromptEnd).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sessionId,
+        reason: "cancelled",
+      }),
+    );
+  });
 });
 
 describe("AcpEngine.handleAcpSessionUpdate", () => {
@@ -472,9 +503,9 @@ describe("AcpEngine.createSession", () => {
       mcpServers: Array<{ name: string }>;
     };
 
-    expect(sent.mcpServers.map((m) => m.name)).toEqual([
-      "safe-tool",
+    expect(sent.mcpServers.map((m) => m.name).sort()).toEqual([
       "another-tool",
+      "safe-tool",
     ]);
   });
 
@@ -748,7 +779,7 @@ describe("AcpEngine.init", () => {
     vi.restoreAllMocks();
   });
 
-  it("warmup 进程也应注入 MCP 配置，避免复用后工具列表为空", async () => {
+  it("nuwaxcode init 应注入 MCP 配置", async () => {
     const engine = new AcpEngine("nuwaxcode");
     let capturedEnv: Record<string, string> | undefined;
 
@@ -789,7 +820,6 @@ describe("AcpEngine.init", () => {
     const initResult = await engine.init({
       engine: "nuwaxcode",
       workspaceDir: "/tmp",
-      env: { NUWAX_AGENT_WARMUP: "1" },
       mcpServers: {
         "chrome-devtools": {
           command: "node",
@@ -854,7 +884,6 @@ describe("AcpEngine.init", () => {
     const initResult = await engine.init({
       engine: "nuwaxcode",
       workspaceDir: "/tmp",
-      env: { NUWAX_AGENT_WARMUP: "1" },
     } as any);
 
     expect(initResult.ok).toBe(true);
@@ -1205,5 +1234,205 @@ describe("AcpEngine.listSessionsDetailed", () => {
     const list = engine.listSessionsDetailed();
 
     expect(list[0].engineDisplayName).toBeUndefined();
+  });
+});
+
+describe("AcpEngine.resumeAcpSession", () => {
+  it("registers session after resumeSession without pendingNewSessionRegistration", async () => {
+    const resumeSession = vi.fn().mockResolvedValue({});
+    const engine = new AcpEngine("nuwaxcode");
+    (engine as any).config = {
+      engine: "nuwaxcode",
+      workspaceDir: "/workspace/project",
+      mcpServers: {},
+    };
+    (engine as any).acpConnection = {
+      resumeSession,
+      newSession: vi.fn(),
+      prompt: vi.fn(),
+      cancel: vi.fn(),
+    };
+
+    const sdk = await engine.resumeAcpSession("existing-sess", {
+      title: "proj-1",
+      cwd: "/workspace/project/proj-1",
+    });
+
+    expect(resumeSession).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sessionId: "existing-sess",
+        cwd: expect.any(String),
+      }),
+    );
+    expect(sdk.id).toBe("existing-sess");
+    expect((engine as any).sessions.has("existing-sess")).toBe(true);
+    expect((engine as any).pendingNewSessionRegistration).toBe(false);
+  });
+});
+
+describe("AcpEngine.chat session restore", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("uses loadSession for session_id when agent supports loadSession (nuwaxcode)", async () => {
+    const engine = new AcpEngine("nuwaxcode");
+    const loadSession = vi.fn().mockResolvedValue({
+      modes: { currentModeId: "yolo", availableModes: [] },
+    });
+    const resumeSession = vi.fn();
+    const setSessionMode = vi.fn().mockResolvedValue({});
+    const prompt = vi.fn().mockResolvedValue({ stopReason: "end_turn" });
+
+    (engine as any).config = {
+      engine: "nuwaxcode",
+      workspaceDir: "/workspace/project",
+      mcpServers: {},
+    };
+    (engine as any).agentCapabilities = {
+      loadSession: true,
+      sessionCapabilities: { resume: {} },
+    };
+    (engine as any).acpConnection = {
+      loadSession,
+      resumeSession,
+      newSession: vi.fn(),
+      prompt,
+      cancel: vi.fn(),
+      setSessionMode,
+    };
+
+    const result = await engine.chat({
+      user_id: "u1",
+      project_id: "proj-1",
+      session_id: "saved-sess",
+      prompt: "continue",
+      request_id: "req-1",
+      agent_config: { agent_server: { agent_mode: "ask" } },
+    });
+
+    expect(loadSession).toHaveBeenCalled();
+    expect(resumeSession).not.toHaveBeenCalled();
+    expect(setSessionMode).toHaveBeenCalledWith({
+      sessionId: "saved-sess",
+      modeId: "ask",
+    });
+    expect(result.success).toBe(true);
+    expect(result.data?.is_new_session).toBe(false);
+    expect(result.data?.session_id).toBe("saved-sess");
+  });
+
+  it("uses newSession when agent does not support loadSession", async () => {
+    const engine = new AcpEngine("nuwaxcode");
+    const newSession = vi.fn().mockResolvedValue({
+      sessionId: "fresh-sess",
+      modes: { currentModeId: "yolo", availableModes: [] },
+    });
+    const setSessionMode = vi.fn().mockResolvedValue({});
+    const prompt = vi.fn().mockResolvedValue({ stopReason: "end_turn" });
+
+    (engine as any).config = {
+      engine: "nuwaxcode",
+      workspaceDir: "/workspace/project",
+      mcpServers: {},
+    };
+    (engine as any).agentCapabilities = {
+      sessionCapabilities: { resume: {} },
+    };
+    (engine as any).acpConnection = {
+      newSession,
+      prompt,
+      cancel: vi.fn(),
+      setSessionMode,
+    };
+
+    const result = await engine.chat({
+      user_id: "u1",
+      project_id: "proj-1",
+      session_id: "saved-sess",
+      prompt: "continue",
+      request_id: "req-1",
+      agent_config: { agent_server: { agent_mode: "ask" } },
+    });
+
+    expect(newSession).toHaveBeenCalled();
+    expect(setSessionMode).not.toHaveBeenCalled();
+    expect(result.success).toBe(true);
+    expect(result.data?.is_new_session).toBe(true);
+    expect(result.data?.session_id).toBe("fresh-sess");
+  });
+
+  it("skips setSessionMode when loaded mode already matches request", async () => {
+    const engine = new AcpEngine("nuwaxcode");
+    const loadSession = vi.fn().mockResolvedValue({
+      modes: { currentModeId: "ask", availableModes: [] },
+    });
+    const setSessionMode = vi.fn();
+    const prompt = vi.fn().mockResolvedValue({ stopReason: "end_turn" });
+
+    (engine as any).config = {
+      engine: "nuwaxcode",
+      workspaceDir: "/workspace/project",
+      mcpServers: {},
+    };
+    (engine as any).agentCapabilities = {
+      loadSession: true,
+    };
+    (engine as any).acpConnection = {
+      loadSession,
+      newSession: vi.fn(),
+      prompt,
+      cancel: vi.fn(),
+      setSessionMode,
+    };
+
+    await engine.chat({
+      user_id: "u1",
+      project_id: "proj-1",
+      session_id: "saved-sess",
+      prompt: "continue",
+      agent_config: { agent_server: { agent_mode: "ask" } },
+    });
+
+    expect(setSessionMode).not.toHaveBeenCalled();
+  });
+});
+
+describe("AcpEngine isolated HOME destroy", () => {
+  afterEach(() => {
+    if (fs.existsSync(mockAppDataDir)) {
+      fs.rmSync(mockAppDataDir, { recursive: true, force: true });
+    }
+  });
+
+  it("preserves real project isolated HOME on destroy", async () => {
+    const isolatedPaths = await import("./isolatedHomePaths");
+    const engine = new AcpEngine("nuwaxcode");
+    const persistentHome = isolatedPaths.resolveProjectIsolatedHomeDir({
+      kind: "project",
+      userId: "u1",
+      workDirId: "p1",
+      engine: "nuwaxcode",
+    });
+    fs.mkdirSync(persistentHome, { recursive: true });
+    fs.writeFileSync(path.join(persistentHome, "marker.txt"), "keep");
+    (engine as any).isolatedHome = persistentHome;
+
+    await engine.destroy();
+
+    expect(fs.existsSync(path.join(persistentHome, "marker.txt"))).toBe(true);
+  });
+
+  it("removes ephemeral isolated HOME on destroy", async () => {
+    const engine = new AcpEngine("nuwaxcode");
+    const ephemeralHome = fs.mkdtempSync(
+      path.join(os.tmpdir(), "acp-ephemeral-"),
+    );
+    fs.writeFileSync(path.join(ephemeralHome, "marker.txt"), "temp");
+    (engine as any).isolatedHome = ephemeralHome;
+
+    await engine.destroy();
+
+    expect(fs.existsSync(ephemeralHome)).toBe(false);
   });
 });

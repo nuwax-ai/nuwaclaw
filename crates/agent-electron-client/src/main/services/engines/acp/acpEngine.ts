@@ -27,6 +27,14 @@ import {
   stripGuiMcpFromOpencodeConfigContent,
 } from "./sandbox/opencodeAcpSpawnConfig";
 import {
+  modelsEquivalentForProvider,
+  resolveOpenAICompatModel,
+} from "./openAICompatRouting";
+import {
+  isPersistentIsolatedHome,
+  type IsolatedHomeScope,
+} from "./isolatedHomePaths";
+import {
   createAcpConnection,
   getMcpTransportSnapshot,
   loadAcpSdk,
@@ -46,6 +54,10 @@ import {
   buildNewSessionParams,
   type NewSessionOpts,
 } from "./acpNewSessionParams";
+import {
+  resolveSessionForChat,
+  type SessionRestoredVia,
+} from "./acpSessionSetup";
 import {
   toErrorMessage,
   isPromptCancellation,
@@ -83,7 +95,6 @@ import {
 } from "../../utils/processTree";
 import { processRegistry } from "../../system/processRegistry";
 import { t } from "../../i18n";
-import { resolveComputerProjectWorkspaceDir } from "../../workspacePaths";
 import type { DetailedSession } from "@shared/types/sessions";
 import { ACP_ABORT_TIMEOUT } from "@shared/constants";
 import { APP_DATA_DIR_NAME } from "../../constants";
@@ -105,6 +116,11 @@ import type {
   ComputerNotifyResolvedRequest,
 } from "@shared/types/intervention";
 import { safeStringify } from "../utils/safeStringify";
+import { restoreFlowagentsSessions } from "../../computer/flowagentsSessionPersistence";
+import {
+  formatAcpLoadError,
+  snapshotOpencodePersistence,
+} from "./opencodeSessionDiagnostics";
 
 /** AcpEngine.init() 返回结果 */
 export interface EngineInitResult {
@@ -138,6 +154,8 @@ interface AcpSession {
   lastActivity?: number;
   openLongMemory?: boolean; // 记忆开关，用于事件处理器判断
   memoryModel?: string; // 记忆处理使用的模型名（来自 model_provider.default_model）
+  /** session/resume 返回的初始 mode，chat 同步后清除 */
+  resumedModeState?: { currentModeId?: string } | null;
 }
 
 // Session counter removed — ACP protocol UUID is used as canonical session.id
@@ -148,6 +166,7 @@ export class AcpEngine extends EventEmitter {
   private acpConnection: AcpClientSideConnection | null = null;
   private acpProcess: ChildProcess | null = null;
   private isolatedHome: string | null = null;
+  private isolatedHomeScope: IsolatedHomeScope | null = null;
   /** 🔧 FIX: Store cleanup function to properly dispose of event listeners */
   private processCleanup: (() => void) | null = null;
   /** Sandbox resource cleanup (temp profiles, etc.) */
@@ -156,9 +175,14 @@ export class AcpEngine extends EventEmitter {
   private terminalManager: AcpTerminalManager | null = null;
   /** Stored sandbox config for use in createSession (MCP Bash injection) */
   private storedSandboxConfig: SandboxProcessConfig | null = null;
+  /** ACP initialize 返回的 agentCapabilities，用于 session/resume 决策 */
+  private agentCapabilities: Record<string, unknown> | null = null;
   private sessions = new Map<string, AcpSession>();
   /** session/update 可能在 newSession 完成注册前到达，避免丢弃早期事件 */
   private pendingNewSessionRegistration = false;
+  /** loadSession 历史 replay 期间不向 SSE 转发 */
+  private suppressSessionReplayFor = new Set<string>();
+  private pendingLoadSessionRegistration = false;
   private permissionGatedToolRawInputs = new Map<
     string,
     PermissionGatedToolInputCache
@@ -168,6 +192,43 @@ export class AcpEngine extends EventEmitter {
 
   setEffectiveMode(acpSessionId: string, mode: AcpMode): void {
     this.permissions.setEffectiveMode(acpSessionId, mode);
+  }
+
+  /**
+   * resume 后同步 Agent mode：先应用 resume 返回的 currentModeId，再按请求 mode 对齐 ACP。
+   */
+  private async applySessionModeAfterRestore(
+    acpSessionId: string,
+    resumedModeState: { currentModeId?: string } | null | undefined,
+    targetMode: AcpMode,
+  ): Promise<void> {
+    const resumedModeId = resumedModeState?.currentModeId;
+    if (resumedModeId === "ask" || resumedModeId === "yolo") {
+      this.setEffectiveMode(acpSessionId, resumedModeId);
+    }
+
+    if (
+      resumedModeId &&
+      resumedModeId !== targetMode &&
+      this.acpConnection?.setSessionMode
+    ) {
+      try {
+        await this.acpConnection.setSessionMode({
+          sessionId: acpSessionId,
+          modeId: targetMode,
+        });
+        log.info(
+          `${this.logTag} setSessionMode after resume: ${resumedModeId} → ${targetMode}`,
+        );
+      } catch (err) {
+        log.warn(
+          `${this.logTag} setSessionMode after resume failed (${resumedModeId} → ${targetMode}):`,
+          err,
+        );
+      }
+    }
+
+    this.setEffectiveMode(acpSessionId, targetMode);
   }
 
   private activePromptSessions = new Set<string>();
@@ -439,7 +500,6 @@ export class AcpEngine extends EventEmitter {
       const sandboxConfig = sandboxResolved.config;
 
       if (this.sandboxCaps.usesOpencodeSpawnConfig) {
-        const isWarmupProcess = spawnEnv.NUWAX_AGENT_WARMUP === "1";
         const { configObj, sandboxApply: opencodeSandboxApply } =
           buildOpencodeSpawnConfig({
             mcpServers: config.mcpServers,
@@ -467,9 +527,7 @@ export class AcpEngine extends EventEmitter {
           `${this.logTag} 🔌 OpenCode ACP config injected (OPENCODE_CONFIG_CONTENT)`,
           {
             engine: this.engineName,
-            mcp_injection: isWarmupProcess
-              ? "enabled (legacy dual-path for A/B, warmup process)"
-              : "enabled (legacy dual-path for A/B)",
+            mcp_injection: "enabled (legacy dual-path for A/B)",
             mcp_servers: configObj.mcp
               ? Object.keys(configObj.mcp as Record<string, unknown>)
               : [],
@@ -546,6 +604,7 @@ export class AcpEngine extends EventEmitter {
           engineType: this.engineName,
           purpose: config.purpose ?? "engine",
           sandbox: sandboxConfig,
+          isolatedHomeScope: config.__isolatedHomeScope,
         },
         clientHandler,
       );
@@ -555,6 +614,7 @@ export class AcpEngine extends EventEmitter {
       this.acpConnection = connection;
       this.acpProcess = proc;
       this.isolatedHome = isolatedHome;
+      this.isolatedHomeScope = config.__isolatedHomeScope ?? null;
       this.processCleanup = cleanup; // 🔧 FIX: Store cleanup function
       this.sandboxCleanup = acpSandboxCleanup ?? null;
 
@@ -614,6 +674,10 @@ export class AcpEngine extends EventEmitter {
         agentCapabilities: initResult.agentCapabilities,
         agentInfoName: acpAgentName || undefined,
       });
+
+      this.agentCapabilities =
+        (initResult.agentCapabilities as Record<string, unknown> | undefined) ??
+        null;
 
       this._ready = true;
       this.emit("ready");
@@ -703,18 +767,9 @@ export class AcpEngine extends EventEmitter {
       this.acpProcess = null;
     }
 
-    // Cleanup isolated HOME directory
-    if (this.isolatedHome) {
-      try {
-        fs.rmSync(this.isolatedHome, { recursive: true, force: true });
-        log.info(
-          `${this.logTag} 🧹 Cleaned isolated directory: ${this.isolatedHome}`,
-        );
-      } catch (e) {
-        log.warn(`${this.logTag} Isolated directory cleanup failed:`, e);
-      }
-      this.isolatedHome = null;
-    }
+    // Cleanup isolated HOME directory (preserve project-stable paths)
+    this.cleanupIsolatedHomeDirectory();
+    this.isolatedHomeScope = null;
 
     // Cleanup sandbox resources (temp seatbelt profiles, etc.)
     if (this.sandboxCleanup) {
@@ -737,6 +792,9 @@ export class AcpEngine extends EventEmitter {
     }
 
     this.acpConnection = null;
+    this.agentCapabilities = null;
+    this.suppressSessionReplayFor.clear();
+    this.pendingLoadSessionRegistration = false;
     this.sessions.clear();
     this.activePromptSessions.clear();
     this.activePromptRejects.clear();
@@ -749,7 +807,181 @@ export class AcpEngine extends EventEmitter {
     this.emit("destroyed");
   }
 
+  private cleanupIsolatedHomeDirectory(): void {
+    if (!this.isolatedHome) return;
+    const home = this.isolatedHome;
+
+    if (isPersistentIsolatedHome(home)) {
+      log.info(`${this.logTag} Preserved persistent isolated HOME: ${home}`);
+      this.isolatedHome = null;
+      return;
+    }
+
+    try {
+      fs.rmSync(home, { recursive: true, force: true });
+      log.info(
+        `${this.logTag} 🧹 Cleaned ephemeral isolated directory: ${home}`,
+      );
+    } catch (e) {
+      log.warn(`${this.logTag} Isolated directory cleanup failed:`, e);
+    }
+    this.isolatedHome = null;
+  }
+
+  getIsolatedHome(): string | null {
+    return this.isolatedHome;
+  }
+
+  getAgentCapabilities(): Record<string, unknown> | null {
+    return this.agentCapabilities;
+  }
+
   // === Session Management ===
+
+  async resumeAcpSession(
+    sessionId: string,
+    opts?: NewSessionOpts,
+  ): Promise<SdkSession> {
+    if (!this.acpConnection || !this.config) {
+      throw new Error("AcpEngine not initialized");
+    }
+    if (!this.acpConnection.resumeSession) {
+      throw new Error("ACP connection does not support resumeSession");
+    }
+
+    const { sessionCwd, mcpServers, _meta } = buildNewSessionParams(opts, {
+      config: this.config,
+      storedSandboxConfig: this.storedSandboxConfig,
+      engineName: this.engineName,
+      logTag: this.logTag,
+    });
+
+    log.info(
+      `${this.logTag} resumeSession: sessionId=${sessionId}, cwd=${sessionCwd}, mcpServers=${mcpServers.length}`,
+    );
+
+    restoreFlowagentsSessions(this.isolatedHome, sessionCwd);
+
+    const timer = perfEmitter.start();
+    const resumeResult = await this.acpConnection.resumeSession({
+      sessionId,
+      cwd: sessionCwd,
+      mcpServers,
+      _meta,
+    });
+    timer.end("acp.session.resume", { mcpCount: mcpServers.length });
+
+    const existing = this.sessions.get(sessionId);
+    const session: AcpSession = existing ?? {
+      id: sessionId,
+      acpSessionId: sessionId,
+      createdAt: Date.now(),
+      status: "idle",
+    };
+    session.title = opts?.title ?? session.title;
+    session.cwd = sessionCwd;
+    session.mcpServerCount = mcpServers.length;
+    session.lastActivity = Date.now();
+    session.resumedModeState = resumeResult.modes ?? null;
+    if (session.status === undefined) session.status = "idle";
+    this.sessions.set(sessionId, session);
+
+    log.info(`${this.logTag} Session resumed`, { sessionId });
+
+    return {
+      id: sessionId,
+      title: session.title,
+      time: { created: session.createdAt },
+    };
+  }
+
+  async loadAcpSession(
+    sessionId: string,
+    opts?: NewSessionOpts,
+  ): Promise<SdkSession> {
+    if (!this.acpConnection || !this.config) {
+      throw new Error("AcpEngine not initialized");
+    }
+    if (!this.acpConnection.loadSession) {
+      throw new Error("ACP connection does not support loadSession");
+    }
+
+    const { sessionCwd, mcpServers, _meta } = buildNewSessionParams(opts, {
+      config: this.config,
+      storedSandboxConfig: this.storedSandboxConfig,
+      engineName: this.engineName,
+      logTag: this.logTag,
+    });
+
+    log.info(
+      `${this.logTag} loadSession (SSE replay suppressed): sessionId=${sessionId}, cwd=${sessionCwd}`,
+    );
+
+    const persistenceBefore = snapshotOpencodePersistence(
+      this.isolatedHome,
+      sessionCwd,
+    );
+    log.info(`${this.logTag} loadSession persistence snapshot (before RPC)`, {
+      sessionId,
+      ...persistenceBefore,
+    });
+
+    restoreFlowagentsSessions(this.isolatedHome, sessionCwd);
+
+    this.suppressSessionReplayFor.add(sessionId);
+    this.pendingLoadSessionRegistration = true;
+    const timer = perfEmitter.start();
+    let loadResult: { modes?: unknown; configOptions?: unknown };
+    try {
+      loadResult = await this.acpConnection.loadSession({
+        sessionId,
+        cwd: sessionCwd,
+        mcpServers,
+        _meta,
+      });
+    } catch (err) {
+      log.warn(`${this.logTag} loadSession RPC failed`, {
+        sessionId,
+        cwd: sessionCwd,
+        isolatedHome: this.isolatedHome,
+        error: formatAcpLoadError(err),
+        persistence: persistenceBefore,
+        hint:
+          "nuwaxcode load calls sdk.session.get; session data lives in isolatedHome/.local/share/opencode. " +
+          "If session is missing after restart, verify the engine uses a persistent project isolated HOME.",
+      });
+      throw err;
+    } finally {
+      this.pendingLoadSessionRegistration = false;
+      this.suppressSessionReplayFor.delete(sessionId);
+    }
+    timer.end("acp.session.load", { mcpCount: mcpServers.length });
+
+    const existing = this.sessions.get(sessionId);
+    const session: AcpSession = existing ?? {
+      id: sessionId,
+      acpSessionId: sessionId,
+      createdAt: Date.now(),
+      status: "idle",
+    };
+    session.title = opts?.title ?? session.title;
+    session.cwd = sessionCwd;
+    session.mcpServerCount = mcpServers.length;
+    session.lastActivity = Date.now();
+    session.resumedModeState =
+      (loadResult.modes as { currentModeId?: string } | null | undefined) ??
+      null;
+    if (session.status === undefined) session.status = "idle";
+    this.sessions.set(sessionId, session);
+
+    log.info(`${this.logTag} Session loaded`, { sessionId });
+
+    return {
+      id: sessionId,
+      title: session.title,
+      time: { created: session.createdAt },
+    };
+  }
 
   async createSession(opts?: NewSessionOpts): Promise<SdkSession> {
     if (!this.acpConnection || !this.config) {
@@ -1180,7 +1412,12 @@ export class AcpEngine extends EventEmitter {
       log.error(`${this.logTag} Prompt failed:`, error);
       const errMsg = toErrorMessage(error);
       const isMcpReconnect = this.isMcpReconnectFailure(errMsg);
-      const promptEndReason = isMcpReconnect ? "mcp_reconnecting" : "error";
+      const isCancelled = isPromptCancellation(error);
+      const promptEndReason = isMcpReconnect
+        ? "mcp_reconnecting"
+        : isCancelled
+          ? "cancelled"
+          : "error";
       const promptEndDescription = isMcpReconnect
         ? getMcpReconnectPromptMessage()
         : errMsg;
@@ -1294,18 +1531,39 @@ export class AcpEngine extends EventEmitter {
 
     const apiKey = mp.api_key || "";
     const baseUrl = mp.base_url || "";
-    const model = mp.model || mp.default_model || "";
+    const requestModel = mp.model || mp.default_model || "";
 
-    if (!apiKey && !baseUrl && !model) return false;
+    if (!apiKey && !baseUrl && !requestModel) return false;
 
     const currentKey = this.config.apiKey || "";
     const currentUrl = this.config.baseUrl || "";
-    const currentModel = this.config.model || "";
+    const currentModel =
+      this.config.model ||
+      this.config.env?.OPENCODE_MODEL ||
+      this.config.env?.ANTHROPIC_MODEL ||
+      "";
+
+    const modelChanged =
+      !!requestModel &&
+      !modelsEquivalentForProvider(requestModel, currentModel);
 
     return (
       (!!apiKey && apiKey !== currentKey) ||
       (!!baseUrl && baseUrl !== currentUrl) ||
-      (!!model && model !== currentModel)
+      modelChanged
+    );
+  }
+
+  private resolveModelForReinit(mp: ModelProviderConfig): string | undefined {
+    const envModel =
+      this.config?.env?.OPENCODE_MODEL || this.config?.env?.ANTHROPIC_MODEL;
+    const resolved = resolveOpenAICompatModel({
+      model: mp.model,
+      defaultModel: mp.default_model,
+      envModel,
+    });
+    return (
+      resolved?.rawModel || mp.model || mp.default_model || this.config?.model
     );
   }
 
@@ -1378,10 +1636,7 @@ export class AcpEngine extends EventEmitter {
             ...this.config,
             apiKey: request.model_provider.api_key || this.config.apiKey,
             baseUrl: request.model_provider.base_url || this.config.baseUrl,
-            model:
-              request.model_provider.model ||
-              request.model_provider.default_model ||
-              this.config.model,
+            model: this.resolveModelForReinit(request.model_provider),
             apiProtocol:
               request.model_provider.api_protocol || this.config.apiProtocol,
           };
@@ -1399,58 +1654,47 @@ export class AcpEngine extends EventEmitter {
         }
       }
 
-      // 1. Find existing session or create new
-      let session: AcpSession | undefined;
-      let isNewSession = false;
-
-      if (request.session_id) {
-        session = this.sessions.get(request.session_id);
-      }
-      // 会话查找：优先使用 agent_work_dir
-      if (!session && request.agent_work_dir) {
-        session =
-          this.findSessionByProjectId(request.agent_work_dir) ?? undefined;
-      }
-      if (!session && request.project_id) {
-        session = this.findSessionByProjectId(request.project_id) ?? undefined;
-      }
-
-      if (!session) {
-        isNewSession = true;
-        // 工作目录构建：优先使用 agent_work_dir
-        const workDirId =
-          request.agent_work_dir || request.project_id || `proj-${Date.now()}`;
-        const projectDir = resolveComputerProjectWorkspaceDir(
-          this.config.workspaceDir,
-          request.user_id,
-          workDirId,
-        );
-        log.info(`${this.logTag} 📁 Project workspace: ${projectDir}`);
-
-        // PERF: 会话创建阶段
-
-        // context_servers 已由 ensureEngineForRequest() 同步到 proxy 聚合代理
-        // (nuwax-mcp-stdio-proxy)，不再单独传给 createSession()，
-        // 避免 claude-code 重复 spawn 导致 Windows 弹窗和资源浪费
-        if (request.agent_config?.context_servers) {
-          const servers = request.agent_config.context_servers;
-          const serverNames = Object.keys(servers).filter(
-            (n) => servers[n]?.enabled !== false,
-          );
-          log.info(
-            `${this.logTag} 🔌 context_servers (aggregated by proxy): ${serverNames.join(", ") || "(none)"}`,
-          );
-        }
-
-        const newSession = await this.createSession({
-          title: workDirId,
-          cwd: projectDir,
+      // 1. Resolve session: memory → load → new
+      let restoredVia: SessionRestoredVia = "memory";
+      const setup = await resolveSessionForChat(
+        {
+          logTag: this.logTag,
+          workspaceDir: this.config.workspaceDir,
+          agentCapabilities: this.agentCapabilities,
+          getSession: (id) => this.sessions.get(id),
+          findSessionByProjectId: (pid) => this.findSessionByProjectId(pid),
+          loadSession: async (sessionId, opts) => {
+            const sdk = await this.loadAcpSession(sessionId, opts);
+            return this.sessions.get(sdk.id)!;
+          },
+          createSession: async (opts) => {
+            const sdk = await this.createSession(opts);
+            return { id: sdk.id };
+          },
+          getSessionRecord: (id) => this.sessions.get(id)!,
+        },
+        request,
+        {
           systemPrompt: request.system_prompt,
           requestId: request.request_id,
-        });
-        session = this.sessions.get(newSession.id)!;
-        // 会话绑定：存储 agent_work_dir
-        session.projectId = request.agent_work_dir || request.project_id;
+        },
+      );
+
+      const session = setup.session as AcpSession;
+      const isNewSession = setup.isNewSession;
+      restoredVia = setup.restoredVia;
+
+      if (request.agent_config?.context_servers && restoredVia === "new") {
+        const servers = request.agent_config.context_servers;
+        const serverNames = Object.keys(servers).filter(
+          (n) => servers[n]?.enabled !== false,
+        );
+        log.info(
+          `${this.logTag} 🔌 context_servers (aggregated by proxy): ${serverNames.join(", ") || "(none)"}`,
+        );
+      }
+
+      if (restoredVia === "new") {
         firstTokenTrace.trace(
           "acp.chat.session_created",
           {
@@ -1460,20 +1704,33 @@ export class AcpEngine extends EventEmitter {
             agentWorkDir: request.agent_work_dir,
             engine: this.engineName,
           },
-          { projectDir },
+          { projectDir: session.cwd },
         );
       } else {
-        firstTokenTrace.trace("acp.chat.session_reused", {
-          requestId: request.request_id,
-          sessionId: session.id,
-          projectId: request.project_id,
-          agentWorkDir: request.agent_work_dir,
-          engine: this.engineName,
-        });
+        firstTokenTrace.trace(
+          "acp.chat.session_reused",
+          {
+            requestId: request.request_id,
+            sessionId: session.id,
+            projectId: request.project_id,
+            agentWorkDir: request.agent_work_dir,
+            engine: this.engineName,
+          },
+          { restoredVia },
+        );
       }
 
       if (session.acpSessionId) {
-        this.setEffectiveMode(session.acpSessionId, effectiveMode);
+        if (restoredVia === "resume" || restoredVia === "load") {
+          await this.applySessionModeAfterRestore(
+            session.acpSessionId,
+            session.resumedModeState,
+            effectiveMode,
+          );
+        } else {
+          this.setEffectiveMode(session.acpSessionId, effectiveMode);
+        }
+        session.resumedModeState = null;
         // 每次 chat 请求刷新该会话的 tool_approval_rules（不传则清除，保持向后兼容）
         this.permissions.setSessionApprovalRules(
           session.acpSessionId,
@@ -1663,7 +1920,10 @@ export class AcpEngine extends EventEmitter {
   ): void {
     const session = this.sessions.get(acpSessionId);
     if (!session) {
-      if (this.pendingNewSessionRegistration) {
+      if (
+        this.pendingNewSessionRegistration ||
+        this.pendingLoadSessionRegistration
+      ) {
         const early: AcpSession = {
           id: acpSessionId,
           acpSessionId,
@@ -1682,6 +1942,13 @@ export class AcpEngine extends EventEmitter {
     }
 
     session.lastActivity = Date.now();
+
+    if (this.suppressSessionReplayFor.has(acpSessionId)) {
+      log.debug(
+        `${this.logTag} Suppress session/update during loadSession replay: ${update.sessionUpdate}`,
+      );
+      return;
+    }
 
     const shouldSuppressUpdates =
       session.status === "terminating" &&

@@ -1,6 +1,12 @@
 import { agentService } from "../services/engines/unifiedAgent";
 import type { UnifiedSessionMessage } from "../services/engines/unifiedAgent";
 import { pushSseEvent } from "../services/computerServer";
+import {
+  clearSsePromptActive,
+  closeSseClientsForSession,
+  markSsePromptActive,
+  shouldCloseSseAfterPromptEnd,
+} from "../services/computer/sseManager";
 import { firstTokenTrace } from "../services/engines/perf/firstTokenTrace";
 import type { HandlerContext } from "@shared/types/ipc";
 import log from "electron-log";
@@ -139,6 +145,7 @@ export function registerEventForwarders(ctx: HandlerContext): void {
       timestamp: new Date().toISOString(),
     };
     ctx.getMainWindow()?.webContents.send("computer:progress", event);
+    markSsePromptActive(data.sessionId);
     pushSseEvent(data.sessionId, "prompt_start", event);
   };
   agentService.on("computer:promptStart", promptStartHandler);
@@ -167,6 +174,10 @@ export function registerEventForwarders(ctx: HandlerContext): void {
     };
     ctx.getMainWindow()?.webContents.send("computer:progress", event);
     pushSseEvent(data.sessionId, data.reason || "end_turn", event);
+    clearSsePromptActive(data.sessionId);
+    if (shouldCloseSseAfterPromptEnd(data.reason)) {
+      closeSseClientsForSession(data.sessionId);
+    }
   };
   agentService.on("computer:promptEnd", promptEndHandler);
   registeredHandlers.push({

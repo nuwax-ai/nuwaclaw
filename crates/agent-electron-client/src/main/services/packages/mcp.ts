@@ -949,7 +949,7 @@ class McpProxyManager {
   > | null {
     // 本地配置优先级最高:本地 > this.config（内置 DEFAULT + ACP 下发）。
     // 在 getAgentMcpConfig 内合并（而非只在 ensureEngineForRequest 的 sync 里），
-    // 确保启动/warmup/请求所有路径都让本地同名 server 覆盖内置（如 ask-question）。
+    // 确保启动/请求所有路径都让本地同名 server 覆盖内置（如 ask-question）。
     const servers = filterEnabledMcpServers(
       mergeMcpServerConfigs(this.config.mcpServers, readLocalMcpServers()),
     );

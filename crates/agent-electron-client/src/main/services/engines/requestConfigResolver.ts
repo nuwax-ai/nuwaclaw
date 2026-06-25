@@ -351,5 +351,14 @@ export function buildEffectiveConfig(args: {
       `└─ mcpServers: ${effectiveConfig.mcpServers ? Object.keys(effectiveConfig.mcpServers).join(", ") : "(none)"}`,
   );
 
+  if (workDirId && request.user_id) {
+    effectiveConfig.__isolatedHomeScope = {
+      kind: "project",
+      userId: request.user_id,
+      workDirId,
+      engine: effectiveConfig.engine,
+    };
+  }
+
   return effectiveConfig;
 }

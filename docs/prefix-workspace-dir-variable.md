@@ -200,3 +200,22 @@ handleComputerChat(req, res, body, source)
     │
     └── 继续处理（自动安装检查 → 引擎创建 → 对话）
 ```
+
+---
+
+## 自定义 ACP Agent：会话持久化与 `session/resume`
+
+开发调试（`/devcomputer/chat`）启用 `auto_reload` 时，客户端会在**已有 ACP 引擎进程**的前提下先 `stopEngine` 再冷启动新进程，然后通过 **`session/resume`** 恢复 Agent 内部对话上下文。
+
+**重要约定：**
+
+1. **持久化位置**：Session 状态须写在 **`cwd`（项目工作目录）** 下，而不是每次 spawn 时 Electron 注入的 `isolatedHome`（`HOME` / `XDG_CONFIG_HOME` 等临时目录）。
+2. **实现 `session/resume`**：在 `initialize` 握手时通过 `agentCapabilities.sessionCapabilities.resume` 声明能力；客户端 chat 路径**只调用 `session/resume`**，**不会**调用 `session/load`（避免向 SSE 重复推送历史消息）。
+3. **仅支持 `loadSession` 的 Agent**：客户端会跳过 load、退化为 `session/new`，reload 后上下文无法保留。
+
+`cwd` 由客户端在 `session/new` / `session/resume` 请求中传入，通常为：
+
+`{workspaceDir}/computer-project-workspace/{user_id}/{agent_work_dir}`
+
+自定义 Agent 应在此目录（或其子目录）读写 session 存储，以便 reload 后 `resume(session_id)` 能成功恢复。
+

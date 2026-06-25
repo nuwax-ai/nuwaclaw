@@ -50,6 +50,7 @@ import {
   clearSseEventBuffer,
   bindSessionFirstTokenContext,
   clearSessionFirstTokenContext,
+  closeSseClientsForSession,
 } from "./sseManager";
 import {
   resolveAgentServerPaths,
@@ -58,6 +59,16 @@ import {
 } from "../workspacePaths";
 import { getAppDataDir } from "../system/appPaths";
 import { parseHttpJsonBody } from "./parseHttpJsonBody";
+import {
+  shouldAutoReload,
+  reloadEngineForRequest,
+  attachReloadedToChatResult,
+  buildChatErrorWithReload,
+} from "./devcomputerAutoReload";
+import { ensureSessionIdFromRegistry } from "./ensureChatSessionId";
+import { resolveChatProjectRegistryKey } from "./chatEngineKey";
+import { rememberProjectSession } from "./projectSessionRegistry";
+import { closeStaleSseBeforeChat } from "./closeStaleSseForChat";
 
 // ==================== Helpers ====================
 
@@ -454,11 +465,21 @@ export async function handleComputerChat(
     }
   }
 
+  // reload 前补全 session_id，便于按 session 定位引擎并走 session/load
+  ensureSessionIdFromRegistry(body);
+
+  const engineReloaded = shouldAutoReload(body, source)
+    ? await reloadEngineForRequest(body)
+    : false;
+
   let acpEngine;
   try {
     acpEngine = await agentService.ensureEngineForRequest(body);
   } catch (err: any) {
-    log.error("❌ [HTTP] Engine switch failed:", err);
+    log.error(
+      `❌ [HTTP] Engine switch failed (reloaded=${engineReloaded}):`,
+      err,
+    );
     firstTokenTrace.trace(
       "chat.failed",
       {
@@ -474,7 +495,12 @@ export async function handleComputerChat(
     sendJson(
       res,
       200,
-      httpError("5000", err.message || "Engine switch failed"),
+      buildChatErrorWithReload(
+        body,
+        "5000",
+        err.message || "Engine switch failed",
+        engineReloaded,
+      ),
     );
     return;
   }
@@ -492,12 +518,30 @@ export async function handleComputerChat(
   getPerfLogger().info(`[PERF] /chat.ensureEngine: ${t3 - t2_5}ms`);
 
   if (!acpEngine) {
-    log.error("❌ [HTTP] Agent not initialized");
-    sendJson(res, 200, httpError("5000", "Agent not initialized"));
+    log.error(`❌ [HTTP] Agent not initialized, reloaded=${engineReloaded}`);
+    sendJson(
+      res,
+      200,
+      buildChatErrorWithReload(
+        body,
+        "5000",
+        "Agent not initialized",
+        engineReloaded,
+      ),
+    );
     return;
   }
 
+  closeStaleSseBeforeChat(body, acpEngine);
+
   const result = await acpEngine.chat(body);
+  attachReloadedToChatResult(result, body, engineReloaded);
+  if (result.success && result.data?.session_id) {
+    const projectKey = resolveChatProjectRegistryKey(body);
+    if (projectKey) {
+      rememberProjectSession(projectKey, result.data.session_id);
+    }
+  }
   t4 = Date.now();
   firstTokenTrace.trace(
     result.success ? "chat.response.sent" : "chat.failed",
@@ -519,7 +563,7 @@ export async function handleComputerChat(
 
   if (result.success) {
     log.info(
-      `✅ [HTTP] Computer Chat response: session_id=${result.data?.session_id}`,
+      `✅ [HTTP] Computer Chat response: session_id=${result.data?.session_id}, reloaded=${result.data?.reloaded === true}`,
     );
     if (result.data?.session_id) {
       bindSessionFirstTokenContext(result.data.session_id, {
@@ -531,7 +575,9 @@ export async function handleComputerChat(
       });
     }
   } else {
-    log.error(`❌ [HTTP] Computer Chat failed: ${result.message}`);
+    log.error(
+      `❌ [HTTP] Computer Chat failed: ${result.message}, reloaded=${result.data?.reloaded === true}`,
+    );
   }
 
   getPerfLogger().info(
@@ -864,8 +910,19 @@ export async function handleRequest(
           }
         }
       }
-      if (cancelledSessionId) {
+      if (acpEngine && projectId) {
+        closeStaleSseBeforeChat(
+          {
+            user_id: userId,
+            project_id: projectId,
+            session_id: cancelledSessionId || sessionId || undefined,
+            prompt: "",
+          },
+          acpEngine,
+        );
+      } else if (cancelledSessionId) {
         clearSseEventBuffer(cancelledSessionId);
+        closeSseClientsForSession(cancelledSessionId);
       }
 
       sendJson(

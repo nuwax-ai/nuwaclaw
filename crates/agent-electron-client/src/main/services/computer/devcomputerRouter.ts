@@ -35,14 +35,9 @@ function error(code: string, message: string): HttpResult<null> {
   return { code, message, data: null, tid: null, success: false };
 }
 
-/** 默认启用的 AutoReloadConfig */
+/** 默认启用的 AutoReloadConfig（Electron 不实现 stability_* / force） */
 function defaultAutoReloadEnabled(): AutoReloadConfig {
-  return {
-    enabled: true,
-    stability_check_ms: 500,
-    stability_retries: 3,
-    force: false,
-  };
+  return { enabled: true };
 }
 
 // ==================== Router ====================

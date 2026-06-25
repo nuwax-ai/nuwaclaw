@@ -355,9 +355,6 @@ export class FirstTokenTrace {
       }
     }
 
-    const warmupHit = events.some((e) => e.stage === "warmup.reuse.hit");
-    const warmupMiss = events.find((e) => e.stage === "warmup.reuse.miss");
-
     const lines: string[] = [];
     lines.push(
       `## ${new Date().toISOString()} rid=${shortId(state.requestId)} session=${shortId(
@@ -370,10 +367,6 @@ export class FirstTokenTrace {
     lines.push(`- project_id: \`${state.projectId || "(none)"}\``);
     lines.push(`- session_id: \`${state.sessionId || "(none)"}\``);
     lines.push(`- engine: \`${state.engine || "(unknown)"}\``);
-    lines.push(`- warmup: \`${warmupHit ? "hit" : "miss"}\``);
-    if (warmupMiss?.data?.reason) {
-      lines.push(`- warmup_miss_reason: \`${String(warmupMiss.data.reason)}\``);
-    }
     lines.push(`- segment_A_chat: \`${formatMs(segmentA)}\``);
     lines.push(`- segment_B_prompt_to_first_token: \`${formatMs(segmentB)}\``);
     lines.push(`- total_first_token: \`${formatMs(total)}\``);

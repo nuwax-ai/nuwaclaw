@@ -30,6 +30,10 @@ import {
 } from "../../system/dependencies";
 import { APP_DATA_DIR_NAME, LOGS_DIR_NAME } from "../../constants";
 import { getAppDataDir } from "../../system/appPaths";
+import {
+  resolveIsolatedHomePath,
+  type IsolatedHomeScope,
+} from "./isolatedHomePaths";
 import { isWindows } from "../../system/shellEnv";
 import { createPlatformAdapter } from "../../system/platformAdapter";
 import {
@@ -229,6 +233,28 @@ export interface AcpClientSideConnection {
     _meta?: { [key: string]: unknown } | null;
   }): Promise<{ sessionId: string }>;
 
+  /** Restores session context without replaying history (chat fallback when loadSession is unavailable). */
+  resumeSession?(params: {
+    sessionId: string;
+    cwd: string;
+    mcpServers: Array<AcpMcpServer>;
+    _meta?: { [key: string]: unknown } | null;
+  }): Promise<{
+    modes?: unknown;
+    configOptions?: unknown;
+  }>;
+
+  /** Loads session and replays history via session/update — chat path uses this with SSE suppression when resume is unavailable. */
+  loadSession?(params: {
+    sessionId: string;
+    cwd: string;
+    mcpServers: Array<AcpMcpServer>;
+    _meta?: { [key: string]: unknown } | null;
+  }): Promise<{
+    modes?: unknown;
+    configOptions?: unknown;
+  }>;
+
   prompt(params: {
     sessionId: string;
     prompt: Array<{
@@ -413,6 +439,8 @@ export interface AcpConnectionConfig {
   purpose?: "engine";
   /** Sandbox wrapping configuration (omit to disable) */
   sandbox?: SandboxProcessConfig;
+  /** Isolated HOME scope (project / ephemeral) */
+  isolatedHomeScope?: IsolatedHomeScope;
 }
 
 /** Result of creating an ACP connection */
@@ -713,9 +741,15 @@ export async function createAcpConnection(
   // Create isolated HOME directory with empty .claude/ config
   // This prevents Claude Code from reading user's global ~/.claude/settings.json
   // 使用 ~/.nuwaclaw/run/ 而非 os.tmpdir()，避免 Unix socket 路径过长（macOS 限制 104 字符）
-  const runId = `acp-${Date.now()}-${Math.random().toString(36).substring(2, 8)}`;
-  const isolatedHome = path.join(getAppDataDir(), "run", runId);
+  const scope = config.isolatedHomeScope ?? { kind: "ephemeral" as const };
+  const { homeDir: isolatedHome, runId } = resolveIsolatedHomePath(scope);
   fs.mkdirSync(path.join(isolatedHome, ".claude"), { recursive: true });
+  log.info("[AcpClient] Isolated HOME resolved", {
+    isolatedHome,
+    runId,
+    scopeKind: scope.kind,
+    persistent: scope.kind === "project",
+  });
 
   // 获取应用隔离环境变量（包含隔离的 PATH、npm、uv 配置等）
   const appEnv = getAppEnv();
