@@ -4,7 +4,7 @@
  * 使用稳定的文本编辑 + 解析校验，避免第三方可视化编辑器导致的不可编辑问题。
  */
 
-import { useState, useEffect, useCallback, useMemo } from "react";
+import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import {
   Card,
   Button,
@@ -70,6 +70,12 @@ function MCPSettings({ isOpen = true }: MCPSettingsProps) {
   const [deletingServerId, setDeletingServerId] = useState<string | null>(null);
   const [testingServerId, setTestingServerId] = useState<string | null>(null);
   const [hasUnsavedEdits, setHasUnsavedEdits] = useState(false);
+  // 用 ref 在 loadAll 内读取最新脏状态。
+  // 切勿把 hasUnsavedEdits 放进 loadAll 依赖：首次写入草稿(false→true)会重建 loadAll 并重跑
+  // 其 effect，触发 setLoading(true) → MCPSettings 切到 Spin → 单条 MCP 编辑器被卸载，
+  // 重新挂载后输入被清空（草稿却已写入列表，表现为「粘贴配置后被清空，返回发现已添加」）。
+  const hasUnsavedEditsRef = useRef(hasUnsavedEdits);
+  hasUnsavedEditsRef.current = hasUnsavedEdits;
   // 上次保存/加载的基线文本：撤销时恢复到此值。仅由 loadAll 与保存成功后更新。
   const [savedConfigText, setSavedConfigText] = useState("{}");
   const [showResetConfirm, setShowResetConfirm] = useState(false);
@@ -197,7 +203,7 @@ function MCPSettings({ isOpen = true }: MCPSettingsProps) {
         const text = formatConfigForEditor(normalizeConfig(savedConfig, false));
         setSavedConfigText(text);
         // 编辑器仅在无未保存编辑时覆盖，防止丢失用户正在编辑的内容。
-        if (!hasUnsavedEdits) {
+        if (!hasUnsavedEditsRef.current) {
           setConfigText(text);
           setConfigTextError("");
         }
@@ -208,7 +214,7 @@ function MCPSettings({ isOpen = true }: MCPSettingsProps) {
     } finally {
       setLoading(false);
     }
-  }, [formatConfigForEditor, normalizeConfig, hasUnsavedEdits]);
+  }, [formatConfigForEditor, normalizeConfig]);
 
   useEffect(() => {
     if (isOpen) {
