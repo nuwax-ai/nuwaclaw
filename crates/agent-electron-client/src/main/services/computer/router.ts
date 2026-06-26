@@ -51,6 +51,7 @@ import {
   bindSessionFirstTokenContext,
   clearSessionFirstTokenContext,
   closeSseClientsForSession,
+  logSseWirePayloadForDebug,
 } from "./sseManager";
 import {
   resolveAgentServerPaths,
@@ -674,7 +675,9 @@ export async function handleRequest(
           },
           timestamp: new Date().toISOString(),
         };
-        res.write(`event: end_turn\ndata: ${JSON.stringify(endEvent)}\n\n`);
+        const idleEndPayload = `event: end_turn\ndata: ${JSON.stringify(endEvent)}\n\n`;
+        logSseWirePayloadForDebug(idleEndPayload);
+        res.write(idleEndPayload);
         clearSessionFirstTokenContext(sessionId);
         res.end();
         return;

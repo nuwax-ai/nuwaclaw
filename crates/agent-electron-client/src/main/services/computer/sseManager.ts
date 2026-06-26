@@ -10,6 +10,7 @@
 
 import * as http from "http";
 import log from "electron-log";
+import { FEATURES } from "@shared/featureFlags";
 import { getPerfLogger } from "../../bootstrap/logConfig";
 import { firstTokenTrace } from "../engines/perf/firstTokenTrace";
 import { resolveProjectSession } from "./projectSessionRegistry";
@@ -86,6 +87,13 @@ function extractAgentChunkText(data: unknown): string {
     );
   }
   return typeof text === "string" ? text : "";
+}
+
+/** 开发排查：打印完整 SSE wire payload（event + data 行），受 LOG_SSE_PAYLOAD 控制 */
+export function logSseWirePayloadForDebug(payload: string): void {
+  if (FEATURES.LOG_SSE_PAYLOAD) {
+    log.debug(`[SSE] payload:\n${payload}`);
+  }
 }
 
 // ==================== 首字追踪上下文 API ====================
@@ -398,6 +406,7 @@ export function pushSseEvent(
   log.debug(
     `[SSE] pushSseEvent: sessionId=${sessionId}, eventName=${eventName}, time=${now}, clients=${clients?.length || 0}`,
   );
+  logSseWirePayloadForDebug(payload);
 
   if (!clients || clients.length === 0) {
     pruneExpiredSseEventBuffers();

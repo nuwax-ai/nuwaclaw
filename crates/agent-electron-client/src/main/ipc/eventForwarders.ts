@@ -9,6 +9,7 @@ import {
 } from "../services/computer/sseManager";
 import { firstTokenTrace } from "../services/engines/perf/firstTokenTrace";
 import type { HandlerContext } from "@shared/types/ipc";
+import { FEATURES } from "@shared/featureFlags";
 import log from "electron-log";
 
 /** Stored handlers for cleanup */
@@ -106,10 +107,12 @@ export function registerEventForwarders(ctx: HandlerContext): void {
   // ==================== computer:* Event Forwarding (rcoder camelCase format) ====================
 
   const progressHandler = (data: unknown) => {
-    log.debug(
-      "[EventForwarders] 📨 Received computer:progress:",
-      JSON.stringify(data).substring(0, 200),
-    );
+    if (!FEATURES.LOG_SSE_PAYLOAD) {
+      log.debug(
+        "[EventForwarders] 📨 Received computer:progress:",
+        JSON.stringify(data).substring(0, 200),
+      );
+    }
     ctx.getMainWindow()?.webContents.send("computer:progress", data);
     const d = data as UnifiedSessionMessage;
     if (d?.sessionId) {

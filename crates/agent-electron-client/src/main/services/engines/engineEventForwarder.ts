@@ -7,6 +7,7 @@
  */
 
 import log from "electron-log";
+import { FEATURES } from "@shared/featureFlags";
 import { memoryService } from "../memory";
 import type { AcpEngine } from "./acp/acpEngine";
 import { buildModelConfig } from "./utils/buildModelConfig";
@@ -51,9 +52,10 @@ export function attachEngineEventForwarders(
     engine.on(event, (...args: unknown[]) => {
       // Debug: log event forwarding
       if (
-        event === "message.part.updated" ||
-        event === "message.updated" ||
-        event === "computer:progress"
+        !FEATURES.LOG_SSE_PAYLOAD &&
+        (event === "message.part.updated" ||
+          event === "message.updated" ||
+          event === "computer:progress")
       ) {
         log.debug(
           `[UnifiedAgent] 📤 Forwarding event: ${event}`,
