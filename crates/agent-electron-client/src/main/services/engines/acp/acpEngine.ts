@@ -82,7 +82,7 @@ import type {
   TextPart,
 } from "../types";
 import type {
-  HttpResult,
+  AcpChatHttpResult,
   ComputerChatRequest,
   ComputerChatResponse,
   UnifiedSessionMessage,
@@ -117,6 +117,10 @@ import type {
 } from "@shared/types/intervention";
 import { safeStringify } from "../utils/safeStringify";
 import { restoreFlowagentsSessions } from "../../computer/flowagentsSessionPersistence";
+import {
+  chatDispatchCoordinator,
+  type ChatDispatchContext,
+} from "../../computer/chatDispatchCoordinator";
 import {
   formatAcpLoadError,
   snapshotOpencodePersistence,
@@ -233,6 +237,8 @@ export class AcpEngine extends EventEmitter {
 
   private activePromptSessions = new Set<string>();
   private activePromptRejects = new Map<string, (reason: Error) => void>();
+  /** 递增世代号，防止被 abort/新 chat 顶替的旧 prompt finally 误清新轮次状态 */
+  private promptTurnBySession = new Map<string, number>();
   private logTag: string;
 
   private readonly _engineName: string;
@@ -798,6 +804,7 @@ export class AcpEngine extends EventEmitter {
     this.sessions.clear();
     this.activePromptSessions.clear();
     this.activePromptRejects.clear();
+    this.promptTurnBySession.clear();
     this.permissions.destroy();
     approvalInterventionService.destroy();
     this.config = null;
@@ -1160,6 +1167,7 @@ export class AcpEngine extends EventEmitter {
       }
 
       // 2. Reject local prompt after ACP binary has received the cancel.
+      this.bumpPromptTurn(sessionId);
       const reject = this.activePromptRejects.get(sessionId);
       if (reject) {
         reject(createSessionCancelledError());
@@ -1168,8 +1176,9 @@ export class AcpEngine extends EventEmitter {
 
       this.activePromptSessions.delete(sessionId);
 
-      approvalInterventionService.cancelByAcpSession(sessionId);
-      this.permissions.clearSession(sessionId);
+      const acpKey = session.acpSessionId ?? sessionId;
+      approvalInterventionService.cancelByAcpSession(acpKey);
+      this.permissions.clearSession(acpKey);
 
       session.status = "idle";
       session.lastActivity = Date.now();
@@ -1231,6 +1240,7 @@ export class AcpEngine extends EventEmitter {
 
     if (promptContent.length === 0) throw new Error("Empty prompt");
 
+    const promptTurn = this.bumpPromptTurn(sessionId);
     this.activePromptSessions.add(sessionId);
     session.status = "active";
     session.lastActivity = Date.now();
@@ -1451,11 +1461,13 @@ export class AcpEngine extends EventEmitter {
       });
     } finally {
       this.off("computer:progress", onProgress);
-      this.activePromptSessions.delete(sessionId);
-      this.activePromptRejects.delete(sessionId);
-      // Always set idle: normal completion or after cancel (cancelOne may have set terminating).
-      session.status = "idle";
-      session.lastActivity = Date.now();
+      if (this.isCurrentPromptTurn(sessionId, promptTurn)) {
+        this.activePromptSessions.delete(sessionId);
+        this.activePromptRejects.delete(sessionId);
+        // Always set idle: normal completion or after cancel (cancelOne may have set terminating).
+        session.status = "idle";
+        session.lastActivity = Date.now();
+      }
     }
 
     return {
@@ -1569,7 +1581,8 @@ export class AcpEngine extends EventEmitter {
 
   async chat(
     request: ComputerChatRequest,
-  ): Promise<HttpResult<ComputerChatResponse>> {
+    dispatch?: ChatDispatchContext,
+  ): Promise<AcpChatHttpResult> {
     const timer = perfEmitter.start();
     firstTokenTrace.trace("acp.chat.enter", {
       requestId: request.request_id,
@@ -1756,72 +1769,120 @@ export class AcpEngine extends EventEmitter {
         { isNewSession },
       );
 
-      // 2. Record user message to MemoryService（见 acpChatMemory.ts）
-      // 获取纯净用户输入（仅使用 original_user_prompt，不回退到 prompt）
-      const pureUserPrompt = request.original_user_prompt || "";
-      // 决定是否启用记忆（默认 false）
-      const enableMemory = request.open_long_memory === true;
-
-      // 存储记忆开关到 session，供事件处理器使用
-      session.openLongMemory = enableMemory;
-      // 存储记忆处理使用的模型名（优先使用 model_provider.default_model）
-      session.memoryModel =
-        request.model_provider?.default_model || this.config.model || "";
-
-      recordUserMessageToMemory({
-        sessionId: session.id,
-        requestId: request.request_id,
-        pureUserPrompt,
-        enableMemory,
-        modelProvider: request.model_provider,
-        engineName: this.engineName,
-        config: this.config,
-        logTag: this.logTag,
-      });
-
-      // 3. Inject memory context into prompt
-      const memoryTimer = perfEmitter.start();
-      const enhancedPrompt = await buildMemoryEnhancedPrompt({
-        prompt: request.prompt,
-        pureUserPrompt,
-        enableMemory,
-        logTag: this.logTag,
-      });
-      memoryTimer.end("acp.chat.memoryInject", {
-        stage: "memory_injection",
-        enabled: enableMemory,
-      });
+      if (
+        dispatch &&
+        !chatDispatchCoordinator.isLatest(
+          dispatch.dispatchKey,
+          dispatch.turnGeneration,
+        )
+      ) {
+        return this.finalizeSupersededChat(
+          session,
+          request,
+          dispatch,
+          isNewSession,
+          timer,
+        );
+      }
 
       const contextServerNames = this.getEnabledContextServerNames(
         request.agent_config?.context_servers as
           | Record<string, { enabled?: boolean } | undefined>
           | undefined,
       );
-      await this.waitForCompatMcpWarmupIfNeeded({
-        sessionId: session.id,
-        requestId: request.request_id,
-        isNewSession,
-        mcpServerCount: session.mcpServerCount ?? 0,
-        contextServerNames,
-      });
 
-      // 4. Async prompt
-      const promptOptions: PromptOptions = {
-        messageID: request.request_id,
+      const dispatchPrompt = async (
+        isLatest?: () => boolean,
+      ): Promise<"dispatched" | "superseded"> => {
+        if (isLatest && !isLatest()) {
+          return "superseded";
+        }
+        await this.abortActiveTurnBeforeNewChat(session);
+        if (isLatest && !isLatest()) {
+          return "superseded";
+        }
+
+        const pureUserPrompt = request.original_user_prompt || "";
+        const enableMemory = request.open_long_memory === true;
+
+        session.openLongMemory = enableMemory;
+        session.memoryModel =
+          request.model_provider?.default_model || this.config!.model || "";
+
+        recordUserMessageToMemory({
+          sessionId: session.id,
+          requestId: request.request_id,
+          pureUserPrompt,
+          enableMemory,
+          modelProvider: request.model_provider,
+          engineName: this.engineName,
+          config: this.config!,
+          logTag: this.logTag,
+        });
+
+        const memoryTimer = perfEmitter.start();
+        const enhancedPrompt = await buildMemoryEnhancedPrompt({
+          prompt: request.prompt,
+          pureUserPrompt,
+          enableMemory,
+          logTag: this.logTag,
+        });
+        memoryTimer.end("acp.chat.memoryInject", {
+          stage: "memory_injection",
+          enabled: enableMemory,
+        });
+
+        await this.waitForCompatMcpWarmupIfNeeded({
+          sessionId: session.id,
+          requestId: request.request_id,
+          isNewSession,
+          mcpServerCount: session.mcpServerCount ?? 0,
+          contextServerNames,
+        });
+
+        const promptOptions: PromptOptions = {
+          messageID: request.request_id,
+        };
+        if (this.sandboxCaps.usesOpencodePromptBehaviors) {
+          promptOptions.mcpInitPolicy = NUWAX_MCP_INIT_POLICY_DEFAULT;
+          promptOptions.mcpInitTimeoutMs = NUWAX_MCP_INIT_TIMEOUT_MS_DEFAULT;
+        }
+        this.promptAsync(session.id, [{ type: "text", text: enhancedPrompt }], {
+          ...promptOptions,
+        });
+        firstTokenTrace.trace("acp.prompt.dispatched", {
+          requestId: request.request_id,
+          sessionId: session.id,
+          projectId: request.project_id,
+          engine: this.engineName,
+        });
+        return "dispatched";
       };
-      if (this.sandboxCaps.usesOpencodePromptBehaviors) {
-        promptOptions.mcpInitPolicy = NUWAX_MCP_INIT_POLICY_DEFAULT;
-        promptOptions.mcpInitTimeoutMs = NUWAX_MCP_INIT_TIMEOUT_MS_DEFAULT;
+
+      let promptOutcome: "dispatched" | "superseded";
+      if (dispatch) {
+        const runResult = await chatDispatchCoordinator.runDispatch(
+          dispatch.dispatchKey,
+          dispatch.turnGeneration,
+          async (isLatest) => dispatchPrompt(isLatest),
+        );
+        promptOutcome =
+          runResult === undefined || runResult === "superseded"
+            ? "superseded"
+            : "dispatched";
+      } else {
+        promptOutcome = await dispatchPrompt();
       }
-      this.promptAsync(session.id, [{ type: "text", text: enhancedPrompt }], {
-        ...promptOptions,
-      });
-      firstTokenTrace.trace("acp.prompt.dispatched", {
-        requestId: request.request_id,
-        sessionId: session.id,
-        projectId: request.project_id,
-        engine: this.engineName,
-      });
+
+      if (promptOutcome === "superseded") {
+        return this.finalizeSupersededChat(
+          session,
+          request,
+          dispatch,
+          isNewSession,
+          timer,
+        );
+      }
 
       timer.end("acp.chat.total", {
         stage: "total",
@@ -1829,9 +1890,9 @@ export class AcpEngine extends EventEmitter {
         isNewSession,
         engine: this.engineName,
         model: this.config.model || "(not set)",
+        promptOutcome,
       });
 
-      // 5. Return HttpResult<ChatResponse>
       const chatResponse: ComputerChatResponse = {
         project_id: request.project_id || session.id,
         session_id: session.id,
@@ -1858,6 +1919,8 @@ export class AcpEngine extends EventEmitter {
         data: chatResponse,
         tid: null,
         success: true,
+        /** Electron-internal; stripped before HTTP JSON (see router handleComputerChat) */
+        promptDispatched: true,
       };
     } catch (error) {
       const rawErrorMsg = toErrorMessage(error);
@@ -1886,6 +1949,53 @@ export class AcpEngine extends EventEmitter {
   }
 
   // === Internal: Build ACP Client Handler ===
+
+  private finalizeSupersededChat(
+    session: AcpSession,
+    request: ComputerChatRequest,
+    dispatch: ChatDispatchContext | undefined,
+    isNewSession: boolean,
+    timer: ReturnType<typeof perfEmitter.start>,
+  ): AcpChatHttpResult {
+    timer.end("acp.chat.total", {
+      stage: "total",
+      sessionId: session.id,
+      isNewSession,
+      engine: this.engineName,
+      model: this.config?.model || "(not set)",
+      promptOutcome: "superseded",
+    });
+    log.info(
+      `${this.logTag} chat() superseded (no prompt dispatched): session_id=${session.id} request_id=${request.request_id}`,
+    );
+    firstTokenTrace.trace(
+      "chat.superseded",
+      {
+        requestId: request.request_id,
+        sessionId: session.id,
+        projectId: request.project_id,
+        engine: this.engineName,
+      },
+      {
+        dispatchKey: dispatch?.dispatchKey,
+        turnGeneration: dispatch?.turnGeneration,
+      },
+    );
+    return {
+      code: "0000",
+      message: "success",
+      data: {
+        project_id: request.project_id || session.id,
+        session_id: session.id,
+        error: null,
+        request_id: request.request_id,
+        is_new_session: isNewSession,
+      },
+      tid: null,
+      success: true,
+      promptDispatched: false,
+    };
+  }
 
   private buildClientHandler(): AcpClientHandler {
     if (!this.terminalManager) {
@@ -2006,6 +2116,47 @@ export class AcpEngine extends EventEmitter {
     for (const { event, payload } of mapped.events) {
       this.emit(event, payload);
     }
+  }
+
+  /**
+   * 新 /computer/chat 到达时取消上一轮未完成的 prompt 与 pending 权限审批。
+   * 活跃 prompt 走完整 abortSession（ACP cancel + 本地 reject + pending 清理）；
+   * 仅残留 pending 时单独 cancel，避免旧审批在下一轮仍被 resolve。
+   */
+  private async abortActiveTurnBeforeNewChat(
+    session: AcpSession,
+  ): Promise<void> {
+    const sessionId = session.id;
+    const acpSessionId = session.acpSessionId ?? sessionId;
+    const hasActivePrompt = this.activePromptSessions.has(sessionId);
+    const hasPendingPermissions =
+      approvalInterventionService.hasPendingForAcpSession(acpSessionId);
+
+    if (!hasActivePrompt && !hasPendingPermissions) {
+      return;
+    }
+
+    log.info(
+      `${this.logTag} New chat supersedes in-flight turn: session=${sessionId} acpSession=${acpSessionId} activePrompt=${hasActivePrompt} pendingPermissions=${hasPendingPermissions}`,
+    );
+
+    if (hasActivePrompt) {
+      await this.abortSession(sessionId);
+      return;
+    }
+
+    approvalInterventionService.cancelByAcpSession(acpSessionId, "new_chat");
+    this.permissions.clearSession(acpSessionId);
+  }
+
+  private bumpPromptTurn(sessionId: string): number {
+    const next = (this.promptTurnBySession.get(sessionId) ?? 0) + 1;
+    this.promptTurnBySession.set(sessionId, next);
+    return next;
+  }
+
+  private isCurrentPromptTurn(sessionId: string, turn: number): boolean {
+    return this.promptTurnBySession.get(sessionId) === turn;
   }
 
   // === Internal: Permission Handling ===

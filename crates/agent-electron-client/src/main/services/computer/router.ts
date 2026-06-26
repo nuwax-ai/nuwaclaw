@@ -21,6 +21,7 @@ import { getConfiguredPorts } from "../startupPorts";
 import type {
   ComputerChatRequest,
   HttpResult,
+  AcpChatHttpResult,
   UnifiedSessionMessage,
 } from "../engines/unifiedAgent";
 import type {
@@ -70,6 +71,11 @@ import { ensureSessionIdFromRegistry } from "./ensureChatSessionId";
 import { resolveChatProjectRegistryKey } from "./chatEngineKey";
 import { rememberProjectSession } from "./projectSessionRegistry";
 import { closeStaleSseBeforeChat } from "./closeStaleSseForChat";
+import {
+  chatDispatchCoordinator,
+  resolveChatDispatchKey,
+  type ChatDispatchContext,
+} from "./chatDispatchCoordinator";
 
 // ==================== Helpers ====================
 
@@ -330,6 +336,15 @@ export async function handleComputerChat(
     body.agent_work_dir = body.project_id;
   }
 
+  const dispatchKey = resolveChatDispatchKey(body);
+  const chatDispatch: ChatDispatchContext = {
+    dispatchKey,
+    turnGeneration: chatDispatchCoordinator.bumpArrival(
+      dispatchKey,
+      body.request_id,
+    ),
+  };
+
   t2 = Date.now();
   firstTokenTrace.trace(
     "chat.validated",
@@ -535,9 +550,11 @@ export async function handleComputerChat(
 
   closeStaleSseBeforeChat(body, acpEngine);
 
-  const result = await acpEngine.chat(body);
+  const rawResult: AcpChatHttpResult = await acpEngine.chat(body, chatDispatch);
+  const promptDispatched = rawResult.promptDispatched !== false;
+  const { promptDispatched: _pd, ...result } = rawResult;
   attachReloadedToChatResult(result, body, engineReloaded);
-  if (result.success && result.data?.session_id) {
+  if (result.success && promptDispatched && result.data?.session_id) {
     const projectKey = resolveChatProjectRegistryKey(body);
     if (projectKey) {
       rememberProjectSession(projectKey, result.data.session_id);
@@ -566,7 +583,7 @@ export async function handleComputerChat(
     log.info(
       `✅ [HTTP] Computer Chat response: session_id=${result.data?.session_id}, reloaded=${result.data?.reloaded === true}`,
     );
-    if (result.data?.session_id) {
+    if (promptDispatched && result.data?.session_id) {
       bindSessionFirstTokenContext(result.data.session_id, {
         requestId: body.request_id || result.data.request_id,
         projectId: body.project_id || result.data.project_id,

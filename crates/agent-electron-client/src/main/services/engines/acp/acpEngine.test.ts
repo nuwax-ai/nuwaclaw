@@ -13,9 +13,11 @@ import * as fs from "fs";
 import * as os from "os";
 import * as path from "path";
 import { ACP_SESSION_CANCELLED_ERROR_CODE } from "@shared/constants";
+import type { AcpChatHttpResult } from "@shared/types/computerTypes";
 import * as dependencies from "@main/services/system/dependencies";
 import * as sandboxPolicy from "@main/services/sandbox/policy";
 import * as opencodeAcpSandbox from "./sandbox/opencodeAcpSandbox";
+import { chatDispatchCoordinator } from "../../computer/chatDispatchCoordinator";
 
 vi.mock("electron", () => ({
   app: {
@@ -110,6 +112,7 @@ vi.mock("@main/services/sandbox/policy", () => ({
 
 import { AcpEngine } from "./acpEngine";
 import * as acpClient from "./acpClient";
+import * as acpChatMemory from "./acpChatMemory";
 
 type Deferred<T> = {
   promise: Promise<T>;
@@ -1034,6 +1037,15 @@ describe("AcpEngine.init", () => {
 });
 
 describe("AcpEngine.chat", () => {
+  beforeEach(() => {
+    chatDispatchCoordinator.reset();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+  });
+
   it("nuwaxcode: 将 request_id 透传并附带 mcpInit 默认策略", async () => {
     const { engine, sessionId, session } = setupEngine();
     session.projectId = "project-test-001";
@@ -1060,6 +1072,411 @@ describe("AcpEngine.chat", () => {
         mcpInitTimeoutMs: 500,
       },
     );
+  });
+
+  it("chat 前有活跃 prompt 时先 abortSession 再发新 prompt", async () => {
+    const { engine, sessionId, session, acpConnection } = setupEngine();
+    session.projectId = "project-test-001";
+    (engine as any).activePromptSessions.add(sessionId);
+    acpConnection.cancel.mockResolvedValue(undefined);
+
+    const abortSpy = vi.spyOn(engine, "abortSession");
+    const promptAsyncSpy = vi
+      .spyOn(engine, "promptAsync")
+      .mockResolvedValue(undefined);
+
+    const result = await engine.chat({
+      user_id: "user-1",
+      project_id: "project-test-001",
+      session_id: sessionId,
+      request_id: "rid-chat-supersede-001",
+      prompt: "follow-up",
+    } as any);
+
+    expect(result.success).toBe(true);
+    expect(abortSpy).toHaveBeenCalledWith(sessionId);
+    expect(acpConnection.cancel).toHaveBeenCalledWith({ sessionId });
+    expect(promptAsyncSpy).toHaveBeenCalled();
+  });
+
+  it("chat 前无活跃 turn 时不调用 abortSession", async () => {
+    const { engine, sessionId, session } = setupEngine();
+    session.projectId = "project-test-001";
+
+    const abortSpy = vi.spyOn(engine, "abortSession");
+    vi.spyOn(engine, "promptAsync").mockResolvedValue(undefined);
+
+    const result = await engine.chat({
+      user_id: "user-1",
+      project_id: "project-test-001",
+      session_id: sessionId,
+      request_id: "rid-chat-clean-001",
+      prompt: "hello",
+    } as any);
+
+    expect(result.success).toBe(true);
+    expect(abortSpy).not.toHaveBeenCalled();
+  });
+
+  it("chat 前有孤立 pending 权限时取消后再发新 prompt", async () => {
+    const { engine, sessionId, session } = setupEngine();
+    session.projectId = "project-test-001";
+
+    const { approvalInterventionService } =
+      await import("../../intervention/approvalInterventionService");
+    const cancelSpy = vi.spyOn(
+      approvalInterventionService,
+      "cancelByAcpSession",
+    );
+
+    approvalInterventionService.createPending({
+      engine: "nuwaxcode",
+      appSessionId: sessionId,
+      acpSessionId: sessionId,
+      acpRequest: {
+        sessionId,
+        toolCall: {
+          toolCallId: "tool-call-orphan",
+          kind: "bash",
+          title: "bash",
+          rawInput: { command: "ls" },
+        },
+        options: [{ optionId: "once", name: "Allow once", kind: "allow_once" }],
+      } as any,
+    });
+
+    const abortSpy = vi.spyOn(engine, "abortSession");
+    const promptAsyncSpy = vi
+      .spyOn(engine, "promptAsync")
+      .mockResolvedValue(undefined);
+
+    const result = await engine.chat({
+      user_id: "user-1",
+      project_id: "project-test-001",
+      session_id: sessionId,
+      request_id: "rid-chat-orphan-pending-001",
+      prompt: "new message",
+    } as any);
+
+    expect(result.success).toBe(true);
+    expect(abortSpy).not.toHaveBeenCalled();
+    expect(cancelSpy).toHaveBeenCalledWith(sessionId, "new_chat");
+    expect(promptAsyncSpy).toHaveBeenCalled();
+    expect(approvalInterventionService.pendingCount).toBe(0);
+  });
+
+  it("abort 后新 chat 时旧 prompt finally 不会清掉新轮次 activePromptSessions", async () => {
+    const { engine, sessionId, session, acpConnection } = setupEngine();
+    session.projectId = "project-test-001";
+
+    let resolveOldPrompt!: (value: { stopReason: string }) => void;
+    let resolveNewPrompt!: (value: { stopReason: string }) => void;
+    const oldAcpPrompt = new Promise<{ stopReason: string }>((resolve) => {
+      resolveOldPrompt = resolve;
+    });
+    const newAcpPrompt = new Promise<{ stopReason: string }>((resolve) => {
+      resolveNewPrompt = resolve;
+    });
+
+    acpConnection.prompt
+      .mockImplementationOnce(() => oldAcpPrompt)
+      .mockImplementationOnce(() => newAcpPrompt);
+    acpConnection.cancel.mockResolvedValue(undefined);
+
+    void engine.prompt(sessionId, [{ type: "text", text: "old" }]);
+    await vi.waitFor(() =>
+      expect((engine as any).activePromptSessions.has(sessionId)).toBe(true),
+    );
+
+    const chatResult = await engine.chat({
+      user_id: "user-1",
+      project_id: "project-test-001",
+      session_id: sessionId,
+      request_id: "rid-chat-race-001",
+      prompt: "new",
+    } as any);
+
+    expect(chatResult.success).toBe(true);
+    expect(acpConnection.cancel).toHaveBeenCalledWith({ sessionId });
+    expect((engine as any).activePromptSessions.has(sessionId)).toBe(true);
+
+    resolveOldPrompt({ stopReason: "cancelled" });
+    await new Promise((resolve) => setImmediate(resolve));
+    expect((engine as any).activePromptSessions.has(sessionId)).toBe(true);
+
+    resolveNewPrompt({ stopReason: "end_turn" });
+    await vi.waitFor(
+      () =>
+        expect((engine as any).activePromptSessions.has(sessionId)).toBe(false),
+      { timeout: 2000 },
+    );
+  });
+
+  it("dispatch: stale turn skips promptAsync and memory", async () => {
+    chatDispatchCoordinator.reset();
+    const { engine, sessionId, session } = setupEngine();
+    session.projectId = "project-test-001";
+
+    chatDispatchCoordinator.bumpArrival("project-test-001", "rid-1");
+    chatDispatchCoordinator.bumpArrival("project-test-001", "rid-2");
+
+    const promptAsyncSpy = vi
+      .spyOn(engine, "promptAsync")
+      .mockResolvedValue(undefined);
+    const recordMemorySpy = vi.spyOn(
+      acpChatMemory,
+      "recordUserMessageToMemory",
+    );
+    const buildPromptSpy = vi.spyOn(acpChatMemory, "buildMemoryEnhancedPrompt");
+
+    const result = await engine.chat(
+      {
+        user_id: "user-1",
+        project_id: "project-test-001",
+        session_id: sessionId,
+        request_id: "rid-chat-stale-001",
+        prompt: "hello",
+        original_user_prompt: "hello",
+        open_long_memory: true,
+      } as any,
+      { dispatchKey: "project-test-001", turnGeneration: 1 },
+    );
+
+    expect(result.success).toBe(true);
+    expect((result as AcpChatHttpResult).promptDispatched).toBe(false);
+    expect(promptAsyncSpy).not.toHaveBeenCalled();
+    expect(recordMemorySpy).not.toHaveBeenCalled();
+    expect(buildPromptSpy).not.toHaveBeenCalled();
+
+    recordMemorySpy.mockRestore();
+    buildPromptSpy.mockRestore();
+  });
+
+  it("dispatch: superseded after abort skips memory", async () => {
+    chatDispatchCoordinator.reset();
+    const key = "project-test-001";
+    chatDispatchCoordinator.bumpArrival(key, "rid-2");
+
+    const { engine, sessionId, session } = setupEngine();
+    session.projectId = key;
+
+    vi.spyOn(engine as any, "abortActiveTurnBeforeNewChat").mockImplementation(
+      async () => {
+        chatDispatchCoordinator.bumpArrival(key, "rid-3");
+      },
+    );
+
+    const recordMemorySpy = vi.spyOn(
+      acpChatMemory,
+      "recordUserMessageToMemory",
+    );
+    const buildPromptSpy = vi.spyOn(acpChatMemory, "buildMemoryEnhancedPrompt");
+    vi.spyOn(engine, "promptAsync").mockResolvedValue(undefined);
+
+    const result = await engine.chat(
+      {
+        user_id: "user-1",
+        project_id: key,
+        session_id: sessionId,
+        request_id: "rid-chat-abort-supersede",
+        prompt: "hello",
+        original_user_prompt: "hello",
+        open_long_memory: true,
+      } as any,
+      { dispatchKey: key, turnGeneration: 2 },
+    );
+
+    expect((result as AcpChatHttpResult).promptDispatched).toBe(false);
+    expect(recordMemorySpy).not.toHaveBeenCalled();
+    expect(buildPromptSpy).not.toHaveBeenCalled();
+
+    recordMemorySpy.mockRestore();
+    buildPromptSpy.mockRestore();
+  });
+
+  it("dispatch: runDispatch gate stale skips memory", async () => {
+    chatDispatchCoordinator.reset();
+    const key = "project-test-001";
+    const gen1 = chatDispatchCoordinator.bumpArrival(key, "rid-hold");
+    const hold = createDeferred<void>();
+
+    const queueHold = chatDispatchCoordinator.runDispatch(
+      key,
+      gen1,
+      async () => {
+        await hold.promise;
+        return "dispatched" as const;
+      },
+    );
+
+    await new Promise((resolve) => setImmediate(resolve));
+
+    const { engine, sessionId, session } = setupEngine();
+    session.projectId = key;
+
+    const recordMemorySpy = vi.spyOn(
+      acpChatMemory,
+      "recordUserMessageToMemory",
+    );
+    vi.spyOn(engine, "promptAsync").mockResolvedValue(undefined);
+
+    const chatPromise = engine.chat(
+      {
+        user_id: "user-1",
+        project_id: key,
+        session_id: sessionId,
+        request_id: "rid-chat-gate-stale",
+        prompt: "hello",
+        original_user_prompt: "hello",
+        open_long_memory: true,
+      } as any,
+      { dispatchKey: key, turnGeneration: 1 },
+    );
+
+    await new Promise((resolve) => setImmediate(resolve));
+    chatDispatchCoordinator.bumpArrival(key, "rid-2");
+    hold.resolve();
+
+    const result = await chatPromise;
+    await queueHold;
+
+    expect((result as AcpChatHttpResult).promptDispatched).toBe(false);
+    expect(recordMemorySpy).not.toHaveBeenCalled();
+
+    recordMemorySpy.mockRestore();
+  });
+
+  it("dispatch: latest turn aborts in-flight prompt then dispatches", async () => {
+    chatDispatchCoordinator.reset();
+    const { engine, sessionId, session, acpConnection } = setupEngine();
+    session.projectId = "project-test-001";
+    (engine as any).activePromptSessions.add(sessionId);
+    acpConnection.cancel.mockResolvedValue(undefined);
+
+    chatDispatchCoordinator.bumpArrival("project-test-001", "rid-1");
+    chatDispatchCoordinator.bumpArrival("project-test-001", "rid-2");
+
+    const abortSpy = vi.spyOn(engine, "abortSession");
+    const promptAsyncSpy = vi
+      .spyOn(engine, "promptAsync")
+      .mockResolvedValue(undefined);
+
+    const result = await engine.chat(
+      {
+        user_id: "user-1",
+        project_id: "project-test-001",
+        session_id: sessionId,
+        request_id: "rid-chat-latest-001",
+        prompt: "follow-up",
+      } as any,
+      { dispatchKey: "project-test-001", turnGeneration: 2 },
+    );
+
+    expect(result.success).toBe(true);
+    expect((result as AcpChatHttpResult).promptDispatched).toBe(true);
+    expect(abortSpy).toHaveBeenCalledWith(sessionId);
+    expect(promptAsyncSpy).toHaveBeenCalled();
+  });
+
+  it("dispatch: latest turn records memory before promptAsync", async () => {
+    chatDispatchCoordinator.reset();
+    const { engine, sessionId, session } = setupEngine();
+    session.projectId = "project-test-001";
+
+    chatDispatchCoordinator.bumpArrival("project-test-001", "rid-1");
+    chatDispatchCoordinator.bumpArrival("project-test-001", "rid-2");
+
+    const recordMemorySpy = vi.spyOn(
+      acpChatMemory,
+      "recordUserMessageToMemory",
+    );
+    const promptAsyncSpy = vi
+      .spyOn(engine, "promptAsync")
+      .mockResolvedValue(undefined);
+
+    const result = await engine.chat(
+      {
+        user_id: "user-1",
+        project_id: "project-test-001",
+        session_id: sessionId,
+        request_id: "rid-chat-latest-memory",
+        prompt: "hello",
+        original_user_prompt: "hello",
+        open_long_memory: true,
+      } as any,
+      { dispatchKey: "project-test-001", turnGeneration: 2 },
+    );
+
+    expect(result.success).toBe(true);
+    expect((result as AcpChatHttpResult).promptDispatched).toBe(true);
+    expect(recordMemorySpy).toHaveBeenCalledTimes(1);
+    expect(promptAsyncSpy).toHaveBeenCalled();
+
+    recordMemorySpy.mockRestore();
+  });
+
+  it("dispatch: latest turn calls memory before promptAsync", async () => {
+    chatDispatchCoordinator.reset();
+    const key = "project-test-001";
+    chatDispatchCoordinator.bumpArrival(key, "rid-1");
+    chatDispatchCoordinator.bumpArrival(key, "rid-2");
+
+    const { engine, sessionId, session } = setupEngine();
+    session.projectId = key;
+
+    const callOrder: string[] = [];
+    vi.spyOn(acpChatMemory, "recordUserMessageToMemory").mockImplementation(
+      () => {
+        callOrder.push("memory");
+      },
+    );
+    vi.spyOn(engine, "promptAsync").mockImplementation(async () => {
+      callOrder.push("prompt");
+    });
+
+    await engine.chat(
+      {
+        user_id: "user-1",
+        project_id: key,
+        session_id: sessionId,
+        request_id: "rid-chat-order",
+        prompt: "hello",
+        original_user_prompt: "hello",
+        open_long_memory: true,
+      } as any,
+      { dispatchKey: key, turnGeneration: 2 },
+    );
+
+    expect(callOrder).toEqual(["memory", "prompt"]);
+  });
+
+  it("dispatch: superseded skips mcp warmup", async () => {
+    chatDispatchCoordinator.reset();
+    const key = "project-test-001";
+    chatDispatchCoordinator.bumpArrival(key, "rid-1");
+    chatDispatchCoordinator.bumpArrival(key, "rid-2");
+
+    const { engine, sessionId, session } = setupEngine();
+    session.projectId = key;
+
+    const warmupSpy = vi.spyOn(engine as any, "waitForCompatMcpWarmupIfNeeded");
+    vi.spyOn(engine, "promptAsync").mockResolvedValue(undefined);
+
+    const result = await engine.chat(
+      {
+        user_id: "user-1",
+        project_id: key,
+        session_id: sessionId,
+        request_id: "rid-chat-no-warmup",
+        prompt: "hello",
+        original_user_prompt: "hello",
+        open_long_memory: true,
+      } as any,
+      { dispatchKey: key, turnGeneration: 1 },
+    );
+
+    expect((result as AcpChatHttpResult).promptDispatched).toBe(false);
+    expect(warmupSpy).not.toHaveBeenCalled();
   });
 
   it("claude-code: chat 保持原逻辑仅透传 messageID", async () => {

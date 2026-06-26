@@ -39,6 +39,7 @@ import { ENGINE_DESTROY_TIMEOUT } from "@shared/constants";
 // Re-export computer types
 export type {
   HttpResult,
+  AcpChatHttpResult,
   ComputerChatRequest,
   ComputerChatResponse,
   UnifiedSessionMessage,

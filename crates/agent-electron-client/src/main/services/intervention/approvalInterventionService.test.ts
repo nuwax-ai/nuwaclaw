@@ -142,6 +142,22 @@ describe("ApprovalInterventionService computer permission callbacks", () => {
     expect(service.pendingCount).toBe(0);
   });
 
+  it("reports pending permissions for an ACP session", () => {
+    const service = new ApprovalInterventionService();
+    expect(service.hasPendingForAcpSession("acp-session-1")).toBe(false);
+
+    service.createPending({
+      engine: "nuwaxcode",
+      appSessionId: "app-session-1",
+      acpSessionId: "acp-session-1",
+      acpRequest: createRequest(),
+    });
+
+    expect(service.hasPendingForAcpSession("acp-session-1")).toBe(true);
+    expect(service.hasPendingForAcpSession("acp-session-2")).toBe(false);
+    service.destroy();
+  });
+
   it("cleans the ACP permission key when a pending request times out", async () => {
     vi.useFakeTimers();
     const service = new ApprovalInterventionService();

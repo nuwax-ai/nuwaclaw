@@ -133,6 +133,14 @@ export interface ComputerChatResponse {
   reloaded?: boolean | null;
 }
 
+/**
+ * AcpEngine.chat 返回值（主进程内部）。
+ * promptDispatched 在写出 HTTP JSON 前剥离，不暴露给 rcoder。
+ */
+export type AcpChatHttpResult = HttpResult<ComputerChatResponse> & {
+  promptDispatched?: boolean;
+};
+
 // 对应 rcoder UnifiedSessionMessage（SSE 进度事件）
 // 字段名使用 camelCase 对齐 rcoder #[serde(rename_all = "camelCase")]
 export interface UnifiedSessionMessage {
