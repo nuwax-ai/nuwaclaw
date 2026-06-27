@@ -451,9 +451,10 @@ export async function handleComputerChat(
     const { agent_id, command, version, platforms } =
       body.agent_config.agent_server;
     if (agent_id && command && version) {
+      const { installFromUrl, isBuiltinAgent, resolvePlatformDownloadUrl } =
+        await import("../agentInstaller");
+      const installUrl = resolvePlatformDownloadUrl(platforms);
       try {
-        const { installFromUrl, isBuiltinAgent } =
-          await import("../agentInstaller");
         if (!isBuiltinAgent(agent_id)) {
           log.info(`[HTTP] Auto-installing agent: ${agent_id}@${version}`);
           await installFromUrl({
@@ -467,13 +468,17 @@ export async function handleComputerChat(
           });
         }
       } catch (installErr) {
-        log.error(`[HTTP] Auto-install failed: ${installErr}`);
+        const message =
+          installErr instanceof Error ? installErr.message : String(installErr);
+        log.error(
+          `[HTTP] Auto-install failed: agent_id=${agent_id}, version=${version}, install_url=${installUrl ?? "unknown"}, platform_keys=${Object.keys(platforms).join(",")}, error=${message}`,
+        );
         sendJson(
           res,
           200,
           httpError(
             "ERR_AGENT_AUTO_INSTALL_FAILED",
-            `Agent auto-install failed: ${installErr}`,
+            `Agent auto-install failed: ${message}`,
           ),
         );
         return;

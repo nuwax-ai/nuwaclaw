@@ -165,6 +165,13 @@ function matchPlatform(
   return null;
 }
 
+/** Resolve download URL for the current platform (for logging/diagnostics). */
+export function resolvePlatformDownloadUrl(
+  platforms: Record<string, PlatformEntry>,
+): string | undefined {
+  return matchPlatform(platforms)?.entry.url;
+}
+
 /** 归一化平台 key */
 function normalizePlatformKey(key: string): string {
   return key
@@ -277,10 +284,196 @@ function normalizeVersion(version: string): string {
 // 文件下载
 // =============================================================================
 
+const INSPECT_HEAD_BYTES = 512;
+
+type ArchiveKind = "zip" | "tar.gz";
+
+export interface InspectDownloadedArtifactOptions {
+  url: string;
+  contentType?: string;
+  expectedArchive?: ArchiveKind;
+  deleteOnFailure?: boolean;
+}
+
 interface DownloadResult {
   filePath: string;
   fileSize: number;
   fromCache: boolean;
+}
+
+function readFileHead(filePath: string, maxBytes = INSPECT_HEAD_BYTES): Buffer {
+  const fd = fs.openSync(filePath, "r");
+  try {
+    const size = Math.min(fs.statSync(filePath).size, maxBytes);
+    const buf = Buffer.alloc(size);
+    if (size > 0) {
+      fs.readSync(fd, buf, 0, size, 0);
+    }
+    return buf;
+  } finally {
+    fs.closeSync(fd);
+  }
+}
+
+function formatMagicHex(buf: Buffer, max = 8): string {
+  return buf.subarray(0, Math.min(buf.length, max)).toString("hex");
+}
+
+function isZipMagic(buf: Buffer): boolean {
+  return buf.length >= 2 && buf[0] === 0x50 && buf[1] === 0x4b;
+}
+
+function isGzipMagic(buf: Buffer): boolean {
+  return buf.length >= 2 && buf[0] === 0x1f && buf[1] === 0x8b;
+}
+
+function inferExpectedArchiveFromUrl(url: string): ArchiveKind | undefined {
+  const lower = url.toLowerCase();
+  if (lower.endsWith(".zip")) return "zip";
+  if (lower.endsWith(".tar.gz") || lower.endsWith(".tgz")) return "tar.gz";
+  return undefined;
+}
+
+function buildInspectContext(
+  url: string,
+  contentType: string | undefined,
+  size: number,
+): string {
+  const parts = [`url=${url}`, `size=${size}B`];
+  if (contentType) {
+    parts.push(`content-type=${contentType}`);
+  }
+  return parts.join(", ");
+}
+
+function safeUnlink(filePath: string): void {
+  try {
+    if (fs.existsSync(filePath)) {
+      fs.unlinkSync(filePath);
+    }
+  } catch (e) {
+    log.warn(
+      `[AgentInstaller] Failed to remove invalid download: ${filePath}: ${e}`,
+    );
+  }
+}
+
+function normalizeContentType(
+  value: string | string[] | undefined,
+): string | undefined {
+  if (Array.isArray(value)) {
+    return value[0];
+  }
+  return value;
+}
+
+function isApiErrorPayload(json: Record<string, unknown>): boolean {
+  if (json.success === true) {
+    return false;
+  }
+  if (json.success === false) {
+    return true;
+  }
+  if (json.code != null && json.message != null) {
+    return true;
+  }
+  if (json.displayCode != null && json.message != null) {
+    return true;
+  }
+  return false;
+}
+
+/** Download validation errors that will not succeed on retry. */
+export function isNonRetryableDownloadError(message: string): boolean {
+  return (
+    message.includes("Download returned API error") ||
+    message.includes("Download content-type mismatch") ||
+    message.includes("Downloaded file is not a valid") ||
+    message.includes("Downloaded file is empty") ||
+    message.includes("File has archive extension but missing") ||
+    message.includes("File has .zip extension but missing") ||
+    /^HTTP 40[0-9]:/.test(message)
+  );
+}
+
+function tryParseApiError(
+  filePath: string,
+  head: Buffer,
+  size: number,
+): string | null {
+  const trimmedHead = head.toString("utf-8").trimStart();
+  const firstChar =
+    trimmedHead.length > 0 ? trimmedHead.charCodeAt(0) : head[0];
+  if (firstChar !== 0x7b && firstChar !== 0x5b) {
+    return null;
+  }
+
+  try {
+    const text =
+      size <= 65536 ? fs.readFileSync(filePath, "utf-8").trim() : trimmedHead;
+    const json = JSON.parse(text) as Record<string, unknown>;
+    if (!json || typeof json !== "object" || Array.isArray(json)) {
+      return null;
+    }
+    if (isApiErrorPayload(json)) {
+      const code = json.code ?? json.displayCode ?? "unknown";
+      const message = json.message ?? "unknown error";
+      return `Download returned API error (${code}): ${message}`;
+    }
+  } catch {
+    // Not a parseable API error payload.
+  }
+  return null;
+}
+
+/** Validate downloaded artifact content before extract/install. */
+export function inspectDownloadedArtifact(
+  filePath: string,
+  opts: InspectDownloadedArtifactOptions,
+): void {
+  const { url, contentType, expectedArchive, deleteOnFailure = true } = opts;
+  const size = fs.statSync(filePath).size;
+
+  if (size === 0) {
+    const msg = `Downloaded file is empty [${buildInspectContext(url, contentType, size)}]`;
+    if (deleteOnFailure) safeUnlink(filePath);
+    throw new Error(msg);
+  }
+
+  const head = readFileHead(filePath);
+  const apiError = tryParseApiError(filePath, head, size);
+  if (apiError) {
+    const msg = `${apiError} [${buildInspectContext(url, contentType, size)}]`;
+    if (deleteOnFailure) safeUnlink(filePath);
+    throw new Error(msg);
+  }
+
+  const archiveMagic = isZipMagic(head)
+    ? "zip"
+    : isGzipMagic(head)
+      ? "tar.gz"
+      : null;
+  const ct = contentType?.toLowerCase() ?? "";
+  if (
+    (ct.includes("application/json") || ct.includes("text/html")) &&
+    !archiveMagic
+  ) {
+    const msg = `Download content-type mismatch: expected archive, got ${contentType} [${buildInspectContext(url, contentType, size)}]`;
+    if (deleteOnFailure) safeUnlink(filePath);
+    throw new Error(msg);
+  }
+
+  const expected = expectedArchive ?? inferExpectedArchiveFromUrl(url);
+  if (expected === "zip" && !isZipMagic(head)) {
+    const msg = `Downloaded file is not a valid zip (magic=${formatMagicHex(head)}, ${buildInspectContext(url, contentType, size)})`;
+    if (deleteOnFailure) safeUnlink(filePath);
+    throw new Error(msg);
+  }
+  if (expected === "tar.gz" && !isGzipMagic(head)) {
+    const msg = `Downloaded file is not a valid tar.gz/gzip (magic=${formatMagicHex(head)}, ${buildInspectContext(url, contentType, size)})`;
+    if (deleteOnFailure) safeUnlink(filePath);
+    throw new Error(msg);
+  }
 }
 
 /** 下载文件到缓存目录 */
@@ -297,10 +490,22 @@ async function downloadToCache(
   const fileName = path.basename(urlPath) || `${agentId}-${version}`;
   const filePath = path.join(cacheDir, fileName);
 
-  // 检查缓存
+  // 检查缓存（校验内容，坏缓存删除后重下）
   if (fs.existsSync(filePath) && fs.statSync(filePath).size > 0) {
-    log.info(`[AgentInstaller] Using cached file: ${filePath}`);
-    return { filePath, fileSize: fs.statSync(filePath).size, fromCache: true };
+    try {
+      inspectDownloadedArtifact(filePath, {
+        url,
+        expectedArchive: inferExpectedArchiveFromUrl(url),
+      });
+      log.info(`[AgentInstaller] Using cached file: ${filePath}`);
+      return {
+        filePath,
+        fileSize: fs.statSync(filePath).size,
+        fromCache: true,
+      };
+    } catch (e) {
+      log.warn(`[AgentInstaller] Invalid cached file, re-downloading: ${e}`);
+    }
   }
 
   // 下载（带重试）
@@ -315,6 +520,9 @@ async function downloadToCache(
     } catch (e) {
       lastError = e as Error;
       log.warn(`[AgentInstaller] Download attempt ${attempt} failed: ${e}`);
+      if (isNonRetryableDownloadError(lastError.message)) {
+        throw lastError;
+      }
       if (attempt < DOWNLOAD_MAX_RETRIES) {
         await sleep(1000 * attempt);
       }
@@ -367,6 +575,13 @@ function downloadFile(
           return;
         }
 
+        const contentType = normalizeContentType(res.headers["content-type"]);
+        if (contentType?.toLowerCase().includes("application/json")) {
+          log.warn(
+            `[AgentInstaller] Download response content-type is JSON: url=${url}, content-type=${contentType}`,
+          );
+        }
+
         const fileStream = fs.createWriteStream(destPath);
         let fileSize = 0;
 
@@ -378,8 +593,18 @@ function downloadFile(
 
         fileStream.on("finish", () => {
           clearTimeout(timeout);
-          fileStream.close();
-          resolve(fileSize);
+          fileStream.close(() => {
+            try {
+              inspectDownloadedArtifact(destPath, {
+                url,
+                contentType,
+                expectedArchive: inferExpectedArchiveFromUrl(url),
+              });
+              resolve(fileSize);
+            } catch (err) {
+              reject(err);
+            }
+          });
         });
 
         fileStream.on("error", (err) => {
@@ -406,30 +631,25 @@ function verifySha256(filePath: string, expectedSha256: string): boolean {
 // 文件解压
 // =============================================================================
 
-/** 检测文件类型 */
+/** 检测文件类型（优先 magic bytes；archive 后缀无 magic 则报错） */
 function detectFileType(filePath: string): "tar.gz" | "zip" | "executable" {
+  const head = readFileHead(filePath, 4);
+  if (isGzipMagic(head)) return "tar.gz";
+  if (isZipMagic(head)) return "zip";
+
   const lower = filePath.toLowerCase();
-  if (lower.endsWith(".tar.gz") || lower.endsWith(".tgz")) return "tar.gz";
-  if (lower.endsWith(".zip")) return "zip";
-
-  // magic bytes 检测
-  let fd: number | undefined;
-  try {
-    fd = fs.openSync(filePath, "r");
-    const buf = Buffer.alloc(4);
-    fs.readSync(fd, buf, 0, 4, 0);
-
-    // gzip magic: 1F 8B
-    if (buf[0] === 0x1f && buf[1] === 0x8b) return "tar.gz";
-    // ZIP magic: 50 4B 03 04
-    if (buf[0] === 0x50 && buf[1] === 0x4b) return "zip";
-
-    return "executable";
-  } finally {
-    if (fd !== undefined) {
-      fs.closeSync(fd);
-    }
+  if (lower.endsWith(".tar.gz") || lower.endsWith(".tgz")) {
+    throw new Error(
+      `File has archive extension but missing gzip magic bytes: ${filePath}`,
+    );
   }
+  if (lower.endsWith(".zip")) {
+    throw new Error(
+      `File has .zip extension but missing zip magic bytes: ${filePath}`,
+    );
+  }
+
+  return "executable";
 }
 
 /** 解压文件到临时目录，返回解压后的文件列表 */
@@ -437,13 +657,14 @@ async function extractArchive(
   filePath: string,
   fileType: "tar.gz" | "zip",
   destDir: string,
+  sourceUrl?: string,
 ): Promise<string[]> {
   fs.mkdirSync(destDir, { recursive: true });
 
   if (fileType === "tar.gz") {
-    await extractTarGz(filePath, destDir);
+    await extractTarGz(filePath, destDir, sourceUrl);
   } else {
-    await extractZip(filePath, destDir);
+    await extractZip(filePath, destDir, sourceUrl);
   }
 
   // 规范化目录结构（兼容单一文件夹根目录的压缩包）
@@ -456,11 +677,19 @@ async function extractArchive(
 async function extractTarGz(
   filePath: string,
   destDir: string,
+  sourceUrl?: string,
 ): Promise<string[]> {
   try {
     // 优先使用系统 tar 命令
     await execFileAsync("tar", ["xzf", filePath, "-C", destDir]);
   } catch {
+    if (sourceUrl) {
+      inspectDownloadedArtifact(filePath, {
+        url: sourceUrl,
+        expectedArchive: "tar.gz",
+        deleteOnFailure: false,
+      });
+    }
     // 回退到 npm tar 包
     try {
       // eslint-disable-next-line @typescript-eslint/no-var-requires
@@ -480,6 +709,7 @@ async function extractTarGz(
 async function extractZip(
   filePath: string,
   destDir: string,
+  sourceUrl?: string,
 ): Promise<string[]> {
   try {
     const zip = new AdmZip(filePath);
@@ -487,12 +717,23 @@ async function extractZip(
     return listFilesRecursive(destDir);
   } catch (primaryErr) {
     log.warn(`[AgentInstaller] adm-zip extract failed: ${primaryErr}`);
+    if (sourceUrl) {
+      inspectDownloadedArtifact(filePath, {
+        url: sourceUrl,
+        expectedArchive: "zip",
+        deleteOnFailure: false,
+      });
+    }
     try {
       await execFileAsync("unzip", ["-o", filePath, "-d", destDir]);
       return listFilesRecursive(destDir);
     } catch (fallbackErr) {
+      const fallbackMessage = String(fallbackErr);
+      const unzipDetail = fallbackMessage.includes("ENOENT")
+        ? `${fallbackMessage} (Windows has no unzip fallback)`
+        : fallbackMessage;
       throw new Error(
-        `Failed to extract zip: adm-zip=${primaryErr}; unzip=${fallbackErr}`,
+        `Failed to extract zip: adm-zip=${primaryErr}; unzip=${unzipDetail}`,
       );
     }
   }
@@ -677,6 +918,7 @@ export async function installFromUrl(
       downloadResult.filePath,
       fileType,
       tmpExtractDir,
+      platformEntry.url,
     );
     fileCount = extractedFiles.length;
 
