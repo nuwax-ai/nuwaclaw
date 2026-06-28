@@ -86,6 +86,15 @@ describe("extractMatchTarget", () => {
     expect(extractMatchTarget(req, "Execute")).toBe("");
   });
 
+  it("非 Execute → rawInput.tool（nuwaxcode MCP）", () => {
+    const req = makeRequest(
+      "other",
+      { tool: "get_stock_data" },
+      "A_get_stock_data",
+    );
+    expect(extractMatchTarget(req, "Other")).toBe("get_stock_data");
+  });
+
   it("非 Execute → rawInput.tool_name", () => {
     const req = makeRequest("Delete", { tool_name: "file_delete" });
     expect(extractMatchTarget(req, "Delete")).toBe("file_delete");
@@ -144,6 +153,23 @@ describe("extractMatchTargets", () => {
     const req = makeRequest("other", "sudo rm -rf /tmp");
     expect(extractMatchTargets(req, "other")).toEqual(["sudo rm -rf /tmp"]);
   });
+
+  it("收集 raw_input.tool（nuwaxcode MCP）与 title", () => {
+    const req = makeRequest(
+      "other",
+      { tool: "get_stock_data" },
+      "A_get_stock_data",
+    );
+    expect(extractMatchTargets(req, "other")).toEqual([
+      "get_stock_data",
+      "A_get_stock_data",
+    ]);
+  });
+
+  it("command/cmd/script 全部纳入通用规则", () => {
+    const req = makeRequest("execute", { command: "ls", cmd: "pwd" });
+    expect(extractMatchTargets(req, "execute")).toEqual(["ls", "pwd"]);
+  });
 });
 
 describe("normalizeToolApprovalRules", () => {
@@ -183,7 +209,7 @@ describe("matchToolApprovalRules", () => {
     expect(matchToolApprovalRules(req, [])).toBeNull();
   });
 
-  it("Execute 危险命令命中 ask", () => {
+  it("Execute rm 模式命中 ask 规则", () => {
     const req = makeRequest("Execute", { command: "rm -rf /tmp" });
     const rules: ToolApprovalRule[] = [
       { patterns: ["rm -rf *", "sudo *"], action: "ask" },
@@ -329,5 +355,51 @@ describe("matchToolApprovalRules", () => {
 
     const executeReq = makeRequest("execute", { command: "mcp_tool run" });
     expect(matchToolApprovalRules(executeReq, rules)).toBeNull();
+  });
+
+  it("nuwaxcode MCP：raw_input.tool 精确匹配", () => {
+    const req = makeRequest(
+      "other",
+      { tool: "get_stock_data" },
+      "A_get_stock_data",
+    );
+    const rules: ToolApprovalRule[] = [
+      { patterns: ["get_stock_data"], action: "ask" },
+    ];
+    expect(matchToolApprovalRules(req, rules)).toBe("ask");
+  });
+
+  it("spec §9 通用规则：MCP 与 bash 共用 patterns", () => {
+    const rules: ToolApprovalRule[] = [
+      { patterns: ["*get_stock_data", "rm -rf *"], action: "ask" },
+    ];
+    const mcpReq = makeRequest(
+      "other",
+      { tool: "get_stock_data" },
+      "A_get_stock_data",
+    );
+    expect(matchToolApprovalRules(mcpReq, rules)).toBe("ask");
+
+    const bashReq = makeRequest("Execute", { command: "rm -rf /tmp" });
+    expect(matchToolApprovalRules(bashReq, rules)).toBe("ask");
+
+    const safeBash = makeRequest("Execute", { command: "ls" });
+    expect(matchToolApprovalRules(safeBash, rules)).toBeNull();
+  });
+
+  it("pattern 前后空白 trim 后匹配", () => {
+    const req = makeRequest("Execute", { command: "rm -rf /" });
+    const rules: ToolApprovalRule[] = [
+      { patterns: ["  rm *  "], action: "ask" },
+    ];
+    expect(matchToolApprovalRules(req, rules)).toBe("ask");
+  });
+
+  it("仅空白 pattern 被跳过", () => {
+    const req = makeRequest("Execute", { command: "rm -rf /" });
+    const rules: ToolApprovalRule[] = [
+      { patterns: ["   ", "rm *"], action: "ask" },
+    ];
+    expect(matchToolApprovalRules(req, rules)).toBe("ask");
   });
 });

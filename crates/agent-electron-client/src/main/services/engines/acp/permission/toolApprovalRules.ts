@@ -1,12 +1,14 @@
 /**
  * tool_approval_rules 匹配逻辑
  *
+ * 对齐 rcoder/docs/tool-approval-rules-spec.md（字段集、双路径、glob 语义）。
  * 纯函数模块，无副作用，便于单测。
  *
- * 决策优先级（调用方负责按顺序调用）：
- * ① RuleStore（已保存的历史审批规则，ACP 协议层处理）
- * ② matchToolApprovalRules（本模块）
- * ③ agent_mode 默认行为（调用方处理）
+ * 决策链（客户端侧，见 spec §7）：
+ * ① 危险命令：不做任何逻辑（rcoder 侧仅 warn 日志；客户端不实现）
+ * ② RuleStore（已保存的历史审批规则，ACP 协议层处理）
+ * ③ matchToolApprovalRules（本模块）
+ * ④ agent_mode 默认行为（调用方处理）
  */
 
 import type { AcpPermissionRequest } from "../acpClient";
@@ -26,9 +28,14 @@ const COMMAND_LIKE_KINDS = new Set([
   "command",
 ]);
 
+/** raw_input 中视为「命令内容」的字段（按优先级） */
+const COMMAND_KEYS = ["command", "cmd", "script"] as const;
+/** raw_input 中视为「工具名」的字段（按优先级）；`tool` 为 nuwaxcode MCP 实际 key */
+const TOOL_NAME_KEYS = ["tool", "tool_name", "toolName"] as const;
+
 /**
  * 将 glob 通配符模式转换为大小写不敏感的正则表达式。
- * 支持 * ? [abc] [a-z] [!abc] 语法。
+ * 支持 * ? [abc] [a-z] [!abc]；不支持 {a,b} brace、** 目录语义。
  */
 export function globToRegex(pattern: string): RegExp {
   let regexStr = "^";
@@ -42,10 +49,9 @@ export function globToRegex(pattern: string): RegExp {
       regexStr += ".";
       i++;
     } else if (ch === "[") {
-      // 找到匹配的 ]，处理 [!abc] → [^abc]
       let j = i + 1;
       if (j < pattern.length && pattern[j] === "!") j++;
-      if (j < pattern.length && pattern[j] === "]") j++; // ] 作为字面量在首位
+      if (j < pattern.length && pattern[j] === "]") j++;
       while (j < pattern.length && pattern[j] !== "]") j++;
       if (j < pattern.length) {
         let bracketContent = pattern.slice(i + 1, j);
@@ -55,12 +61,10 @@ export function globToRegex(pattern: string): RegExp {
         regexStr += "[" + bracketContent + "]";
         i = j + 1;
       } else {
-        // 没有匹配的 ]，当作字面量
         regexStr += "\\[";
         i++;
       }
     } else {
-      // 转义 regex 特殊字符（. + ^ $ { } ( ) | \），* ? [ ] 已在上面处理
       regexStr += /[.+^${}()|\\]/.test(ch) ? "\\" + ch : ch;
       i++;
     }
@@ -75,31 +79,71 @@ function firstWord(title: string | null | undefined): string | undefined {
   return trimmed.split(/\s+/)[0];
 }
 
-function getRawInput(
-  request: AcpPermissionRequest,
-): Record<string, unknown> | null | undefined {
-  return request.toolCall.rawInput as
-    | Record<string, unknown>
-    | null
-    | undefined;
+function pushNonempty(values: string[], s: string): void {
+  const trimmed = s.trim();
+  if (trimmed) values.push(trimmed);
 }
 
-/** 从 rawInput 提取命令文本（对齐 computerPermissionProtocol.extractCommand） */
-function extractCommandValue(rawInput: unknown): string | undefined {
+function dedupPreserveOrder(values: string[]): string[] {
+  const seen = new Set<string>();
+  return values.filter((s) => {
+    if (seen.has(s)) return false;
+    seen.add(s);
+    return true;
+  });
+}
+
+function getRawInputValue(request: AcpPermissionRequest): unknown {
+  return request.toolCall.rawInput;
+}
+
+/**
+ * 收集 raw_input 中所有命令类字段值：command/cmd/script + 字符串 rawInput。
+ * 对齐 spec §3 / rcoder extract_command_values。
+ */
+export function extractCommandValues(rawInput: unknown): string[] {
+  const values: string[] = [];
   if (typeof rawInput === "string") {
-    const command = rawInput.trim();
-    return command || undefined;
+    pushNonempty(values, rawInput);
+    return values;
   }
-  if (!rawInput || typeof rawInput !== "object") return undefined;
+  if (!rawInput || typeof rawInput !== "object") return values;
 
   const record = rawInput as Record<string, unknown>;
-  for (const key of ["command", "cmd", "script"]) {
+  for (const key of COMMAND_KEYS) {
     const value = record[key];
-    if (typeof value === "string" && value.trim()) {
-      return value.trim();
+    if (typeof value === "string") {
+      pushNonempty(values, value);
     }
   }
-  return undefined;
+  return values;
+}
+
+/**
+ * 收集工具名字段：tool/tool_name/toolName + title 首词。
+ * 对齐 spec §3 / rcoder extract_tool_name_values。
+ */
+export function extractToolNameValues(
+  request: AcpPermissionRequest,
+  rawInput?: unknown,
+): string[] {
+  const values: string[] = [];
+  const input = rawInput ?? getRawInputValue(request);
+
+  if (input && typeof input === "object") {
+    const record = input as Record<string, unknown>;
+    for (const key of TOOL_NAME_KEYS) {
+      const value = record[key];
+      if (typeof value === "string") {
+        pushNonempty(values, value);
+      }
+    }
+  }
+
+  const word = firstWord(request.toolCall.title);
+  if (word) values.push(word);
+
+  return values;
 }
 
 /** execute / bash / terminal / shell / command 视为命令类 kind */
@@ -129,59 +173,39 @@ export function normalizeToolApprovalRules(
 }
 
 /**
- * 全量匹配时从权限请求提取多个候选目标（去重）：
- * command → tool_name/toolName → title → title 首词
+ * 通用规则（tool_kind=None）的多字段目标：command 族 + tool_name 族 + title 完整。
+ * 对齐 spec §3 / rcoder extract_all_targets。
  */
 export function extractMatchTargets(
   request: AcpPermissionRequest,
-  _toolCallKind: string,
+  _toolCallKind?: string,
 ): string[] {
-  const rawInput = getRawInput(request);
-  const targets: string[] = [];
-
-  const command = extractCommandValue(rawInput ?? request.toolCall.rawInput);
-  if (command) {
-    targets.push(command);
-  }
-
-  const toolName = (rawInput?.tool_name ?? rawInput?.toolName) as
-    | string
-    | undefined;
-  if (typeof toolName === "string" && toolName) {
-    targets.push(toolName);
-  }
+  const rawInput = getRawInputValue(request);
+  const targets: string[] = [
+    ...extractCommandValues(rawInput),
+    ...extractToolNameValues(request, rawInput),
+  ];
 
   const title = request.toolCall.title?.trim();
-  if (title) {
-    targets.push(title);
-    const word = firstWord(title);
-    if (word) {
-      targets.push(word);
-    }
-  }
+  if (title) targets.push(title);
 
-  return [...new Set(targets)];
+  return dedupPreserveOrder(targets);
 }
 
 /**
- * 根据 tool_kind 从权限请求中提取单个匹配目标（显式 tool_kind 规则使用）：
- * - 命令类 kind → rawInput.command
- * - 其他 → rawInput.tool_name / rawInput.toolName / title 首词（工具名称）
+ * 显式 tool_kind 的单字段目标：
+ * - 命令类 kind → command 族首个非空
+ * - 其他 → tool_name 族首个非空，兜底 "tool"
  */
 export function extractMatchTarget(
   request: AcpPermissionRequest,
   toolKind: string,
 ): string {
-  const rawInput = getRawInput(request);
+  const rawInput = getRawInputValue(request);
   if (isCommandLikeKind(toolKind)) {
-    return extractCommandValue(rawInput ?? request.toolCall.rawInput) ?? "";
+    return extractCommandValues(rawInput).find(Boolean) ?? "";
   }
-  return (
-    (rawInput?.tool_name as string) ??
-    (rawInput?.toolName as string) ??
-    firstWord(request.toolCall.title) ??
-    "tool"
-  );
+  return extractToolNameValues(request, rawInput).find(Boolean) ?? "tool";
 }
 
 function patternMatchesAnyTarget(pattern: string, targets: string[]): boolean {
@@ -190,7 +214,6 @@ function patternMatchesAnyTarget(pattern: string, targets: string[]): boolean {
     const regex = globToRegex(pattern);
     return targets.some((target) => regex.test(target));
   } catch {
-    // 无效通配符语法，跳过此 pattern
     return false;
   }
 }
@@ -203,7 +226,6 @@ export function matchToolApprovalRules(
   request: AcpPermissionRequest,
   rules: ToolApprovalRule[],
 ): ToolApprovalAction | null {
-  // kind 缺失时当作 "Other" 处理
   const toolCallKind = (request.toolCall.kind ?? "Other").toLowerCase();
 
   for (const rule of rules) {
@@ -213,13 +235,17 @@ export function matchToolApprovalRules(
     }
     if (rule.patterns.length === 0) continue;
 
-    const targets =
+    const targets = (
       ruleToolKind === null
-        ? extractMatchTargets(request, toolCallKind)
-        : [extractMatchTarget(request, ruleToolKind)];
+        ? extractMatchTargets(request)
+        : [extractMatchTarget(request, ruleToolKind)]
+    ).filter((t) => t.length > 0);
+    if (targets.length === 0) continue;
 
     for (const pattern of rule.patterns) {
-      if (patternMatchesAnyTarget(pattern, targets)) {
+      const pat = pattern.trim();
+      if (!pat) continue;
+      if (patternMatchesAnyTarget(pat, targets)) {
         return rule.action;
       }
     }

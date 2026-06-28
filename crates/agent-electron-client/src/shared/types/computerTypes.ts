@@ -42,7 +42,7 @@ export interface ToolApprovalRuleInput {
  * 单条工具审批规则（规范化后存储）。
  * - patterns: glob 通配符列表，任一命中即触发（大小写不敏感）
  * - action: ask=要求审批 / allow=自动放行 / deny=直接拒绝
- * - tool_kind: ACP ToolKind 过滤；未设置 = 匹配全部 kind（command/tool_name/title 多字段匹配）
+ * - tool_kind: ACP ToolKind 过滤；未设置 = 匹配全部 kind（command/tool/title 等多字段 OR，见 rcoder tool-approval-rules-spec）
  */
 export interface ToolApprovalRule {
   patterns: string[];
