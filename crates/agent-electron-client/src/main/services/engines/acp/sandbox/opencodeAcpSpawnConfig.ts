@@ -4,7 +4,9 @@
 
 import log from "electron-log";
 import { isGuiMcpManagedServerId } from "@shared/guiMcp";
+import type { ToolApprovalRuleInput } from "@shared/types/computerTypes";
 import type { SandboxProcessConfig } from "@shared/types/sandbox";
+import { buildOpencodePermissionWithAskBridge } from "../permission/opencodePermissionBridge";
 import type { ApplyOpencodeSandboxConfigResult } from "./opencodeAcpSandbox";
 
 export const DEFAULT_OPENCODE_ACP_PERMISSION: Record<string, string> = {
@@ -15,6 +17,31 @@ export const DEFAULT_OPENCODE_ACP_PERMISSION: Record<string, string> = {
   external_directory: "ask",
   question: "deny",
 };
+
+/**
+ * nuwaxcode 支持的 OPENCODE_PERMISSION 环境变量默认值（内联 JSON）。
+ * 见 nuwaxcode packages/opencode/src/config/config.ts — mergeDeep 进 cfg.permission。
+ *
+ * chat 未传 agent_server.env.OPENCODE_PERMISSION 时使用；传了则用入参覆盖。
+ * 旧版 nuwaxcode（< beta.10）临时测 MCP 审批可在请求 env 加 `"*":"ask"`。
+ */
+export const DEFAULT_OPENCODE_PERMISSION_ENV = {
+  bash: "ask",
+  edit: "ask",
+  question: "deny",
+} as const;
+
+export const DEFAULT_OPENCODE_PERMISSION_JSON = JSON.stringify(
+  DEFAULT_OPENCODE_PERMISSION_ENV,
+);
+
+/** 解析 spawn 用的 OPENCODE_PERMISSION 字符串（chat 入参优先，否则代码默认） */
+export function resolveOpencodePermissionEnv(
+  fromChatEnv?: string | null,
+): string {
+  const trimmed = fromChatEnv?.trim();
+  return trimmed || DEFAULT_OPENCODE_PERMISSION_JSON;
+}
 
 export type AgentMcpServerEntry = {
   command?: string;
@@ -85,6 +112,8 @@ export type BuildOpencodeSpawnConfigOptions = {
   workspaceDir: string;
   /** Windows Git Bash path → OPENCODE_CONFIG_CONTENT.shell (no sandbox required). */
   gitBashPath?: string;
+  /** tool_approval_rules 中 ask 规则桥接到 permission，触发引擎层 requestPermission */
+  toolApprovalRules?: ToolApprovalRuleInput[];
   applySandbox?: (options: {
     configObj: Record<string, unknown>;
     sandboxConfig: SandboxProcessConfig;
@@ -146,6 +175,16 @@ export function buildOpencodeSpawnConfig(
   }
 
   applyOpencodeWindowsShellConfig(configObj, options.gitBashPath);
+
+  if (options.toolApprovalRules?.length) {
+    configObj.permission = buildOpencodePermissionWithAskBridge(
+      (configObj.permission ?? {}) as Record<
+        string,
+        string | Record<string, string>
+      >,
+      options.toolApprovalRules,
+    );
+  }
 
   return { configObj, sandboxApply };
 }

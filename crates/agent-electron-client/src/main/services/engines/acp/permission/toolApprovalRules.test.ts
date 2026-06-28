@@ -2,7 +2,10 @@ import { describe, it, expect } from "vitest";
 import {
   globToRegex,
   extractMatchTarget,
+  extractMatchTargets,
   matchToolApprovalRules,
+  normalizeToolApprovalRules,
+  isCommandLikeKind,
 } from "./toolApprovalRules";
 import type { AcpPermissionRequest } from "../acpClient";
 import type { ToolApprovalRule } from "@shared/types/computerTypes";
@@ -101,6 +104,74 @@ describe("extractMatchTarget", () => {
   it('非 Execute → "tool" 兜底', () => {
     const req = makeRequest("Other", null);
     expect(extractMatchTarget(req, "Other")).toBe("tool");
+  });
+
+  it("bash → rawInput.command", () => {
+    const req = makeRequest("bash", { command: "sudo rm -rf /tmp" });
+    expect(extractMatchTarget(req, "bash")).toBe("sudo rm -rf /tmp");
+  });
+
+  it("bash → rawInput.cmd 回退", () => {
+    const req = makeRequest("bash", { cmd: "sudo rm -rf /tmp" });
+    expect(extractMatchTarget(req, "bash")).toBe("sudo rm -rf /tmp");
+  });
+});
+
+describe("isCommandLikeKind", () => {
+  it("识别命令类 kind", () => {
+    expect(isCommandLikeKind("execute")).toBe(true);
+    expect(isCommandLikeKind("bash")).toBe(true);
+    expect(isCommandLikeKind("terminal")).toBe(true);
+    expect(isCommandLikeKind("Other")).toBe(false);
+  });
+});
+
+describe("extractMatchTargets", () => {
+  it("收集 command、tool_name、title 等多字段", () => {
+    const req = makeRequest(
+      "other",
+      { command: "ls -la", tool_name: "Bash" },
+      "Bash run",
+    );
+    expect(extractMatchTargets(req, "other")).toEqual([
+      "ls -la",
+      "Bash",
+      "Bash run",
+    ]);
+  });
+
+  it("rawInput 为字符串时纳入 command 候选", () => {
+    const req = makeRequest("other", "sudo rm -rf /tmp");
+    expect(extractMatchTargets(req, "other")).toEqual(["sudo rm -rf /tmp"]);
+  });
+});
+
+describe("normalizeToolApprovalRules", () => {
+  it("kind 别名映射到 tool_kind", () => {
+    expect(
+      normalizeToolApprovalRules([
+        { patterns: ["*"], action: "ask", kind: "Delete" },
+      ]),
+    ).toEqual([{ patterns: ["*"], action: "ask", tool_kind: "Delete" }]);
+  });
+
+  it("无 tool_kind/kind 时保持全量匹配语义", () => {
+    expect(
+      normalizeToolApprovalRules([{ patterns: ["sudo *"], action: "ask" }]),
+    ).toEqual([{ patterns: ["sudo *"], action: "ask" }]);
+  });
+
+  it("tool_kind 优先于 kind 别名", () => {
+    expect(
+      normalizeToolApprovalRules([
+        {
+          patterns: ["*"],
+          action: "ask",
+          tool_kind: "Execute",
+          kind: "Other",
+        },
+      ]),
+    ).toEqual([{ patterns: ["*"], action: "ask", tool_kind: "Execute" }]);
   });
 });
 
@@ -217,5 +288,46 @@ describe("matchToolApprovalRules", () => {
       { patterns: ["*"], action: "deny", tool_kind: "Delete" },
     ];
     expect(matchToolApprovalRules(req, rules)).toBe("deny");
+  });
+
+  it("无 tool_kind 时 Other/MCP 工具名命中", () => {
+    const req = makeRequest("other", { tool_name: "Bash" }, "Bash");
+    const rules: ToolApprovalRule[] = [{ patterns: ["Bash*"], action: "ask" }];
+    expect(matchToolApprovalRules(req, rules)).toBe("ask");
+  });
+
+  it("无 tool_kind 时 bash 命令命中", () => {
+    const req = makeRequest("bash", { command: "sudo rm -rf /tmp" });
+    const rules: ToolApprovalRule[] = [
+      { patterns: ["sudo *"], action: "deny" },
+    ];
+    expect(matchToolApprovalRules(req, rules)).toBe("deny");
+  });
+
+  it("无 tool_kind 时 other + 字符串 rawInput 命令命中", () => {
+    const req = makeRequest("other", "sudo rm -rf /tmp");
+    const rules: ToolApprovalRule[] = [
+      { patterns: ["sudo *"], action: "deny" },
+    ];
+    expect(matchToolApprovalRules(req, rules)).toBe("deny");
+  });
+
+  it("显式 tool_kind Execute 时不匹配 other", () => {
+    const req = makeRequest("other", { tool_name: "Bash" }, "Bash");
+    const rules: ToolApprovalRule[] = [
+      { patterns: ["Bash*"], action: "deny", tool_kind: "Execute" },
+    ];
+    expect(matchToolApprovalRules(req, rules)).toBeNull();
+  });
+
+  it("显式 tool_kind Other 仅匹配 other 类", () => {
+    const req = makeRequest("other", { tool_name: "mcp_tool" });
+    const rules: ToolApprovalRule[] = [
+      { patterns: ["mcp_*"], action: "ask", tool_kind: "Other" },
+    ];
+    expect(matchToolApprovalRules(req, rules)).toBe("ask");
+
+    const executeReq = makeRequest("execute", { command: "mcp_tool run" });
+    expect(matchToolApprovalRules(executeReq, rules)).toBeNull();
   });
 });

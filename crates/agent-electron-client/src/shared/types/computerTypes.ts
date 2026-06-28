@@ -27,10 +27,22 @@ export interface ChatContextServerConfig {
 export type ToolApprovalAction = "ask" | "allow" | "deny";
 
 /**
- * 单条工具审批规则。
+ * tool_approval_rules 入参（支持 kind 作为 tool_kind 别名）。
+ */
+export interface ToolApprovalRuleInput {
+  patterns: string[];
+  action: ToolApprovalAction;
+  /** ACP ToolKind 过滤；未设置 = 匹配全部 kind */
+  tool_kind?: string;
+  /** tool_kind 别名（rcoder/前端兼容） */
+  kind?: string;
+}
+
+/**
+ * 单条工具审批规则（规范化后存储）。
  * - patterns: glob 通配符列表，任一命中即触发（大小写不敏感）
  * - action: ask=要求审批 / allow=自动放行 / deny=直接拒绝
- * - tool_kind: ACP ToolKind 过滤（默认 "Execute"）
+ * - tool_kind: ACP ToolKind 过滤；未设置 = 匹配全部 kind（command/tool_name/title 多字段匹配）
  */
 export interface ToolApprovalRule {
   patterns: string[];
@@ -63,7 +75,7 @@ export interface ChatAgentConfig {
     env?: Record<string, string>;
     metadata?: Record<string, string>;
     /** 工具审批策略规则，按数组顺序匹配，首条命中生效 */
-    tool_approval_rules?: ToolApprovalRule[];
+    tool_approval_rules?: ToolApprovalRuleInput[];
     /** Agent 版本号 (semver 格式，如 "1.2.0") */
     version?: string;
     /** 多平台下载地址，key 为 {os}-{arch} 格式（如 "linux-x86_64"） */

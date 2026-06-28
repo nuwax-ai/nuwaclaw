@@ -24,6 +24,7 @@ import { getBundledGitBashPath } from "@main/services/system/binaryLocator";
 import {
   buildOpencodeSpawnConfig,
   describeOpencodeSandboxActive,
+  resolveOpencodePermissionEnv,
   stripGuiMcpFromOpencodeConfigContent,
 } from "./sandbox/opencodeAcpSpawnConfig";
 import {
@@ -87,6 +88,7 @@ import type {
   ComputerChatResponse,
   UnifiedSessionMessage,
   ModelProviderConfig,
+  ToolApprovalRuleInput,
 } from "@shared/types/computerTypes";
 import { redactForLog, redactStringForLog } from "../../utils/logRedact";
 import {
@@ -125,6 +127,7 @@ import {
   formatAcpLoadError,
   snapshotOpencodePersistence,
 } from "./opencodeSessionDiagnostics";
+import { computeOpencodePermissionBridgeKey } from "./permission/opencodePermissionBridge";
 
 /** AcpEngine.init() 返回结果 */
 export interface EngineInitResult {
@@ -193,6 +196,12 @@ export class AcpEngine extends EventEmitter {
   >();
   /** 权限决策链与权限会话状态（决策逻辑见 permission/permissionCoordinator.ts） */
   private readonly permissions: AcpPermissionCoordinator;
+  /**
+   * 桥接到 OPENCODE_CONFIG_CONTENT.permission 的 tool_approval_rules（仅 ask 规则）。
+   * 在 init / chat 前 reinit 时写入 spawn 配置。
+   */
+  private opencodePermissionBridgeRules: ToolApprovalRuleInput[] | undefined;
+  private opencodePermissionBridgeKey = "";
 
   setEffectiveMode(acpSessionId: string, mode: AcpMode): void {
     this.permissions.setEffectiveMode(acpSessionId, mode);
@@ -495,6 +504,12 @@ export class AcpEngine extends EventEmitter {
       // For nuwaxcode: inject config via OPENCODE_CONFIG_CONTENT env var
       const spawnEnv = { ...(config.env || {}) };
 
+      if (this.sandboxCaps.usesOpencodeSpawnConfig) {
+        spawnEnv.OPENCODE_PERMISSION = resolveOpencodePermissionEnv(
+          spawnEnv.OPENCODE_PERMISSION,
+        );
+      }
+
       // Resolve sandbox policy early (OpenCode spawn config + process wrap + createSession).
       const sandboxResolved = await resolveAcpSandboxProcessConfig(
         config.workspaceDir,
@@ -513,9 +528,14 @@ export class AcpEngine extends EventEmitter {
             sandboxConfig,
             workspaceDir: config.workspaceDir,
             gitBashPath: getBundledGitBashPath() || undefined,
+            toolApprovalRules: this.opencodePermissionBridgeRules,
             applySandbox: (opts) =>
               this.sandboxCaps.applyOpencodeSpawnSandbox(opts),
           });
+
+        this.opencodePermissionBridgeKey = computeOpencodePermissionBridgeKey(
+          this.opencodePermissionBridgeRules,
+        );
 
         spawnEnv.OPENCODE_CONFIG_CONTENT = JSON.stringify(configObj);
         if (
@@ -538,6 +558,7 @@ export class AcpEngine extends EventEmitter {
               ? Object.keys(configObj.mcp as Record<string, unknown>)
               : [],
             permission: effectivePerm,
+            permission_bridge_key: this.opencodePermissionBridgeKey || "(none)",
             sandbox_active: describeOpencodeSandboxActive(opencodeSandboxApply),
             opencode_shell: injectedShell ?? "(default)",
             opencode_shell_injected: Boolean(injectedShell),
@@ -1579,6 +1600,66 @@ export class AcpEngine extends EventEmitter {
     );
   }
 
+  /**
+   * tool_approval_rules 的 ask 规则需写入 OPENCODE_CONFIG_CONTENT.permission，
+   * nuwaxcode 仅在 spawn 时读取。规则变化且无活跃 prompt 时 reinit 子进程。
+   */
+  private async ensureOpencodePermissionBridge(
+    rules: ToolApprovalRuleInput[] | undefined,
+  ): Promise<{ ok: true } | { ok: false; error: string }> {
+    if (!this.sandboxCaps.usesOpencodeSpawnConfig || !this.config) {
+      return { ok: true };
+    }
+
+    const nextKey = computeOpencodePermissionBridgeKey(rules);
+    if (nextKey === this.opencodePermissionBridgeKey) {
+      return { ok: true };
+    }
+
+    if (this.activePromptSessions.size > 0) {
+      log.warn(
+        `${this.logTag} tool_approval_rules permission bridge skipped: ${this.activePromptSessions.size} active prompt(s); OPENCODE_CONFIG_CONTENT unchanged until idle`,
+        { bridgeKey: nextKey },
+      );
+      // 引擎层 permission 保持旧值直至空闲后 reinit；client 层仍通过 setSessionApprovalRules 生效。
+      return { ok: true };
+    }
+
+    log.info(
+      `${this.logTag} 🔄 tool_approval_rules ask patterns changed, reinitializing OpenCode engine for permission bridge`,
+      {
+        previousKey: this.opencodePermissionBridgeKey || "(none)",
+        nextKey: nextKey || "(none)",
+      },
+    );
+
+    this.opencodePermissionBridgeRules = rules;
+    const savedConfig = this.config;
+    await this.destroy();
+    const initResult = await this.init(savedConfig);
+    if (!initResult.ok) {
+      return {
+        ok: false,
+        error: initResult.error || "permission bridge reinit failed",
+      };
+    }
+    return { ok: true };
+  }
+
+  /** 将本请求的 OPENCODE_PERMISSION 同步进 config，避免 bridge reinit 使用陈旧 env。 */
+  private syncOpencodePermissionFromRequest(
+    request: ComputerChatRequest,
+  ): void {
+    if (!this.sandboxCaps.usesOpencodeSpawnConfig || !this.config) return;
+    const perm = resolveOpencodePermissionEnv(
+      request.agent_config?.agent_server?.env?.OPENCODE_PERMISSION,
+    );
+    this.config = {
+      ...this.config,
+      env: { ...this.config.env, OPENCODE_PERMISSION: perm },
+    };
+  }
+
   async chat(
     request: ComputerChatRequest,
     dispatch?: ChatDispatchContext,
@@ -1665,6 +1746,21 @@ export class AcpEngine extends EventEmitter {
             };
           }
         }
+      }
+
+      this.syncOpencodePermissionFromRequest(request);
+
+      const bridgeResult = await this.ensureOpencodePermissionBridge(
+        request.agent_config?.agent_server?.tool_approval_rules,
+      );
+      if (!bridgeResult.ok) {
+        return {
+          code: "5000",
+          message: `Failed to apply tool_approval_rules permission bridge: ${bridgeResult.error}`,
+          data: null,
+          tid: null,
+          success: false,
+        };
       }
 
       // 1. Resolve session: memory → load → new

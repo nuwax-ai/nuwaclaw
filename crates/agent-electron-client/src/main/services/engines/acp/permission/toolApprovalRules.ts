@@ -12,10 +12,19 @@
 import type { AcpPermissionRequest } from "../acpClient";
 import type {
   ToolApprovalRule,
+  ToolApprovalRuleInput,
   ToolApprovalAction,
 } from "@shared/types/computerTypes";
 
 export type { ToolApprovalAction };
+
+const COMMAND_LIKE_KINDS = new Set([
+  "execute",
+  "bash",
+  "terminal",
+  "shell",
+  "command",
+]);
 
 /**
  * 将 glob 通配符模式转换为大小写不敏感的正则表达式。
@@ -66,21 +75,106 @@ function firstWord(title: string | null | undefined): string | undefined {
   return trimmed.split(/\s+/)[0];
 }
 
+function getRawInput(
+  request: AcpPermissionRequest,
+): Record<string, unknown> | null | undefined {
+  return request.toolCall.rawInput as
+    | Record<string, unknown>
+    | null
+    | undefined;
+}
+
+/** 从 rawInput 提取命令文本（对齐 computerPermissionProtocol.extractCommand） */
+function extractCommandValue(rawInput: unknown): string | undefined {
+  if (typeof rawInput === "string") {
+    const command = rawInput.trim();
+    return command || undefined;
+  }
+  if (!rawInput || typeof rawInput !== "object") return undefined;
+
+  const record = rawInput as Record<string, unknown>;
+  for (const key of ["command", "cmd", "script"]) {
+    const value = record[key];
+    if (typeof value === "string" && value.trim()) {
+      return value.trim();
+    }
+  }
+  return undefined;
+}
+
+/** execute / bash / terminal / shell / command 视为命令类 kind */
+export function isCommandLikeKind(kind: string): boolean {
+  return COMMAND_LIKE_KINDS.has(kind.toLowerCase());
+}
+
+/** tool_kind 缺失或空白 → null（匹配全部 kind）；否则返回 trim 后的值 */
+export function normalizeRuleToolKind(rule: ToolApprovalRule): string | null {
+  const kind = rule.tool_kind?.trim();
+  return kind ? kind : null;
+}
+
+/** 规范化入参规则：kind 别名映射到 tool_kind */
+export function normalizeToolApprovalRules(
+  rules: ToolApprovalRuleInput[] | undefined,
+): ToolApprovalRule[] | undefined {
+  if (!rules?.length) return undefined;
+  return rules.map((rule) => {
+    const toolKind = rule.tool_kind?.trim() || rule.kind?.trim() || undefined;
+    return {
+      patterns: rule.patterns,
+      action: rule.action,
+      ...(toolKind ? { tool_kind: toolKind } : {}),
+    };
+  });
+}
+
 /**
- * 根据 tool_kind 从权限请求中提取匹配目标：
- * - Execute → rawInput.command（命令内容）
+ * 全量匹配时从权限请求提取多个候选目标（去重）：
+ * command → tool_name/toolName → title → title 首词
+ */
+export function extractMatchTargets(
+  request: AcpPermissionRequest,
+  _toolCallKind: string,
+): string[] {
+  const rawInput = getRawInput(request);
+  const targets: string[] = [];
+
+  const command = extractCommandValue(rawInput ?? request.toolCall.rawInput);
+  if (command) {
+    targets.push(command);
+  }
+
+  const toolName = (rawInput?.tool_name ?? rawInput?.toolName) as
+    | string
+    | undefined;
+  if (typeof toolName === "string" && toolName) {
+    targets.push(toolName);
+  }
+
+  const title = request.toolCall.title?.trim();
+  if (title) {
+    targets.push(title);
+    const word = firstWord(title);
+    if (word) {
+      targets.push(word);
+    }
+  }
+
+  return [...new Set(targets)];
+}
+
+/**
+ * 根据 tool_kind 从权限请求中提取单个匹配目标（显式 tool_kind 规则使用）：
+ * - 命令类 kind → rawInput.command
  * - 其他 → rawInput.tool_name / rawInput.toolName / title 首词（工具名称）
  */
 export function extractMatchTarget(
   request: AcpPermissionRequest,
   toolKind: string,
 ): string {
-  const rawInput = request.toolCall.rawInput as
-    | Record<string, unknown>
-    | null
-    | undefined;
-  if (toolKind.toLowerCase() === "execute") {
-    return (rawInput?.command as string) ?? "";
+  const rawInput = getRawInput(request);
+  if (isCommandLikeKind(toolKind)) {
+    return extractCommandValue(rawInput ?? request.toolCall.rawInput) ?? "";
   }
   return (
     (rawInput?.tool_name as string) ??
@@ -88,6 +182,17 @@ export function extractMatchTarget(
     firstWord(request.toolCall.title) ??
     "tool"
   );
+}
+
+function patternMatchesAnyTarget(pattern: string, targets: string[]): boolean {
+  if (!pattern) return false;
+  try {
+    const regex = globToRegex(pattern);
+    return targets.some((target) => regex.test(target));
+  } catch {
+    // 无效通配符语法，跳过此 pattern
+    return false;
+  }
 }
 
 /**
@@ -102,20 +207,20 @@ export function matchToolApprovalRules(
   const toolCallKind = (request.toolCall.kind ?? "Other").toLowerCase();
 
   for (const rule of rules) {
-    const ruleToolKind = (rule.tool_kind ?? "Execute").toLowerCase();
-    if (toolCallKind !== ruleToolKind) continue;
+    const ruleToolKind = normalizeRuleToolKind(rule);
+    if (ruleToolKind !== null && toolCallKind !== ruleToolKind.toLowerCase()) {
+      continue;
+    }
     if (rule.patterns.length === 0) continue;
 
-    const target = extractMatchTarget(request, ruleToolKind);
+    const targets =
+      ruleToolKind === null
+        ? extractMatchTargets(request, toolCallKind)
+        : [extractMatchTarget(request, ruleToolKind)];
 
     for (const pattern of rule.patterns) {
-      if (!pattern) continue; // 忽略空字符串
-      try {
-        if (globToRegex(pattern).test(target)) {
-          return rule.action;
-        }
-      } catch {
-        // 无效通配符语法，跳过此 pattern
+      if (patternMatchesAnyTarget(pattern, targets)) {
+        return rule.action;
       }
     }
   }

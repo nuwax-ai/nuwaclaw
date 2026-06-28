@@ -18,13 +18,19 @@ import type {
   AcpPermissionResponse,
   AcpPermissionOption,
 } from "../acpClient";
-import type { ToolApprovalRule } from "@shared/types/computerTypes";
+import type {
+  ToolApprovalRule,
+  ToolApprovalRuleInput,
+} from "@shared/types/computerTypes";
 import type { AcpMode } from "@shared/types/acpMode";
 import {
   evaluateStrictWritePermission,
   type StrictPermissionContext,
 } from "./strictPermissionGuard";
-import { matchToolApprovalRules } from "./toolApprovalRules";
+import {
+  matchToolApprovalRules,
+  normalizeToolApprovalRules,
+} from "./toolApprovalRules";
 
 /** 决策链的产出，由 AcpEngine 翻译为 ACP 响应 */
 export type PermissionDecision =
@@ -76,10 +82,11 @@ export class AcpPermissionCoordinator {
   /** 每次 chat 请求刷新该会话的 tool_approval_rules（不传则清除，保持向后兼容） */
   setSessionApprovalRules(
     acpSessionId: string,
-    rules: ToolApprovalRule[] | undefined,
+    rules: ToolApprovalRuleInput[] | undefined,
   ): void {
-    if (rules && rules.length > 0) {
-      this.sessionToolApprovalRules.set(acpSessionId, [...rules]);
+    const normalized = normalizeToolApprovalRules(rules);
+    if (normalized && normalized.length > 0) {
+      this.sessionToolApprovalRules.set(acpSessionId, normalized);
     } else {
       this.sessionToolApprovalRules.delete(acpSessionId);
     }

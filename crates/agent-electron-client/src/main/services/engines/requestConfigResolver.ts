@@ -26,6 +26,8 @@ import { resolveComputerProjectWorkspaceDir } from "../workspacePaths";
 import { perfEmitter } from "./perf/perfEmitter";
 import { mapAgentCommand, resolveAgentEnv } from "./agentHelpers";
 import { resolveOpenAICompatModel } from "./acp/openAICompatRouting";
+import { isOpencodeAcpEngine } from "./acp/sandbox/acpEngineSandbox";
+import { resolveOpencodePermissionEnv } from "./acp/sandbox/opencodeAcpSpawnConfig";
 import type { AgentConfig, AgentEngineType } from "./types";
 
 export function resolveRequiredAgentEngine(args: {
@@ -305,6 +307,13 @@ export function buildEffectiveConfig(args: {
   }
   if (localizedEnv) {
     Object.assign(mergedEnv, localizedEnv);
+  }
+
+  // OpenCode 系引擎：固化 OPENCODE_PERMISSION（nuwaxcode 启动时 mergeDeep 进 permission）
+  if (requiredEngine && isOpencodeAcpEngine(requiredEngine)) {
+    mergedEnv.OPENCODE_PERMISSION = resolveOpencodePermissionEnv(
+      request.agent_config?.agent_server?.env?.OPENCODE_PERMISSION,
+    );
   }
 
   const effectiveConfig: AgentConfig = {
