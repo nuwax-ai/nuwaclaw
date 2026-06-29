@@ -1,9 +1,11 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import {
   buildRedirectUrl,
+  buildHomeUrl,
   buildNewSessionUrl,
   buildChatSessionUrl,
   syncSessionCookie,
+  syncCookieAndGetHomeUrl,
   syncCookieAndGetRedirectUrl,
   syncCookieAndGetNewSessionUrl,
   syncCookieAndGetChatUrl,
@@ -147,6 +149,53 @@ describe("syncSessionCookie", () => {
       httpOnly: true,
     });
     expect(payload).not.toHaveProperty("domain");
+  });
+});
+
+describe("buildHomeUrl", () => {
+  it("strips trailing slashes and returns domain root", () => {
+    expect(buildHomeUrl("https://example.com///")).toBe("https://example.com");
+    expect(buildHomeUrl("https://example.com/")).toBe("https://example.com");
+    expect(buildHomeUrl("https://example.com")).toBe("https://example.com");
+  });
+});
+
+describe("syncCookieAndGetHomeUrl", () => {
+  it("returns configured domain without redirect path", async () => {
+    mockGetCurrentAuth.mockResolvedValue({
+      isLoggedIn: true,
+      userInfo: {
+        id: 7,
+        currentDomain: "https://example.com/",
+        username: "u",
+      },
+    });
+    mockSettings.get.mockResolvedValue(null);
+
+    const result = await syncCookieAndGetHomeUrl();
+    expect(result).toBe("https://example.com");
+    expect(mockSession.setCookie).not.toHaveBeenCalled();
+  });
+
+  it("does not require sandbox config id", async () => {
+    mockGetCurrentAuth.mockResolvedValue({
+      isLoggedIn: true,
+      userInfo: { currentDomain: "https://example.com", username: "u" },
+    });
+    mockSettings.get.mockResolvedValue(null);
+
+    const result = await syncCookieAndGetHomeUrl();
+    expect(result).toBe("https://example.com");
+  });
+
+  it("returns null when domain is missing", async () => {
+    mockGetCurrentAuth.mockResolvedValue({
+      isLoggedIn: true,
+      userInfo: { id: 1, username: "u" },
+    });
+
+    const result = await syncCookieAndGetHomeUrl();
+    expect(result).toBeNull();
   });
 });
 

@@ -78,6 +78,10 @@ interface ClientPageProps {
   onAuthChange?: () => void;
   /** 登录流程启动服务前通知父组件标记（内存变量，不持久化） */
   onLoginStarted?: () => void;
+  /** 登录并启服成功后通知父组件进入首页（配置域名） */
+  onLoginComplete?: () => void;
+  /** 开始会话：打开 sandbox redirect URL */
+  onStartSession?: () => void;
 }
 
 interface AuthState {
@@ -98,6 +102,8 @@ function ClientPage({
   authRefreshTrigger,
   onAuthChange,
   onLoginStarted,
+  onLoginComplete,
+  onStartSession,
 }: ClientPageProps) {
   const getStartupServiceKeys = useCallback(async (): Promise<string[]> => {
     const keys = ["mcpProxy", "agent", "fileServer", "lanproxy", "ttyd"];
@@ -227,6 +233,7 @@ function ClientPage({
       // 通知父组件刷新顶部栏用户名/电脑名称
       onAuthChange?.();
       await onRefreshServices();
+      onLoginComplete?.();
     } catch {
       // 错误提示由 loginAndRegister 内部统一展示，此处不再重复 toast
       setLoginPassword("");
@@ -304,8 +311,7 @@ function ClientPage({
   }, [authState.domain, authState.userId]);
 
   const handleStartSession = async () => {
-    // Navigate to the Sessions tab (embedded webview) instead of opening a new window
-    onNavigate?.("sessions");
+    onStartSession?.();
   };
 
   const handleShowQrCode = () => {

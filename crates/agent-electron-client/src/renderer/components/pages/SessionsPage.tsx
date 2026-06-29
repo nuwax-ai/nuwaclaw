@@ -1,12 +1,10 @@
 /**
- * SessionsPage - 会话管理页面
+ * SessionsPage - 会话管理页面（配置模式）
  *
- * 两个视图：
- * A. 会话列表 - 展示所有活跃会话，支持打开/停止
- * B. 内嵌 webview - 在主窗口内展示会话页面
+ * 展示活跃会话列表，支持打开（跳转浏览器模式）/ 停止。
  */
 
-import React, { useState, useEffect, useCallback, useRef } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import { Button, Tag, message, Spin } from "antd";
 import {
   PlusOutlined,
@@ -15,129 +13,22 @@ import {
   PlayCircleOutlined,
   StopOutlined,
 } from "@ant-design/icons";
-import {
-  syncCookieAndGetRedirectUrl,
-  syncCookieAndGetNewSessionUrl,
-  syncCookieAndGetChatUrl,
-  persistTicketCookie,
-} from "../../services/utils/sessionUrl";
-import { logger } from "../../services/utils/logService";
-import { APP_DISPLAY_NAME } from "@shared/constants";
 import { t } from "../../services/core/i18n";
+import type { BrowserTarget } from "./BrowserHomePage";
 import type { DetailedSession } from "@shared/types/sessions";
 import styles from "../../styles/components/SessionsPage.module.css";
 
-export interface WebviewHeaderActions {
-  onBack: () => void;
-  onReload: () => void;
-}
-
 interface SessionsPageProps {
-  /** When true, automatically open webview on mount (used by "开始会话" button). */
-  autoOpen?: boolean;
-  /** Called after autoOpen has been consumed, so it doesn't re-trigger. */
-  onAutoOpenConsumed?: () => void;
-  /** Notify parent when entering/leaving webview mode (for hiding sidebar/logo). */
-  onWebviewChange?: (actions: WebviewHeaderActions | null) => void;
+  /** 在浏览器模式中打开指定目标 */
+  onOpenInBrowser?: (target: BrowserTarget) => void;
 }
 
-function SessionsPage({
-  autoOpen,
-  onAutoOpenConsumed,
-  onWebviewChange,
-}: SessionsPageProps) {
-  // ---------- View state ----------
-  const [view, setView] = useState<"list" | "webview">("list");
-  const [webviewUrl, setWebviewUrl] = useState("");
-  const [webviewUA, setWebviewUA] = useState<string | undefined>();
-  const webviewRef = useRef<HTMLElement | null>(null);
-
-  // Build custom user agent with app version
-  useEffect(() => {
-    window.electronAPI?.app
-      .getVersion()
-      .then((version) => {
-        const ua = navigator.userAgent + ` ${APP_DISPLAY_NAME}/${version}`;
-        setWebviewUA(ua);
-      })
-      .catch(() => {});
-  }, []);
-
-  // Debug: log webview navigation events to track login redirects
-  useEffect(() => {
-    const el = webviewRef.current as any;
-    if (!el || view !== "webview") return;
-
-    const onDidNavigate = (e: any) => {
-      const url: string = e.url || "(unknown)";
-      const isLogin = url.includes("/login");
-      const level = isLogin ? "warn" : "info";
-      logger[level](
-        `[SessionsPage][WebviewNav] did-navigate${isLogin ? " ⚠️ LOGIN DETECTED" : ""}`,
-        "SessionsPage",
-        { url, httpCode: e.httpResponseCode, isLogin },
-      );
-
-      // webview 登录成功后（从 /login 跳到非 login 页面），持久化 ticket cookie
-      if (!isLogin && url.startsWith("http")) {
-        try {
-          const origin = new URL(url).origin;
-          persistTicketCookie(origin).catch(() => {});
-        } catch {
-          // URL 解析失败，忽略
-        }
-      }
-    };
-    const onWillRedirect = (e: any) => {
-      logger.info("[SessionsPage][WebviewNav] will-redirect", "SessionsPage", {
-        from: e.oldURL,
-        to: e.newURL,
-      });
-    };
-
-    el.addEventListener("did-navigate", onDidNavigate);
-    el.addEventListener("did-navigate-in-page", onDidNavigate);
-    el.addEventListener("will-redirect", onWillRedirect);
-    return () => {
-      el.removeEventListener("did-navigate", onDidNavigate);
-      el.removeEventListener("did-navigate-in-page", onDidNavigate);
-      el.removeEventListener("will-redirect", onWillRedirect);
-    };
-  }, [view, webviewUrl]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  // Notify parent when entering/leaving webview
-  useEffect(() => {
-    if (view === "webview") {
-      onWebviewChange?.({
-        onBack: () => {
-          setView("list");
-          setWebviewUrl("");
-          fetchSessions();
-        },
-        onReload: () => {
-          (webviewRef.current as any)?.reload?.();
-        },
-      });
-    } else {
-      onWebviewChange?.(null);
-    }
-    return () => {
-      onWebviewChange?.(null);
-    };
-  }, [view]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  // Note: Ctrl/Cmd+Shift+I for webview DevTools is handled in the main process
-  // (webviewPolicy.ts) via before-input-event, because keyboard events inside
-  // a <webview> don't bubble to the host renderer page.
-
-  // ---------- Sessions ----------
+function SessionsPage({ onOpenInBrowser }: SessionsPageProps) {
   const [sessions, setSessions] = useState<DetailedSession[]>([]);
   const [loading, setLoading] = useState(true);
   const [stoppingSessions, setStoppingSessions] = useState<Set<string>>(
     new Set(),
   );
-
-  // ======================== Data fetching ========================
 
   const fetchSessions = useCallback(async () => {
     try {
@@ -152,72 +43,26 @@ function SessionsPage({
     }
   }, []);
 
-  // Poll sessions every 3s when in list view
   useEffect(() => {
-    if (view !== "list") return;
-
     fetchSessions();
     const timer = setInterval(fetchSessions, 3000);
     return () => clearInterval(timer);
-  }, [fetchSessions, view]);
+  }, [fetchSessions]);
 
-  // ======================== Actions ========================
+  const handleNewSession = useCallback(() => {
+    onOpenInBrowser?.({ type: "newSession" });
+  }, [onOpenInBrowser]);
 
-  const handleOpenWebview = useCallback(async () => {
-    try {
-      const url = await syncCookieAndGetRedirectUrl();
-      if (!url) {
+  const handleOpenSession = useCallback(
+    (sessionId: string) => {
+      if (!sessionId) {
         message.warning(t("Claw.Sessions.loginFirst"));
         return;
       }
-      setWebviewUrl(url);
-      setView("webview");
-    } catch (error) {
-      console.error("[SessionsPage] syncCookieAndGetUrl failed:", error);
-      message.error(t("Claw.Sessions.getSessionUrlFailed"));
-    }
-  }, []);
-
-  const handleNewSession = useCallback(async () => {
-    try {
-      const url = await syncCookieAndGetNewSessionUrl();
-      if (!url) {
-        message.warning(t("Claw.Sessions.loginFirst"));
-        return;
-      }
-      setWebviewUrl(url);
-      setView("webview");
-    } catch (error) {
-      console.error(
-        "[SessionsPage] syncCookieAndGetNewSessionUrl failed:",
-        error,
-      );
-      message.error(t("Claw.Sessions.getSessionUrlFailed"));
-    }
-  }, []);
-
-  const handleOpenSession = useCallback(async (sessionId: string) => {
-    try {
-      const url = await syncCookieAndGetChatUrl(sessionId);
-      if (!url) {
-        message.warning(t("Claw.Sessions.loginFirst"));
-        return;
-      }
-      setWebviewUrl(url);
-      setView("webview");
-    } catch (error) {
-      console.error("[SessionsPage] syncCookieAndGetChatUrl failed:", error);
-      message.error(t("Claw.Sessions.getSessionUrlFailed"));
-    }
-  }, []);
-
-  // Auto-open webview when navigated from "开始会话"
-  useEffect(() => {
-    if (autoOpen) {
-      onAutoOpenConsumed?.();
-      handleOpenWebview();
-    }
-  }, [autoOpen, handleOpenWebview, onAutoOpenConsumed]);
+      onOpenInBrowser?.({ type: "session", sessionId });
+    },
+    [onOpenInBrowser],
+  );
 
   const handleStopSession = useCallback(
     async (sessionId: string) => {
@@ -244,8 +89,6 @@ function SessionsPage({
     [fetchSessions],
   );
 
-  // ======================== Render helpers ========================
-
   const getStatusTag = (status: DetailedSession["status"]) => {
     switch (status) {
       case "active":
@@ -261,7 +104,6 @@ function SessionsPage({
   };
 
   const getEngineTag = (session: DetailedSession) => {
-    // 自定义下发引擎：展示 ACP/配置侧名称，不走内置引擎 i18n 标签
     if (session.engineDisplayName) {
       return <Tag color="cyan">{session.engineDisplayName}</Tag>;
     }
@@ -280,28 +122,9 @@ function SessionsPage({
     return `${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
   };
 
-  // ======================== Render ========================
-
-  // View B: Embedded webview (toolbar is in the app header via onWebviewChange)
-  if (view === "webview" && webviewUrl) {
-    return (
-      <div className={styles.webviewFullscreen}>
-        <webview
-          ref={webviewRef as any}
-          src={webviewUrl}
-          useragent={webviewUA}
-          style={{ flex: 1, width: "100%", border: "none" }}
-          allowpopups={"true" as any}
-        />
-      </div>
-    );
-  }
-
-  // View A: Session list
   return (
     <div className={styles.page}>
       <div className={styles.listView}>
-        {/* Toolbar */}
         <div className={styles.toolbar}>
           <div className={styles.toolbarLeft}>
             <TeamOutlined
@@ -333,7 +156,6 @@ function SessionsPage({
           </div>
         </div>
 
-        {/* Session list or empty state */}
         {loading ? (
           <div className={styles.emptyState}>
             <Spin size="default" />

@@ -271,8 +271,9 @@ function createWindow() {
   );
 
   mainWindow.once("ready-to-show", () => {
+    mainWindow?.maximize();
     mainWindow?.show();
-    log.info("Main window shown");
+    log.info("Main window shown (maximized)");
     // macOS 开发模式：窗口显示后再创建托盘，提高菜单栏图标出现概率
     if (process.platform === "darwin" && !app.isPackaged && !trayManager) {
       setTimeout(

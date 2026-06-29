@@ -3,11 +3,34 @@
  * 包含顶部栏、布局等样式
  */
 
+/* 平台 webview 常驻层 */
+.platformPane {
+  flex: 1;
+  min-height: 0;
+}
+
+/* 配置界面层 */
+.configPane {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+
+/* 顶部栏左侧：Logo + 模式切换 */
+.headerLeft {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  min-width: 0;
+}
+
 /* 顶部栏右侧信息区 */
 .headerRight {
   display: flex;
   align-items: center;
   gap: 12px;
+  margin-left: auto;
+  flex-shrink: 0;
 }
 
 /* 用户名 */
@@ -29,9 +52,75 @@
   min-width: 6px;
 }
 
-/* Webview 模式下顶部栏左侧操作区（替代 logo） */
-.headerWebviewActions {
+/* 平台 / 配置 Segmented 切换 */
+.headerModeTabs {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 8px;
+}
+
+.headerModeSegmented {
+  display: inline-flex;
+  align-items: center;
+}
+
+.headerModeSegmented :global(.ant-segmented) {
+  background: var(--color-border-secondary);
+  padding: 2px;
+}
+
+.headerModeSegmented :global(.ant-segmented-group) {
+  display: flex;
+  align-items: center;
+}
+
+.headerModeSegmented :global(.ant-segmented-item) {
+  display: flex;
+  align-items: center;
+}
+
+.headerModeSegmented :global(.ant-segmented-item-label) {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 24px;
+  height: 24px;
+  line-height: 1;
+  padding: 0 10px;
+  font-size: 12px;
+}
+
+.headerModeSegmentedLabel {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.headerModeSegmentedLabel :global(.anticon),
+.headerModeSegmentedLabel svg {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+/* 平台模式专属刷新按钮：默认无边框 */
+.headerRefreshBtn {
+  flex-shrink: 0;
+}
+
+.headerRefreshBtn:global(.ant-btn) {
+  border: none;
+  box-shadow: none;
+  background: transparent;
+  color: var(--color-text-secondary);
+}
+
+.headerRefreshBtn:global(.ant-btn:not(:disabled):hover) {
+  border: none;
+  background: var(--color-border-secondary);
+  color: var(--color-text);
 }
