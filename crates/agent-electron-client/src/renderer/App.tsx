@@ -41,7 +41,11 @@ import {
   loginAndRegister,
   isLoggedIn,
 } from "./services/core/auth";
-import { AUTH_KEYS, normalizeAgentEngine } from "@shared/constants";
+import {
+  APP_DISPLAY_NAME,
+  AUTH_KEYS,
+  normalizeAgentEngine,
+} from "@shared/constants";
 import type { QuickInitConfig } from "@shared/types/quickInit";
 import type { UpdateState } from "@shared/types/updateTypes";
 import { t, getCurrentLang } from "./services/core/i18n";
@@ -1259,8 +1263,17 @@ function App() {
             {/* 顶部栏：Logo + 模式切换 + 浏览器刷新 + 用户状态 + 升级提示 */}
             <div className="app-header">
               <div className={styles.headerLeft}>
-                <div className={styles.headerModeTabs}>
-                  {isAuthLoggedIn && (
+                {!isAuthLoggedIn ? (
+                  <div className="app-header-logo">
+                    <img
+                      src="./32x32.png"
+                      alt=""
+                      style={{ width: 16, height: 16 }}
+                    />
+                    <span className="app-header-title">{APP_DISPLAY_NAME}</span>
+                  </div>
+                ) : (
+                  <div className={styles.headerModeTabs}>
                     <Segmented
                       className={styles.headerModeSegmented}
                       value={mainViewMode}
@@ -1288,18 +1301,18 @@ function App() {
                         },
                       ]}
                     />
-                  )}
-                  {isAuthLoggedIn && mainViewMode === "browser" && (
-                    <Button
-                      size="small"
-                      className={styles.headerRefreshBtn}
-                      icon={<ReloadOutlined />}
-                      onClick={handleBrowserRefresh}
-                    >
-                      {t("Claw.App.refresh")}
-                    </Button>
-                  )}
-                </div>
+                    {mainViewMode === "browser" && (
+                      <Button
+                        size="small"
+                        className={styles.headerRefreshBtn}
+                        icon={<ReloadOutlined />}
+                        onClick={handleBrowserRefresh}
+                      >
+                        {t("Claw.App.refresh")}
+                      </Button>
+                    )}
+                  </div>
+                )}
               </div>
               <div className={styles.headerRight}>
                 {username && (
