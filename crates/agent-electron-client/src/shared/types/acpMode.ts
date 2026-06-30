@@ -26,6 +26,12 @@ export function normalizeEngineId(raw: string): AgentEngineId | null {
   return null;
 }
 
+/** 解析 ACP session mode id（newSession/load/resume 返回的 currentModeId） */
+export function parseAcpModeId(modeId?: string | null): AcpMode | null {
+  if (modeId === "ask" || modeId === "yolo") return modeId;
+  return null;
+}
+
 /** 解析 agent_mode 字段。缺省 → yolo，非法 → fail-safe ask + warning 标记 */
 export function resolveEffectiveMode(agentMode?: string | null): {
   mode: AcpMode;

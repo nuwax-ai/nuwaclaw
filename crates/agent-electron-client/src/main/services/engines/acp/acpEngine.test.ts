@@ -1773,7 +1773,10 @@ describe("AcpEngine.chat session restore", () => {
     });
 
     expect(newSession).toHaveBeenCalled();
-    expect(setSessionMode).not.toHaveBeenCalled();
+    expect(setSessionMode).toHaveBeenCalledWith({
+      sessionId: "fresh-sess",
+      modeId: "ask",
+    });
     expect(result.success).toBe(true);
     expect(result.data?.is_new_session).toBe(true);
     expect(result.data?.session_id).toBe("fresh-sess");
@@ -1812,6 +1815,50 @@ describe("AcpEngine.chat session restore", () => {
     });
 
     expect(setSessionMode).not.toHaveBeenCalled();
+  });
+
+  it("syncs setSessionMode when reusing in-memory session and agent_mode changes", async () => {
+    const engine = new AcpEngine("nuwaxcode");
+    const setSessionMode = vi.fn().mockResolvedValue({});
+    const prompt = vi.fn().mockResolvedValue({ stopReason: "end_turn" });
+
+    (engine as any).config = {
+      engine: "nuwaxcode",
+      workspaceDir: "/workspace/project",
+      mcpServers: {},
+    };
+    (engine as any).agentCapabilities = { loadSession: true };
+    (engine as any).acpConnection = {
+      prompt,
+      cancel: vi.fn(),
+      setSessionMode,
+    };
+    (engine as any).sessions.set("mem-sess", {
+      id: "mem-sess",
+      acpSessionId: "mem-sess",
+      createdAt: Date.now(),
+      status: "idle",
+      acpCurrentModeId: "yolo",
+    });
+    (engine as any).permissions.setEffectiveMode("mem-sess", "yolo");
+
+    const result = await engine.chat({
+      user_id: "u1",
+      project_id: "proj-1",
+      session_id: "mem-sess",
+      prompt: "second turn ask",
+      request_id: "req-2",
+      agent_config: { agent_server: { agent_mode: "ask" } },
+    });
+
+    expect(setSessionMode).toHaveBeenCalledWith({
+      sessionId: "mem-sess",
+      modeId: "ask",
+    });
+    expect((engine as any).permissions.getEffectiveMode("mem-sess")).toBe(
+      "ask",
+    );
+    expect(result.success).toBe(true);
   });
 });
 

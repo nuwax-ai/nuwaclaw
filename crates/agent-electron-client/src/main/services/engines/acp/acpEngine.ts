@@ -102,7 +102,11 @@ import { ACP_ABORT_TIMEOUT } from "@shared/constants";
 import { APP_DATA_DIR_NAME } from "../../constants";
 import { perfEmitter } from "../perf/perfEmitter";
 import { firstTokenTrace } from "../perf/firstTokenTrace";
-import { resolveEffectiveMode, type AcpMode } from "@shared/types/acpMode";
+import {
+  parseAcpModeId,
+  resolveEffectiveMode,
+  type AcpMode,
+} from "@shared/types/acpMode";
 import {
   approvalInterventionService,
   isComputerPermissionResolveRequest,
@@ -163,6 +167,8 @@ interface AcpSession {
   memoryModel?: string; // 记忆处理使用的模型名（来自 model_provider.default_model）
   /** session/resume 返回的初始 mode，chat 同步后清除 */
   resumedModeState?: { currentModeId?: string } | null;
+  /** 上次与 ACP Agent 对齐的 mode（仅运行时跟踪，不做持久化） */
+  acpCurrentModeId?: AcpMode;
 }
 
 // Session counter removed — ACP protocol UUID is used as canonical session.id
@@ -208,21 +214,22 @@ export class AcpEngine extends EventEmitter {
   }
 
   /**
-   * resume 后同步 Agent mode：先应用 resume 返回的 currentModeId，再按请求 mode 对齐 ACP。
+   * 每次 chat 按请求的 agent_mode 对齐 Agent 与客户端，不缓存跨轮次 mode。
+   * currentEngineModeHint：load/resume/newSession 返回的 currentModeId，或 session 上次同步记录。
    */
-  private async applySessionModeAfterRestore(
+  private async syncSessionModeForChat(
     acpSessionId: string,
-    resumedModeState: { currentModeId?: string } | null | undefined,
     targetMode: AcpMode,
+    currentEngineModeHint?: AcpMode | null,
   ): Promise<void> {
-    const resumedModeId = resumedModeState?.currentModeId;
-    if (resumedModeId === "ask" || resumedModeId === "yolo") {
-      this.setEffectiveMode(acpSessionId, resumedModeId);
-    }
+    const session = this.sessions.get(acpSessionId);
+    const currentEngineMode =
+      currentEngineModeHint ??
+      session?.acpCurrentModeId ??
+      this.permissions.getEffectiveMode(acpSessionId);
 
     if (
-      resumedModeId &&
-      resumedModeId !== targetMode &&
+      currentEngineMode !== targetMode &&
       this.acpConnection?.setSessionMode
     ) {
       try {
@@ -231,17 +238,30 @@ export class AcpEngine extends EventEmitter {
           modeId: targetMode,
         });
         log.info(
-          `${this.logTag} setSessionMode after resume: ${resumedModeId} → ${targetMode}`,
+          `${this.logTag} setSessionMode: ${currentEngineMode} → ${targetMode}`,
         );
       } catch (err) {
         log.warn(
-          `${this.logTag} setSessionMode after resume failed (${resumedModeId} → ${targetMode}):`,
+          `${this.logTag} setSessionMode failed (${currentEngineMode} → ${targetMode}):`,
           err,
         );
       }
     }
 
     this.setEffectiveMode(acpSessionId, targetMode);
+    if (session) {
+      session.acpCurrentModeId = targetMode;
+    }
+  }
+
+  private applyAcpModeFromRpc(
+    session: AcpSession,
+    modes: { currentModeId?: string } | null | undefined,
+  ): void {
+    const modeId = parseAcpModeId(modes?.currentModeId);
+    if (modeId) {
+      session.acpCurrentModeId = modeId;
+    }
   }
 
   private activePromptSessions = new Set<string>();
@@ -911,6 +931,7 @@ export class AcpEngine extends EventEmitter {
     session.mcpServerCount = mcpServers.length;
     session.lastActivity = Date.now();
     session.resumedModeState = resumeResult.modes ?? null;
+    this.applyAcpModeFromRpc(session, resumeResult.modes ?? null);
     if (session.status === undefined) session.status = "idle";
     this.sessions.set(sessionId, session);
 
@@ -999,6 +1020,10 @@ export class AcpEngine extends EventEmitter {
     session.resumedModeState =
       (loadResult.modes as { currentModeId?: string } | null | undefined) ??
       null;
+    this.applyAcpModeFromRpc(
+      session,
+      loadResult.modes as { currentModeId?: string } | null | undefined,
+    );
     if (session.status === undefined) session.status = "idle";
     this.sessions.set(sessionId, session);
 
@@ -1051,7 +1076,10 @@ export class AcpEngine extends EventEmitter {
       mcpServersJson: JSON.stringify(mcpServers, null, 2),
     });
     const timer = perfEmitter.start();
-    let acpResult: { sessionId: string };
+    let acpResult: {
+      sessionId: string;
+      modes?: { currentModeId?: string } | null;
+    };
     this.pendingNewSessionRegistration = true;
     try {
       acpResult = await this.acpConnection.newSession(newSessionParams);
@@ -1092,6 +1120,7 @@ export class AcpEngine extends EventEmitter {
     session.mcpServerCount = mcpServers.length;
     session.lastActivity = Date.now();
     if (session.status === undefined) session.status = "idle";
+    this.applyAcpModeFromRpc(session, acpResult.modes ?? null);
     this.sessions.set(sessionId, session);
 
     log.info(`${this.logTag} Session created`, {
@@ -1830,15 +1859,15 @@ export class AcpEngine extends EventEmitter {
       }
 
       if (session.acpSessionId) {
-        if (restoredVia === "resume" || restoredVia === "load") {
-          await this.applySessionModeAfterRestore(
-            session.acpSessionId,
-            session.resumedModeState,
-            effectiveMode,
-          );
-        } else {
-          this.setEffectiveMode(session.acpSessionId, effectiveMode);
-        }
+        const engineModeHint =
+          parseAcpModeId(session.resumedModeState?.currentModeId) ??
+          session.acpCurrentModeId ??
+          null;
+        await this.syncSessionModeForChat(
+          session.acpSessionId,
+          effectiveMode,
+          engineModeHint,
+        );
         session.resumedModeState = null;
         // 每次 chat 请求刷新该会话的 tool_approval_rules（不传则清除，保持向后兼容）
         this.permissions.setSessionApprovalRules(
