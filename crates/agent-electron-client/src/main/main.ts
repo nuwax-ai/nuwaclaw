@@ -556,13 +556,15 @@ app.whenReady().then(async () => {
   registerAllHandlers(ctx);
   await runStartupTasks();
 
+  // 须在 createWindow 之前初始化，否则主窗口 webContents 会错过 did-attach-webview 监听
+  initWebviewPolicy(() => mainWindow);
+
   createWindow();
   if (pendingSecondInstanceFocus && mainWindow) {
     pendingSecondInstanceFocus = false;
     mainWindow.show();
     mainWindow.focus();
   }
-  initWebviewPolicy(() => mainWindow);
 
   // 非 macOS 或已打包：立即创建托盘。macOS 开发模式改为在 ready-to-show 后创建
   if (!(process.platform === "darwin" && !app.isPackaged)) {

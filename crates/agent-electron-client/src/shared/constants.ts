@@ -27,6 +27,24 @@ export const DEFAULT_WINDOW_MIN_WIDTH = 800;
 /** 主窗口最小高度（窗口可调整尺寸下限） */
 export const DEFAULT_WINDOW_MIN_HEIGHT = 600;
 
+/** webview 内 window.open 未指定 features 时的基准宽度（Electron 常见默认约 600） */
+export const WEBVIEW_POPUP_BASE_WIDTH = 600;
+
+/** webview 内 window.open 未指定 features 时的基准高度（Electron 常见默认约 400） */
+export const WEBVIEW_POPUP_BASE_HEIGHT = 400;
+
+/** webview 弹窗默认宽度（基准 × 2） */
+export const WEBVIEW_POPUP_DEFAULT_WIDTH = 1200;
+
+/** webview 弹窗默认高度（基准 × 2） */
+export const WEBVIEW_POPUP_DEFAULT_HEIGHT = 800;
+
+/** webview 弹窗最小宽度 */
+export const WEBVIEW_POPUP_MIN_WIDTH = DEFAULT_WINDOW_MIN_WIDTH;
+
+/** webview 弹窗最小高度 */
+export const WEBVIEW_POPUP_MIN_HEIGHT = DEFAULT_WINDOW_MIN_HEIGHT;
+
 // ==================== 端口配置 ====================
 
 /** MCP Proxy 默认端口 */
