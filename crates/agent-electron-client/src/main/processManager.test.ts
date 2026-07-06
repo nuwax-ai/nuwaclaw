@@ -4,13 +4,16 @@
  * 覆盖内容：
  * - stop() 调用 removeAllListeners 防止句柄泄漏
  * - stop() 在无进程时返回 Not running
- * - kill() SIGTERM→SIGKILL 升级使用 PROCESS_KILL_ESCALATION_TIMEOUT
+ * - stop()/kill() 委托进程树清理，避免子进程残留
  * - kill() 在无进程时不报错
- * - kill() 升级定时器在进程正常退出后被清除
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { EventEmitter } from "events";
+
+const processTreeMocks = vi.hoisted(() => ({
+  killProcessTreeGraceful: vi.fn(() => Promise.resolve()),
+}));
 
 vi.mock("electron-log", () => ({
   default: {
@@ -24,6 +27,8 @@ vi.mock("electron-log", () => ({
 vi.mock("child_process", () => ({
   spawn: vi.fn(),
 }));
+
+vi.mock("./services/utils/processTree", () => processTreeMocks);
 
 import { ManagedProcess } from "./processManager";
 import { PROCESS_KILL_ESCALATION_TIMEOUT } from "@shared/constants";
@@ -48,6 +53,7 @@ function injectProcess(mp: ManagedProcess, proc: any) {
 describe("ManagedProcess", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    processTreeMocks.killProcessTreeGraceful.mockResolvedValue(undefined);
   });
 
   afterEach(() => {
@@ -78,22 +84,26 @@ describe("ManagedProcess", () => {
       expect(stderrRemove).toHaveBeenCalled();
       expect(stdinRemove).toHaveBeenCalled();
       expect(procRemove).toHaveBeenCalled();
-      expect(proc.kill).toHaveBeenCalled();
+      expect(processTreeMocks.killProcessTreeGraceful).toHaveBeenCalledWith(
+        12345,
+        PROCESS_KILL_ESCALATION_TIMEOUT,
+      );
       expect(mp.running).toBe(false);
     });
 
-    it("sets process to null before calling kill", () => {
+    it("sets process to null before process tree cleanup", () => {
       const mp = new ManagedProcess("test");
       const proc = createFakeProc();
       injectProcess(mp, proc);
 
-      let runningDuringKill: boolean | undefined;
-      proc.kill = vi.fn(() => {
-        runningDuringKill = mp.running;
+      let runningDuringCleanup: boolean | undefined;
+      processTreeMocks.killProcessTreeGraceful.mockImplementationOnce(() => {
+        runningDuringCleanup = mp.running;
+        return Promise.resolve();
       });
 
       mp.stop();
-      expect(runningDuringKill).toBe(false);
+      expect(runningDuringCleanup).toBe(false);
     });
   });
 
@@ -103,51 +113,18 @@ describe("ManagedProcess", () => {
       expect(() => mp.kill()).not.toThrow();
     });
 
-    it("sends SIGTERM and schedules SIGKILL escalation", () => {
-      vi.useFakeTimers();
+    it("delegates cleanup to process tree graceful kill", () => {
       const mp = new ManagedProcess("test");
       const proc = createFakeProc();
       injectProcess(mp, proc);
 
-      const processKillSpy = vi
-        .spyOn(process, "kill")
-        .mockImplementation(() => true);
-
       mp.kill();
 
-      expect(proc.kill).toHaveBeenCalled();
       expect(mp.running).toBe(false);
-
-      // Escalation should not have fired yet
-      expect(processKillSpy).not.toHaveBeenCalled();
-
-      // Advance past PROCESS_KILL_ESCALATION_TIMEOUT
-      vi.advanceTimersByTime(PROCESS_KILL_ESCALATION_TIMEOUT + 1);
-
-      expect(processKillSpy).toHaveBeenCalledWith(proc.pid, "SIGKILL");
-      processKillSpy.mockRestore();
-    });
-
-    it("clears escalation timer if process exits promptly", () => {
-      vi.useFakeTimers();
-      const mp = new ManagedProcess("test");
-      const proc = createFakeProc();
-      injectProcess(mp, proc);
-
-      const processKillSpy = vi
-        .spyOn(process, "kill")
-        .mockImplementation(() => true);
-
-      mp.kill();
-
-      // Simulate prompt exit
-      proc.emit("exit", 0, null);
-
-      // Advance past escalation timeout — SIGKILL should NOT fire
-      vi.advanceTimersByTime(PROCESS_KILL_ESCALATION_TIMEOUT + 1);
-
-      expect(processKillSpy).not.toHaveBeenCalled();
-      processKillSpy.mockRestore();
+      expect(processTreeMocks.killProcessTreeGraceful).toHaveBeenCalledWith(
+        12345,
+        PROCESS_KILL_ESCALATION_TIMEOUT,
+      );
     });
 
     it("removes all listeners on the process", () => {

@@ -1,0 +1,23 @@
+/**
+ * BrowserHomePage 组件样式
+ */
+
+.webviewContainer {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+}
+
+.emptyState {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  flex: 1;
+  min-height: 0;
+  padding: 60px 16px;
+  color: var(--color-text-tertiary);
+  font-size: 13px;
+  gap: 12px;
+}

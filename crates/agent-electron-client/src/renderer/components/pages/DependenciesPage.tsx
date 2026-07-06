@@ -70,7 +70,7 @@ const MOCK_LOCAL_DEPS: LocalDependencyItem[] = [
     description: t(I18N_KEYS.Pages.Dependencies.DESC_FILE_SERVER),
     type: "npm-local",
     status: "outdated",
-    version: "1.2.0",
+    version: "1.2.1",
     latestVersion: "1.3.0",
     required: true,
   },
@@ -124,7 +124,19 @@ export default function DependenciesPage() {
     available: boolean;
     version?: string;
   } | null>(null);
+  const [codexAcpBundled, setCodexAcpBundled] = useState<{
+    available: boolean;
+    version?: string;
+  } | null>(null);
   const [fileServerBundled, setFileServerBundled] = useState<{
+    available: boolean;
+    version?: string;
+  } | null>(null);
+  const [ttydBundled, setTtydBundled] = useState<{
+    available: boolean;
+    version?: string;
+  } | null>(null);
+  const [ripgrepResult, setRipgrepResult] = useState<{
     available: boolean;
     version?: string;
   } | null>(null);
@@ -205,6 +217,17 @@ export default function DependenciesPage() {
           : { available: false },
       );
 
+      // 应用包内集成的 nuwax-codex-acp
+      if (window.electronAPI?.dependencies.checkCodexAcpBundled) {
+        const codexAcpRes =
+          await window.electronAPI.dependencies.checkCodexAcpBundled();
+        setCodexAcpBundled(
+          codexAcpRes?.success && codexAcpRes.available
+            ? { available: true, version: codexAcpRes.version }
+            : { available: false },
+        );
+      }
+
       // 应用包内集成的 nuwax-file-server
       const fileServerRes =
         await window.electronAPI?.dependencies.checkNuwaxFileServerBundled();
@@ -214,11 +237,27 @@ export default function DependenciesPage() {
           : { available: false },
       );
 
+      // 应用包内集成的 ttyd（WebSocket 终端，仅检查二进制是否存在）
+      const ttydRes = await window.electronAPI?.ttyd.isAvailable();
+      setTtydBundled(
+        ttydRes?.available
+          ? { available: true, version: ttydRes.version }
+          : { available: false },
+      );
+
       // Check all local/installable dependencies
       const depsResult = await window.electronAPI?.dependencies.checkAll({
         checkLatest: true,
       });
       if (depsResult?.success && depsResult.results) {
+        // Extract ripgrep from checkAll results before filtering
+        const rgItem = depsResult.results.find((d) => d.name === "ripgrep");
+        setRipgrepResult(
+          rgItem?.status === "bundled"
+            ? { available: true, version: rgItem.version }
+            : { available: false },
+        );
+
         const installableDeps = depsResult.results.filter(
           (d) =>
             d.type === "npm-local" ||
@@ -801,6 +840,42 @@ export default function DependenciesPage() {
             </span>
           </div>
 
+          {/* ttyd：应用包内集成的 WebSocket 终端 */}
+          <div className={styles.serviceRow}>
+            <div className={styles.serviceInfo}>
+              {ttydBundled?.available ? (
+                <CheckCircleOutlined
+                  style={{ color: "var(--color-success)", fontSize: 12 }}
+                />
+              ) : (
+                <ExclamationCircleOutlined
+                  style={{ color: "var(--color-warning)", fontSize: 12 }}
+                />
+              )}
+              <div>
+                <span className={styles.serviceLabel}>ttyd</span>
+                {ttydBundled?.available && ttydBundled.version && (
+                  <span className={styles.serviceDescription}>
+                    {" "}
+                    {ttydBundled.version}
+                  </span>
+                )}
+              </div>
+            </div>
+            <span
+              style={{
+                fontSize: 12,
+                color: ttydBundled?.available
+                  ? "var(--color-success)"
+                  : "var(--color-text-tertiary)",
+              }}
+            >
+              {ttydBundled?.available
+                ? t(I18N_KEYS.Pages.Dependencies.INTEGRATED)
+                : t(I18N_KEYS.Pages.Dependencies.NOT_INTEGRATED)}
+            </span>
+          </div>
+
           {/* claude-code-acp-ts：应用包内集成 */}
           <div className={styles.serviceRow}>
             <div className={styles.serviceInfo}>
@@ -840,6 +915,44 @@ export default function DependenciesPage() {
             </span>
           </div>
 
+          {/* nuwax-codex-acp：应用包内集成 */}
+          <div className={styles.serviceRow}>
+            <div className={styles.serviceInfo}>
+              {codexAcpBundled?.available ? (
+                <CheckCircleOutlined
+                  style={{ color: "var(--color-success)", fontSize: 12 }}
+                />
+              ) : (
+                <ExclamationCircleOutlined
+                  style={{ color: "var(--color-warning)", fontSize: 12 }}
+                />
+              )}
+              <div>
+                <span className={styles.serviceLabel}>
+                  {t(I18N_KEYS.Pages.Dependencies.DEP_CODEX_ACP)}
+                </span>
+                {codexAcpBundled?.available && codexAcpBundled.version && (
+                  <span className={styles.serviceDescription}>
+                    {" "}
+                    {codexAcpBundled.version}
+                  </span>
+                )}
+              </div>
+            </div>
+            <span
+              style={{
+                fontSize: 12,
+                color: codexAcpBundled?.available
+                  ? "var(--color-success)"
+                  : "var(--color-text-tertiary)",
+              }}
+            >
+              {codexAcpBundled?.available
+                ? t(I18N_KEYS.Pages.Dependencies.INTEGRATED)
+                : t(I18N_KEYS.Pages.Dependencies.NOT_INTEGRATED)}
+            </span>
+          </div>
+
           {/* nuwax-file-server：应用包内集成 */}
           <div className={styles.serviceRow}>
             <div className={styles.serviceInfo}>
@@ -873,6 +986,44 @@ export default function DependenciesPage() {
               }}
             >
               {fileServerBundled?.available
+                ? t(I18N_KEYS.Pages.Dependencies.INTEGRATED)
+                : t(I18N_KEYS.Pages.Dependencies.NOT_INTEGRATED)}
+            </span>
+          </div>
+
+          {/* ripgrep：应用包内集成 */}
+          <div className={styles.serviceRow}>
+            <div className={styles.serviceInfo}>
+              {ripgrepResult?.available ? (
+                <CheckCircleOutlined
+                  style={{ color: "var(--color-success)", fontSize: 12 }}
+                />
+              ) : (
+                <ExclamationCircleOutlined
+                  style={{ color: "var(--color-warning)", fontSize: 12 }}
+                />
+              )}
+              <div>
+                <span className={styles.serviceLabel}>
+                  {t(I18N_KEYS.Pages.Dependencies.DEP_RIPGREP)}
+                </span>
+                {ripgrepResult?.available && ripgrepResult.version && (
+                  <span className={styles.serviceDescription}>
+                    {" "}
+                    {ripgrepResult.version}
+                  </span>
+                )}
+              </div>
+            </div>
+            <span
+              style={{
+                fontSize: 12,
+                color: ripgrepResult?.available
+                  ? "var(--color-success)"
+                  : "var(--color-text-tertiary)",
+              }}
+            >
+              {ripgrepResult?.available
                 ? t(I18N_KEYS.Pages.Dependencies.INTEGRATED)
                 : t(I18N_KEYS.Pages.Dependencies.NOT_INTEGRATED)}
             </span>

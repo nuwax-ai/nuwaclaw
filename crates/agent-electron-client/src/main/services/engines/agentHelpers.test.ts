@@ -6,10 +6,10 @@
  * - resolveAgentEnv: 解析环境变量模板
  */
 
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from "vitest";
 
 // Mock electron-log - must be at top level before imports
-vi.mock('electron-log', () => ({
+vi.mock("electron-log", () => ({
   default: {
     warn: vi.fn(),
     info: vi.fn(),
@@ -17,114 +17,123 @@ vi.mock('electron-log', () => ({
   },
 }));
 
-import { mapAgentCommand, resolveAgentEnv } from './agentHelpers';
-import type { ModelProviderConfig } from './unifiedAgent';
+import {
+  mapAgentCommand,
+  resolveAgentEnv,
+  resolveCustomEngineDisplayName,
+} from "./agentHelpers";
+import type { ModelProviderConfig } from "./unifiedAgent";
 
-const mockLog = require('electron-log').default;
+const mockLog = require("electron-log").default;
 
-describe('agentHelpers', () => {
+describe("agentHelpers", () => {
   beforeEach(() => {
     vi.clearAllMocks();
   });
 
-  describe('mapAgentCommand', () => {
+  describe("mapAgentCommand", () => {
     it('should map "nuwaxcode" to nuwaxcode engine', () => {
-      expect(mapAgentCommand('nuwaxcode')).toBe('nuwaxcode');
+      expect(mapAgentCommand("nuwaxcode")).toBe("nuwaxcode");
     });
 
     it('should map "claude-code" to claude-code engine', () => {
-      expect(mapAgentCommand('claude-code')).toBe('claude-code');
+      expect(mapAgentCommand("claude-code")).toBe("claude-code");
     });
 
     it('should map "claude-code-acp-ts" to claude-code engine', () => {
-      expect(mapAgentCommand('claude-code-acp-ts')).toBe('claude-code');
+      expect(mapAgentCommand("claude-code-acp-ts")).toBe("claude-code");
     });
 
-    it('should return null for unknown commands', () => {
-      expect(mapAgentCommand('unknown-engine')).toBeNull();
-      expect(mapAgentCommand('opencode')).toBeNull();
-      expect(mapAgentCommand('')).toBeNull();
+    it('should map "nuwax-codex-acp" to codex-cli engine', () => {
+      expect(mapAgentCommand("nuwax-codex-acp")).toBe("codex-cli");
+    });
+
+    it("should return null for unknown commands", () => {
+      expect(mapAgentCommand("unknown-engine")).toBeNull();
+      expect(mapAgentCommand("opencode")).toBeNull();
+      expect(mapAgentCommand("")).toBeNull();
     });
   });
 
-  describe('resolveAgentEnv', () => {
-    it('should resolve all placeholders when modelProvider is provided', () => {
+  describe("resolveAgentEnv", () => {
+    it("should resolve all placeholders when modelProvider is provided", () => {
       const env = {
-        API_KEY: '{MODEL_PROVIDER_API_KEY}',
-        BASE_URL: '{MODEL_PROVIDER_BASE_URL}',
-        MODEL: '{MODEL_PROVIDER_MODEL}',
+        API_KEY: "{MODEL_PROVIDER_API_KEY}",
+        BASE_URL: "{MODEL_PROVIDER_BASE_URL}",
+        MODEL: "{MODEL_PROVIDER_MODEL}",
       };
       const modelProvider: ModelProviderConfig = {
-        api_key: 'sk-test-key',
-        base_url: 'https://api.example.com',
-        model: 'claude-opus-4-20250514',
+        api_key: "sk-test-key",
+        base_url: "https://api.example.com",
+        model: "claude-opus-4-20250514",
       };
 
       const result = resolveAgentEnv(env, modelProvider);
 
       expect(result).toEqual({
-        API_KEY: 'sk-test-key',
-        BASE_URL: 'https://api.example.com',
-        MODEL: 'claude-opus-4-20250514',
+        API_KEY: "sk-test-key",
+        BASE_URL: "https://api.example.com",
+        MODEL: "claude-opus-4-20250514",
       });
     });
 
-    it('should handle partial placeholders in a single value', () => {
+    it("should handle partial placeholders in a single value", () => {
       const env = {
-        MESSAGE: 'Using model {MODEL_PROVIDER_MODEL} with key {MODEL_PROVIDER_API_KEY}',
+        MESSAGE:
+          "Using model {MODEL_PROVIDER_MODEL} with key {MODEL_PROVIDER_API_KEY}",
       };
       const modelProvider: ModelProviderConfig = {
-        api_key: 'sk-key',
-        base_url: 'https://api.example.com',
-        model: 'claude-sonnet-4-20250514',
+        api_key: "sk-key",
+        base_url: "https://api.example.com",
+        model: "claude-sonnet-4-20250514",
       };
 
       const result = resolveAgentEnv(env, modelProvider);
 
       expect(result).toEqual({
-        MESSAGE: 'Using model claude-sonnet-4-20250514 with key sk-key',
+        MESSAGE: "Using model claude-sonnet-4-20250514 with key sk-key",
       });
     });
 
-    it('should skip entries with unresolved placeholders when modelProvider is undefined', () => {
+    it("should skip entries with unresolved placeholders when modelProvider is undefined", () => {
       const env = {
-        API_KEY: '{MODEL_PROVIDER_API_KEY}',
-        STATIC: 'unchanged',
+        API_KEY: "{MODEL_PROVIDER_API_KEY}",
+        STATIC: "unchanged",
       };
 
       const result = resolveAgentEnv(env, undefined);
 
       // MODEL_PROVIDER_* placeholders remain when modelProvider is undefined
-      expect(result).not.toHaveProperty('API_KEY');
-      expect(result).toHaveProperty('STATIC', 'unchanged');
+      expect(result).not.toHaveProperty("API_KEY");
+      expect(result).toHaveProperty("STATIC", "unchanged");
     });
 
-    it('should keep non-MODEL_PROVIDER placeholders as-is', () => {
+    it("should keep non-MODEL_PROVIDER placeholders as-is", () => {
       const env = {
-        API_KEY: '{MODEL_PROVIDER_API_KEY}',
-        CUSTOM: '{CUSTOM_VAR}', // Not a MODEL_PROVIDER_* placeholder
+        API_KEY: "{MODEL_PROVIDER_API_KEY}",
+        CUSTOM: "{CUSTOM_VAR}", // Not a MODEL_PROVIDER_* placeholder
       };
       const modelProvider: ModelProviderConfig = {
-        api_key: 'sk-key',
+        api_key: "sk-key",
         base_url: undefined,
         model: undefined,
       };
 
       const result = resolveAgentEnv(env, modelProvider);
 
-      expect(result).toHaveProperty('API_KEY', 'sk-key');
+      expect(result).toHaveProperty("API_KEY", "sk-key");
       // CUSTOM_VAR is not a MODEL_PROVIDER_* placeholder, so it's kept as-is
-      expect(result).toHaveProperty('CUSTOM', '{CUSTOM_VAR}');
+      expect(result).toHaveProperty("CUSTOM", "{CUSTOM_VAR}");
     });
 
-    it('should replace undefined modelProvider values with empty string', () => {
+    it("should replace undefined modelProvider values with empty string", () => {
       const env = {
-        API_KEY: '{MODEL_PROVIDER_API_KEY}',
-        BASE_URL: '{MODEL_PROVIDER_BASE_URL}',
-        MODEL: '{MODEL_PROVIDER_MODEL}',
+        API_KEY: "{MODEL_PROVIDER_API_KEY}",
+        BASE_URL: "{MODEL_PROVIDER_BASE_URL}",
+        MODEL: "{MODEL_PROVIDER_MODEL}",
       };
       const modelProvider: ModelProviderConfig = {
-        api_key: 'sk-key',
+        api_key: "sk-key",
         base_url: undefined,
         model: undefined,
       };
@@ -132,63 +141,111 @@ describe('agentHelpers', () => {
       const result = resolveAgentEnv(env, modelProvider);
 
       expect(result).toEqual({
-        API_KEY: 'sk-key',
-        BASE_URL: '',
-        MODEL: '',
+        API_KEY: "sk-key",
+        BASE_URL: "",
+        MODEL: "",
       });
     });
 
-    it('should handle empty values in modelProvider', () => {
+    it("should handle empty values in modelProvider", () => {
       const env = {
-        API_KEY: '{MODEL_PROVIDER_API_KEY}',
-        BASE_URL: '{MODEL_PROVIDER_BASE_URL}',
+        API_KEY: "{MODEL_PROVIDER_API_KEY}",
+        BASE_URL: "{MODEL_PROVIDER_BASE_URL}",
       };
       const modelProvider: ModelProviderConfig = {
-        api_key: '',
-        base_url: '',
-        model: 'claude-opus-4-20250514',
+        api_key: "",
+        base_url: "",
+        model: "claude-opus-4-20250514",
       };
 
       const result = resolveAgentEnv(env, modelProvider);
 
       expect(result).toEqual({
-        API_KEY: '',
-        BASE_URL: '',
+        API_KEY: "",
+        BASE_URL: "",
       });
     });
 
-    it('should replace multiple occurrences of the same placeholder', () => {
+    it("should replace multiple occurrences of the same placeholder", () => {
       const env = {
-        CONFIG: 'Key: {MODEL_PROVIDER_API_KEY}, Key again: {MODEL_PROVIDER_API_KEY}',
+        CONFIG:
+          "Key: {MODEL_PROVIDER_API_KEY}, Key again: {MODEL_PROVIDER_API_KEY}",
       };
       const modelProvider: ModelProviderConfig = {
-        api_key: 'sk-test',
-        base_url: 'https://api.example.com',
-        model: 'claude-opus-4-20250514',
+        api_key: "sk-test",
+        base_url: "https://api.example.com",
+        model: "claude-opus-4-20250514",
       };
 
       const result = resolveAgentEnv(env, modelProvider);
 
       expect(result).toEqual({
-        CONFIG: 'Key: sk-test, Key again: sk-test',
+        CONFIG: "Key: sk-test, Key again: sk-test",
       });
     });
 
-    it('should handle mixed placeholders and static text', () => {
+    it("should resolve default model placeholder from model_provider.default_model", () => {
       const env = {
-        URL: 'https://{MODEL_PROVIDER_BASE_URL}/v1/models/{MODEL_PROVIDER_MODEL}',
+        CODEX_MODEL: "{MODEL_PROVIDER_DEFAULT_MODEL}",
       };
       const modelProvider: ModelProviderConfig = {
-        api_key: 'sk-key',
-        base_url: 'api.anthropic.com',
-        model: 'claude-3-5-sonnet-20241022',
+        api_key: "sk-key",
+        base_url: "https://api.example.com",
+        model: "fallback-model",
+        default_model: "glm-5",
       };
 
       const result = resolveAgentEnv(env, modelProvider);
 
       expect(result).toEqual({
-        URL: 'https://api.anthropic.com/v1/models/claude-3-5-sonnet-20241022',
+        CODEX_MODEL: "glm-5",
       });
+    });
+
+    it("should handle mixed placeholders and static text", () => {
+      const env = {
+        URL: "https://{MODEL_PROVIDER_BASE_URL}/v1/models/{MODEL_PROVIDER_MODEL}",
+      };
+      const modelProvider: ModelProviderConfig = {
+        api_key: "sk-key",
+        base_url: "api.anthropic.com",
+        model: "claude-3-5-sonnet-20241022",
+      };
+
+      const result = resolveAgentEnv(env, modelProvider);
+
+      expect(result).toEqual({
+        URL: "https://api.anthropic.com/v1/models/claude-3-5-sonnet-20241022",
+      });
+    });
+  });
+
+  describe("resolveCustomEngineDisplayName", () => {
+    it("应优先使用 ACP agentInfo.name", () => {
+      expect(
+        resolveCustomEngineDisplayName({
+          acpAgentName: "deepagents-flow-ts",
+          agentId: "3182",
+          customCommand: "/path/to/tsx",
+        }),
+      ).toBe("deepagents-flow-ts");
+    });
+
+    it("无 ACP 名称时应回退到 agent_id", () => {
+      expect(
+        resolveCustomEngineDisplayName({
+          agentId: "3182",
+          customCommand: "/path/to/tsx",
+        }),
+      ).toBe("3182");
+    });
+
+    it("应回退到 command 文件名", () => {
+      expect(
+        resolveCustomEngineDisplayName({
+          customCommand: "/opt/agents/run.sh",
+        }),
+      ).toBe("run.sh");
     });
   });
 });

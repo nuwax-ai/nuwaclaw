@@ -180,6 +180,10 @@ export interface SandboxValue {
   fileServerPort: number;
   guiMcpPort: number;
   adminServerPort: number;
+  /**
+   * ttyd Web 终端端口（仅回环监听），与 step1_config.ttydPort 同步上报。
+   */
+  ttydPort?: number;
   apiKey?: string;
   maxUsers?: number;
 }

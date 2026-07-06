@@ -47,6 +47,18 @@ vi.mock("electron-log", () => ({
   },
 }));
 
+const mockWrapWindowsCommandWithGitBash = vi.fn(
+  (command: string, args: string[]) => ({ command, args }),
+);
+
+vi.mock("../system/windowsGitBashCommand", () => ({
+  wrapWindowsCommandWithGitBash: (
+    command: string,
+    args: string[],
+  ): { command: string; args: string[] } =>
+    mockWrapWindowsCommandWithGitBash(command, args),
+}));
+
 // Import after mocks are set up
 import { SandboxInvoker } from "./SandboxInvoker";
 import { SandboxError, SandboxErrorCode } from "@shared/errors/sandbox";
@@ -286,24 +298,61 @@ describe("SandboxInvoker - macos-seatbelt", () => {
       );
     });
 
-    it("should include command literal but not startup-chain allowlist in strict mode", async () => {
+    it("should use engine-only startupExecAllowlist in strict when caller passes no MCP extras", async () => {
       const invoker = new SandboxInvoker("macos-seatbelt", { mode: "strict" });
       await invoker.buildInvocation(
         makeParams({
-          command: "/mock/resources/node/darwin-arm64/bin/node",
+          command: "/mock/resources/nuwaxcode/darwin-arm64/bin/nuwaxcode",
           startupExecAllowlist: [
-            "/mock/resources/claude-code-acp-ts/dist/index.js",
+            "/mock/resources/nuwaxcode/darwin-arm64/bin/nuwaxcode",
           ],
         }),
       );
 
-      const writeCall = mockFspWriteFile.mock.calls[0];
-      const profile = writeCall[1] as string;
+      const profile = mockFspWriteFile.mock.calls[0][1] as string;
+      expect(profile).toContain(
+        '(allow process-exec (literal "/mock/resources/nuwaxcode/darwin-arm64/bin/nuwaxcode"))',
+      );
+      expect(profile).not.toContain("claude-code-acp-ts");
+    });
+
+    it("should honor startupExecAllowlist MCP paths in strict mode", async () => {
+      const invoker = new SandboxInvoker("macos-seatbelt", { mode: "strict" });
+      await invoker.buildInvocation(
+        makeParams({
+          command: "/mock/resources/nuwaxcode/darwin-arm64/bin/nuwaxcode",
+          startupExecAllowlist: [
+            "/mock/resources/nuwaxcode/darwin-arm64/bin/nuwaxcode",
+            "/mock/resources/node/darwin-arm64/bin/node",
+            "/mock/resources/nuwax-mcp-stdio-proxy/dist/index.js",
+          ],
+        }),
+      );
+
+      const profile = mockFspWriteFile.mock.calls[0][1] as string;
       expect(profile).toContain(
         '(allow process-exec (literal "/mock/resources/node/darwin-arm64/bin/node"))',
       );
+      expect(profile).toContain(
+        '(allow process-exec (literal "/mock/resources/nuwax-mcp-stdio-proxy/dist/index.js"))',
+      );
+    });
+
+    it("should allow strict exec subpaths without granting file writes", async () => {
+      const invoker = new SandboxInvoker("macos-seatbelt", { mode: "strict" });
+      await invoker.buildInvocation(
+        makeParams({
+          command: "/mock/resources/nuwaxcode/darwin-arm64/bin/nuwaxcode",
+          startupExecSubpathAllowlist: ["/mock/resources/node"],
+        }),
+      );
+
+      const profile = mockFspWriteFile.mock.calls[0][1] as string;
+      expect(profile).toContain(
+        '(allow process-exec (subpath "/mock/resources/node"))',
+      );
       expect(profile).not.toContain(
-        '(allow process-exec (literal "/mock/resources/claude-code-acp-ts/dist/index.js"))',
+        '(allow file-write* (subpath "/mock/resources/node"))',
       );
     });
   });
@@ -345,15 +394,20 @@ describe("SandboxInvoker - macos-seatbelt", () => {
     expect(matches).toHaveLength(1);
   });
 
-  it("should write profile to temp directory", async () => {
-    const invoker = new SandboxInvoker("macos-seatbelt");
-    await invoker.buildInvocation(makeParams());
+  it.skipIf(process.platform !== "darwin")(
+    "should write profile to temp directory",
+    async () => {
+      const invoker = new SandboxInvoker("macos-seatbelt");
+      await invoker.buildInvocation(makeParams());
 
-    const writeCall = mockFspWriteFile.mock.calls[0];
-    const profilePath = writeCall[0] as string;
+      const writeCall = mockFspWriteFile.mock.calls[0];
+      const profilePath = writeCall[0] as string;
 
-    expect(profilePath).toMatch(/^\/tmp\/nuwaclaw-sandbox-\d+-[a-z0-9]+\.sb$/);
-  });
+      expect(profilePath).toMatch(
+        /^\/tmp\/nuwaclaw-sandbox-\d+-[a-z0-9]+\.sb$/,
+      );
+    },
+  );
 });
 
 // ============================================================================
@@ -559,8 +613,13 @@ describe("SandboxInvoker - linux-bwrap", () => {
 
 describe("SandboxInvoker - windows-sandbox", () => {
   const fakeHelperPath = "C:\\tools\\nuwax-sandbox-helper.exe";
+  const fakeBashPath = "C:\\tools\\git\\bin\\bash.exe";
 
   beforeEach(() => {
+    mockWrapWindowsCommandWithGitBash.mockImplementation((command, args) => ({
+      command,
+      args,
+    }));
     mockFsExistsSync.mockImplementation((p: string) => {
       if (p.includes("nuwax-sandbox-helper")) return true;
       return true;
@@ -740,7 +799,11 @@ describe("SandboxInvoker - windows-sandbox", () => {
       });
     });
 
-    it("should place original command and args after -- separator", async () => {
+    it("should wrap run commands with Git Bash on Windows", async () => {
+      mockWrapWindowsCommandWithGitBash.mockImplementation((command, args) => ({
+        command: fakeBashPath,
+        args: ["-c", [command, ...args].join(" ")],
+      }));
       await withPlatform("win32", async () => {
         const invoker = new SandboxInvoker("windows-sandbox", {
           windowsSandboxHelperPath: fakeHelperPath,
@@ -752,8 +815,50 @@ describe("SandboxInvoker - windows-sandbox", () => {
         expect(separatorIdx).toBeGreaterThanOrEqual(0);
 
         const afterSeparator = result.args.slice(separatorIdx + 1);
+        expect(afterSeparator[0]).toMatch(/bash\.exe$/i);
+        expect(afterSeparator[1]).toBe("-c");
+        expect(afterSeparator[2]).toBe("node.exe --version");
+      });
+    });
+
+    it("should not wrap serve subcommand with Git Bash", async () => {
+      await withPlatform("win32", async () => {
+        const invoker = new SandboxInvoker("windows-sandbox", {
+          windowsSandboxHelperPath: fakeHelperPath,
+        });
+        const params = makeParams({
+          command: "node.exe",
+          args: ["--version"],
+          subcommand: "serve",
+        });
+        const result = await invoker.buildInvocation(params);
+
+        const separatorIdx = result.args.indexOf("--");
+        const afterSeparator = result.args.slice(separatorIdx + 1);
         expect(afterSeparator[0]).toBe("node.exe");
         expect(afterSeparator[1]).toBe("--version");
+      });
+    });
+
+    it("should wrap .sh scripts for run subcommand", async () => {
+      mockWrapWindowsCommandWithGitBash.mockImplementation((command, args) => ({
+        command: fakeBashPath,
+        args: ["-c", [command, ...args].join(" ")],
+      }));
+      await withPlatform("win32", async () => {
+        const invoker = new SandboxInvoker("windows-sandbox", {
+          windowsSandboxHelperPath: fakeHelperPath,
+        });
+        const params = makeParams({
+          command: "./scripts/update-config.sh",
+          args: ["--help"],
+        });
+        const result = await invoker.buildInvocation(params);
+
+        const separatorIdx = result.args.indexOf("--");
+        const afterSeparator = result.args.slice(separatorIdx + 1);
+        expect(afterSeparator[0]).toMatch(/bash\.exe$/i);
+        expect(afterSeparator[2]).toBe("./scripts/update-config.sh --help");
       });
     });
   });
@@ -777,6 +882,30 @@ describe("SandboxInvoker - windows-sandbox", () => {
 
         expect(policy.type).toBe("workspace-write");
         expect(policy.writable_roots).toEqual(["C:\\workspace"]);
+      });
+    });
+
+    it("strict serve: should keep all process roots for MCP spawn compatibility", async () => {
+      await withPlatform("win32", async () => {
+        const invoker = new SandboxInvoker("windows-sandbox", {
+          windowsSandboxHelperPath: fakeHelperPath,
+          windowsSandboxMode: "workspace-write",
+          mode: "strict",
+        });
+        const result = await invoker.buildInvocation(
+          makeParams({
+            subcommand: "serve",
+            writablePaths: ["C:\\workspace", "C:\\isolated-home"],
+          }),
+        );
+
+        const policyArgIdx = result.args.indexOf("--policy-json");
+        const policy = JSON.parse(result.args[policyArgIdx + 1]);
+        expect(policy.writable_roots).toEqual([
+          "C:\\workspace",
+          "C:\\isolated-home",
+        ]);
+        expect(result.args).not.toContain("--write-restricted");
       });
     });
 
@@ -838,6 +967,22 @@ describe("SandboxInvoker - windows-sandbox", () => {
 
         expect(result.args).not.toContain("--no-write-restricted");
       });
+    });
+
+    it("serve (all modes): should NOT include --write-restricted (MCP child spawn)", async () => {
+      for (const mode of ["strict", "compat", "permissive"] as const) {
+        await withPlatform("win32", async () => {
+          const invoker = new SandboxInvoker("windows-sandbox", {
+            windowsSandboxHelperPath: fakeHelperPath,
+            mode,
+          });
+          const result = await invoker.buildInvocation(
+            makeParams({ subcommand: "serve" }),
+          );
+
+          expect(result.args).not.toContain("--write-restricted");
+        });
+      }
     });
 
     it("permissive: should include all writable_roots", async () => {

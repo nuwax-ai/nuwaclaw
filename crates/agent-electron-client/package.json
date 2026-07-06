@@ -1,6 +1,6 @@
 {
   "name": "@nuwax-ai/nuwaclaw",
-  "version": "0.9.7",
+  "version": "0.12.6",
   "description": "NuwaClaw",
   "main": "dist/main/main.js",
   "author": "Nuwax Team",
@@ -8,39 +8,44 @@
   "homepage": "https://github.com/nuwax-ai/nuwaclaw",
   "scripts": {
     "dev": "dotenv -e .env.development -- cross-env NODE_ENV=development concurrently \"npm run dev:vite\" \"npm run dev:electron\"",
-    "dev:vite": "vite",
-    "dev:electron": "wait-on http://localhost:60173 && npm run build:main:dev && electron .",
+    "dev:vite": "vite --force",
+    "dev:electron": "wait-on http://localhost:60173 && npm run prepare:mcp-proxy && npm run build:main:dev && dotenv -e .env.development -- cross-env NODE_ENV=development electron .",
     "build:main:dev": "dotenv -e .env.development -- cross-env NODE_ENV=development tsc -p tsconfig.main.json && tsc-alias -p tsconfig.main.json",
     "build:main": "dotenv -e .env.production -- cross-env NODE_ENV=production tsc -p tsconfig.main.json && tsc-alias -p tsconfig.main.json",
     "build:renderer": "vite build",
     "build": "dotenv -e .env.production -- cross-env NODE_ENV=production npm run build:main && npm run build:renderer",
     "test": "vitest",
     "test:run": "vitest run",
+    "test:scripts": "vitest run tests/scripts",
     "test:coverage": "vitest run --coverage",
     "sandbox:matrix:check": "vitest run tests/scripts/sandbox-matrix-consistency.test.ts",
     "sandbox:matrix:generate": "cross-env SANDBOX_MATRIX_WRITE=1 vitest run tests/scripts/sandbox-matrix-consistency.test.ts",
     "check:boundaries": "node scripts/tools/check-import-boundaries.js",
-    "test:integrated-node": "node scripts/tools/test-integrated-node.js",
+    "test:integrated-node": "node scripts/tools/test-integrated-node.js && npm run test:scripts",
     "prepare:uv": "node scripts/prepare/prepare-uv.js",
     "prepare:sign-uv": "node scripts/build/sign-uv-mac.js",
     "prepare:lanproxy": "node scripts/prepare/prepare-lanproxy.js",
+    "prepare:ttyd": "node scripts/prepare/prepare-ttyd.js",
     "prepare:node": "node scripts/prepare/prepare-node.js",
     "prepare:git": "node scripts/prepare/prepare-git.js",
-    "prepare:monaco": "node scripts/prepare/prepare-monaco.js",
+    "prepare:ripgrep": "node scripts/prepare/prepare-ripgrep.js",
     "check-ports": "node scripts/tools/check-startup-ports.js",
     "check-ports:dev": "node scripts/tools/check-startup-ports.js --vite",
     "prepare:mcp-proxy": "node scripts/prepare/prepare-mcp-proxy.js",
+    "prepare:sandboxed-mcp": "node scripts/prepare/prepare-sandboxed-mcp.js",
+    "verify:sandboxed-mcp": "node scripts/verify-sandboxed-mcp-bundle.mjs",
     "prepare:nuwaxcode": "node scripts/prepare/prepare-nuwaxcode.js",
+    "prepare:codex-acp": "node scripts/prepare/prepare-codex-acp.js",
     "prepare:sandbox-runtime": "node scripts/prepare/prepare-sandbox-runtime.js",
     "build:sandbox-helper": "node scripts/prepare/build-sandbox-helper.js",
     "prepare:sandbox-helper-win": "node scripts/prepare/prepare-sandbox-helper-windows.js",
-    "prepare:all": "npm run prepare:uv && npm run prepare:sign-uv && npm run prepare:lanproxy && npm run prepare:node && npm run prepare:git && npm run prepare:monaco && npm run prepare:mcp-proxy && npm run prepare:nuwaxcode && npm run prepare:sandbox-helper-win && npm run prepare:sandbox-runtime && npm run prepare:gui-server && npm run prepare:windows-mcp && npm run prepare:nuwax-file-server && npm run prepare:claude-code-acp-ts",
+    "prepare:all": "node scripts/prepare/prepare-all.js",
     "prepare:nuwax-file-server": "node scripts/prepare/prepare-nuwax-file-server.js",
     "prepare:claude-code-acp-ts": "node scripts/prepare/prepare-claude-code-acp-ts.js",
     "prepare:gui-server": "node scripts/prepare/prepare-gui-server.js",
     "prepare:windows-mcp": "node scripts/prepare/prepare-windows-mcp.js",
     "electron-rebuild": "electron-rebuild -f -w better-sqlite3",
-    "build:electron": "npm run prepare:monaco && npm run build && npm run prepare:all && electron-builder --config.compression=maximum",
+    "build:electron": "npm run build && node scripts/build/run-build-electron.js",
     "dist": "npm run build:electron -- --mac",
     "dist:mac": "npm run build:electron -- --mac",
     "dist:mac:arm64": "npm run build:electron -- --mac --arm64",
@@ -63,12 +68,13 @@
     "lint:fix": "eslint src --fix"
   },
   "dependencies": {
-    "@agentclientprotocol/sdk": "^0.14.1",
+    "adm-zip": "^0.5.16",
+    "@agentclientprotocol/sdk": "^0.26.0",
     "@ant-design/icons": "^5.6.1",
     "@anthropic-ai/sdk": "^0.39.0",
     "@modelcontextprotocol/sdk": "^1.27.1",
-    "@monaco-editor/react": "^4.7.0",
     "@uiw/react-json-view": "2.0.0-alpha.42",
+    "@uiw/react-textarea-code-editor": "^3.1.1",
     "antd": "^5.29.3",
     "auto-launch": "^5.0.6",
     "better-sqlite3": "^12.6.2",
@@ -77,7 +83,6 @@
     "dotenv": "^17.3.1",
     "electron-log": "^5.2.4",
     "electron-updater": "^6.8.3",
-    "monaco-editor": "^0.53.0",
     "node-cron": "^4.2.1",
     "node-machine-id": "^1.1.12",
     "qrcode.react": "^4.2.0",
@@ -91,6 +96,7 @@
     "7zip-bin": "^5.2.0",
     "@electron/rebuild": "^4.0.3",
     "@eslint/js": "^9.39.2",
+    "@types/adm-zip": "^0.5.7",
     "@types/better-sqlite3": "^7.6.12",
     "@types/node": "^22.19.15",
     "@types/react": "^18.3.18",
@@ -103,6 +109,7 @@
     "dotenv-cli": "^11.0.0",
     "electron": "^40.0.0",
     "electron-builder": "^25.1.8",
+    "esbuild": "^0.27.3",
     "eslint": "^9.39.2",
     "eslint-config-prettier": "^10.1.8",
     "eslint-plugin-react-hooks": "^7.0.1",
@@ -156,8 +163,7 @@
         "from": "public",
         "to": "public",
         "filter": [
-          "**/*",
-          "!monaco/**"
+          "**/*"
         ]
       }
     ],
@@ -184,8 +190,22 @@
         ]
       },
       {
+        "from": "resources/ripgrep/bin",
+        "to": "ripgrep/bin",
+        "filter": [
+          "**/*"
+        ]
+      },
+      {
         "from": "resources/lanproxy",
         "to": "lanproxy",
+        "filter": [
+          "**/*"
+        ]
+      },
+      {
+        "from": "resources/ttyd",
+        "to": "ttyd",
         "filter": [
           "**/*"
         ]
@@ -229,14 +249,18 @@
         "from": "resources/sandboxed-bash-mcp",
         "to": "sandboxed-bash-mcp",
         "filter": [
-          "**/*.mjs"
+          "**/*.mjs",
+          "dist/**",
+          ".bundle-version"
         ]
       },
       {
         "from": "resources/sandboxed-fs-mcp",
         "to": "sandboxed-fs-mcp",
         "filter": [
-          "**/*.mjs"
+          "**/*.mjs",
+          "dist/**",
+          ".bundle-version"
         ]
       },
       {
@@ -274,6 +298,15 @@
         "to": "claude-code-acp-ts",
         "filter": [
           "**/*"
+        ]
+      },
+      {
+        "from": "resources/codex-acp",
+        "to": "codex-acp",
+        "filter": [
+          "**/*",
+          "!*.cache",
+          "!.cache/**"
         ]
       }
     ],
@@ -364,20 +397,6 @@
           "to": "sandbox-helper",
           "filter": [
             "**/*.exe"
-          ]
-        },
-        {
-          "from": "resources/sandboxed-bash-mcp",
-          "to": "sandboxed-bash-mcp",
-          "filter": [
-            "**/*.mjs"
-          ]
-        },
-        {
-          "from": "resources/sandboxed-fs-mcp",
-          "to": "sandboxed-fs-mcp",
-          "filter": [
-            "**/*.mjs"
           ]
         }
       ]

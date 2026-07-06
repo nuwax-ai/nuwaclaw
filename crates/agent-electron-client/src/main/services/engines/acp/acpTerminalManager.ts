@@ -24,7 +24,12 @@ import log from "electron-log";
 import { SandboxInvoker } from "@main/services/sandbox/SandboxInvoker";
 import { killProcessTree } from "@main/services/utils/processTree";
 import { createPlatformAdapter } from "@main/services/system/platformAdapter";
-import type { SandboxMode, WindowsSandboxMode } from "@shared/types/sandbox";
+import { wrapWindowsCommandWithGitBash } from "@main/services/system/windowsGitBashCommand";
+import type {
+  SandboxMode,
+  SandboxProcessConfig,
+  WindowsSandboxMode,
+} from "@shared/types/sandbox";
 
 // ============================================================================
 // Types
@@ -174,6 +179,36 @@ export interface AcpTerminalManagerOptions {
   writablePaths?: string[];
   /** Sandbox strictness mode (strict / compat / permissive) */
   mode?: SandboxMode;
+}
+
+/**
+ * 根据沙箱配置创建 Terminal Manager（从 AcpEngine.init 提取的工厂）。
+ * Windows + helper 路径存在 → 沙箱执行；其余平台/配置 → 直接执行。
+ */
+export function createTerminalManagerForSandbox(
+  sandboxConfig: SandboxProcessConfig | null | undefined,
+  logTag: string,
+): AcpTerminalManager {
+  if (
+    sandboxConfig?.enabled &&
+    sandboxConfig.type === "windows-sandbox" &&
+    sandboxConfig.windowsSandboxHelperPath
+  ) {
+    const manager = new AcpTerminalManager({
+      windowsSandboxHelperPath: sandboxConfig.windowsSandboxHelperPath,
+      windowsSandboxMode: sandboxConfig.windowsSandboxMode,
+      networkEnabled: sandboxConfig.networkEnabled ?? true,
+      writablePaths: sandboxConfig.projectWorkspaceDir
+        ? [sandboxConfig.projectWorkspaceDir]
+        : [],
+      mode: sandboxConfig.mode,
+    });
+    log.info(`${logTag} Terminal manager initialized (Windows sandbox)`);
+    return manager;
+  }
+  const manager = new AcpTerminalManager();
+  log.info(`${logTag} Terminal manager initialized (direct execution)`);
+  return manager;
 }
 
 // ============================================================================
@@ -338,14 +373,19 @@ export class AcpTerminalManager {
         throw spawnErr;
       }
     } else {
-      // macOS/Linux or no sandbox: execute directly
+      const directCommand = wrapWindowsCommandWithGitBash(
+        params.command,
+        params.args || [],
+      );
       log.info(
         "[AcpTerminalManager] ⚡ DIRECT terminal created (no sandbox):",
         {
           terminalId,
           sessionId: params.sessionId,
-          command: params.command,
-          args: params.args,
+          originalCommand: params.command,
+          originalArgs: params.args,
+          command: directCommand.command,
+          args: directCommand.args,
           sandboxed: false,
           platform: createPlatformAdapter().platform,
           cwd,
@@ -355,11 +395,12 @@ export class AcpTerminalManager {
       try {
         this.spawnProcess(
           session,
-          params.command,
-          params.args || [],
+          directCommand.command,
+          directCommand.args,
           env,
           cwd,
           false,
+          !directCommand.gitBashWrapped,
         );
       } catch (spawnErr) {
         this.cleanupFailedSpawn(session, terminalId);
@@ -553,24 +594,26 @@ export class AcpTerminalManager {
     env: Record<string, string> | undefined,
     cwd: string,
     parseJson: boolean,
+    /** bundled Git Bash 不可用时，Windows 直连终端回退 cmd shell */
+    useWindowsCmdShellFallback = false,
   ): void {
     const sandboxed = parseJson;
     const platformAdapter = createPlatformAdapter();
-    const useWindowsShell = !parseJson && platformAdapter.isWindows;
+    const useShell =
+      !parseJson && platformAdapter.isWindows && useWindowsCmdShellFallback;
     log.info("[AcpTerminalManager] 🚀 Spawning process:", {
       terminalId: session.id,
       command,
       args: args.length > 0 ? args : undefined,
       cwd,
       sandboxed,
-      shell: useWindowsShell,
+      shell: useShell,
     });
 
     const proc = spawn(command, args, {
       cwd,
       env,
-      // sandbox helper is an .exe, no shell needed; direct commands may need shell
-      shell: useWindowsShell,
+      shell: useShell,
       windowsHide: true,
       stdio: ["ignore", "pipe", "pipe"], // stdin not wired — non-interactive commands only
     });

@@ -2,7 +2,8 @@
   "private": true,
   "scripts": {
     "prepare": "husky",
-    "test:electron": "cd crates/agent-electron-client && npm run test:run"
+    "test:electron": "cd crates/agent-electron-client && npm run test:run",
+    "test:electron:scripts": "cd crates/agent-electron-client && npm run test:scripts"
   },
   "devDependencies": {
     "husky": "^9",
@@ -14,11 +15,28 @@
       "prettier --write"
     ]
   },
-  "packageManager": "pnpm@9.15.5+sha512.845196026aab1cc3f098a0474b64dfbab2afe7a1b4e91dd86895d8e4aa32a7a6d03049e2d0ad770bbe4de023a7122fb68c1a1d6e0d033c7076085f9d5d4800d4",
+  "packageManager": "pnpm@9.15.5",
   "dependencies": {
     "i18next": "^26.0.3",
     "i18next-browser-languagedetector": "^8.2.1",
     "i18next-http-backend": "^3.0.4",
     "react-i18next": "^17.0.2"
+  },
+  "pnpm": {
+    "overrides": {
+      "protobufjs": ">=7.5.6",
+      "@protobufjs/utf8": ">=1.1.1",
+      "tar": ">=7.5.8",
+      "picomatch": ">=4.0.4",
+      "fast-uri": ">=2.4.1",
+      "xmldom": ">=0.6.0",
+      "i18next-http-backend": ">=3.0.5",
+      "path-to-regexp": ">=0.7.3",
+      "flatted": ">=0.2.0",
+      "axios": ">=1.8.4",
+      "basic-ftp": ">=5.2.1",
+      "fast-xml-parser": ">=4.8.1",
+      "lodash": ">=4.17.31"
+    }
   }
 }

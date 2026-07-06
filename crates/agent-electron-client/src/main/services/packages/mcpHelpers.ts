@@ -6,8 +6,8 @@
  * including test files without additional mocks.
  */
 
-import * as path from 'path';
-import type { McpServerEntry } from './mcp';
+import * as path from "path";
+import type { McpServerEntry } from "./mcp";
 
 /**
  * 从 MCP server 配置中过滤掉 bridge 聚合入口
@@ -20,7 +20,12 @@ export function filterBridgeEntries(
 ): Record<string, McpServerEntry> {
   const result: Record<string, McpServerEntry> = {};
   for (const [name, entry] of Object.entries(servers)) {
-    if ('command' in entry && (entry.command === 'mcp-proxy' || path.basename(entry.command) === 'mcp-proxy')) continue;
+    if (
+      "command" in entry &&
+      (entry.command === "mcp-proxy" ||
+        path.basename(entry.command) === "mcp-proxy")
+    )
+      continue;
     result[name] = entry;
   }
   return result;
@@ -39,29 +44,38 @@ export function rawMcpServersEqual(
   a: Record<string, McpServerEntry>,
   b: Record<string, McpServerEntry> | undefined,
 ): boolean {
-  if (!b) return false;
+  // 首次请求（无历史快照 b 为 undefined）且本次也没有 MCP，等价 → 不触发重建。
+  // 修复：当 storedRawMcp 未建立时直接判 mcpChanged=true 会让"无任何变化"的请求也走冷启动。
+  if (!b) {
+    return Object.keys(a).length === 0;
+  }
   const aKeys = Object.keys(a).sort();
   const bKeys = Object.keys(b).sort();
-  if (aKeys.join('\0') !== bKeys.join('\0')) return false;
+  if (aKeys.join("\0") !== bKeys.join("\0")) return false;
   for (const key of aKeys) {
     const ea = a[key];
     const eb = b[key];
     // 远程 server：只比较 URL
-    if ('url' in ea || 'url' in eb) {
-      if (('url' in ea ? ea.url : undefined) !== ('url' in eb ? eb.url : undefined)) return false;
+    if ("url" in ea || "url" in eb) {
+      if (
+        ("url" in ea ? ea.url : undefined) !==
+        ("url" in eb ? eb.url : undefined)
+      )
+        return false;
       continue;
     }
     // stdio server：比较 command / args / allowTools / denyTools
     // 同名 key 类型不一致（一方有 command，另一方没有）→ 视为不等，触发重建
-    if (!('command' in ea) || !('command' in eb)) return false;
+    if (!("command" in ea) || !("command" in eb)) return false;
     if (ea.command !== eb.command) return false;
-    if (JSON.stringify(ea.args ?? []) !== JSON.stringify(eb.args ?? [])) return false;
+    if (JSON.stringify(ea.args ?? []) !== JSON.stringify(eb.args ?? []))
+      return false;
     // 对数组型字段排序后比较，避免顺序差异误判
-    const sortedAllowA = [...(ea.allowTools ?? [])].sort().join('\0');
-    const sortedAllowB = [...(eb.allowTools ?? [])].sort().join('\0');
+    const sortedAllowA = [...(ea.allowTools ?? [])].sort().join("\0");
+    const sortedAllowB = [...(eb.allowTools ?? [])].sort().join("\0");
     if (sortedAllowA !== sortedAllowB) return false;
-    const sortedDenyA = [...(ea.denyTools ?? [])].sort().join('\0');
-    const sortedDenyB = [...(eb.denyTools ?? [])].sort().join('\0');
+    const sortedDenyA = [...(ea.denyTools ?? [])].sort().join("\0");
+    const sortedDenyB = [...(eb.denyTools ?? [])].sort().join("\0");
     if (sortedDenyA !== sortedDenyB) return false;
   }
   return true;

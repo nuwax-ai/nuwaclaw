@@ -2,8 +2,11 @@
 # 通过 prerelease-v* tag 触发，构建全平台安装包并创建 GitHub Draft Release，
 # 自动同步到阿里云 OSS 并更新 beta/latest.json，供开发测试使用。
 #
-# 触发方式：
-#   - 推送 tag 匹配 prerelease-v*（例如 prerelease-v0.8.0）→ 构建 → 自动上传 OSS → 更新 beta/latest.json
+# 触发方式（手动，无 nuwaxcode 自动联动）：
+#   1. 确认 nuwaxcode GitHub Release 已就绪（如 v1.2.1）
+#   2. 准备 release-notes/prerelease-v{x.y.z}.md
+#   3. git tag prerelease-v{x.y.z} && git push origin prerelease-v{x.y.z}
+#   → 构建 → 自动上传 OSS → 更新 beta/latest.json
 #
 # 支持平台：
 #   - macOS arm64（macos-latest）
@@ -173,12 +176,20 @@ jobs:
         uses: actions/cache@v4
         with:
           path: crates/agent-electron-client/resources/nuwaxcode
-          key: bundled-nuwaxcode-v1-${{ matrix.platform }}-${{ matrix.arch }}-${{ hashFiles('crates/agent-electron-client/scripts/prepare/prepare-nuwaxcode.js') }}
+          # 前缀含 1.2.1：避免命中旧版 1.1.x 缓存；hashFiles 随 prepare-nuwaxcode.js 变更失效
+          key: bundled-nuwaxcode-1.2.1-${{ matrix.platform }}-${{ matrix.arch }}-${{ hashFiles('crates/agent-electron-client/scripts/prepare/prepare-nuwaxcode.js') }}
 
-      - name: Prepare bundled resources (uv, node, git, nuwaxcode)
+      - name: Cache ripgrep
+        uses: actions/cache@v4
+        with:
+          path: crates/agent-electron-client/resources/ripgrep
+          key: bundled-ripgrep-v1-${{ matrix.platform }}-${{ matrix.arch }}-${{ hashFiles('crates/agent-electron-client/scripts/prepare/prepare-ripgrep.js') }}
+
+      - name: Prepare bundled resources (uv, node, git, nuwaxcode, ripgrep)
         working-directory: crates/agent-electron-client
         env:
           TARGET_ARCH: ${{ matrix.arch }}
+          GH_TOKEN: ${{ github.token }}
         run: npm run prepare:all
         timeout-minutes: 15
 
@@ -241,11 +252,21 @@ jobs:
         working-directory: crates/agent-electron-client
         env:
           TARGET_ARCH: ${{ matrix.arch }}
-          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
-          CSC_NAME: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          SKIP_PREPARE: "1"
         run: |
           echo "Building Electron app for ${{ runner.os }} (${{ matrix.arch }})"
-          npm run ${{ matrix.dist_cmd }} -- --publish never
+          if [ "${{ runner.os }}" = "macOS" ] && [ -z "${{ secrets.APPLE_CERTIFICATE || '' }}" ]; then
+            echo "APPLE_CERTIFICATE not set — using unsigned mac build"
+            case "${{ matrix.arch }}" in
+              arm64) npm run dist:mac:unsigned:arm64 -- --publish never ;;
+              x64)   npm run dist:mac:unsigned:x64 -- --publish never ;;
+              *)     npm run ${{ matrix.dist_cmd }} -- --publish never ;;
+            esac
+          else
+            APPLE_SIGNING_IDENTITY="${{ secrets.APPLE_SIGNING_IDENTITY }}" \
+            CSC_NAME="${{ secrets.APPLE_SIGNING_IDENTITY }}" \
+              npm run ${{ matrix.dist_cmd }} -- --publish never
+          fi
 
       - name: Upload artifacts to Release
         shell: bash
@@ -417,24 +438,43 @@ jobs:
             done
           fi
 
+          blockmap_size_for() {
+            local installer="$1"
+            local bm="${ASSETS_DIR}/${installer}.blockmap"
+            if [ -f "$bm" ]; then
+              stat -c%s "$bm" 2>/dev/null || stat -f%z "$bm"
+            fi
+          }
+
           gen_yml() {
             local channel="$1"
             local keys="$2"
-            local first_key first_file
+            local first_key first_file blockmap_size k fname sig size bms
             first_key=$(echo "$PLATFORMS" | jq -r --argjson keys "$keys" 'limit(1; $keys[] as $k | select(.[$k] != null) | $k)')
             [ -z "$first_key" ] || [ "$first_key" = "null" ] && return 0
             first_file=$(echo "$PLATFORMS" | jq -r --arg k "$first_key" '.[$k].url' | sed 's|.*/||')
+            blockmap_size=$(blockmap_size_for "$first_file")
             {
               echo "version: $VERSION"
               echo "path: $first_file"
               echo "sha512: $(echo "$PLATFORMS" | jq -r --arg k "$first_key" '.[$k].signature')"
               echo "releaseDate: $PUB_DATE"
+              if [ -n "$blockmap_size" ]; then
+                echo "blockMapSize: $blockmap_size"
+              fi
               echo "files:"
-              echo "$PLATFORMS" | jq -r --argjson keys "$keys" '
-                [ $keys[] as $k | select(.[$k] != null) | .[$k] |
-                  "  - url: " + (.url | split("/") | last) + "\n    sha512: " + .signature + "\n    size: " + (.size | tostring)
-                ] | join("\n")
-              '
+              while IFS= read -r k; do
+                fname=$(echo "$PLATFORMS" | jq -r --arg k "$k" '.[$k].url' | sed 's|.*/||')
+                sig=$(echo "$PLATFORMS" | jq -r --arg k "$k" '.[$k].signature')
+                size=$(echo "$PLATFORMS" | jq -r --arg k "$k" '.[$k].size')
+                echo "  - url: $fname"
+                echo "    sha512: $sig"
+                echo "    size: $size"
+                bms=$(blockmap_size_for "$fname")
+                if [ -n "$bms" ]; then
+                  echo "    blockMapSize: $bms"
+                fi
+              done < <(echo "$PLATFORMS" | jq -r --argjson keys "$keys" '$keys[] as $k | select(.[$k] != null) | $k')
             } > "${ASSETS_DIR}/${channel}.yml"
             echo "  Generated ${channel}.yml (primary: $first_file)"
           }
@@ -468,7 +508,8 @@ jobs:
           echo "==> Generated latest.json"
           echo "$LATEST_JSON" | jq .
 
-      - name: Upload all assets to MinIO S3
+      # MinIO：完整 beta 镜像（安装包 + 派生 yml + latest.json）。OSS 仅 latest.json，见后续 step。
+      - name: Upload full release to MinIO S3 (installers, yml, latest.json)
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.MINIO_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.MINIO_SECRET_ACCESS_KEY }}
@@ -476,15 +517,27 @@ jobs:
           TAG="${RELEASE_TAG}"
           S3_PREFIX="nuwaclaw-electron/beta-build/${TAG}"
 
+          echo "==> MinIO: (1/3) installers and other non-yml release assets"
           for file in /tmp/release-assets/*; do
+            [ -f "$file" ] || continue
+            case "$(basename "$file")" in *.yml) continue ;; esac
             filename=$(basename "$file")
             echo "Uploading to S3: ${filename}"
             aws s3 cp "$file" "s3://${S3_BUCKET}/${S3_PREFIX}/${filename}" \
               --endpoint-url "$S3_ENDPOINT"
           done
 
-          # 同步 latest.json 到 S3（版本化路径 + beta 滚动指针）
-          echo "Uploading latest.json to S3..."
+          echo "==> MinIO: (2/3) platform yml"
+          shopt -s nullglob
+          for file in /tmp/release-assets/*.yml; do
+            filename=$(basename "$file")
+            echo "Uploading to S3: ${filename}"
+            aws s3 cp "$file" "s3://${S3_BUCKET}/${S3_PREFIX}/${filename}" \
+              --endpoint-url "$S3_ENDPOINT"
+          done
+          shopt -u nullglob
+
+          echo "==> MinIO: (3/3) latest.json (versioned + beta/latest.json pointer)"
           aws s3 cp /tmp/latest.json "s3://${S3_BUCKET}/${S3_PREFIX}/latest.json" \
             --endpoint-url "$S3_ENDPOINT"
           aws s3 cp /tmp/latest.json "s3://${S3_BUCKET}/nuwaclaw-electron/beta/latest.json" \

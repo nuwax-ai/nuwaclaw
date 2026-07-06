@@ -163,7 +163,8 @@ export async function checkCommand(cmd: string): Promise<boolean> {
 
     const proc = spawn(checkCmd, args, {
       stdio: ["ignore", "pipe", "ignore"],
-      shell: true,
+      // Avoid DEP0190: do not pass args when shell is true; which/where accept argv directly.
+      shell: false,
     });
 
     proc.on("close", (code) => {
@@ -184,7 +185,8 @@ export async function getCommandVersion(
   return new Promise((resolve) => {
     const proc = spawn(cmd, args || ["--version"], {
       stdio: ["ignore", "pipe", "pipe"],
-      shell: true,
+      // Avoid DEP0190: spawn executables with argv directly instead of shell + args.
+      shell: false,
     });
 
     let stdout = "";
@@ -220,6 +222,7 @@ export const ESSENTIAL_TOOLS = [
   "echo",
   // 文本处理
   "grep",
+  "rg",
   "sed",
   "awk",
   "sort",
@@ -252,6 +255,7 @@ const ESSENTIAL_TOOLS_WINDOWS = [
   "copy",
   "move",
   "findstr", // Windows grep
+  "rg",
   "where",
 ];
 

@@ -38,6 +38,17 @@ import { resolveNpmPackageEntry } from "../utils/spawnNoWindow";
 import { APP_DATA_DIR_NAME } from "../constants";
 import { isWindows } from "../system/shellEnv";
 import { persistentMcpBridge } from "./persistentMcpBridge";
+import { discoverRemoteMcpTools } from "./discoverRemoteMcpTools";
+import { isGuiMcpManagedServerId } from "@shared/guiMcp";
+import { getGuiMcpEnabled } from "./guiMcpLocalConfig";
+import { getGuiAgentServerUrl } from "./guiAgentServer";
+import { getWindowsMcpUrl } from "./windowsMcp";
+import { discoverStdioMcpTools } from "./discoverStdioMcpTools";
+import {
+  filterEnabledMcpServers,
+  mergeMcpServerConfigs,
+} from "../utils/mcpServerMerge";
+import { readSetting } from "../../db";
 
 type PerfValue = string | number | boolean | null | undefined;
 
@@ -77,6 +88,22 @@ function logMcpPerfSummary(
 }
 
 // ========== Shared Helpers ==========
+
+/**
+ * 同步读取本地 MCP 配置（mcp_local_config，用户在设置界面配置的 MCP）。
+ * 供 getAgentMcpConfig 合并：本地优先级最高（本地 > ACP 下发 > 内置 DEFAULT），
+ * 同名 server 以本地为准（例如本地 ask-question 覆盖内置 npm 版本）。
+ */
+function readLocalMcpServers(): Record<string, McpServerEntry> {
+  try {
+    const config = readSetting("mcp_local_config") as {
+      mcpServers?: Record<string, McpServerEntry>;
+    } | null;
+    return config?.mcpServers ?? {};
+  } catch {
+    return {};
+  }
+}
 
 /**
  * Returns the directory containing the app-internal `uv` binary.
@@ -126,6 +153,64 @@ export function resolveUvCommand(
     }
   }
   return { command, args };
+}
+
+/**
+ * Resolves `npx`/`npm` on Windows to a concrete executable path.
+ *
+ * Rationale:
+ * - Many Node distributions ship `npx.cmd`/`npm.cmd` (not a bare `npx.exe`)
+ * - Some spawn call-sites pass a sanitized env that may not include PATHEXT
+ * - Using an absolute path avoids PATH/PATHEXT resolution quirks and ENOENT
+ */
+function resolveNpmCliCommand(
+  command: string,
+  args: string[],
+): { command: string; args: string[] } {
+  if (!isWindows()) return { command, args };
+  if (typeof command !== "string" || command.length === 0)
+    return { command, args };
+
+  const base = path.basename(command).replace(/\.(exe|cmd|bat)$/i, "");
+  if (base !== "npx" && base !== "npm") return { command, args };
+
+  // If caller already provided a concrete path, keep it.
+  if (path.isAbsolute(command) && fs.existsSync(command)) {
+    return { command, args };
+  }
+
+  // Prefer the bundled Node 24 distribution under resources/node/.../bin
+  const bundledNode = getNodeBinPath();
+  if (bundledNode) {
+    const binDir = path.dirname(bundledNode);
+    const candidate = path.join(binDir, `${base}.cmd`);
+    if (fs.existsSync(candidate)) {
+      return { command: candidate, args };
+    }
+    // Fallback: some builds may ship without .cmd (rare)
+    const exeCandidate = path.join(binDir, `${base}.exe`);
+    if (fs.existsSync(exeCandidate)) {
+      return { command: exeCandidate, args };
+    }
+  }
+
+  // Last resort: prefer .cmd name to leverage normal Windows resolution.
+  return { command: `${base}.cmd`, args };
+}
+
+function guessMcpDiscoverTimeoutMs(command: string, args: string[]): number {
+  // Tool discovery is often backed by `npx -y <pkg>` (first run may download),
+  // which can easily exceed 5s on Windows/slow networks. Use a larger timeout.
+  const base = path.basename(command).toLowerCase();
+  const cmd = base.replace(/\.(cmd|exe|bat)$/i, "");
+  const looksLikeNpx =
+    cmd === "npx" ||
+    (cmd === "cmd" &&
+      args.some((a) => typeof a === "string" && /npx/i.test(a)));
+  if (looksLikeNpx) return 90_000;
+  // uv tool run may also install on first run, but generally faster than npx
+  if (cmd === "uv" || cmd === "uvx") return 45_000;
+  return 15_000;
 }
 
 /**
@@ -353,7 +438,8 @@ export function resolveServersConfig(
     }
     if (entry.command === "mcp-proxy") continue;
     if (typeof entry.command !== "string") continue;
-    const resolved = resolveUvCommand(entry.command, entry.args || [], dir);
+    const resolvedUv = resolveUvCommand(entry.command, entry.args || [], dir);
+    const resolved = resolveNpmCliCommand(resolvedUv.command, resolvedUv.args);
     result[name] = {
       command: resolved.command,
       args: resolved.args,
@@ -368,13 +454,24 @@ export function resolveServersConfig(
 
 // ========== Types ==========
 
-/** 默认 mcpServers 配置 */
+/**
+ * 默认 mcpServers 配置（系统级内置服务，始终保留）
+ * - chrome-devtools：persistent，由 PersistentMcpBridge 长连接托管
+ * - ask-question：非 persistent，随 agent 会话由 mcp-proxy 按需 stdio spawn
+ */
 export const DEFAULT_MCP_PROXY_CONFIG: McpServersConfig = {
   mcpServers: {
     "chrome-devtools": {
       command: "npx",
       args: ["-y", "chrome-devtools-mcp@latest"],
       persistent: true,
+    },
+    // ask-question：交互式提问 MCP（nuwax_ask_question 工具，rawInput 带 ui 表单），
+    // 需始终对 agent 可用以便向用户发起澄清提问。作为内置默认服务但不 persistent，
+    // 每会话独立 stdio spawn（避免跨会话共享状态）。
+    "ask-question": {
+      command: "npx",
+      args: ["-y", "nuwax-ask-question-mcp@latest"],
     },
   },
 };
@@ -407,6 +504,8 @@ export interface StdioMcpServerEntry {
   command: string;
   args: string[];
   env?: Record<string, string>;
+  /** 本地 MCP 管理：是否参与 Agent 会话（缺省由调用方按 false 处理） */
+  enabled?: boolean;
   /** 标记为持久化 server（生命周期由 PersistentMcpBridge 管理，而非跟随 ACP session） */
   persistent?: boolean;
   /** 工具白名单（只暴露指定工具） */
@@ -421,6 +520,8 @@ export interface RemoteMcpServerEntry {
   transport?: "streamable-http" | "sse";
   headers?: Record<string, string>;
   authToken?: string;
+  /** 本地 MCP 管理：是否参与 Agent 会话（缺省由调用方按 false 处理） */
+  enabled?: boolean;
   /** 工具白名单（只暴露指定工具） */
   allowTools?: string[];
   /** 工具黑名单（排除指定工具） */
@@ -846,7 +947,12 @@ class McpProxyManager {
     string,
     { command: string; args: string[]; env?: Record<string, string> }
   > | null {
-    const servers = this.config.mcpServers;
+    // 本地配置优先级最高:本地 > this.config（内置 DEFAULT + ACP 下发）。
+    // 在 getAgentMcpConfig 内合并（而非只在 ensureEngineForRequest 的 sync 里），
+    // 确保启动/请求所有路径都让本地同名 server 覆盖内置（如 ask-question）。
+    const servers = filterEnabledMcpServers(
+      mergeMcpServerConfigs(this.config.mcpServers, readLocalMcpServers()),
+    );
     if (!servers || Object.keys(servers).length === 0) {
       return null;
     }
@@ -1028,156 +1134,86 @@ class McpProxyManager {
    * 发现指定 MCP 服务器的工具列表
    * 临时启动 MCP 服务器，调用 tools/list，然后关闭
    */
-  async discoverTools(serverId: string): Promise<string[]> {
-    // 直接从 SQLite 读取最新配置，不依赖 this.config 内存快照
-    const { getDb } = await import("../../db");
-    const db = getDb();
-    const saved = db
-      ?.prepare("SELECT value FROM settings WHERE key = ?")
-      .get("mcp_local_config") as { value: string } | undefined;
+  async discoverTools(
+    serverId: string,
+    draftConfig?: McpServersConfig,
+  ): Promise<string[]> {
+    // 优先使用调用方传入的草稿配置（编辑器测试、未保存的列表项），否则读 SQLite
     let servers: Record<string, McpServerEntry> = {};
-    if (saved) {
-      try {
-        const config = JSON.parse(saved.value);
-        servers = config?.mcpServers ?? {};
-      } catch {
-        // 解析失败时 servers 保持为空
+    if (draftConfig?.mcpServers) {
+      servers = draftConfig.mcpServers;
+    } else {
+      const { getDb } = await import("../../db");
+      const db = getDb();
+      const saved = db
+        ?.prepare("SELECT value FROM settings WHERE key = ?")
+        .get("mcp_local_config") as { value: string } | undefined;
+      if (saved) {
+        try {
+          const config = JSON.parse(saved.value);
+          servers = config?.mcpServers ?? {};
+        } catch {
+          // 解析失败时 servers 保持为空
+        }
       }
     }
-    const entry = servers[serverId];
+    let entry = servers[serverId];
     if (!entry) {
       throw new Error(`MCP server not found: ${serverId}`);
     }
 
-    // 远程类型暂不支持工具发现（需要 MCP SDK 支持）
     if (isRemoteEntry(entry)) {
-      throw new Error(
-        "Tool discovery not supported for remote MCP servers yet",
-      );
+      if (isGuiMcpManagedServerId(serverId)) {
+        if (!getGuiMcpEnabled()) {
+          throw new Error(t("Claw.MCP.list.guiMcpDisabledForTest"));
+        }
+        const liveUrl = isWindows()
+          ? getWindowsMcpUrl()
+          : getGuiAgentServerUrl();
+        if (!liveUrl) {
+          throw new Error(t("Claw.MCP.list.guiMcpNotRunning"));
+        }
+        entry = { ...entry, url: liveUrl };
+      }
+      try {
+        return await discoverRemoteMcpTools(entry);
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        throw new Error(t("Claw.MCP.list.testFailed", msg));
+      }
     }
 
-    // 解析命令和环境变量
+    // Reuse PersistentMcpBridge when this server is already running there
+    // (local mcp_local_config may omit `persistent` even though bridge has the server)
+    if (persistentMcpBridge.isRunning()) {
+      const bridgeUrl = persistentMcpBridge.getBridgeUrl(serverId);
+      if (bridgeUrl) {
+        log.info(
+          `[McpProxy] Tool discovery via PersistentMcpBridge: ${bridgeUrl}`,
+        );
+        try {
+          return await discoverRemoteMcpTools({
+            url: bridgeUrl,
+            transport: "streamable-http",
+          });
+        } catch (e) {
+          const msg = e instanceof Error ? e.message : String(e);
+          throw new Error(t("Claw.MCP.list.testFailed", msg));
+        }
+      }
+    }
+
     const resolved = resolveServersConfig({ [serverId]: entry });
     const resolvedEntry = resolved[serverId];
     if (!resolvedEntry || isRemoteEntry(resolvedEntry)) {
       throw new Error("Failed to resolve MCP server config");
     }
 
-    // 临时启动 MCP 服务器进程
-    const { spawn } = await import("child_process");
-    let proc: any = null;
-
-    try {
-      proc = spawn(resolvedEntry.command, resolvedEntry.args, {
-        env: { ...process.env, ...resolvedEntry.env },
-        stdio: ["pipe", "pipe", "pipe"],
-      });
-
-      // 发送 MCP 初始化请求
-      const initRequest = {
-        jsonrpc: "2.0",
-        id: 1,
-        method: "initialize",
-        params: {
-          protocolVersion: "2024-11-05",
-          capabilities: {},
-          clientInfo: { name: "nuwax-agent", version: "1.0.0" },
-        },
-      };
-      proc.stdin.write(JSON.stringify(initRequest) + "\n");
-
-      // 等待初始化响应
-      await this.waitForMcpResponse(proc, 1, 5000);
-
-      // 发送 tools/list 请求
-      const toolsRequest = {
-        jsonrpc: "2.0",
-        id: 2,
-        method: "tools/list",
-        params: {},
-      };
-      proc.stdin.write(JSON.stringify(toolsRequest) + "\n");
-
-      // 等待 tools/list 响应
-      const response = await this.waitForMcpResponse(proc, 2, 5000);
-
-      // 验证响应格式
-      if (!response?.result?.tools || !Array.isArray(response.result.tools)) {
-        log.warn("[McpProxy] Invalid tools response:", response);
-        return [];
-      }
-
-      // 解析工具列表，过滤无效项
-      return response.result.tools
-        .filter((t: any) => t && typeof t.name === "string")
-        .map((t: { name: string }) => t.name);
-    } finally {
-      // 确保进程被正确清理
-      if (proc && !proc.killed) {
-        try {
-          proc.kill("SIGTERM");
-          // 如果 SIGTERM 失败，5 秒后强制 SIGKILL
-          const killTimer = setTimeout(() => {
-            if (proc && !proc.killed) {
-              proc.kill("SIGKILL");
-            }
-          }, 5000);
-
-          // 进程退出时清理定时器
-          proc.once("exit", () => {
-            clearTimeout(killTimer);
-          });
-        } catch (e) {
-          log.warn("[McpProxy] Failed to kill MCP discovery process:", e);
-        }
-      }
-    }
-  }
-
-  /**
-   * 等待 MCP 响应（辅助方法）
-   */
-  private async waitForMcpResponse(
-    proc: any,
-    requestId: number,
-    timeoutMs: number,
-  ): Promise<any> {
-    return new Promise((resolve, reject) => {
-      const timeout = setTimeout(() => {
-        reject(new Error("MCP response timeout"));
-      }, timeoutMs);
-
-      let buffer = "";
-      const onData = (chunk: Buffer) => {
-        buffer += chunk.toString();
-        const lines = buffer.split("\n");
-        buffer = lines.pop() || "";
-
-        for (const line of lines) {
-          if (!line.trim()) continue;
-          try {
-            const msg = JSON.parse(line);
-            if (msg.id === requestId) {
-              clearTimeout(timeout);
-              proc.stdout.off("data", onData);
-              if (msg.error) {
-                reject(new Error(msg.error.message || "MCP error"));
-              } else {
-                resolve(msg);
-              }
-            }
-          } catch {
-            // 忽略非 JSON 行
-          }
-        }
-      };
-
-      proc.stdout.on("data", onData);
-      proc.on("error", (err: Error) => {
-        clearTimeout(timeout);
-        reject(err);
-      });
-    });
+    const timeoutMs = guessMcpDiscoverTimeoutMs(
+      resolvedEntry.command,
+      resolvedEntry.args,
+    );
+    return discoverStdioMcpTools(resolvedEntry, { timeoutMs });
   }
 
   /**
@@ -1233,7 +1269,7 @@ async function withSyncMcpLock<T>(fn: () => Promise<T>): Promise<T> {
   }
 }
 
-/** 比较两个 stdio 配置是否相等（忽略 env 中的临时变量） */
+/** 比较两个 stdio 配置是否相等 */
 function configsEqual(
   a: Record<string, StdioMcpServerEntry>,
   b: Record<string, StdioMcpServerEntry> | null,
@@ -1249,6 +1285,8 @@ function configsEqual(
     const entryB = b[key];
     if (entryA.command !== entryB.command) return false;
     if (JSON.stringify(entryA.args) !== JSON.stringify(entryB.args))
+      return false;
+    if (JSON.stringify(entryA.env || {}) !== JSON.stringify(entryB.env || {}))
       return false;
     // persistent 标志必须一致
     if (entryA.persistent !== entryB.persistent) return false;
@@ -1272,7 +1310,7 @@ export async function syncMcpConfigToProxyAndReload(
   await withSyncMcpLock(async () => {
     const syncStartedAt = Date.now();
     // 注意：mcpServers 可以为空（用户删除了所有动态 MCP).此时应重置为仅默认服务，
-    // 不在这里提前返回，让后续逻辑重置 bridge 到仅含 chrome-devtools 的状态。
+    // 不在这里提前返回，让后续逻辑重置 bridge 到仅含 persistent 默认服务（chrome-devtools）的状态。
 
     // 提取真实服务（过滤旧桥接项 command==='mcp-proxy')
     const extractStartedAt = Date.now();
@@ -1289,6 +1327,7 @@ export async function syncMcpConfigToProxyAndReload(
           command: entry.command,
           args: Array.isArray(entry.args) ? entry.args : [],
           env: entry.env,
+          ...(entry.persistent ? { persistent: true } : {}),
           ...(entry.allowTools ? { allowTools: entry.allowTools } : {}),
           ...(entry.denyTools ? { denyTools: entry.denyTools } : {}),
         };
@@ -1296,16 +1335,16 @@ export async function syncMcpConfigToProxyAndReload(
     }
     const extractMs = Date.now() - extractStartedAt;
     // realOnly 为空时（用户删除了所有动态 MCP）不提前返回，
-    // 继续执行以确保 bridge 仅运行默认服务（chrome-devtools）
+    // 继续执行以确保 bridge 仅运行 persistent 默认服务（chrome-devtools）
 
     // 始终以默认服务为基础，再叠加动态 MCP：
-    //   - 用户删除所有动态 MCP → merged 仅含 chrome-devtools
-    //   - 用户删除部分动态 MCP → merged 含 chrome-devtools + 剩余动态 MCP
-    //   - 用户新增动态 MCP    → merged 含 chrome-devtools + 所有动态 MCP
-    const merged: Record<string, McpServerEntry> = {
-      ...DEFAULT_MCP_PROXY_CONFIG.mcpServers,
-      ...realOnly,
-    };
+    //   - 用户删除所有动态 MCP → merged 仅含默认服务（chrome-devtools、ask-question）
+    //   - 用户删除部分动态 MCP → merged 含默认服务 + 剩余动态 MCP
+    //   - 用户新增动态 MCP    → merged 含默认服务 + 所有动态 MCP
+    const merged = mergeMcpServerConfigs(
+      DEFAULT_MCP_PROXY_CONFIG.mcpServers,
+      realOnly,
+    );
 
     // 为所有 MCP 服务器注入基础环境变量（包括 PATH）
     const prepareStartedAt = Date.now();
@@ -1428,6 +1467,9 @@ export async function syncMcpConfigToProxyAndReload(
 /**
  * 发现指定 MCP 服务器的工具列表
  */
-export async function discoverMcpTools(serverId: string): Promise<string[]> {
-  return mcpProxyManager.discoverTools(serverId);
+export async function discoverMcpTools(
+  serverId: string,
+  draftConfig?: McpServersConfig,
+): Promise<string[]> {
+  return mcpProxyManager.discoverTools(serverId, draftConfig);
 }

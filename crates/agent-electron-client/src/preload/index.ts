@@ -37,8 +37,8 @@ contextBridge.exposeInMainWorld("electronAPI", {
         { command: string; args: string[]; env?: Record<string, string> }
       >;
     }) => ipcRenderer.invoke("mcp:setConfig", config),
-    discoverTools: (serverId: string) =>
-      ipcRenderer.invoke("mcp:discoverTools", serverId),
+    discoverTools: (serverId: string, draftConfig?: unknown) =>
+      ipcRenderer.invoke("mcp:discoverTools", serverId, draftConfig),
     exportConfig: () => ipcRenderer.invoke("mcp:exportConfig"),
     getPort: () => Promise.resolve(0),
     setPort: (_port: number) => Promise.resolve({ success: true }),
@@ -205,6 +205,30 @@ contextBridge.exposeInMainWorld("electronAPI", {
     status: () => ipcRenderer.invoke("fileServer:status"),
   },
 
+  // ttyd Web 终端服务（仅监听回环 127.0.0.1）
+  ttyd: {
+    start: () => ipcRenderer.invoke("ttyd:start"),
+    stop: () => ipcRenderer.invoke("ttyd:stop"),
+    status: () => ipcRenderer.invoke("ttyd:status"),
+    isAvailable: () =>
+      ipcRenderer.invoke("ttyd:isAvailable") as Promise<{
+        available: boolean;
+        version?: string;
+      }>,
+    /** 返回 OpenAPI path 风格的 WebSocket URL，前端直接用此 URL 建立终端连接 */
+    getWsUrl: (options?: {
+      userId?: string;
+      projectId?: string;
+      cwd?: string;
+    }) => ipcRenderer.invoke("ttyd:getWsUrl", options) as Promise<string>,
+    /** 刷新 ttyd-cwd 文件（工作区切换后调用，无需重启 ttyd） */
+    updateCwd: () =>
+      ipcRenderer.invoke("ttyd:updateCwd") as Promise<{
+        success: boolean;
+        cwd: string;
+      }>,
+  },
+
   // Computer Server lifecycle (Agent HTTP 接口服务)
   computerServer: {
     start: (port?: number) => ipcRenderer.invoke("computerServer:start", port),
@@ -273,6 +297,8 @@ contextBridge.exposeInMainWorld("electronAPI", {
       ipcRenderer.invoke("dependencies:checkNuwaxcodeBundled"),
     checkClaudeCodeAcpBundled: () =>
       ipcRenderer.invoke("dependencies:checkClaudeCodeAcpBundled"),
+    checkCodexAcpBundled: () =>
+      ipcRenderer.invoke("dependencies:checkCodexAcpBundled"),
     checkNuwaxFileServerBundled: () =>
       ipcRenderer.invoke("dependencies:checkNuwaxFileServerBundled"),
     detectPackage: (packageName: string, binName?: string) =>
@@ -517,6 +543,20 @@ contextBridge.exposeInMainWorld("electronAPI", {
     getConfig: () => ipcRenderer.invoke("quickInit:getConfig"),
   },
 
+  // Intervention (ACP permission via intervention system)
+  intervention: {
+    respond: (payload: any) =>
+      ipcRenderer.invoke("intervention:respond", payload),
+    cancel: (interventionId: string) =>
+      ipcRenderer.invoke("intervention:respond", {
+        interventionId,
+        action: "cancel",
+        source: "acp_permission",
+        protocol: "acp",
+        acpResponse: { outcome: { outcome: "cancelled" } },
+      }),
+  },
+
   // Event listeners
   // 保存 callback → wrapper 映射，使 off() 能正确移除 on() 注册的 listener
   on: (channel: string, callback: (...args: unknown[]) => void) => {
@@ -537,6 +577,8 @@ contextBridge.exposeInMainWorld("electronAPI", {
       "memory:cleanup",
       "admin:servicesRestarting",
       "admin:servicesRestarted",
+      "intervention:request",
+      "intervention:updated",
     ];
     if (validChannels.includes(channel)) {
       const wrapper = (_: unknown, ...args: unknown[]) => callback(...args);

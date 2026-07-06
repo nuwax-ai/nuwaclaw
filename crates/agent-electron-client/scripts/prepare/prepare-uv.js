@@ -213,15 +213,21 @@ async function main() {
 
   console.log(`[prepare-uv] 平台: ${key}, 源码目录: ${srcDir}, 目标目录: ${destBin}`);
 
-  // 检查 .platform-key 是否匹配，不匹配则清理并重新下载
+  // 检查 .platform-key 和版本号是否匹配，不匹配则清理并重新下载
+  const versionFile = path.join(destBin, '.version');
   if (fs.existsSync(destUv)) {
     if (fs.existsSync(platformKeyFile)) {
       const existingKey = fs.readFileSync(platformKeyFile, 'utf-8').trim();
-      if (existingKey === key) {
-        console.log(`[prepare-uv] uv 已存在且架构匹配 (${key}), 跳过下载`);
+      const existingVersion = fs.existsSync(versionFile) ? fs.readFileSync(versionFile, 'utf-8').trim() : null;
+      if (existingKey === key && existingVersion === UV_VERSION) {
+        console.log(`[prepare-uv] uv 已存在且架构+版本匹配 (${key}, v${UV_VERSION}), 跳过下载`);
         return;
       }
-      console.log(`[prepare-uv] 架构不匹配: 已有 ${existingKey}, 需要 ${key}, 清理并重新下载`);
+      if (existingKey === key && existingVersion !== UV_VERSION) {
+        console.log(`[prepare-uv] 版本变更: 已有 v${existingVersion}, 需要 v${UV_VERSION}, 清理并重新下载`);
+      } else {
+        console.log(`[prepare-uv] 架构不匹配: 已有 ${existingKey}, 需要 ${key}, 清理并重新下载`);
+      }
     } else {
       console.log(`[prepare-uv] uv 已存在但缺少 .platform-key, 无法确认架构, 清理并重新下载`);
     }
@@ -232,6 +238,7 @@ async function main() {
   if (fs.existsSync(srcDir) && copyToDestBin(key)) {
     if (fs.existsSync(destUv)) {
       fs.writeFileSync(platformKeyFile, key, 'utf-8');
+      fs.writeFileSync(versionFile, UV_VERSION, 'utf-8');
       console.log(`[prepare-uv] 使用已有 uv (${key}), 已复制到 bin/ 并写入 .platform-key`);
       return;
     }
@@ -247,10 +254,11 @@ async function main() {
   console.log(`[prepare-uv] 使用 uv 版本: ${version}`);
   try {
     await downloadAndPrepare(key, suffix, version);
-    // Write .platform-key marker after successful download
+    // Write .platform-key and .version markers after successful download
     if (fs.existsSync(destBin)) {
       fs.writeFileSync(platformKeyFile, key, 'utf-8');
-      console.log(`[prepare-uv] 已写入 .platform-key: ${key}`);
+      fs.writeFileSync(versionFile, UV_VERSION, 'utf-8');
+      console.log(`[prepare-uv] 已写入 .platform-key: ${key}, .version: ${UV_VERSION}`);
     }
   } catch (err) {
     console.error('[prepare-uv] 下载或解压失败:', err.message);

@@ -189,10 +189,18 @@ jobs:
           path: crates/agent-electron-client/resources/nuwaxcode
           key: bundled-nuwaxcode-v1-${{ matrix.platform }}-${{ matrix.arch }}-${{ hashFiles('crates/agent-electron-client/scripts/prepare/prepare-nuwaxcode.js') }}
 
-      - name: Prepare bundled resources (uv, node, git, nuwaxcode)
+      - name: Cache ripgrep
+        uses: actions/cache@v4
+        with:
+          path: crates/agent-electron-client/resources/ripgrep
+          key: bundled-ripgrep-v1-${{ matrix.platform }}-${{ matrix.arch }}-${{ hashFiles('crates/agent-electron-client/scripts/prepare/prepare-ripgrep.js') }}
+
+      - name: Prepare bundled resources (uv, node, git, nuwaxcode, ripgrep)
         working-directory: crates/agent-electron-client
         env:
           TARGET_ARCH: ${{ matrix.arch }}
+          # 勿用 secrets.GITHUB_* 自定义 Secret（GitHub 禁止 GITHUB_ 前缀）；用内置 github.token
+          GH_TOKEN: ${{ github.token }}
         run: npm run prepare:all
         timeout-minutes: 15
 
@@ -255,6 +263,7 @@ jobs:
         working-directory: crates/agent-electron-client
         env:
           TARGET_ARCH: ${{ matrix.arch }}
+          SKIP_PREPARE: "1"  # Step 14 已执行 prepare:all，避免重复（含 git clone/pull）
           APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
           CSC_NAME: ${{ secrets.APPLE_SIGNING_IDENTITY }}
         run: |
@@ -353,9 +362,21 @@ jobs:
           GH_TOKEN: ${{ secrets.GH_PAT || github.token }}
         run: |
           TAG="${RELEASE_TAG}"
-          VERSION="${TAG#electron-v}"
           CHANNEL="${RELEASE_CHANNEL}"
-          S3_URL_PREFIX="${S3_CDN_BASE}/nuwaclaw-electron/${TAG}"
+          if [[ "$TAG" == prerelease-v* ]]; then
+            VERSION="${TAG#prerelease-v}"
+            WIN_EXE="NuwaClaw-Setup-${VERSION}-unsigned.exe"
+            WIN_MSI="NuwaClaw-${VERSION}-unsigned.msi"
+          else
+            VERSION="${TAG#electron-v}"
+            WIN_EXE="NuwaClaw.Setup.${VERSION}.exe"
+            WIN_MSI="NuwaClaw.${VERSION}.msi"
+          fi
+          if [[ "$TAG" == prerelease-v* ]] || [ "$CHANNEL" = "beta" ]; then
+            S3_URL_PREFIX="${S3_CDN_BASE}/nuwaclaw-electron/beta-build/${TAG}"
+          else
+            S3_URL_PREFIX="${S3_CDN_BASE}/nuwaclaw-electron/${TAG}"
+          fi
           ASSETS_DIR="/tmp/release-assets"
 
           # semver MVP guard: only allow numeric x.y.z
@@ -407,9 +428,9 @@ jobs:
           add_platform "darwin-aarch64-zip" "NuwaClaw-${VERSION}-arm64-mac.zip"
           add_platform "darwin-x86_64"      "NuwaClaw-${VERSION}.dmg"
           add_platform "darwin-x86_64-zip"  "NuwaClaw-${VERSION}-mac.zip"
-          add_platform "windows-x86_64"      "NuwaClaw.Setup.${VERSION}.exe"
-          add_platform "windows-x86_64-nsis" "NuwaClaw.Setup.${VERSION}.exe"
-          add_platform "windows-x86_64-msi"  "NuwaClaw.${VERSION}.msi"
+          add_platform "windows-x86_64"      "$WIN_EXE"
+          add_platform "windows-x86_64-nsis" "$WIN_EXE"
+          add_platform "windows-x86_64-msi"  "$WIN_MSI"
           add_platform "linux-x86_64"          "NuwaClaw-${VERSION}.AppImage"
           add_platform "linux-x86_64-appimage" "NuwaClaw-${VERSION}.AppImage"
           add_platform "linux-x86_64-deb"      "NuwaClaw-${VERSION}-amd64.deb"
@@ -444,24 +465,43 @@ jobs:
             done
           fi
 
+          blockmap_size_for() {
+            local installer="$1"
+            local bm="${ASSETS_DIR}/${installer}.blockmap"
+            if [ -f "$bm" ]; then
+              stat -c%s "$bm" 2>/dev/null || stat -f%z "$bm"
+            fi
+          }
+
           gen_yml() {
             local channel="$1"
             local keys="$2"
-            local first_key first_file
+            local first_key first_file blockmap_size k fname sig size bms
             first_key=$(echo "$PLATFORMS" | jq -r --argjson keys "$keys" 'limit(1; $keys[] as $k | select(.[$k] != null) | $k)')
             [ -z "$first_key" ] || [ "$first_key" = "null" ] && return 0
             first_file=$(echo "$PLATFORMS" | jq -r --arg k "$first_key" '.[$k].url' | sed 's|.*/||')
+            blockmap_size=$(blockmap_size_for "$first_file")
             {
               echo "version: $VERSION"
               echo "path: $first_file"
               echo "sha512: $(echo "$PLATFORMS" | jq -r --arg k "$first_key" '.[$k].signature')"
               echo "releaseDate: $PUB_DATE"
+              if [ -n "$blockmap_size" ]; then
+                echo "blockMapSize: $blockmap_size"
+              fi
               echo "files:"
-              echo "$PLATFORMS" | jq -r --argjson keys "$keys" '
-                [ $keys[] as $k | select(.[$k] != null) | .[$k] |
-                  "  - url: " + (.url | split("/") | last) + "\n    sha512: " + .signature + "\n    size: " + (.size | tostring)
-                ] | join("\n")
-              '
+              while IFS= read -r k; do
+                fname=$(echo "$PLATFORMS" | jq -r --arg k "$k" '.[$k].url' | sed 's|.*/||')
+                sig=$(echo "$PLATFORMS" | jq -r --arg k "$k" '.[$k].signature')
+                size=$(echo "$PLATFORMS" | jq -r --arg k "$k" '.[$k].size')
+                echo "  - url: $fname"
+                echo "    sha512: $sig"
+                echo "    size: $size"
+                bms=$(blockmap_size_for "$fname")
+                if [ -n "$bms" ]; then
+                  echo "    blockMapSize: $bms"
+                fi
+              done < <(echo "$PLATFORMS" | jq -r --argjson keys "$keys" '$keys[] as $k | select(.[$k] != null) | $k')
             } > "${ASSETS_DIR}/${channel}.yml"
             echo "  Generated ${channel}.yml (primary: $first_file)"
           }
@@ -495,26 +535,43 @@ jobs:
           echo "==> Generated latest.json"
           echo "$LATEST_JSON" | jq .
 
-      - name: Upload all assets to MinIO S3
+      # MinIO：完整镜像（安装包 + 派生 yml + latest.json）。OSS 仅上传 yml + latest.json，见后续 step。
+      - name: Upload full release to MinIO S3 (installers, yml, latest.json)
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.MINIO_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.MINIO_SECRET_ACCESS_KEY }}
         run: |
           TAG="${RELEASE_TAG}"
-          S3_PREFIX="nuwaclaw-electron/${TAG}"
+          CHANNEL="${RELEASE_CHANNEL}"
+          if [[ "$TAG" == prerelease-v* ]] || [ "$CHANNEL" = "beta" ]; then
+            S3_PREFIX="nuwaclaw-electron/beta-build/${TAG}"
+          else
+            S3_PREFIX="nuwaclaw-electron/${TAG}"
+          fi
 
+          echo "==> MinIO: (1/3) installers and other non-yml release assets"
           for file in /tmp/release-assets/*; do
+            [ -f "$file" ] || continue
+            case "$(basename "$file")" in *.yml) continue ;; esac
             filename=$(basename "$file")
             echo "Uploading to S3: ${filename}"
             aws s3 cp "$file" "s3://${S3_BUCKET}/${S3_PREFIX}/${filename}" \
               --endpoint-url "$S3_ENDPOINT"
           done
 
-          # 同步 latest.json 到 S3（版本化路径 + 通道滚动指针）
-          echo "Uploading latest.json to S3..."
+          echo "==> MinIO: (2/3) platform yml"
+          shopt -s nullglob
+          for file in /tmp/release-assets/*.yml; do
+            filename=$(basename "$file")
+            echo "Uploading to S3: ${filename}"
+            aws s3 cp "$file" "s3://${S3_BUCKET}/${S3_PREFIX}/${filename}" \
+              --endpoint-url "$S3_ENDPOINT"
+          done
+          shopt -u nullglob
+
+          echo "==> MinIO: (3/3) latest.json (versioned + channel pointer)"
           aws s3 cp /tmp/latest.json "s3://${S3_BUCKET}/${S3_PREFIX}/latest.json" \
             --endpoint-url "$S3_ENDPOINT"
-          CHANNEL="${RELEASE_CHANNEL}"
           if [ "$CHANNEL" = "stable" ]; then
             aws s3 cp /tmp/latest.json "s3://${S3_BUCKET}/nuwaclaw-electron/latest/latest.json" \
               --endpoint-url "$S3_ENDPOINT"
@@ -526,7 +583,12 @@ jobs:
       - name: Verify S3 upload
         run: |
           TAG="${RELEASE_TAG}"
-          VERIFY_URL="${S3_CDN_BASE}/nuwaclaw-electron/${TAG}/latest-mac.yml"
+          CHANNEL="${RELEASE_CHANNEL}"
+          if [ "$CHANNEL" = "beta" ]; then
+            VERIFY_URL="${S3_CDN_BASE}/nuwaclaw-electron/beta-build/${TAG}/latest-mac.yml"
+          else
+            VERIFY_URL="${S3_CDN_BASE}/nuwaclaw-electron/${TAG}/latest-mac.yml"
+          fi
           HTTP_STATUS=$(curl -sS -o /dev/null -w "%{http_code}" "$VERIFY_URL")
           if [ "$HTTP_STATUS" = "200" ]; then
             echo "==> S3 upload verified: latest-mac.yml (HTTP ${HTTP_STATUS})"
@@ -535,15 +597,33 @@ jobs:
             exit 1
           fi
 
-      - name: Upload latest.json to Alibaba OSS
+      - name: Upload platform yml and latest.json to Alibaba OSS
         env:
           OSS_ACCESS_KEY_ID: ${{ secrets.OSS_ACCESS_KEY_ID }}
           OSS_ACCESS_KEY_SECRET: ${{ secrets.OSS_ACCESS_KEY_SECRET }}
         run: |
           TAG="${RELEASE_TAG}"
           CHANNEL="${RELEASE_CHANNEL}"
-          echo "==> Publishing latest.json to OSS for channel: ${CHANNEL}"
-          ossutil cp --force /tmp/latest.json "${OSS_BUCKET}/nuwaclaw-electron/${TAG}/latest.json" \
+          if [ "$CHANNEL" = "beta" ]; then
+            OSS_VERSION_PREFIX="${OSS_BUCKET}/nuwaclaw-electron/beta-build/${TAG}"
+          else
+            OSS_VERSION_PREFIX="${OSS_BUCKET}/nuwaclaw-electron/${TAG}"
+          fi
+          echo "==> Publishing yml + latest.json to OSS (no installers) for channel: ${CHANNEL}"
+
+          shopt -s nullglob
+          for file in /tmp/release-assets/*.yml; do
+            filename=$(basename "$file")
+            echo "Uploading to OSS: ${filename}"
+            ossutil cp --force "$file" "${OSS_VERSION_PREFIX}/${filename}" \
+              --endpoint "$OSS_ENDPOINT" \
+              --region "$OSS_REGION" \
+              --access-key-id "$OSS_ACCESS_KEY_ID" \
+              --access-key-secret "$OSS_ACCESS_KEY_SECRET"
+          done
+          shopt -u nullglob
+
+          ossutil cp --force /tmp/latest.json "${OSS_VERSION_PREFIX}/latest.json" \
             --endpoint "$OSS_ENDPOINT" \
             --region "$OSS_REGION" \
             --access-key-id "$OSS_ACCESS_KEY_ID" \
@@ -567,17 +647,27 @@ jobs:
 
       - name: Verify OSS upload
         run: |
+          TAG="${RELEASE_TAG}"
           CHANNEL="${RELEASE_CHANNEL}"
           if [ "$CHANNEL" = "stable" ]; then
-            VERIFY_URL="${OSS_CDN_BASE}/nuwaclaw-electron/latest/latest.json"
+            VERIFY_JSON_URL="${OSS_CDN_BASE}/nuwaclaw-electron/latest/latest.json"
+            VERIFY_YML_URL="${OSS_CDN_BASE}/nuwaclaw-electron/${TAG}/latest-mac.yml"
           else
-            VERIFY_URL="${OSS_CDN_BASE}/nuwaclaw-electron/beta/latest.json"
+            VERIFY_JSON_URL="${OSS_CDN_BASE}/nuwaclaw-electron/beta/latest.json"
+            VERIFY_YML_URL="${OSS_CDN_BASE}/nuwaclaw-electron/beta-build/${TAG}/latest-mac.yml"
           fi
-          HTTP_STATUS=$(curl -sS -o /tmp/oss-latest.json -w "%{http_code}" "$VERIFY_URL")
-          if [ "$HTTP_STATUS" = "200" ]; then
-            echo "==> latest.json (${CHANNEL}): OK (HTTP ${HTTP_STATUS})"
+          HTTP_JSON=$(curl -sS -o /tmp/oss-latest.json -w "%{http_code}" "$VERIFY_JSON_URL")
+          if [ "$HTTP_JSON" = "200" ]; then
+            echo "==> latest.json (${CHANNEL} pointer): OK (HTTP ${HTTP_JSON})"
             cat /tmp/oss-latest.json | jq .
           else
-            echo "::error::latest.json for channel '${CHANNEL}' not found on OSS (HTTP ${HTTP_STATUS})"
+            echo "::error::latest.json for channel '${CHANNEL}' not found on OSS (HTTP ${HTTP_JSON})"
+            exit 1
+          fi
+          HTTP_YML=$(curl -sS -o /dev/null -w "%{http_code}" "$VERIFY_YML_URL")
+          if [ "$HTTP_YML" = "200" ]; then
+            echo "==> Versioned OSS latest-mac.yml: OK (HTTP ${HTTP_YML}) [$VERIFY_YML_URL]"
+          else
+            echo "::error::OSS versioned latest-mac.yml verification failed (HTTP ${HTTP_YML}) [$VERIFY_YML_URL]"
             exit 1
           fi

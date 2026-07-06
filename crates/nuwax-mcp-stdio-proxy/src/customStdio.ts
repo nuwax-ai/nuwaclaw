@@ -22,6 +22,26 @@ function logDebug(msg: string): void {
   process.stderr.write(`[customStdio] ${msg}\n`);
 }
 
+/** Quote a single argv token for cmd.exe /c (avoids DEP0190 shell+args). */
+export function quoteWindowsCmdArg(arg: string): string {
+  if (!/[\s"]/.test(arg)) {
+    return arg;
+  }
+  return `"${arg.replace(/"/g, '""')}"`;
+}
+
+/** Build cmdline for `cmd.exe /d /s /c` when spawning .cmd/.bat on Windows. */
+export function buildWindowsBatchSpawn(
+  command: string,
+  args: string[],
+): { command: string; args: string[] } {
+  const cmdline = [command, ...args].map(quoteWindowsCmdArg).join(' ');
+  return {
+    command: process.env.ComSpec || 'cmd.exe',
+    args: ['/d', '/s', '/c', cmdline],
+  };
+}
+
 export interface CustomStdioServerParameters {
   command: string;
   args?: string[];
@@ -62,7 +82,6 @@ export class CustomStdioClientTransport implements Transport {
 
       // On Windows, resolve .cmd/.bat files if command not found directly
       let command = this._serverParams.command;
-      let useShell = false;
       const isWindows = process.platform === 'win32';
       const cmdExtensions = ['.cmd', '.bat', '.exe'];
 
@@ -82,21 +101,26 @@ export class CustomStdioClientTransport implements Transport {
         }
       }
 
-      // For .cmd/.bat files on Windows, we need shell: true
-      if (isWindows && (command.toLowerCase().endsWith('.cmd') || command.toLowerCase().endsWith('.bat'))) {
-        useShell = true;
-        // Quote the command if it contains spaces, otherwise cmd.exe
-        // misparses paths like "D:\Program Files\...\npx.cmd"
-        if (command.includes(' ')) {
-          command = `"${command}"`;
-        }
-        logDebug(`Using shell: true for ${command}`);
+      const spawnArgs = this._serverParams.args ?? [];
+      let spawnCommand = command;
+      let spawnArgv = spawnArgs;
+
+      // Node DEP0190: do not use shell:true with a separate args array for .cmd/.bat.
+      // Invoke via cmd.exe /c with a single command line instead.
+      const isBatch =
+        isWindows &&
+        (command.toLowerCase().endsWith('.cmd') || command.toLowerCase().endsWith('.bat'));
+      if (isBatch) {
+        const batchSpawn = buildWindowsBatchSpawn(command, spawnArgs);
+        spawnCommand = batchSpawn.command;
+        spawnArgv = batchSpawn.args;
+        logDebug(`Using cmd.exe for ${command}`);
       }
 
-      this._process = spawn(command, this._serverParams.args ?? [], {
+      this._process = spawn(spawnCommand, spawnArgv, {
         env: mergedEnv,
         stdio: ['pipe', 'pipe', this._serverParams.stderr ?? 'inherit'],
-        shell: useShell,
+        shell: false,
         windowsHide: true,
         cwd: this._serverParams.cwd,
       });

@@ -1,5 +1,10 @@
 import { ipcMain } from "electron";
 import { agentService } from "../services/engines/unifiedAgent";
+import {
+  chatDispatchCoordinator,
+  resolveChatDispatchKey,
+  type ChatDispatchContext,
+} from "../services/computer/chatDispatchCoordinator";
 import type {
   ComputerChatRequest,
   ComputerAgentStatusResponse,
@@ -10,6 +15,20 @@ import type {
 
 export function registerComputerHandlers(): void {
   ipcMain.handle("computer:chat", async (_, request: ComputerChatRequest) => {
+    // 兼容处理：未传 agent_work_dir 时，用 project_id 赋值
+    if (!request.agent_work_dir && request.project_id) {
+      request.agent_work_dir = request.project_id;
+    }
+
+    const dispatchKey = resolveChatDispatchKey(request);
+    const chatDispatch: ChatDispatchContext = {
+      dispatchKey,
+      turnGeneration: chatDispatchCoordinator.bumpArrival(
+        dispatchKey,
+        request.request_id,
+      ),
+    };
+
     // 与 HTTP 路径一致：按 project_id 路由到对应 AcpEngine
     let acpEngine;
     try {
@@ -32,7 +51,7 @@ export function registerComputerHandlers(): void {
         success: false,
       } as HttpResult;
     }
-    return acpEngine.chat(request);
+    return acpEngine.chat(request, chatDispatch);
   });
 
   ipcMain.handle(

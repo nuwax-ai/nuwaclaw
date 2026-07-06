@@ -23,6 +23,15 @@ vi.mock("../services/computerServer", () => ({
   pushSseEvent: vi.fn(),
 }));
 
+vi.mock("../services/computer/sseManager", () => ({
+  closeSseClientsForSession: vi.fn(),
+  shouldCloseSseAfterPromptEnd: vi.fn(
+    (reason?: string) => reason !== "mcp_reconnecting",
+  ),
+  markSsePromptActive: vi.fn(),
+  clearSsePromptActive: vi.fn(),
+}));
+
 // Use dynamic import to get the actual agentService (an EventEmitter) after mocking
 // The unifiedAgent module exports agentService as a singleton EventEmitter
 vi.mock("../services/engines/unifiedAgent", async () => {
@@ -37,6 +46,11 @@ import {
   unregisterEventForwarders,
 } from "./eventForwarders";
 import { agentService } from "../services/engines/unifiedAgent";
+import { pushSseEvent } from "../services/computerServer";
+import {
+  closeSseClientsForSession,
+  shouldCloseSseAfterPromptEnd,
+} from "../services/computer/sseManager";
 import type { HandlerContext } from "@shared/types/ipc";
 
 function createMockCtx() {
@@ -158,5 +172,37 @@ describe("eventForwarders", () => {
     agentService.emit("ready");
 
     expect(send).not.toHaveBeenCalled();
+  });
+
+  it("computer:promptEnd with end_turn closes SSE after push", () => {
+    const { ctx } = createMockCtx();
+    registerEventForwarders(ctx);
+
+    agentService.emit("computer:promptEnd", {
+      sessionId: "ses-1",
+      reason: "end_turn",
+    });
+
+    expect(pushSseEvent).toHaveBeenCalledWith(
+      "ses-1",
+      "end_turn",
+      expect.objectContaining({ messageType: "sessionPromptEnd" }),
+    );
+    expect(shouldCloseSseAfterPromptEnd).toHaveBeenCalledWith("end_turn");
+    expect(closeSseClientsForSession).toHaveBeenCalledWith("ses-1");
+  });
+
+  it("computer:promptEnd with mcp_reconnecting does not close SSE", () => {
+    vi.mocked(shouldCloseSseAfterPromptEnd).mockReturnValueOnce(false);
+    const { ctx } = createMockCtx();
+    registerEventForwarders(ctx);
+
+    agentService.emit("computer:promptEnd", {
+      sessionId: "ses-2",
+      reason: "mcp_reconnecting",
+    });
+
+    expect(pushSseEvent).toHaveBeenCalled();
+    expect(closeSseClientsForSession).not.toHaveBeenCalled();
   });
 });

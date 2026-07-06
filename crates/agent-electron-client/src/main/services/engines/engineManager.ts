@@ -12,7 +12,11 @@ import * as os from "os";
 import * as fs from "fs";
 import { spawn } from "child_process";
 import log from "electron-log";
-import { getAppEnv, getNuwaxcodeBundledBinPath } from "../system/dependencies";
+import {
+  getAppEnv,
+  getCodexAcpBundledDir,
+  getNuwaxcodeBundledBinPath,
+} from "../system/dependencies";
 import { mcpProxyManager } from "../packages/mcp";
 import { spawnJsFile, resolveNpmPackageEntry } from "../utils/spawnNoWindow";
 import { APP_DATA_DIR_NAME } from "../constants";
@@ -21,7 +25,7 @@ import { isWindows } from "../system/shellEnv";
 
 // ==================== Types ====================
 
-export type AgentEngine = "claude-code" | "nuwaxcode";
+export type AgentEngine = "claude-code" | "nuwaxcode" | "codex-cli";
 
 export interface EngineConfig {
   engine: AgentEngine;
@@ -106,6 +110,17 @@ export function isEngineInstalledLocally(engine: AgentEngine): boolean {
     }
   }
 
+  if (engine === "codex-cli") {
+    const binPaths = [
+      path.join(getAppDataDir(), "node_modules", ".bin", "nuwax-codex-acp"),
+    ];
+    for (const p of binPaths) {
+      if (fs.existsSync(p)) return true;
+      if (fs.existsSync(p + ".exe")) return true;
+      if (fs.existsSync(p + ".cmd")) return true;
+    }
+  }
+
   return false;
 }
 
@@ -115,7 +130,12 @@ export function isEngineInstalledLocally(engine: AgentEngine): boolean {
 export async function isEngineInstalledGlobally(
   engine: AgentEngine,
 ): Promise<boolean> {
-  const cmd = engine === "claude-code" ? "claude-code" : "nuwaxcode";
+  const cmd =
+    engine === "claude-code"
+      ? "claude-code"
+      : engine === "nuwaxcode"
+        ? "nuwaxcode"
+        : "nuwax-codex-acp";
 
   return new Promise((resolve) => {
     const checkCmd = isWindows() ? "where" : "which";
@@ -138,12 +158,34 @@ export async function isEngineInstalledGlobally(
 export async function getEngineVersion(
   engine: AgentEngine,
 ): Promise<string | null> {
+  if (engine === "codex-cli") {
+    const bundledDir = getCodexAcpBundledDir();
+    if (bundledDir) {
+      try {
+        const version = fs
+          .readFileSync(path.join(bundledDir, ".version"), "utf-8")
+          .trim();
+        if (version) return version;
+      } catch (error) {
+        log.warn(
+          "[Engine] Failed to read bundled nuwax-codex-acp version",
+          error,
+        );
+      }
+    }
+  }
+
   // 先尝试本地
   const localEngine = findEngineBinary(engine);
 
   return new Promise((resolve) => {
     const cmd =
-      localEngine || (engine === "claude-code" ? "claude-code" : "nuwaxcode");
+      localEngine ||
+      (engine === "claude-code"
+        ? "claude-code"
+        : engine === "nuwaxcode"
+          ? "nuwaxcode"
+          : "nuwax-codex-acp");
     const args = ["--version"];
 
     const proc = spawn(cmd, args, {
@@ -170,7 +212,12 @@ export async function getEngineVersion(
  */
 function getEnginePackageDir(engine: AgentEngine): string | null {
   const nodeModules = path.join(getAppDataDir(), "node_modules");
-  const packageName = engine === "claude-code" ? "claude-code" : "nuwaxcode";
+  const packageName =
+    engine === "claude-code"
+      ? "claude-code"
+      : engine === "nuwaxcode"
+        ? "nuwaxcode"
+        : "nuwax-codex-acp";
   const packageDir = path.join(nodeModules, packageName);
   return fs.existsSync(packageDir) ? packageDir : null;
 }
@@ -193,7 +240,12 @@ export function findEngineBinary(engine: AgentEngine): string | null {
   const packageDir = getEnginePackageDir(engine);
   if (!packageDir) return null;
 
-  const packageName = engine === "claude-code" ? "claude-code" : "nuwaxcode";
+  const packageName =
+    engine === "claude-code"
+      ? "claude-code"
+      : engine === "nuwaxcode"
+        ? "nuwaxcode"
+        : "nuwax-codex-acp";
   return resolveNpmPackageEntry(packageDir, packageName);
 }
 
@@ -213,7 +265,12 @@ export async function installEngine(
     fs.mkdirSync(engineDir, { recursive: true });
   }
 
-  const packageName = engine === "claude-code" ? "claude-code" : "nuwaxcode";
+  const packageName =
+    engine === "claude-code"
+      ? "claude-code"
+      : engine === "nuwaxcode"
+        ? "nuwaxcode"
+        : "nuwax-codex-acp";
 
   return new Promise((resolve) => {
     const npmCmd = isWindows() ? "npm.cmd" : "npm";

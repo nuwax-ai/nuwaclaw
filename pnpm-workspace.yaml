@@ -1,2 +1,12 @@
 packages:
   - 'crates/*'
+
+# pnpm 11+：非交互环境（含 git hook）下跳过 node_modules 清理确认
+confirmModulesPurge: false
+
+allowBuilds:
+  better-sqlite3: true
+  electron: true
+  esbuild: true
+  protobufjs: true
+  sharp: true

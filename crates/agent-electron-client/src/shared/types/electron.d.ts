@@ -44,7 +44,10 @@ export interface MCPAPI {
   setConfig: (
     config: McpServersConfig,
   ) => Promise<{ success: boolean; error?: string }>;
-  discoverTools: (serverId: string) => Promise<{
+  discoverTools: (
+    serverId: string,
+    draftConfig?: McpServersConfig,
+  ) => Promise<{
     success: boolean;
     tools?: string[];
     error?: string;
@@ -134,6 +137,28 @@ export interface FileServerAPI {
   start: (port?: number) => Promise<{ success: boolean; error?: string }>;
   stop: () => Promise<{ success: boolean; error?: string }>;
   status: () => Promise<{ running: boolean; pid?: number; error?: string }>;
+}
+
+/** ttyd Web 终端服务（仅监听回环 127.0.0.1） */
+export interface TtydAPI {
+  start: () => Promise<{ success: boolean; error?: string }>;
+  stop: () => Promise<{ success: boolean; error?: string }>;
+  status: () => Promise<{
+    running: boolean;
+    pid?: number;
+    port?: number;
+    targetPort?: number;
+    error?: string;
+  }>;
+  isAvailable: () => Promise<{ available: boolean; version?: string }>;
+  /** 返回 OpenAPI path 风格的 WebSocket URL，前端直接用此 URL 建立终端连接 */
+  getWsUrl: (options?: {
+    userId?: string;
+    projectId?: string;
+    cwd?: string;
+  }) => Promise<string>;
+  /** 刷新 ttyd-cwd 文件（工作区切换后调用，无需重启 ttyd） */
+  updateCwd: () => Promise<{ success: boolean; cwd: string }>;
 }
 
 export interface ComputerServerAPI {
@@ -231,6 +256,13 @@ export interface DependenciesAPI {
     version?: string;
     error?: string;
   }>;
+  /** 应用包内集成的 nuwax-codex-acp */
+  checkCodexAcpBundled: () => Promise<{
+    success: boolean;
+    available?: boolean;
+    version?: string;
+    error?: string;
+  }>;
   /** 应用包内集成的 nuwax-file-server */
   checkNuwaxFileServerBundled: () => Promise<{
     success: boolean;
@@ -265,7 +297,7 @@ export interface DependenciesAPI {
   getRequiredList: () => Promise<LocalDependencyItem[]>;
 }
 
-export type AgentEngine = "claude-code" | "nuwaxcode";
+export type AgentEngine = "claude-code" | "nuwaxcode" | "codex";
 
 export interface EngineStartConfig {
   engine: AgentEngine;
@@ -307,7 +339,7 @@ export interface EngineAPI {
 }
 
 // SDK types (simplified for renderer use)
-export type AgentEngineType = "nuwaxcode" | "claude-code";
+export type AgentEngineType = "nuwaxcode" | "claude-code" | "codex-cli";
 
 export interface AgentInitConfig {
   engine: AgentEngineType;
@@ -721,6 +753,7 @@ export interface ElectronAPI {
   agentRunner: AgentRunnerAPI;
   sandbox: SandboxAPI;
   fileServer: FileServerAPI;
+  ttyd: TtydAPI;
   computerServer: ComputerServerAPI;
   guiServer: GuiServerAPI;
   adminServer: AdminServerAPI;

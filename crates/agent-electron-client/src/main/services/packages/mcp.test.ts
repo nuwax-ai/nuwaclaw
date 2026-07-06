@@ -531,7 +531,7 @@ describe("McpProxyManager", () => {
       const result = await mcpProxyManager.start();
 
       expect(result.success).toBe(false);
-      expect(result.error).toContain("未安装");
+      expect(result.error).toMatch(/未安装|Claw\.MCP\.notInstalled/);
     });
   });
 
@@ -1130,19 +1130,25 @@ describe("syncMcpConfigToProxyAndReload - bridge 重启", () => {
   });
 
   it("同步空配置后应重启 bridge 为仅默认服务", async () => {
-    const { syncMcpConfigToProxyAndReload } = await import("./mcp");
+    const { syncMcpConfigToProxyAndReload, mcpProxyManager } =
+      await import("./mcp");
     const { persistentMcpBridge } = await import("./persistentMcpBridge");
 
     await syncMcpConfigToProxyAndReload({});
 
-    // 空配置触发重置为仅默认服务（chrome-devtools）
+    // 空配置触发重置为仅默认服务
     expect(persistentMcpBridge.start).toHaveBeenCalled();
     const startArg = (persistentMcpBridge.start as ReturnType<typeof vi.fn>)
       .mock.calls[0][0] as Record<string, unknown>;
-    // 只包含 chrome-devtools（persistent server）
+    // bridge 仅含 persistent 默认 server（chrome-devtools）；ask-question 非 persistent，不进 bridge
     expect(Object.keys(startArg)).toContain("chrome-devtools");
-    // 不包含动态 MCP（因为传入为空）
+    expect(Object.keys(startArg)).not.toContain("ask-question");
     expect(Object.keys(startArg).length).toBe(1);
+
+    // ask-question 作为非 persistent 默认服务，仍保留在 merged 配置中（每会话 stdio spawn）
+    const mergedServers = mcpProxyManager.getConfig().mcpServers;
+    expect(mergedServers["chrome-devtools"]).toBeDefined();
+    expect(mergedServers["ask-question"]).toBeDefined();
   });
 
   it("bridge 重启失败不应阻断同步流程", async () => {

@@ -8,12 +8,14 @@ import { registerProcessHandlers } from "./processHandlers";
 import { registerDependencyHandlers } from "./dependencyHandlers";
 import { registerEngineHandlers } from "./engineHandlers";
 import { registerAppHandlers } from "./appHandlers";
+import { registerSessionHandlers } from "./sessionHandlers";
 import { registerEventForwarders } from "./eventForwarders";
 import { registerMemoryHandlers } from "./memoryHandlers";
 import { registerSandboxHandlers } from "./sandboxHandlers";
 import { registerPerfHandlers } from "./perfHandlers";
 import { registerGuiServerHandlers } from "./guiServerHandlers";
 import { registerI18nHandlers } from "./i18nHandlers";
+import { registerTtydHandlers } from "./ttydHandlers";
 import log from "electron-log";
 
 export function registerAllHandlers(ctx: HandlerContext): void {
@@ -26,12 +28,14 @@ export function registerAllHandlers(ctx: HandlerContext): void {
   registerDependencyHandlers();
   registerEngineHandlers();
   registerAppHandlers(ctx);
+  registerSessionHandlers(ctx);
   registerEventForwarders(ctx);
   registerMemoryHandlers();
   registerSandboxHandlers();
   registerPerfHandlers();
   registerGuiServerHandlers();
   registerI18nHandlers();
+  registerTtydHandlers(ctx);
 
   log.info("IPC handlers registered");
 }

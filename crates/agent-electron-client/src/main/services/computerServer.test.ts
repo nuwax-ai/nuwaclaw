@@ -23,6 +23,10 @@ const mockPerfLogger = vi.hoisted(() => ({
 const mockFirstTokenTrace = vi.hoisted(() => ({
   trace: vi.fn(),
 }));
+const mockLogDebug = vi.hoisted(() => vi.fn());
+const mockFeatureFlags = vi.hoisted(() => ({
+  LOG_SSE_PAYLOAD: false,
+}));
 
 // 避免拉起 unifiedAgent 与 Electron 等重模块
 vi.mock("./engines/unifiedAgent", () => ({
@@ -40,7 +44,19 @@ vi.mock("electron-log", () => ({
     info: vi.fn(),
     warn: vi.fn(),
     error: vi.fn(),
-    debug: vi.fn(),
+    debug: mockLogDebug,
+  },
+}));
+vi.mock("@shared/featureFlags", () => ({
+  FEATURES: mockFeatureFlags,
+}));
+vi.mock("electron", () => ({
+  app: {
+    getPath: vi.fn((name: string) =>
+      name === "home" ? "/mock/home" : "/mock/appdata",
+    ),
+    getVersion: vi.fn(() => "0.0.0-test"),
+    isPackaged: false,
   },
 }));
 vi.mock("./constants", () => ({
@@ -242,5 +258,42 @@ describe("ComputerServer — SSE 事件缓冲", () => {
     expect(hasSessionFirstTokenContext(session)).toBe(true);
     clearSseEventBuffer(session);
     expect(hasSessionFirstTokenContext(session)).toBe(false);
+  });
+
+  it("LOG_SSE_PAYLOAD 开启时打印完整 SSE wire payload", () => {
+    mockFeatureFlags.LOG_SSE_PAYLOAD = true;
+    mockLogDebug.mockClear();
+    const session = "ses-sse-payload-log";
+    const data = {
+      sessionId: session,
+      subType: "agent_message_chunk",
+      text: "hi",
+    };
+
+    pushSseEvent(session, "agent_message_chunk", data);
+
+    expect(mockLogDebug).toHaveBeenCalledWith(
+      expect.stringContaining("[SSE] payload:"),
+    );
+    expect(mockLogDebug).toHaveBeenCalledWith(
+      expect.stringContaining("event: agent_message_chunk"),
+    );
+    expect(mockLogDebug).toHaveBeenCalledWith(
+      expect.stringContaining(JSON.stringify(data)),
+    );
+    mockFeatureFlags.LOG_SSE_PAYLOAD = false;
+  });
+
+  it("LOG_SSE_PAYLOAD 关闭时不打印完整 SSE wire payload", () => {
+    mockFeatureFlags.LOG_SSE_PAYLOAD = false;
+    mockLogDebug.mockClear();
+    const session = "ses-sse-payload-off";
+
+    pushSseEvent(session, "prompt_start", { sessionId: session });
+
+    const payloadLogs = mockLogDebug.mock.calls.filter((call) =>
+      String(call[0]).includes("[SSE] payload:"),
+    );
+    expect(payloadLogs).toHaveLength(0);
   });
 });

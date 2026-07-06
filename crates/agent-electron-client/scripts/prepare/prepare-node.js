@@ -205,16 +205,22 @@ async function prepareNode(key, suffix) {
   const cacheDir = path.join(nodeRoot, '.cache');
   const platformDir = path.join(nodeRoot, key);
 
-  // 检查是否已存在
+  // 检查是否已存在（架构 + 版本号）
   const platformKeyFile = path.join(platformDir, '.platform-key');
+  const versionFile = path.join(platformDir, '.version');
   if (fs.existsSync(platformDir)) {
     if (fs.existsSync(platformKeyFile)) {
       const existingKey = fs.readFileSync(platformKeyFile, 'utf-8').trim();
-      if (existingKey === key) {
-        console.log(`[prepare-node] Node.js ${NODE_VERSION} (${key}) 已存在且架构匹配，跳过`);
+      const existingVersion = fs.existsSync(versionFile) ? fs.readFileSync(versionFile, 'utf-8').trim() : null;
+      if (existingKey === key && existingVersion === NODE_VERSION) {
+        console.log(`[prepare-node] Node.js ${NODE_VERSION} (${key}) 已存在且架构+版本匹配，跳过`);
         return;
       }
-      console.log(`[prepare-node] 架构不匹配: 已有 ${existingKey}, 需要 ${key}, 清理并重新下载`);
+      if (existingKey === key && existingVersion !== NODE_VERSION) {
+        console.log(`[prepare-node] 版本变更: 已有 v${existingVersion}, 需要 v${NODE_VERSION}, 清理并重新下载`);
+      } else {
+        console.log(`[prepare-node] 架构不匹配: 已有 ${existingKey}, 需要 ${key}, 清理并重新下载`);
+      }
       fs.rmSync(platformDir, { recursive: true, force: true });
     } else {
       // No .platform-key — legacy, treat as matching
@@ -314,9 +320,10 @@ async function prepareNode(key, suffix) {
 
     console.log(`[prepare-node] Node.js ${NODE_VERSION} (${key}) 准备完成!`);
 
-    // Write .platform-key marker
+    // Write .platform-key and .version markers
     fs.writeFileSync(platformKeyFile, key, 'utf-8');
-    console.log(`[prepare-node] 已写入 .platform-key: ${key}`);
+    fs.writeFileSync(versionFile, NODE_VERSION, 'utf-8');
+    console.log(`[prepare-node] 已写入 .platform-key: ${key}, .version: ${NODE_VERSION}`);
 
   } catch (err) {
     console.error(`[prepare-node] 下载或解压失败:`, err.message);

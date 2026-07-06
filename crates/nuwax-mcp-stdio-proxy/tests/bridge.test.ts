@@ -371,7 +371,7 @@ describe('PersistentMcpBridge', () => {
       expect(bridge.getBridgeUrl('mock')).toBeNull();
 
       // 失败日志记录（来自 catch 块）
-      expect(logger.messages.some((m) => m.includes('启动失败'))).toBe(true);
+      expect(logger.messages.some((m) => m.includes('Start failed'))).toBe(true);
     } finally {
       await release();
     }

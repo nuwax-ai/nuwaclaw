@@ -8,6 +8,7 @@ import {
   Divider,
   Typography,
   Badge,
+  Tag,
   Form,
   Switch,
   message,
@@ -23,7 +24,7 @@ import {
   DEFAULT_AI_MODEL,
   normalizeOptionalPort,
 } from "@shared/constants";
-import { aiService } from "../../services/core/ai";
+import type { AgentEngineType } from "@shared/types/electron";
 import { t } from "../../services/core/i18n";
 
 const { Title, Text } = Typography;
@@ -100,7 +101,7 @@ function AgentSettings({ isOpen, onClose }: AgentSettingsProps) {
           "step1_config",
         )) as { workspaceDir?: string } | null;
         const result = await window.electronAPI?.agent.init({
-          engine: agentType === "claude-code" ? "claude-code" : "nuwaxcode",
+          engine: agentType as AgentEngineType,
           apiKey,
           baseUrl: apiBaseUrl,
           model,
@@ -173,12 +174,23 @@ function AgentSettings({ isOpen, onClose }: AgentSettingsProps) {
               value={agentType}
               onChange={(v) => {
                 setAgentType(v);
-                setBinPath(v === "claude-code" ? "claude-code" : "nuwaxcode");
+                const defaultBinPaths: Record<string, string> = {
+                  "claude-code": "claude-code",
+                  nuwaxcode: "nuwaxcode",
+                  codex: "nuwax-codex-acp",
+                };
+                setBinPath(defaultBinPaths[v] || v);
               }}
             >
               <Select.Option value="claude-code">
                 <Space>
                   <span>Claude Code (ACP)</span>
+                  <Tag
+                    color="blue"
+                    style={{ fontSize: 11, lineHeight: "18px" }}
+                  >
+                    Anthropic
+                  </Tag>
                   <Text type="secondary" style={{ fontSize: 12 }}>
                     {t("Claw.Agent.claudeCodeAcpDesc")}
                   </Text>
@@ -187,8 +199,28 @@ function AgentSettings({ isOpen, onClose }: AgentSettingsProps) {
               <Select.Option value="nuwaxcode">
                 <Space>
                   <span>nuwaxcode (ACP)</span>
+                  <Tag
+                    color="orange"
+                    style={{ fontSize: 11, lineHeight: "18px" }}
+                  >
+                    OpenAI
+                  </Tag>
                   <Text type="secondary" style={{ fontSize: 12 }}>
                     {t("Claw.Agent.nuwaxcodeDesc")}
+                  </Text>
+                </Space>
+              </Select.Option>
+              <Select.Option value="codex">
+                <Space>
+                  <span>Codex CLI (ACP)</span>
+                  <Tag
+                    color="orange"
+                    style={{ fontSize: 11, lineHeight: "18px" }}
+                  >
+                    OpenAI
+                  </Tag>
+                  <Text type="secondary" style={{ fontSize: 12 }}>
+                    OpenAI Codex
                   </Text>
                 </Space>
               </Select.Option>

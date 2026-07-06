@@ -73,16 +73,34 @@ function resolvePlatformArtifact(manifest, key) {
   return normalizeEntry(table[key]);
 }
 
+function writeSkippedStub(key, reason) {
+  ensureDir(targetRoot);
+  ensureDir(targetBin);
+  const payload = {
+    skipped: true,
+    reason,
+    platform: key,
+    preparedAt: new Date().toISOString(),
+  };
+  fs.writeFileSync(
+    path.join(targetRoot, "resolved-manifest.json"),
+    JSON.stringify(payload, null, 2),
+    "utf-8",
+  );
+  console.warn(`[prepare-sandbox-runtime] 已写入占位目录（${reason}）`);
+}
+
 function main() {
   const key = getPlatformKey();
   const manifest = loadManifest();
-  if (!manifest) return;
+  if (!manifest) {
+    writeSkippedStub(key, "manifest missing");
+    return;
+  }
 
   const artifact = resolvePlatformArtifact(manifest, key);
   if (!artifact) {
-    console.warn(
-      `[prepare-sandbox-runtime] manifest 未提供平台 ${key} 的产物定义，跳过`,
-    );
+    writeSkippedStub(key, `no artifact for ${key}`);
     return;
   }
 
@@ -103,6 +121,32 @@ function main() {
         `[prepare-sandbox-runtime] 校验失败: expected=${artifact.sha256}, actual=${current}, file=${sourcePath}`,
       );
     }
+  }
+
+  // 缓存检查：若 platform-key + 版本 + 文件 hash/大小均匹配，跳过复制
+  const platformKeyFile = path.join(targetBin, '.platform-key');
+  const resolvedManifestPath = path.join(targetRoot, 'resolved-manifest.json');
+  if (fs.existsSync(platformKeyFile) && fs.existsSync(resolvedManifestPath)) {
+    try {
+      const savedKey = fs.readFileSync(platformKeyFile, 'utf-8').trim();
+      const savedManifest = JSON.parse(fs.readFileSync(resolvedManifestPath, 'utf-8'));
+      const targetName = artifact.targetName || path.basename(sourcePath);
+      const targetPath = path.join(targetBin, targetName);
+      if (savedKey === key
+        && savedManifest.version === (manifest.version || 'unknown')
+        && fs.existsSync(targetPath)) {
+        if (artifact.sha256) {
+          const currentHash = sha256(targetPath);
+          if (currentHash === artifact.sha256) {
+            console.log(`[prepare-sandbox-runtime] ${key} ✓ (已是最新, SHA256 匹配)`);
+            return;
+          }
+        } else if (fs.statSync(sourcePath).size === fs.statSync(targetPath).size) {
+          console.log(`[prepare-sandbox-runtime] ${key} ✓ (已是最新, 大小匹配)`);
+          return;
+        }
+      }
+    } catch { /* 缓存文件损坏，继续执行 */ }
   }
 
   ensureDir(targetBin);

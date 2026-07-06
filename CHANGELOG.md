@@ -12,6 +12,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Agent Electron Client
 
 #### Fixed
+- **Windows：Agent 执行 `.sh` 脚本不再弹出「打开方式」** — 无沙箱时在 `OPENCODE_CONFIG_CONTENT` 注入 bundled Git Bash 作为 nuwaxcode `shell`；ACP 直连终端与 sandbox `run` 经 `bash -c` 执行；仅使用应用包内 `resources/git`（需 `prepare:git`）
 - **Removed legacy `guiAgent:*` Unix-socket service path** — desktop GUI automation now uses the standard local MCP HTTP service path (`guiServer:*`) only.
 
 ---

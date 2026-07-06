@@ -1,3 +1,4 @@
+.kilo/
 .idea/
 tmp/
 logs/
@@ -18,14 +19,14 @@ node_modules/
 # Electron/前端构建产物
 dist/
 
-# Monaco 静态资源：构建时 prepare:monaco 生成，不入库
-crates/agent-electron-client/public/monaco/
-
 # Electron 打包输出（dmg/zip/exe/AppImage 等）
 release/
 
 # Bundled uv: 构建时 prepare-uv 生成，或从 GitHub Release 下载缓存
 crates/agent-electron-client/resources/uv/
+
+# Bundled ripgrep: 构建时 prepare-ripgrep 下载
+crates/agent-electron-client/resources/ripgrep/
 
 # Bundled Node.js: 构建时 prepare-node 下载
 crates/agent-electron-client/resources/node/
@@ -36,17 +37,38 @@ crates/agent-electron-client/resources/git/
 # Bundled lanproxy: 构建时 prepare-lanproxy 复制当前平台二进制
 crates/agent-electron-client/resources/lanproxy/bin/
 
+# Bundled ttyd: 构建时 prepare-ttyd 复制当前平台二进制（binaries/ 下的源二进制需提交）
+crates/agent-electron-client/resources/ttyd/bin/
+# ttyd macOS 源码编译缓存（vcpkg + ttyd 源码 + 构建产物，体积大，勿提交）
+crates/agent-electron-client/.ttyd-build/
+
 # Bundled MCP proxy: 构建时 prepare-mcp-proxy 从源码 build 并集成
 crates/agent-electron-client/resources/nuwax-mcp-stdio-proxy/
 
 # Bundled GUI Agent Server: 构建时 prepare-gui-server 从源码 build 并集成
 crates/agent-electron-client/resources/agent-gui-server/
 
+# Bundled sandboxed MCP: prepare:sandboxed-mcp esbuild 产物，不入库
+crates/agent-electron-client/resources/sandboxed-bash-mcp/dist/
+crates/agent-electron-client/resources/sandboxed-bash-mcp/.bundle-version
+crates/agent-electron-client/resources/sandboxed-fs-mcp/dist/
+crates/agent-electron-client/resources/sandboxed-fs-mcp/.bundle-version
+
 # Bundled nuwaxcode: 构建时从 GitHub Release 下载，不入库
 crates/agent-electron-client/resources/nuwaxcode/
 
+# Bundled nuwax-codex-acp: 构建时从 GitHub Release 下载，不入库
+crates/agent-electron-client/resources/codex-acp/
+
 # Bundled windows-mcp: 构建时 prepare:windows-mcp 生成，不入库
 crates/agent-electron-client/resources/windows-mcp/
+
+# Bundled gateway: 构建时从源码 build 并集成（替代 chat2response）
+crates/agent-electron-client/resources/gateway/
+
+# gateway-server: 包含 .env 敏感配置，不入库
+crates/gateway-server/.env
+crates/gateway-server/node_modules/
 
 # Bundled nuwax-file-server: 构建时 prepare:nuwax-file-server 从 GitHub 克隆源码 build 并集成
 crates/agent-electron-client/resources/nuwax-file-server/
@@ -59,6 +81,10 @@ crates/agent-electron-client/sources/
 
 # Windows 专用 sandbox helper：build:sandbox-helper 生成，不入库
 crates/agent-electron-client/resources/sandbox-helper/*.exe
+
+# Bundled sandbox runtime：prepare:sandbox-runtime 同步产物与 resolved-manifest，不入库
+crates/agent-electron-client/resources/sandbox-runtime/bin/
+crates/agent-electron-client/resources/sandbox-runtime/resolved-manifest.json
 
 # Prepare 脚本的临时下载缓存（不入库）
 crates/agent-electron-client/scripts/resources/
@@ -73,5 +99,8 @@ crates/agent-electron-client/index.html
 # Bundled gateway: 构建时 prepare-gateway 生成，不入库
 crates/agent-electron-client/resources/gateway/
 
-.kilo/
+# Gateway server 本地环境变量（含密钥，不入库）
+crates/gateway-server/.env
 
+.kilo/
+tmp/

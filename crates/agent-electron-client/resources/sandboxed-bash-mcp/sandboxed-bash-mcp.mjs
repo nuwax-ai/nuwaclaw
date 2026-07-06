@@ -8,6 +8,7 @@
  * Environment variables:
  *   NUWAX_SANDBOX_HELPER_PATH     — Path to nuwax-sandbox-helper.exe
  *   NUWAX_SANDBOX_MODE            — "read-only" | "workspace-write"
+ *   NUWAX_SANDBOX_POLICY_MODE     — "strict" | "compat" | "permissive"
  *   NUWAX_SANDBOX_NETWORK_ENABLED — "1" | "0"
  *   NUWAX_SANDBOX_WRITABLE_ROOTS  — JSON array of writable paths
  *   NUWAX_SANDBOX_PATH            — Pre-built PATH with bundled node/git/uv
@@ -30,17 +31,18 @@ import {
   buildSandboxHelperEnv,
   resolveSandboxWorkingDirectory,
 } from "./sandboxed-bash-security.mjs";
+import { resolveGitBashPath } from "./resolve-git-bash.mjs";
 
 // ---- Configuration from environment ----
 
 const HELPER_PATH = process.env.NUWAX_SANDBOX_HELPER_PATH;
 const SANDBOX_MODE = process.env.NUWAX_SANDBOX_MODE || "read-only";
+const SANDBOX_POLICY_MODE = process.env.NUWAX_SANDBOX_POLICY_MODE || "compat";
 const NETWORK_ENABLED = process.env.NUWAX_SANDBOX_NETWORK_ENABLED !== "0";
 const WRITABLE_ROOTS = JSON.parse(
   process.env.NUWAX_SANDBOX_WRITABLE_ROOTS || "[]",
 );
 const SANDBOX_PATH = process.env.NUWAX_SANDBOX_PATH || "";
-const GIT_BASH_PATH = process.env.NUWAX_SANDBOX_GIT_BASH_PATH || "";
 
 if (!HELPER_PATH) {
   process.stderr.write(
@@ -53,9 +55,13 @@ if (!HELPER_PATH) {
 // 1. Git Bash (supports &&, ||, 2>/dev/null, pipes, etc.) — preferred
 // 2. Fallback: PowerShell (limited bash compat but always available)
 function resolveShell() {
-  if (GIT_BASH_PATH) {
-    return { cmd: GIT_BASH_PATH, args: ["-c"], type: "bash" };
+  const bashPath = resolveGitBashPath();
+  if (bashPath) {
+    return { cmd: bashPath, args: ["-c"], type: "bash" };
   }
+  process.stderr.write(
+    "[sandboxed-bash] WARN: Bundled Git Bash not found; falling back to PowerShell. Script files (.sh/.ps1/.js/.py…) may fail or show open-with dialog. Run npm run prepare:git.\n",
+  );
   return {
     cmd: "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
     args: ["-NoProfile", "-NonInteractive", "-Command"],
@@ -139,6 +145,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
   const policy = {
     type: SANDBOX_MODE === "workspace-write" ? "workspace-write" : "read-only",
     network_access: NETWORK_ENABLED,
+    sandbox_mode: SANDBOX_POLICY_MODE,
     ...(WRITABLE_ROOTS.length > 0 ? { writable_roots: WRITABLE_ROOTS } : {}),
   };
 

@@ -27,6 +27,24 @@ export const DEFAULT_WINDOW_MIN_WIDTH = 800;
 /** 主窗口最小高度（窗口可调整尺寸下限） */
 export const DEFAULT_WINDOW_MIN_HEIGHT = 600;
 
+/** webview 内 window.open 未指定 features 时的基准宽度（Electron 常见默认约 600） */
+export const WEBVIEW_POPUP_BASE_WIDTH = 600;
+
+/** webview 内 window.open 未指定 features 时的基准高度（Electron 常见默认约 400） */
+export const WEBVIEW_POPUP_BASE_HEIGHT = 400;
+
+/** webview 弹窗默认宽度（基准 × 2） */
+export const WEBVIEW_POPUP_DEFAULT_WIDTH = 1200;
+
+/** webview 弹窗默认高度（基准 × 2） */
+export const WEBVIEW_POPUP_DEFAULT_HEIGHT = 800;
+
+/** webview 弹窗最小宽度 */
+export const WEBVIEW_POPUP_MIN_WIDTH = DEFAULT_WINDOW_MIN_WIDTH;
+
+/** webview 弹窗最小高度 */
+export const WEBVIEW_POPUP_MIN_HEIGHT = DEFAULT_WINDOW_MIN_HEIGHT;
+
 // ==================== 端口配置 ====================
 
 /** MCP Proxy 默认端口 */
@@ -44,11 +62,17 @@ export const DEFAULT_LANPROXY_PORT = 60002;
 /** GUI Agent MCP 默认端口 */
 export const DEFAULT_GUI_MCP_PORT = 60008;
 
+/** 本地 MCP 管理中 GUI MCP 条目的固定 Server ID（与 ACP 注入名一致） */
+export const GUI_MCP_SERVER_ID = "gui-agent";
+
 /** Admin Server 默认端口（管理接口） */
 export const DEFAULT_ADMIN_SERVER_PORT = 60007;
 
 /** 开发服务器默认端口 */
 export const DEFAULT_DEV_SERVER_PORT = 60173;
+
+/** ttyd Web 终端默认端口（仅监听回环 127.0.0.1） */
+export const DEFAULT_TTYD_PORT = 60009;
 
 // ==================== 主机 / IP 配置 ====================
 
@@ -78,6 +102,7 @@ export const DEFAULT_AI_ENGINE: AgentEngineType = "claude-code";
 export const SUPPORTED_AGENT_ENGINES = [
   "claude-code",
   "nuwaxcode",
+  "codex-cli",
 ] as const satisfies readonly AgentEngineType[];
 
 export function isAgentEngineType(value: unknown): value is AgentEngineType {
@@ -420,6 +445,8 @@ export const I18N_KEYS = {
       DEP_FILE_SERVER: "Claw.Pages.Dependencies.dep.fileServer",
       DEP_MCP_PROXY: "Claw.Pages.Dependencies.dep.mcpProxy",
       DEP_NUWAXCODE: "Claw.Pages.Dependencies.dep.nuwaxcode",
+      DEP_CODEX_ACP: "Claw.Pages.Dependencies.dep.codexAcp",
+      DEP_RIPGREP: "Claw.Pages.Dependencies.dep.ripgrep",
 
       // 依赖描述
       DESC_UV: "Claw.Pages.Dependencies.desc.uv",
@@ -429,6 +456,8 @@ export const I18N_KEYS = {
       DESC_FILE_SERVER: "Claw.Pages.Dependencies.desc.fileServer",
       DESC_MCP_PROXY: "Claw.Pages.Dependencies.desc.mcpProxy",
       DESC_NUWAXCODE: "Claw.Pages.Dependencies.desc.nuwaxcode",
+      DESC_CODEX_ACP: "Claw.Pages.Dependencies.desc.codexAcp",
+      DESC_RIPGREP: "Claw.Pages.Dependencies.desc.ripgrep",
 
       // 版本要求
       REQ_NODE_VERSION: "Claw.Pages.Dependencies.reqNodeVersion",
@@ -462,5 +491,6 @@ export const I18N_KEYS = {
     EDITOR_TAB_FORM: "Claw.MCP.editor.tabForm",
     EDITOR_TAB_JSON: "Claw.MCP.editor.tabJson",
     EDITOR_JSON_HINT: "Claw.MCP.editor.jsonHint",
+    EDITOR_DRAFT_HINT: "Claw.MCP.editor.draftHint",
   },
 } as const;

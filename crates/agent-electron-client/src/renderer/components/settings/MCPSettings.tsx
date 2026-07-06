@@ -4,7 +4,7 @@
  * 使用稳定的文本编辑 + 解析校验，避免第三方可视化编辑器导致的不可编辑问题。
  */
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import {
   Card,
   Button,
@@ -15,6 +15,7 @@ import {
   List,
   Switch,
   Tag,
+  Tooltip,
   Empty,
   message,
   Alert,
@@ -32,15 +33,18 @@ import {
   CheckCircleOutlined,
   EditOutlined,
   DeleteOutlined,
+  UndoOutlined,
 } from "@ant-design/icons";
-import Editor from "@monaco-editor/react";
+import CodeEditor from "@uiw/react-textarea-code-editor";
 import type {
   McpServersConfig,
   McpProxyStatus,
   McpServerEntry,
 } from "@shared/types/electron";
+import { isGuiMcpManagedServerId } from "@shared/guiMcp";
 import { t } from "../../services/core/i18n";
 import MCPServerEditor from "./MCPServerEditor";
+import { applyMcpServerDraft } from "./mcpServerEditorUtils";
 
 const { Text } = Typography;
 
@@ -64,6 +68,17 @@ function MCPSettings({ isOpen = true }: MCPSettingsProps) {
   const [editorMode, setEditorMode] = useState<"create" | "edit">("create");
   const [editingServerId, setEditingServerId] = useState("");
   const [deletingServerId, setDeletingServerId] = useState<string | null>(null);
+  const [testingServerId, setTestingServerId] = useState<string | null>(null);
+  const [hasUnsavedEdits, setHasUnsavedEdits] = useState(false);
+  // 用 ref 在 loadAll 内读取最新脏状态。
+  // 切勿把 hasUnsavedEdits 放进 loadAll 依赖：首次写入草稿(false→true)会重建 loadAll 并重跑
+  // 其 effect，触发 setLoading(true) → MCPSettings 切到 Spin → 单条 MCP 编辑器被卸载，
+  // 重新挂载后输入被清空（草稿却已写入列表，表现为「粘贴配置后被清空，返回发现已添加」）。
+  const hasUnsavedEditsRef = useRef(hasUnsavedEdits);
+  hasUnsavedEditsRef.current = hasUnsavedEdits;
+  // 上次保存/加载的基线文本：撤销时恢复到此值。仅由 loadAll 与保存成功后更新。
+  const [savedConfigText, setSavedConfigText] = useState("{}");
+  const [showResetConfirm, setShowResetConfirm] = useState(false);
 
   // 监听主题变化
   useEffect(() => {
@@ -184,8 +199,14 @@ function MCPSettings({ isOpen = true }: MCPSettingsProps) {
         window.electronAPI?.mcp.status(),
       ]);
       if (savedConfig) {
-        // 加载时即按“手动启用”策略规范化，便于列表模式直观管理开关状态。
-        applyConfigToEditor(savedConfig, false);
+        // 基线始终刷新为服务端已保存状态（按"手动启用"策略规范化）。
+        const text = formatConfigForEditor(normalizeConfig(savedConfig, false));
+        setSavedConfigText(text);
+        // 编辑器仅在无未保存编辑时覆盖，防止丢失用户正在编辑的内容。
+        if (!hasUnsavedEditsRef.current) {
+          setConfigText(text);
+          setConfigTextError("");
+        }
       }
       if (currentStatus) setStatus(currentStatus);
     } catch (error) {
@@ -193,7 +214,7 @@ function MCPSettings({ isOpen = true }: MCPSettingsProps) {
     } finally {
       setLoading(false);
     }
-  }, [applyConfigToEditor]);
+  }, [formatConfigForEditor, normalizeConfig]);
 
   useEffect(() => {
     if (isOpen) {
@@ -218,6 +239,10 @@ function MCPSettings({ isOpen = true }: MCPSettingsProps) {
     }
     try {
       await window.electronAPI?.mcp.setConfig(nextConfig);
+      // 用计算出的 canonical 文本捕获基线（syncConfigFromText 已异步重排 configText，
+      // 此处闭包内的 configText 仍是旧值，不能直接读）。
+      setSavedConfigText(formatConfigForEditor(nextConfig));
+      setHasUnsavedEdits(false);
       message.success(t("Claw.MCP.message.configSaved"));
     } catch {
       message.error(t("Claw.Common.saveFailed"));
@@ -233,6 +258,8 @@ function MCPSettings({ isOpen = true }: MCPSettingsProps) {
     setActionLoading(true);
     try {
       await window.electronAPI?.mcp.setConfig(nextConfig);
+      setSavedConfigText(formatConfigForEditor(nextConfig));
+      setHasUnsavedEdits(false);
       const result = await window.electronAPI?.mcp.start();
       if (result?.success) {
         message.success(t("Claw.MCP.message.proxyReady"));
@@ -260,6 +287,8 @@ function MCPSettings({ isOpen = true }: MCPSettingsProps) {
     setActionLoading(true);
     try {
       await window.electronAPI?.mcp.setConfig(nextConfig);
+      setSavedConfigText(formatConfigForEditor(nextConfig));
+      setHasUnsavedEdits(false);
       const result = await window.electronAPI?.mcp.restart();
       if (result?.success) {
         message.success(t("Claw.MCP.message.proxyReady"));
@@ -277,6 +306,38 @@ function MCPSettings({ isOpen = true }: MCPSettingsProps) {
       setActionLoading(false);
     }
   };
+
+  const handleResetConfig = () => {
+    // 撤销未保存改动：恢复到上次保存的基线。仅动前端 state，不调用 IPC。
+    setConfigText(savedConfigText);
+    setConfigTextError("");
+    setHasUnsavedEdits(false);
+    setPageMode("list"); // 退出单 server 编辑器（如在）
+    setShowResetConfirm(false);
+    message.info(t("Claw.MCP.message.resetDone"));
+  };
+
+  // 精确脏状态：归一化后深比较当前配置与已保存基线。
+  // 优于手动标志 hasUnsavedEdits（改动一次即永久 true，改回原样也不会回落）。
+  // 解析失败（如 JSON 编辑中途）时回退到标志，保守显示为未保存。
+  const isDirty = useMemo(() => {
+    let currentObj: unknown;
+    let savedObj: unknown;
+    try {
+      currentObj = JSON.parse(configText);
+    } catch {
+      return hasUnsavedEdits;
+    }
+    try {
+      savedObj = JSON.parse(savedConfigText);
+    } catch {
+      return hasUnsavedEdits;
+    }
+    return (
+      JSON.stringify(normalizeConfig(currentObj as McpServersConfig, false)) !==
+      JSON.stringify(normalizeConfig(savedObj as McpServersConfig, false))
+    );
+  }, [configText, savedConfigText, hasUnsavedEdits, normalizeConfig]);
 
   const handleExportConfirm = async () => {
     try {
@@ -310,6 +371,7 @@ function MCPSettings({ isOpen = true }: MCPSettingsProps) {
             const text = event.target?.result as string;
             const imported = JSON.parse(text);
             applyConfigToEditor(imported, false);
+            setHasUnsavedEdits(true);
             message.success(t("Claw.MCP.importExport.importSuccess"));
           } catch {
             message.error(t("Claw.MCP.importExport.importFailed"));
@@ -338,7 +400,19 @@ function MCPSettings({ isOpen = true }: MCPSettingsProps) {
     ([, entry]) => !!entry.enabled,
   ).length;
 
+  const warnIfGuiManaged = (serverId: string): boolean => {
+    if (isGuiMcpManagedServerId(serverId)) {
+      message.warning(t("Claw.MCP.list.guiAgentManaged"));
+      return true;
+    }
+    return false;
+  };
+
   const handleToggleServerEnabled = (serverId: string, enabled: boolean) => {
+    if (isGuiMcpManagedServerId(serverId) && !enabled) {
+      message.warning(t("Claw.MCP.list.guiAgentManaged"));
+      return;
+    }
     const latest = getCurrentConfigForUi();
     if (!latest) {
       message.error(t("Claw.MCP.message.invalidJson"));
@@ -357,6 +431,7 @@ function MCPSettings({ isOpen = true }: MCPSettingsProps) {
       },
     };
     updateConfigFromUi(nextConfig);
+    setHasUnsavedEdits(true);
   };
 
   const handleDisableAllServers = () => {
@@ -367,13 +442,20 @@ function MCPSettings({ isOpen = true }: MCPSettingsProps) {
     }
     const nextServers: Record<string, McpServerEntry> = {};
     for (const [serverId, entry] of Object.entries(latest.mcpServers)) {
+      // gui-agent 由设置页 GUI MCP 开关托管，不参与「全部停用」
+      if (isGuiMcpManagedServerId(serverId)) {
+        nextServers[serverId] = { ...entry, enabled: true };
+        continue;
+      }
       nextServers[serverId] = { ...entry, enabled: false };
     }
     updateConfigFromUi({ ...latest, mcpServers: nextServers });
+    setHasUnsavedEdits(true);
     message.success(t("Claw.MCP.list.disableAllSuccess"));
   };
 
   const handleDeleteServer = (serverId: string) => {
+    if (warnIfGuiManaged(serverId)) return;
     const latest = getCurrentConfigForUi();
     if (!latest) {
       message.error(t("Claw.MCP.message.invalidJson"));
@@ -383,18 +465,20 @@ function MCPSettings({ isOpen = true }: MCPSettingsProps) {
     const nextServers = { ...latest.mcpServers };
     delete nextServers[serverId];
     updateConfigFromUi({ ...latest, mcpServers: nextServers });
+    setHasUnsavedEdits(true);
     message.success(t("Claw.MCP.message.serverRemoved"));
     setDeletingServerId(null);
   };
 
   const handleTestServer = async (serverId: string) => {
+    if (testingServerId) return;
+    setTestingServerId(serverId);
     try {
-      // 先确保内存中的最新配置已持久化到 DB，再调用 discoverTools
       const latest = getCurrentConfigForUi();
-      if (latest) {
-        await window.electronAPI?.mcp.setConfig(latest);
-      }
-      const result = await window.electronAPI?.mcp.discoverTools(serverId);
+      const result = await window.electronAPI?.mcp.discoverTools(
+        serverId,
+        latest ?? undefined,
+      );
       if (result?.success) {
         const toolCount = result.tools?.length ?? 0;
         message.success(t("Claw.MCP.list.testSuccess", { 0: toolCount }));
@@ -407,6 +491,8 @@ function MCPSettings({ isOpen = true }: MCPSettingsProps) {
       }
     } catch (e) {
       message.error(t("Claw.MCP.list.testFailed", { 0: String(e) }));
+    } finally {
+      setTestingServerId(null);
     }
   };
 
@@ -417,31 +503,47 @@ function MCPSettings({ isOpen = true }: MCPSettingsProps) {
   };
 
   const handleOpenEditorEdit = (serverId: string) => {
+    if (warnIfGuiManaged(serverId)) return;
     setEditorMode("edit");
     setEditingServerId(serverId);
     setPageMode("editor");
   };
 
-  const handleEditorSave = (serverId: string, entry: McpServerEntry) => {
+  const handleEditorDraftChange = (
+    serverId: string,
+    entry: McpServerEntry,
+    previousServerId?: string,
+  ) => {
     const latest = getCurrentConfigForUi();
     if (!latest) {
-      message.error(t("Claw.MCP.message.invalidJson"));
       return;
     }
-    const nextConfig: McpServersConfig = {
-      ...latest,
-      mcpServers: {
-        ...latest.mcpServers,
-        [serverId]: entry,
-      },
-    };
+    const nextConfig = applyMcpServerDraft(
+      latest,
+      serverId,
+      entry,
+      previousServerId,
+    ) as McpServersConfig;
     updateConfigFromUi(nextConfig);
-    setPageMode("list");
-    message.success(
-      editorMode === "create"
-        ? t("Claw.MCP.addServer.addSuccess")
-        : t("Claw.MCP.message.configSaved"),
-    );
+    if (
+      editorMode === "edit" &&
+      previousServerId &&
+      previousServerId !== serverId
+    ) {
+      setEditingServerId(serverId);
+    }
+    setHasUnsavedEdits(true);
+  };
+
+  const handleEditorDraftRemove = (serverId: string) => {
+    const latest = getCurrentConfigForUi();
+    if (!latest?.mcpServers?.[serverId]) {
+      return;
+    }
+    const nextServers = { ...latest.mcpServers };
+    delete nextServers[serverId];
+    updateConfigFromUi({ ...latest, mcpServers: nextServers });
+    setHasUnsavedEdits(true);
   };
 
   const handleEditorBack = () => {
@@ -463,7 +565,8 @@ function MCPSettings({ isOpen = true }: MCPSettingsProps) {
           existingServerIds={Object.keys(currentServers)}
           isDarkMode={isDarkMode}
           fullConfig={currentConfig ?? undefined}
-          onSave={handleEditorSave}
+          onDraftChange={handleEditorDraftChange}
+          onDraftRemove={handleEditorDraftRemove}
           onBack={handleEditorBack}
         />
       </div>
@@ -489,6 +592,11 @@ function MCPSettings({ isOpen = true }: MCPSettingsProps) {
         }
         extra={
           <Space>
+            {isDirty && (
+              <Tag color="orange" style={{ marginInlineEnd: 4 }}>
+                ● {t("Claw.MCP.unsavedChanges")}
+              </Tag>
+            )}
             <Button
               icon={<ImportOutlined />}
               onClick={handleImport}
@@ -503,10 +611,20 @@ function MCPSettings({ isOpen = true }: MCPSettingsProps) {
             >
               {t("Claw.MCP.importExport.export")}
             </Button>
+            <Tooltip title={t("Claw.MCP.action.resetTooltip")}>
+              <Button
+                icon={<UndoOutlined />}
+                onClick={() => setShowResetConfirm(true)}
+                disabled={!isDirty}
+                size="small"
+              >
+                {t("Claw.MCP.action.reset")}
+              </Button>
+            </Tooltip>
             <Button
               icon={<SaveOutlined />}
               onClick={handleSaveConfig}
-              type="primary"
+              type={isDirty ? "primary" : "default"}
               size="small"
             >
               {t("Claw.Common.save")}
@@ -607,6 +725,7 @@ function MCPSettings({ isOpen = true }: MCPSettingsProps) {
                   <List
                     dataSource={serverEntries}
                     renderItem={([serverId, entry]) => {
+                      const isManagedGui = isGuiMcpManagedServerId(serverId);
                       const isStdio = "command" in entry;
                       const summary = isStdio
                         ? `${entry.command} ${(entry.args ?? []).join(" ")}`
@@ -616,7 +735,8 @@ function MCPSettings({ isOpen = true }: MCPSettingsProps) {
                           actions={[
                             <Switch
                               key="enabled"
-                              checked={!!entry.enabled}
+                              checked={isManagedGui ? true : !!entry.enabled}
+                              disabled={isManagedGui}
                               checkedChildren={t("Claw.MCP.switch.enable")}
                               unCheckedChildren={t("Claw.MCP.switch.disable")}
                               onChange={(checked) =>
@@ -629,6 +749,11 @@ function MCPSettings({ isOpen = true }: MCPSettingsProps) {
                                 size="small"
                                 type="text"
                                 icon={<CheckCircleOutlined />}
+                                loading={testingServerId === serverId}
+                                disabled={
+                                  !!testingServerId &&
+                                  testingServerId !== serverId
+                                }
                                 onClick={() => handleTestServer(serverId)}
                               />
                               <Button
@@ -636,6 +761,7 @@ function MCPSettings({ isOpen = true }: MCPSettingsProps) {
                                 size="small"
                                 type="text"
                                 icon={<EditOutlined />}
+                                disabled={isManagedGui}
                                 onClick={() => handleOpenEditorEdit(serverId)}
                               />
                               <Button
@@ -644,6 +770,7 @@ function MCPSettings({ isOpen = true }: MCPSettingsProps) {
                                 danger
                                 type="text"
                                 loading={deletingServerId === serverId}
+                                disabled={isManagedGui}
                                 icon={<DeleteOutlined />}
                                 onClick={() => handleDeleteServer(serverId)}
                               />
@@ -657,6 +784,11 @@ function MCPSettings({ isOpen = true }: MCPSettingsProps) {
                                 <Tag color={isStdio ? "blue" : "purple"}>
                                   {isStdio ? "stdio" : "remote"}
                                 </Tag>
+                                {isManagedGui ? (
+                                  <Tag color="gold">
+                                    {t("Claw.MCP.list.guiAgentManagedTag")}
+                                  </Tag>
+                                ) : null}
                               </Space>
                             }
                             description={
@@ -685,34 +817,31 @@ function MCPSettings({ isOpen = true }: MCPSettingsProps) {
                 {t("Claw.MCP.editor.config")}
               </Text>
               <div
+                data-color-mode={isDarkMode ? "dark" : "light"}
                 style={{
                   border: "1px solid #d9d9d9",
                   borderRadius: 8,
-                  overflow: "hidden",
+                  overflow: "auto",
                   position: "relative",
+                  height: 400,
                 }}
               >
-                <Editor
-                  height="400px"
-                  language="json"
-                  theme={isDarkMode ? "vs-dark" : "vs"}
+                <CodeEditor
                   value={configText}
-                  onChange={(value) => {
-                    setConfigText(value || "");
+                  language="json"
+                  onChange={(e) => {
+                    setConfigText(e.target.value);
+                    setHasUnsavedEdits(true);
                     if (configTextError) {
                       setConfigTextError("");
                     }
                   }}
-                  options={{
-                    minimap: { enabled: false },
+                  padding={12}
+                  style={{
                     fontSize: 13,
-                    lineNumbers: "on",
-                    scrollBeyondLastLine: false,
-                    automaticLayout: true,
-                    tabSize: 2,
-                    formatOnPaste: true,
-                    formatOnType: true,
-                    stickyScroll: { enabled: false },
+                    backgroundColor: isDarkMode ? "#1e1e1e" : "#fff",
+                    fontFamily: "Monaco, Menlo, 'Courier New', monospace",
+                    minHeight: "100%",
                   }}
                 />
               </div>
@@ -794,6 +923,27 @@ function MCPSettings({ isOpen = true }: MCPSettingsProps) {
       >
         <Alert
           message={t("Claw.MCP.importExport.exportWarningContent")}
+          type="warning"
+          showIcon
+        />
+      </Modal>
+
+      {/* 撤销未保存改动确认 Modal */}
+      <Modal
+        title={
+          <Space>
+            <WarningOutlined style={{ color: "#faad14" }} />
+            {t("Claw.MCP.resetConfirm.title")}
+          </Space>
+        }
+        open={showResetConfirm}
+        onOk={handleResetConfig}
+        onCancel={() => setShowResetConfirm(false)}
+        okText={t("Claw.Common.confirm")}
+        cancelText={t("Claw.Common.cancel")}
+      >
+        <Alert
+          message={t("Claw.MCP.resetConfirm.content")}
           type="warning"
           showIcon
         />

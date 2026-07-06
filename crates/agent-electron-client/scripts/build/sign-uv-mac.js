@@ -65,8 +65,7 @@ function main() {
       );
       console.log('[sign-uv-mac] 已签名:', relative);
     } catch (e) {
-      console.error('[sign-uv-mac] 签名失败:', relative, e.message);
-      process.exit(1);
+      console.warn('[sign-uv-mac] 签名失败（不阻断 prepare）:', relative, e.message);
     }
   }
 }

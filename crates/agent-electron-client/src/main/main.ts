@@ -4,11 +4,11 @@ import {
   Menu,
   dialog,
   ipcMain,
-  Tray,
   nativeImage,
   session,
 } from "electron";
 import * as path from "path";
+import * as fs from "fs";
 import log from "electron-log";
 import { initDatabase, closeDb, readSetting } from "./db";
 import { ManagedProcess } from "./processManager";
@@ -21,6 +21,7 @@ import { mcpProxyManager } from "./services/packages/mcp";
 import { stopGuiAgentServer } from "./services/packages/guiAgentServer";
 import { FEATURES } from "@shared/featureFlags";
 import { stopWindowsMcp } from "./services/packages/windowsMcp";
+import { stopTtydGateway } from "./services/packages/ttydGateway";
 import type { HandlerContext } from "@shared/types/ipc";
 import { DEFAULT_DEV_SERVER_PORT } from "./services/constants";
 import {
@@ -31,7 +32,7 @@ import {
   DEFAULT_WINDOW_MIN_WIDTH,
   DEFAULT_WINDOW_WIDTH,
 } from "@shared/constants";
-import { initLogging } from "./bootstrap/logConfig";
+import { initLogging, updateLogLevel } from "./bootstrap/logConfig";
 import { initI18n, setMainLang } from "./services/i18n";
 import { createTrayManager, TrayStatus } from "./window/trayManager";
 import { createServiceManager } from "./window/serviceManager";
@@ -39,6 +40,22 @@ import { initAutoUpdater } from "./services/autoUpdater";
 import { migrateDataDir, migrateSettingsPaths } from "./bootstrap/migrate";
 import { getDeviceId, logSystemInfo } from "./services/system/deviceId";
 import { initWebviewPolicy } from "./services/system/webviewPolicy";
+import { stopAllEngines } from "./services/engines/engineManager";
+import { processRegistry } from "./services/system/processRegistry";
+import { APP_DATA_DIR_NAME } from "@shared/constants";
+
+// 处理 EPIPE 错误（社区最佳实践）
+// 当 stdout/stderr 的接收端关闭时，写入操作会触发 EPIPE 错误
+// 这里静默忽略这些错误，防止 uncaughtException 无限循环
+process.stdout.on("error", (err) => {
+  if (err.code === "EPIPE") return;
+  throw err;
+});
+
+process.stderr.on("error", (err) => {
+  if (err.code === "EPIPE") return;
+  throw err;
+});
 
 // macOS 26 Tahoe 兼容性：禁用 Fontations 字体后端
 // 参考: https://github.com/electron/electron/issues/49522
@@ -157,6 +174,9 @@ function getDockIconPath() {
 }
 
 const isDev = process.env.NODE_ENV === "development" || !app.isPackaged;
+if (isDev) {
+  app.commandLine.appendSwitch("disable-http-cache");
+}
 const WEBVIEW_PERF_BRIDGE_PRELOAD = path.join(
   __dirname,
   "..",
@@ -177,6 +197,7 @@ const lanproxy = new ManagedProcess("lanproxy");
 const fileServer = new ManagedProcess("fileServer");
 const agentRunner = new ManagedProcess("agentRunner");
 const guiServer = new ManagedProcess("gui-agent-server");
+const ttyd = new ManagedProcess("ttyd");
 let agentRunnerPorts: { backendPort: number; proxyPort: number } | null = null;
 
 function createWindow() {
@@ -214,14 +235,27 @@ function createWindow() {
 
   // Load the app
   if (isDev) {
-    mainWindow.loadURL(`http://localhost:${DEFAULT_DEV_SERVER_PORT}`);
+    const devCacheBust = Date.now();
+    const devUrl = `http://localhost:${DEFAULT_DEV_SERVER_PORT}/?_ncd=${devCacheBust}`;
+    void mainWindow.webContents.session
+      .clearCache()
+      .catch((err) => log.warn("[DevCache] clearCache failed:", err))
+      .finally(() => {
+        void mainWindow?.loadURL(devUrl);
+      });
     mainWindow.webContents.openDevTools();
   } else {
     // 生产环境：dist 目录被打包到 app.asar 中
-    // 使用 file:// 协议直接加载 asar 内的文件
-    const indexUrl = `file://${process.resourcesPath}/app.asar/dist/index.html`;
-    log.info("Loading app from:", indexUrl);
-    mainWindow.loadURL(indexUrl);
+    // 用 loadFile 让 Electron 内部走 pathToFileURL，避免 Windows 上路径含空格 / 中文 / 反斜杠时
+    // 拼出畸形 file:// URL，进而影响 Monaco 等通过 window.location.href 解析相对路径的资源加载
+    const indexPath = path.join(
+      process.resourcesPath,
+      "app.asar",
+      "dist",
+      "index.html",
+    );
+    log.info("Loading app from:", indexPath);
+    mainWindow.loadFile(indexPath);
   }
 
   // Handle load failures
@@ -237,8 +271,9 @@ function createWindow() {
   );
 
   mainWindow.once("ready-to-show", () => {
+    mainWindow?.maximize();
     mainWindow?.show();
-    log.info("Main window shown");
+    log.info("Main window shown (maximized)");
     // macOS 开发模式：窗口显示后再创建托盘，提高菜单栏图标出现概率
     if (process.platform === "darwin" && !app.isPackaged && !trayManager) {
       setTimeout(
@@ -293,6 +328,7 @@ async function initTrayManager() {
     lanproxy,
     fileServer,
     agentRunner,
+    ttyd,
   });
 
   trayManager = createTrayManager({
@@ -376,6 +412,10 @@ async function cleanupAllProcesses(): Promise<void> {
     await stopComputerServer();
   });
 
+  await runCleanupStep("ttyd gateway stop", async () => {
+    await stopTtydGateway();
+  });
+
   await runCleanupStep("Event forwarders unregister", () => {
     unregisterEventForwarders();
   });
@@ -401,13 +441,11 @@ async function cleanupAllProcesses(): Promise<void> {
   }
 
   await runCleanupStep("Engine processes stop", () => {
-    const { stopAllEngines } = require("./services/engines/engineManager");
     stopAllEngines();
     log.info("[Cleanup] Engine processes stopped");
   });
 
   await runCleanupStep("Process registry killAll", async () => {
-    const { processRegistry } = require("./services/system/processRegistry");
     await processRegistry.killAll();
     log.info("[Cleanup] Process registry cleared");
   });
@@ -418,6 +456,7 @@ async function cleanupAllProcesses(): Promise<void> {
   lanproxy.kill();
   fileServer.kill();
   guiServer.kill();
+  ttyd.kill();
 
   log.info("[Cleanup] All processes stopped");
 }
@@ -485,6 +524,10 @@ app.whenReady().then(async () => {
   migrateSettingsPaths();
   getDeviceId();
 
+  // 数据库就绪后，根据更新通道设置日志级别
+  const updateChannel = readSetting("update_channel") as string | undefined;
+  updateLogLevel(updateChannel || "stable");
+
   // 数据库就绪后，同步语言到主进程 i18n
   // 优先级：本地保存 > Electron 系统语言 > 英文兜底
   const savedLang = readSetting("i18n.active_lang") as string | undefined;
@@ -501,6 +544,7 @@ app.whenReady().then(async () => {
     fileServer,
     agentRunner,
     guiServer,
+    ttyd,
     get agentRunnerPorts() {
       return agentRunnerPorts;
     },
@@ -512,13 +556,15 @@ app.whenReady().then(async () => {
   registerAllHandlers(ctx);
   await runStartupTasks();
 
+  // 须在 createWindow 之前初始化，否则主窗口 webContents 会错过 did-attach-webview 监听
+  initWebviewPolicy(() => mainWindow);
+
   createWindow();
   if (pendingSecondInstanceFocus && mainWindow) {
     pendingSecondInstanceFocus = false;
     mainWindow.show();
     mainWindow.focus();
   }
-  initWebviewPolicy(() => mainWindow);
 
   // 非 macOS 或已打包：立即创建托盘。macOS 开发模式改为在 ready-to-show 后创建
   if (!(process.platform === "darwin" && !app.isPackaged)) {
@@ -604,11 +650,57 @@ app.on("will-quit", () => {
   log.info("[App] Will quit");
 });
 
-// Handle uncaught exceptions
+/**
+ * 直接写入错误日志到文件，完全绕过 electron-log 的 transport 机制
+ * 这样可以彻底避免 EPIPE 错误导致的无限循环
+ */
+function writeErrorLog(errorType: string, error: unknown): void {
+  try {
+    // 获取日志目录（使用预先导入的模块，避免在异常处理器中 require）
+    const nuwaxHome = path.join(app.getPath("home"), APP_DATA_DIR_NAME);
+    const logDir = path.join(nuwaxHome, "logs");
+    // 使用本地时间，与 logConfig.ts 中的 todayDateStr() 保持一致
+    const now = new Date();
+    const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+    const logFile = path.join(logDir, `main.${today}.log`);
+
+    // 确保目录存在
+    if (!fs.existsSync(logDir)) {
+      fs.mkdirSync(logDir, { recursive: true });
+    }
+
+    // 格式化错误信息
+    const timestamp = new Date().toISOString();
+    const errorMsg =
+      error instanceof Error ? error.stack || error.message : String(error);
+    const logEntry = `[${timestamp}] ERROR ${errorType}: ${errorMsg}\n`;
+
+    // 直接追加到文件
+    fs.appendFileSync(logFile, logEntry, { encoding: "utf8" });
+
+    // 同时尝试写入控制台（如果失败则忽略）
+    try {
+      process.stderr.write(logEntry);
+    } catch {
+      // 忽略 stderr 写入失败
+    }
+  } catch {
+    // 如果文件写入也失败，尝试最后的手段
+    try {
+      const errorMsg = error instanceof Error ? error.message : String(error);
+      process.stderr.write(`[FATAL] ${errorType}: ${errorMsg}\n`);
+    } catch {
+      // 完全失败，无法记录错误
+    }
+  }
+}
+
+// Handle uncaught exceptions - 使用直接文件写入，完全绕过 electron-log 的 transport 机制
 process.on("uncaughtException", (error) => {
-  log.error("Uncaught exception:", error);
+  writeErrorLog("uncaughtException", error);
 });
 
+// Handle unhandled rejections - 使用直接文件写入，避免可能的无限循环
 process.on("unhandledRejection", (reason) => {
-  log.error("Unhandled rejection:", reason);
+  writeErrorLog("unhandledRejection", reason);
 });

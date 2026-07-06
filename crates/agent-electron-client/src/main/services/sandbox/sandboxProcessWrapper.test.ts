@@ -33,6 +33,15 @@ vi.mock("electron-log", () => ({
   },
 }));
 
+vi.mock("@main/services/system/dependencies", () => ({
+  getResourcesPath: vi.fn(() => "/mock/resources"),
+  getNodeBinPathWithFallback: vi.fn(
+    () => "/mock/resources/node/darwin-arm64/bin/node",
+  ),
+  getUvBinPath: vi.fn(() => "/mock/resources/uv/bin/uv"),
+  getRipgrepBinPath: vi.fn(() => "/mock/resources/ripgrep/rg"),
+}));
+
 // =============================================================================
 // Mock fs
 // =============================================================================
@@ -421,6 +430,37 @@ describe("buildSandboxedSpawnArgs", () => {
           writablePaths: ["/tmp/ws", "/tmp/valid-path"],
         }),
       );
+    });
+
+    it("macOS strict should pass bundled MCP resources as exec subpaths, not writable paths", async () => {
+      const config: SandboxProcessConfig = {
+        ...createBaseConfig(),
+        type: "macos-seatbelt",
+        mode: "strict",
+        projectWorkspaceDir: "/tmp/ws",
+      };
+
+      mockBuildInvocation.mockResolvedValue({
+        command: "/usr/bin/sandbox-exec",
+        args: ["-f", "/tmp/profile.sb", "/bin/ls", "-la"],
+        cwd: "/tmp",
+        seatbeltProfilePath: "/tmp/nuwaclaw-sandbox-123.sb",
+      });
+
+      await buildSandboxedSpawnArgs("/bin/ls", ["-la"], "/tmp", config);
+
+      const call = mockBuildInvocation.mock.calls[0][0];
+      expect(call.writablePaths).toEqual(["/tmp/ws"]);
+      expect(
+        call.startupExecSubpathAllowlist.some((p: string) =>
+          p.includes("nuwax-mcp-stdio-proxy"),
+        ),
+      ).toBe(true);
+      expect(
+        call.writablePaths.some((p: string) =>
+          p.includes("nuwax-mcp-stdio-proxy"),
+        ),
+      ).toBe(false);
     });
   });
 

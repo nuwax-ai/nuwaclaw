@@ -21,6 +21,7 @@ import type {
   UpdateProgress,
 } from "@shared/types/updateTypes";
 import { readSetting } from "../db";
+import { compareVersions } from "./system/dependencyUtils";
 import { t } from "./i18n";
 import {
   getWindowsDownloadUrl,
@@ -229,22 +230,19 @@ export function canAutoUpdate(): boolean {
   return type !== "msi";
 }
 
-// ==================== 更新状态管理 ====================
-
 /**
- * 语义化版本比较: a > b 返回 1, a < b 返回 -1, 相等返回 0
+ * Windows NSIS 是否关闭差分下载（默认关闭，MinIO 多段 Range 未就绪）。
+ * 设 NUWAX_DISABLE_DIFF_UPDATE=0 可临时开启以验证差分。
  */
-function compareVersions(a: string, b: string): number {
-  const pa = a.replace(/^v/, "").split(".").map(Number);
-  const pb = b.replace(/^v/, "").split(".").map(Number);
-  for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
-    const na = pa[i] || 0;
-    const nb = pb[i] || 0;
-    if (na > nb) return 1;
-    if (na < nb) return -1;
-  }
-  return 0;
+export function shouldDisableDifferentialDownload(
+  platform: NodeJS.Platform = process.platform,
+  env: NodeJS.ProcessEnv = process.env,
+): boolean {
+  // "0" = 不禁用 = 开启差分；其他值或未设置 = 禁用（双重否定）
+  return platform === "win32" && env.NUWAX_DISABLE_DIFF_UPDATE !== "0";
 }
+
+// ==================== 更新状态管理 ====================
 
 /**
  * MVP 仅支持 x.y.z 纯数字版本，避免 compareVersions 对 prerelease 得到 NaN
@@ -444,6 +442,23 @@ export function initAutoUpdater(
   autoUpdater.logger = log;
   autoUpdater.autoDownload = false;
   autoUpdater.autoInstallOnAppQuit = canAutoUpdate();
+
+  // MinIO 暂不支持 multipart Range；默认关闭差分，避免失败重试。设 NUWAX_DISABLE_DIFF_UPDATE=0 可临时开启验证。
+  const disableDiff = shouldDisableDifferentialDownload();
+  autoUpdater.disableDifferentialDownload = disableDiff;
+  if (disableDiff) {
+    log.info(
+      "[AutoUpdater] Differential download disabled (full download only)",
+    );
+  } else if (process.platform === "win32") {
+    log.info(
+      "[AutoUpdater] Differential download enabled (NUWAX_DISABLE_DIFF_UPDATE=0)",
+    );
+  } else {
+    log.info(
+      "[AutoUpdater] Differential download: using electron-updater default",
+    );
+  }
 
   // 开发模式：使用 dev-app-update.yml 配置，禁用自动安装（Squirrel.Mac 无法匹配 dev bundle ID）
   if (!app.isPackaged) {

@@ -1,8 +1,15 @@
 import { agentService } from "../services/engines/unifiedAgent";
 import type { UnifiedSessionMessage } from "../services/engines/unifiedAgent";
 import { pushSseEvent } from "../services/computerServer";
+import {
+  clearSsePromptActive,
+  closeSseClientsForSession,
+  markSsePromptActive,
+  shouldCloseSseAfterPromptEnd,
+} from "../services/computer/sseManager";
 import { firstTokenTrace } from "../services/engines/perf/firstTokenTrace";
 import type { HandlerContext } from "@shared/types/ipc";
+import { FEATURES } from "@shared/featureFlags";
 import log from "electron-log";
 
 /** Stored handlers for cleanup */
@@ -100,10 +107,12 @@ export function registerEventForwarders(ctx: HandlerContext): void {
   // ==================== computer:* Event Forwarding (rcoder camelCase format) ====================
 
   const progressHandler = (data: unknown) => {
-    log.debug(
-      "[EventForwarders] 📨 Received computer:progress:",
-      JSON.stringify(data).substring(0, 200),
-    );
+    if (!FEATURES.LOG_SSE_PAYLOAD) {
+      log.debug(
+        "[EventForwarders] 📨 Received computer:progress:",
+        JSON.stringify(data).substring(0, 200),
+      );
+    }
     ctx.getMainWindow()?.webContents.send("computer:progress", data);
     const d = data as UnifiedSessionMessage;
     if (d?.sessionId) {
@@ -139,6 +148,7 @@ export function registerEventForwarders(ctx: HandlerContext): void {
       timestamp: new Date().toISOString(),
     };
     ctx.getMainWindow()?.webContents.send("computer:progress", event);
+    markSsePromptActive(data.sessionId);
     pushSseEvent(data.sessionId, "prompt_start", event);
   };
   agentService.on("computer:promptStart", promptStartHandler);
@@ -167,6 +177,10 @@ export function registerEventForwarders(ctx: HandlerContext): void {
     };
     ctx.getMainWindow()?.webContents.send("computer:progress", event);
     pushSseEvent(data.sessionId, data.reason || "end_turn", event);
+    clearSsePromptActive(data.sessionId);
+    if (shouldCloseSseAfterPromptEnd(data.reason)) {
+      closeSseClientsForSession(data.sessionId);
+    }
   };
   agentService.on("computer:promptEnd", promptEndHandler);
   registeredHandlers.push({

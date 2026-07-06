@@ -47,6 +47,7 @@ help:
 	@echo "  electron-prepare-gui-server - Prepare agent-gui-server for Electron"
 	@echo "  electron-prepare-sandbox-runtime - Sync Windows sandbox helper (skipped on non-Windows hosts)"
 	@echo "  electron-prepare-windows-mcp - Bundle windows-mcp into resources (Windows only, skipped elsewhere)"
+	@echo "  electron-prepare-ripgrep     - Bundle ripgrep (rg) binary into resources"
 	@echo "  electron-prepare            - Full prepare (install + rebuild + all binaries)"
 	@echo "  electron-bundle-unsigned    - Build Electron app (unsigned, current platform)"
 	@echo "  electron-bundle             - Build Electron app then sign on Windows via sign-release-win.sh"
@@ -143,6 +144,11 @@ electron-prepare-nuwaxcode:
 	@echo ">>> Preparing bundled nuwaxcode for Electron..."
 	cd crates/$(ELECTRON_CLIENT) && npm run prepare:nuwaxcode
 
+.PHONY: electron-prepare-codex-acp
+electron-prepare-codex-acp:
+	@echo ">>> Preparing bundled nuwax-codex-acp for Electron..."
+	cd crates/$(ELECTRON_CLIENT) && npm run prepare:codex-acp
+
 .PHONY: electron-prepare-gui-server
 electron-prepare-gui-server:
 	@echo ">>> Preparing agent-gui-server for Electron..."
@@ -190,8 +196,13 @@ electron-prepare-windows-mcp:
 	@echo ">>> Skipping electron-prepare-windows-mcp (Windows-only step, host=$(UNAME_S))"
 endif
 
+.PHONY: electron-prepare-ripgrep
+electron-prepare-ripgrep:
+	@echo ">>> Preparing bundled ripgrep for Electron..."
+	cd crates/$(ELECTRON_CLIENT) && npm run prepare:ripgrep
+
 .PHONY: electron-prepare
-electron-prepare: electron-install-deps electron-rebuild electron-prepare-sources electron-prepare-lanproxy electron-prepare-node electron-prepare-uv electron-prepare-mcp-proxy electron-prepare-nuwaxcode electron-prepare-gui-server electron-prepare-sandbox-runtime electron-prepare-windows-mcp
+electron-prepare: electron-install-deps electron-rebuild electron-prepare-sources electron-prepare-lanproxy electron-prepare-node electron-prepare-uv electron-prepare-mcp-proxy electron-prepare-nuwaxcode electron-prepare-codex-acp electron-prepare-gui-server electron-prepare-sandbox-runtime electron-prepare-windows-mcp electron-prepare-ripgrep
 	@echo ">>> Electron client prepared successfully"
 
 .PHONY: electron-bundle-unsigned
@@ -245,10 +256,10 @@ electron-dev: electron-prepare
 	@echo ">>> Starting Electron dev mode..."
 	@echo ">>> 日志通过 .env.development 配置 (NUWAX_AGENT_LOG_FULL_SECRETS=true)"
 	@echo ">>> INJECT_GUI_MCP=true（通过 .env.development 配置，向 ACP 注入 gui-agent MCP）"
-	@echo ">>> Logs will be written to logs/electron-dev.log"
+	@echo ">>> Logs: logs/electron-dev.log (filtered) + ~/.nuwaclaw/logs/latest.log (full)"
 	mkdir -p logs
 	@echo "=== Electron Dev Started at $$(date) ===" > logs/electron-dev.log
-	cd crates/$(ELECTRON_CLIENT) && npm run dev 2>&1 | tee -a $(CURDIR)/logs/electron-dev.log
+	cd crates/$(ELECTRON_CLIENT) && npm run dev 2>&1 | node scripts/dev/electron-dev-log.mjs $(CURDIR)/logs/electron-dev.log
 
 # ============================================================================
 # 依赖管理

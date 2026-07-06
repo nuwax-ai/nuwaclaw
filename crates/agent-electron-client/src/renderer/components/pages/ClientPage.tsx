@@ -78,6 +78,10 @@ interface ClientPageProps {
   onAuthChange?: () => void;
   /** 登录流程启动服务前通知父组件标记（内存变量，不持久化） */
   onLoginStarted?: () => void;
+  /** 登录并启服成功后通知父组件进入首页（配置域名） */
+  onLoginComplete?: () => void;
+  /** 开始会话：打开 sandbox redirect URL */
+  onStartSession?: () => void;
 }
 
 interface AuthState {
@@ -98,9 +102,11 @@ function ClientPage({
   authRefreshTrigger,
   onAuthChange,
   onLoginStarted,
+  onLoginComplete,
+  onStartSession,
 }: ClientPageProps) {
   const getStartupServiceKeys = useCallback(async (): Promise<string[]> => {
-    const keys = ["mcpProxy", "agent", "fileServer", "lanproxy"];
+    const keys = ["mcpProxy", "agent", "fileServer", "lanproxy", "ttyd"];
     if (!FEATURES.ENABLE_GUI_AGENT_SERVER) return keys;
     try {
       const guiEnabledRes = await window.electronAPI?.guiServer?.isEnabled();
@@ -227,6 +233,7 @@ function ClientPage({
       // 通知父组件刷新顶部栏用户名/电脑名称
       onAuthChange?.();
       await onRefreshServices();
+      onLoginComplete?.();
     } catch {
       // 错误提示由 loginAndRegister 内部统一展示，此处不再重复 toast
       setLoginPassword("");
@@ -256,6 +263,10 @@ function ClientPage({
                 await window.electronAPI?.lanproxy.stop();
               else if (svc.key === "mcpProxy")
                 await window.electronAPI?.mcp.stop();
+              else if (svc.key === "guiServer")
+                await window.electronAPI?.guiServer?.stop();
+              else if (svc.key === "ttyd")
+                await window.electronAPI?.ttyd.stop();
             } catch (e) {
               console.error(`[ClientPage] Failed to stop ${svc.label}:`, e);
             }
@@ -300,8 +311,7 @@ function ClientPage({
   }, [authState.domain, authState.userId]);
 
   const handleStartSession = async () => {
-    // Navigate to the Sessions tab (embedded webview) instead of opening a new window
-    onNavigate?.("sessions");
+    onStartSession?.();
   };
 
   const handleShowQrCode = () => {
@@ -320,6 +330,7 @@ function ClientPage({
     guiServer: "Claw.Service.guiMcp",
     lanproxy: "Claw.Service.proxy",
     mcpProxy: "Claw.Service.mcp",
+    ttyd: "Claw.Service.ttyd",
   };
   const getServiceLabel = (key: string) => t(serviceNameMap[key] || key);
 
@@ -400,6 +411,8 @@ function ClientPage({
           return false;
         }
         result = await window.electronAPI?.guiServer?.start();
+      } else if (key === "ttyd") {
+        result = await window.electronAPI?.ttyd.start();
       }
 
       await onRefreshServices();
@@ -454,6 +467,7 @@ function ClientPage({
       else if (key === "lanproxy") await window.electronAPI?.lanproxy.stop();
       else if (key === "mcpProxy") await window.electronAPI?.mcp.stop();
       else if (key === "guiServer") await window.electronAPI?.guiServer?.stop();
+      else if (key === "ttyd") await window.electronAPI?.ttyd.stop();
     } catch (error) {
       message.error(t("Claw.Client.stopFailed", String(error)));
     } finally {
@@ -529,6 +543,7 @@ function ClientPage({
           else if (svc.key === "lanproxy")
             await window.electronAPI?.lanproxy.stop();
           else if (svc.key === "mcpProxy") await window.electronAPI?.mcp.stop();
+          else if (svc.key === "ttyd") await window.electronAPI?.ttyd.stop();
           else if (svc.key === "guiServer")
             await window.electronAPI?.guiServer?.stop();
         } catch (error) {
@@ -857,6 +872,25 @@ function ClientPage({
                   >
                     {t("Claw.Client.stop")}
                   </Button>
+                ) : hasError ? (
+                  <div style={{ display: "flex", gap: 6 }}>
+                    <Button
+                      size="small"
+                      onClick={() => handleStopService(svc.key)}
+                      disabled={isAnyOperating}
+                    >
+                      {t("Claw.Client.stop")}
+                    </Button>
+                    <Button
+                      size="small"
+                      type="primary"
+                      icon={<PlayCircleOutlined />}
+                      onClick={() => handleStartServiceManual(svc.key)}
+                      disabled={isAnyOperating}
+                    >
+                      {t("Claw.Client.start")}
+                    </Button>
+                  </div>
                 ) : (
                   <Button
                     size="small"

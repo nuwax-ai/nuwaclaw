@@ -11,8 +11,9 @@
 # 用法（在仓库根目录）:
 #   ./crates/agent-electron-client/scripts/sync-oss.sh <tag> [channel]
 # 示例（已有 Release 时只推 OSS，不触发构建）:
-#   ./scripts/sync-oss.sh electron-v0.9.0           # 默认 stable
-#   ./scripts/sync-oss.sh electron-v0.9.0 beta      # 仅更新 beta/latest.json
+#   ./scripts/sync-oss.sh electron-v0.9.0              # 默认 stable
+#   ./scripts/sync-oss.sh electron-v0.9.0 beta         # beta 指针（electron tag）
+#   ./scripts/sync-oss.sh prerelease-v0.11.34 beta     # beta 预发布（unsigned Windows 包）
 #
 # 依赖: gh (GitHub CLI)、jq，且需已 gh auth login。
 # Windows Git Bash 下若直接找不到 gh，可与 sign-release-win.sh 一样设置:
@@ -118,10 +119,15 @@ TAG="$1"
 CHANNEL="${2:-stable}"
 
 # 验证 tag 格式
-if [[ ! "$TAG" =~ ^electron-v ]]; then
-  echo "错误: tag 必须以 'electron-v' 开头"
+if [[ ! "$TAG" =~ ^electron-v ]] && [[ ! "$TAG" =~ ^prerelease-v ]]; then
+  echo "错误: tag 必须以 'electron-v' 或 'prerelease-v' 开头"
   echo "当前: $TAG"
   exit 1
+fi
+
+if [[ "$TAG" =~ ^prerelease-v ]] && [[ "$CHANNEL" != "beta" ]]; then
+  echo "提示: prerelease tag 请使用 channel=beta，例如: $0 $TAG beta"
+  CHANNEL="beta"
 fi
 
 if [[ "$CHANNEL" != "stable" && "$CHANNEL" != "beta" ]]; then
@@ -140,8 +146,16 @@ if [[ -z "$GH_BIN" ]]; then
   exit 127
 fi
 
-# workflow_dispatch 需要 ref：使用仓库默认分支，仅 tag 由用户指定
-REF=$(run_gh repo view "$REPO" --json defaultBranchRef -q .defaultBranchRef.name 2>/dev/null || echo "main")
+# workflow_dispatch 需要 ref：优先使用当前分支（workflow 定义需在该分支上存在），
+# 当前分支无远程追踪时回退到仓库默认分支。
+# 注意：@{u} 形如 origin/feature/electron-client-0.11，仅剥第一段 remote 名，
+# 保留分支自身的斜杠（feature/...），否则 GitHub 会 422 "No ref found"。
+UPSTREAM=$(git rev-parse --abbrev-ref --symbolic-full-name @{u} 2>/dev/null || true)
+if [ -n "$UPSTREAM" ]; then
+  REF="${UPSTREAM#*/}"
+else
+  REF=$(run_gh repo view "$REPO" --json defaultBranchRef -q .defaultBranchRef.name 2>/dev/null || echo "main")
+fi
 
 # 获取 GitHub token
 TOKEN=$(run_gh auth token)

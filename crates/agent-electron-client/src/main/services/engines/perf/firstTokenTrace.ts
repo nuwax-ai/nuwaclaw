@@ -4,6 +4,7 @@ import * as os from "os";
 import * as path from "path";
 import log from "electron-log";
 import { APP_DATA_DIR_NAME, LOGS_DIR_NAME } from "../../constants";
+import { safeStringify } from "../utils/safeStringify";
 
 type TraceLevel = "basic" | "deep";
 
@@ -11,6 +12,7 @@ export interface FirstTokenTraceContext {
   requestId?: string;
   sessionId?: string;
   projectId?: string;
+  agentWorkDir?: string;
   engine?: string;
 }
 
@@ -21,6 +23,7 @@ interface TraceEvent {
   request_id?: string;
   session_id?: string;
   project_id?: string;
+  agent_work_dir?: string;
   engine?: string;
   since_request_start_ms?: number;
   since_prev_event_ms?: number;
@@ -32,6 +35,7 @@ interface TraceRequestState {
   startAt: number;
   firstEventAt: number;
   projectId?: string;
+  agentWorkDir?: string;
   sessionId?: string;
   engine?: string;
   events: TraceEvent[];
@@ -79,14 +83,6 @@ function safeGap(
 ): number | undefined {
   if (a === undefined || b === undefined) return undefined;
   return Math.max(0, b - a);
-}
-
-function safeStringify(v: unknown): string {
-  try {
-    return JSON.stringify(v);
-  } catch {
-    return String(v);
-  }
 }
 
 export class FirstTokenTrace {
@@ -205,6 +201,7 @@ export class FirstTokenTrace {
           startAt: now,
           firstEventAt: now,
           projectId: context.projectId,
+          agentWorkDir: context.agentWorkDir,
           sessionId: context.sessionId,
           engine: context.engine,
           events: [],
@@ -216,6 +213,9 @@ export class FirstTokenTrace {
       if (context.projectId) {
         state.projectId = context.projectId;
         this.projectToRequest.set(context.projectId, requestId);
+      }
+      if (context.agentWorkDir) {
+        state.agentWorkDir = context.agentWorkDir;
       }
       if (context.sessionId) {
         state.sessionId = context.sessionId;
@@ -232,6 +232,7 @@ export class FirstTokenTrace {
       request_id: requestId,
       session_id: context.sessionId || state?.sessionId,
       project_id: context.projectId || state?.projectId,
+      agent_work_dir: context.agentWorkDir || state?.agentWorkDir,
       engine: context.engine || state?.engine,
       since_request_start_ms: state ? now - state.startAt : undefined,
       since_prev_event_ms: previous ? now - previous.ts : undefined,
@@ -354,9 +355,6 @@ export class FirstTokenTrace {
       }
     }
 
-    const warmupHit = events.some((e) => e.stage === "warmup.reuse.hit");
-    const warmupMiss = events.find((e) => e.stage === "warmup.reuse.miss");
-
     const lines: string[] = [];
     lines.push(
       `## ${new Date().toISOString()} rid=${shortId(state.requestId)} session=${shortId(
@@ -369,10 +367,6 @@ export class FirstTokenTrace {
     lines.push(`- project_id: \`${state.projectId || "(none)"}\``);
     lines.push(`- session_id: \`${state.sessionId || "(none)"}\``);
     lines.push(`- engine: \`${state.engine || "(unknown)"}\``);
-    lines.push(`- warmup: \`${warmupHit ? "hit" : "miss"}\``);
-    if (warmupMiss?.data?.reason) {
-      lines.push(`- warmup_miss_reason: \`${String(warmupMiss.data.reason)}\``);
-    }
     lines.push(`- segment_A_chat: \`${formatMs(segmentA)}\``);
     lines.push(`- segment_B_prompt_to_first_token: \`${formatMs(segmentB)}\``);
     lines.push(`- total_first_token: \`${formatMs(total)}\``);
