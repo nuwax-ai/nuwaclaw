@@ -12,6 +12,7 @@ const {
   resolveClaudeAgentSdkPlatformPackage,
   getInstalledClaudeAgentSdkPlatformPackages,
   verifyClaudeAgentSdkPlatformPackage,
+  buildRuntimePackageJson,
 } = require(
   path.join(
     projectRoot,
@@ -29,6 +30,7 @@ const {
     baseDir: string,
     platformPackage: string,
   ) => void;
+  buildRuntimePackageJson: (sourcePackageJson: Record<string, unknown>) => Record<string, unknown>;
 };
 
 describe("prepare-claude-code-acp-ts helpers", () => {
@@ -177,5 +179,36 @@ describe("prepare-claude-code-acp-ts helpers", () => {
         "@anthropic-ai/claude-agent-sdk-darwin-x64",
       ),
     ).toThrow(/多余平台包/);
+  });
+
+  it("builds a runtime-only package manifest for staging install", () => {
+    const runtimePkg = buildRuntimePackageJson({
+      name: "claude-code-acp-ts",
+      version: "0.52.0",
+      description: "runtime",
+      main: "dist/lib.js",
+      types: "dist/lib.d.ts",
+      bin: { "claude-code-acp-ts": "./dist/index.js" },
+      type: "module",
+      exports: { ".": "./dist/lib.js" },
+      engines: { node: ">=22" },
+      dependencies: { zod: "^4.0.0" },
+      devDependencies: { vitest: "^2.0.0" },
+      scripts: { build: "tsc" },
+      files: ["dist/"],
+    });
+
+    expect(runtimePkg).toEqual({
+      name: "claude-code-acp-ts",
+      version: "0.52.0",
+      description: "runtime",
+      main: "dist/lib.js",
+      types: "dist/lib.d.ts",
+      bin: { "claude-code-acp-ts": "./dist/index.js" },
+      type: "module",
+      exports: { ".": "./dist/lib.js" },
+      engines: { node: ">=22" },
+      dependencies: { zod: "^4.0.0" },
+    });
   });
 });

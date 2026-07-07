@@ -1,12 +1,13 @@
 #!/usr/bin/env node
 /**
- * 准备 claude-code-acp-ts 源码并复制到 resources/
+ * 准备 claude-code-acp-ts 源码并生成 resources/
  *
  * 逻辑：
  *   1. 若 sources/claude-code-acp-ts 不存在 → git clone + npm install + npm run build
  *   2. 若存在但无 node_modules → npm install + npm run build
  *   3. 否则跳过构建（认为已就绪）
- *   4. 复制到 resources/claude-code-acp-ts/
+ *   4. 在 staging 目录重新 install 运行时依赖
+ *   5. 复制 staging 产物到 resources/claude-code-acp-ts/
  *
  * 产物：
  *   resources/claude-code-acp-ts/
@@ -17,6 +18,7 @@
 
 const path = require('path');
 const fs = require('fs');
+const os = require('os');
 const { execSync } = require('child_process');
 const { getProjectRoot } = require('../utils/project-paths');
 
@@ -42,6 +44,10 @@ function exec(cmd, opts = {}) {
 
 function execGit(cmd, opts = {}) {
   return exec(`git ${cmd}`, opts);
+}
+
+function copyDir(srcDir, dstDir) {
+  exec(`cp -R "${srcDir}" "${dstDir}"`);
 }
 
 /**
@@ -104,8 +110,8 @@ function getInstalledClaudeAgentSdkPlatformPackages(baseDir) {
  * 在 prepare 阶段显式修正 Claude Agent SDK 的平台子包。
  *
  * npm 在 optionalDependencies 上的自动安装结果依赖“执行安装命令的宿主机架构”，
- * 不是“最终 electron-builder 目标架构”。由于我们后面会把整个 node_modules 原样拷贝
- * 到 resources/，这里必须主动移除错误平台包并补装目标平台包，避免 cross-arch 构建污染。
+ * 不是“最终 electron-builder 目标架构”。所以即便我们在干净的 staging 目录里重新 install，
+ * 仍然要显式删除错误平台包并补装目标平台包，避免 cross-arch 构建污染。
  */
 function ensureClaudeAgentSdkPlatformPackage(baseDir, platformPackage) {
   const installedBefore = getInstalledClaudeAgentSdkPlatformPackages(baseDir);
@@ -159,6 +165,62 @@ function verifyClaudeAgentSdkPlatformPackage(baseDir, platformPackage) {
       `[prepare-claude-code-acp-ts] 检测到多余平台包: expected=${platformPackage}, extras=${extras.join(', ')}`,
     );
   }
+}
+
+function buildRuntimePackageJson(sourcePackageJson) {
+  return {
+    name: sourcePackageJson.name,
+    version: sourcePackageJson.version,
+    description: sourcePackageJson.description,
+    main: sourcePackageJson.main,
+    types: sourcePackageJson.types,
+    bin: sourcePackageJson.bin,
+    type: sourcePackageJson.type,
+    exports: sourcePackageJson.exports,
+    engines: sourcePackageJson.engines,
+    dependencies: sourcePackageJson.dependencies || {},
+  };
+}
+
+function createStagingDir() {
+  return fs.mkdtempSync(
+    path.join(os.tmpdir(), 'prepare-claude-code-acp-ts-'),
+  );
+}
+
+/**
+ * 用独立 staging 目录重新安装运行时依赖，而不是直接复制源码目录 node_modules。
+ *
+ * 这样 resources/ 里的依赖集合只反映“打包产物实际需要的运行时内容”，不会把源码目录中
+ * 的开发依赖、宿主机构建痕迹或历史缓存一股脑带进安装包。
+ */
+function prepareRuntimeBundle({
+  sourceDir,
+  stagingDir,
+  sourcePackageJson,
+  targetPlatformPackage,
+}) {
+  fs.mkdirSync(stagingDir, { recursive: true });
+
+  copyDir(path.join(sourceDir, 'dist'), `${stagingDir}/`);
+
+  const runtimePackageJson = buildRuntimePackageJson(sourcePackageJson);
+  fs.writeFileSync(
+    path.join(stagingDir, 'package.json'),
+    `${JSON.stringify(runtimePackageJson, null, 2)}\n`,
+    'utf8',
+  );
+
+  const licenseSrc = path.join(sourceDir, 'LICENSE');
+  if (fs.existsSync(licenseSrc)) {
+    fs.copyFileSync(licenseSrc, path.join(stagingDir, 'LICENSE'));
+  }
+
+  console.log('[prepare-claude-code-acp-ts] 在 staging 目录安装运行时依赖...');
+  exec(`cd "${stagingDir}" && npm install --omit=dev --ignore-scripts`);
+
+  ensureClaudeAgentSdkPlatformPackage(stagingDir, targetPlatformPackage);
+  verifyClaudeAgentSdkPlatformPackage(stagingDir, targetPlatformPackage);
 }
 
 function main() {
@@ -249,35 +311,42 @@ function main() {
     verifyClaudeAgentSdkPlatformPackage(SOURCE_DIR, targetPlatformPackage);
   }
 
-  // 5. 读取版本
+  // 5. 读取版本并在独立 staging 目录重建 runtime bundle
   const srcPkg = JSON.parse(fs.readFileSync(path.join(SOURCE_DIR, 'package.json'), 'utf8'));
   console.log(`[prepare-claude-code-acp-ts] 源码版本: ${srcPkg.name}@${srcPkg.version}`);
 
-  // 6. 清理并创建目标目录
-  if (fs.existsSync(destDir)) {
-    fs.rmSync(destDir, { recursive: true });
-  }
-  fs.mkdirSync(destDir, { recursive: true });
+  const stagingDir = createStagingDir();
+  try {
+    prepareRuntimeBundle({
+      sourceDir: SOURCE_DIR,
+      stagingDir,
+      sourcePackageJson: srcPkg,
+      targetPlatformPackage,
+    });
 
-  // 7. 复制 dist/
-  console.log('[prepare-claude-code-acp-ts] 复制 dist/...');
-  exec(`cp -R "${path.join(SOURCE_DIR, 'dist')}" "${destDir}/"`);
+    // 6. 清理并创建目标目录
+    if (fs.existsSync(destDir)) {
+      fs.rmSync(destDir, { recursive: true });
+    }
+    fs.mkdirSync(destDir, { recursive: true });
 
-  // 8. 复制 package.json
-  fs.copyFileSync(
-    path.join(SOURCE_DIR, 'package.json'),
-    path.join(destDir, 'package.json')
-  );
+    // 7. 复制 staging 产物
+    console.log('[prepare-claude-code-acp-ts] 复制 staging runtime bundle...');
+    copyDir(path.join(stagingDir, 'dist'), `${destDir}/`);
+    copyDir(path.join(stagingDir, 'node_modules'), `${destDir}/`);
+    fs.copyFileSync(
+      path.join(stagingDir, 'package.json'),
+      path.join(destDir, 'package.json'),
+    );
 
-  // 9. 复制 node_modules/
-  console.log('[prepare-claude-code-acp-ts] 复制 node_modules/...');
-  exec(`cp -R "${path.join(SOURCE_DIR, 'node_modules')}" "${destDir}/"`);
-  verifyClaudeAgentSdkPlatformPackage(destDir, targetPlatformPackage);
+    const stagedLicense = path.join(stagingDir, 'LICENSE');
+    if (fs.existsSync(stagedLicense)) {
+      fs.copyFileSync(stagedLicense, path.join(destDir, 'LICENSE'));
+    }
 
-  // 10. 复制 LICENSE
-  const licenseSrc = path.join(SOURCE_DIR, 'LICENSE');
-  if (fs.existsSync(licenseSrc)) {
-    fs.copyFileSync(licenseSrc, path.join(destDir, 'LICENSE'));
+    verifyClaudeAgentSdkPlatformPackage(destDir, targetPlatformPackage);
+  } finally {
+    fs.rmSync(stagingDir, { recursive: true, force: true });
   }
 
   console.log(`[prepare-claude-code-acp-ts] ✓ resources/claude-code-acp-ts/ (${srcPkg.version})`);
@@ -288,6 +357,7 @@ module.exports = {
   getInstalledClaudeAgentSdkPlatformPackages,
   ensureClaudeAgentSdkPlatformPackage,
   verifyClaudeAgentSdkPlatformPackage,
+  buildRuntimePackageJson,
 };
 
 if (require.main === module) {
