@@ -106,6 +106,72 @@ function getInstalledClaudeAgentSdkPlatformPackages(baseDir) {
     .sort();
 }
 
+function resolveClaudeAgentSdkPlatformPackageVersion(baseDir, platformPackage) {
+  const sdkPkgPath = path.join(baseDir, CLAUDE_AGENT_SDK_DIR, 'package.json');
+  const sdkPkg = JSON.parse(fs.readFileSync(sdkPkgPath, 'utf8'));
+  const version = sdkPkg.optionalDependencies?.[platformPackage];
+  if (!version) {
+    throw new Error(
+      `[prepare-claude-code-acp-ts] 未在 claude-agent-sdk optionalDependencies 中找到 ${platformPackage}`,
+    );
+  }
+  return version;
+}
+
+/**
+ * 跨架构安装 Claude SDK 平台子包。
+ *
+ * 不能直接用 npm install：平台包在 package.json 中声明了 os/cpu，
+ * arm64 runner 安装 darwin-x64 会触发 EBADPLATFORM。
+ * 改用 npm pack 拉取 tarball 再解压到 node_modules。
+ */
+function installClaudeAgentSdkPlatformPackage(baseDir, platformPackage, version) {
+  const shortName = platformPackage.replace('@anthropic-ai/', '');
+  const pkgDir = path.join(baseDir, 'node_modules', '@anthropic-ai', shortName);
+  const packDir = fs.mkdtempSync(path.join(os.tmpdir(), 'claude-agent-sdk-pack-'));
+
+  try {
+    const spec = `${platformPackage}@${version}`;
+    console.log(`[prepare-claude-code-acp-ts] 下载平台包 tarball: ${spec}`);
+    const packOutput = execSync(
+      `npm pack "${spec}" --pack-destination "${packDir}"`,
+      {
+        cwd: baseDir,
+        encoding: 'utf8',
+        stdio: ['pipe', 'pipe', 'inherit'],
+      },
+    ).trim();
+    const tarballName = packOutput
+      .split('\n')
+      .map((line) => line.trim())
+      .filter(Boolean)
+      .pop();
+    if (!tarballName) {
+      throw new Error(
+        `[prepare-claude-code-acp-ts] npm pack 未返回 tarball 文件名: ${platformPackage}`,
+      );
+    }
+
+    const tarballPath = path.join(packDir, tarballName);
+    if (!fs.existsSync(tarballPath)) {
+      throw new Error(
+        `[prepare-claude-code-acp-ts] tarball 不存在: ${tarballPath}`,
+      );
+    }
+
+    fs.mkdirSync(path.dirname(pkgDir), { recursive: true });
+    if (fs.existsSync(pkgDir)) {
+      fs.rmSync(pkgDir, { recursive: true, force: true });
+    }
+    fs.mkdirSync(pkgDir, { recursive: true });
+    execSync(`tar -xzf "${tarballPath}" -C "${pkgDir}" --strip-components=1`, {
+      stdio: 'inherit',
+    });
+  } finally {
+    fs.rmSync(packDir, { recursive: true, force: true });
+  }
+}
+
 /**
  * 在 prepare 阶段显式修正 Claude Agent SDK 的平台子包。
  *
@@ -137,10 +203,14 @@ function ensureClaudeAgentSdkPlatformPackage(baseDir, platformPackage) {
     platformPackage.replace('@anthropic-ai/', ''),
   );
   if (!fs.existsSync(expectedDir)) {
-    console.log(
-      `[prepare-claude-code-acp-ts] 补装目标平台包: ${platformPackage}`,
+    const version = resolveClaudeAgentSdkPlatformPackageVersion(
+      baseDir,
+      platformPackage,
     );
-    exec(`cd "${baseDir}" && npm install --no-save --ignore-scripts ${platformPackage}`);
+    console.log(
+      `[prepare-claude-code-acp-ts] 补装目标平台包: ${platformPackage}@${version}`,
+    );
+    installClaudeAgentSdkPlatformPackage(baseDir, platformPackage, version);
   }
 }
 
@@ -354,6 +424,7 @@ function main() {
 
 module.exports = {
   resolveClaudeAgentSdkPlatformPackage,
+  resolveClaudeAgentSdkPlatformPackageVersion,
   getInstalledClaudeAgentSdkPlatformPackages,
   ensureClaudeAgentSdkPlatformPackage,
   verifyClaudeAgentSdkPlatformPackage,
