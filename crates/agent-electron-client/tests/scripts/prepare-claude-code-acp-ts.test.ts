@@ -9,7 +9,9 @@ const testFileDir = path.dirname(fileURLToPath(import.meta.url));
 const projectRoot = path.resolve(testFileDir, "..", "..");
 const require = createRequire(import.meta.url);
 const {
-  resolveClaudeAgentSdkPlatformPackage,
+  needsDarwinX64CrossArchBundling,
+  DARWIN_X64_SDK_PACKAGE,
+  resolveClaudeAgentSdkPlatformPackageVersion,
   getInstalledClaudeAgentSdkPlatformPackages,
   verifyClaudeAgentSdkPlatformPackage,
 } = require(
@@ -20,10 +22,16 @@ const {
     "prepare-claude-code-acp-ts.js",
   ),
 ) as {
-  resolveClaudeAgentSdkPlatformPackage: (options?: {
+  needsDarwinX64CrossArchBundling: (options?: {
     platform?: string;
+    hostArch?: string;
     targetArch?: string;
-  }) => string;
+  }) => boolean;
+  DARWIN_X64_SDK_PACKAGE: string;
+  resolveClaudeAgentSdkPlatformPackageVersion: (
+    baseDir: string,
+    platformPackage: string,
+  ) => string;
   getInstalledClaudeAgentSdkPlatformPackages: (baseDir: string) => string[];
   verifyClaudeAgentSdkPlatformPackage: (
     baseDir: string,
@@ -41,20 +49,38 @@ describe("prepare-claude-code-acp-ts helpers", () => {
     tempDirs.length = 0;
   });
 
-  it("maps macOS target arch to the matching Claude SDK platform package", () => {
+  it("only enables darwin-x64 cross-arch fix for arm64 host building x64", () => {
     expect(
-      resolveClaudeAgentSdkPlatformPackage({
+      needsDarwinX64CrossArchBundling({
         platform: "darwin",
+        hostArch: "arm64",
         targetArch: "x64",
       }),
-    ).toBe("@anthropic-ai/claude-agent-sdk-darwin-x64");
+    ).toBe(true);
 
     expect(
-      resolveClaudeAgentSdkPlatformPackage({
+      needsDarwinX64CrossArchBundling({
         platform: "darwin",
+        hostArch: "arm64",
         targetArch: "arm64",
       }),
-    ).toBe("@anthropic-ai/claude-agent-sdk-darwin-arm64");
+    ).toBe(false);
+
+    expect(
+      needsDarwinX64CrossArchBundling({
+        platform: "win32",
+        hostArch: "x64",
+        targetArch: "x64",
+      }),
+    ).toBe(false);
+
+    expect(
+      needsDarwinX64CrossArchBundling({
+        platform: "linux",
+        hostArch: "arm64",
+        targetArch: "arm64",
+      }),
+    ).toBe(false);
   });
 
   it("lists installed Claude SDK platform packages under @anthropic-ai", () => {
@@ -79,10 +105,6 @@ describe("prepare-claude-code-acp-ts helpers", () => {
         "@anthropic-ai",
         "claude-agent-sdk-darwin-arm64",
       ),
-      { recursive: true },
-    );
-    fs.mkdirSync(
-      path.join(baseDir, "node_modules", "@anthropic-ai", "sdk"),
       { recursive: true },
     );
 
@@ -124,10 +146,7 @@ describe("prepare-claude-code-acp-ts helpers", () => {
     );
 
     expect(() =>
-      verifyClaudeAgentSdkPlatformPackage(
-        baseDir,
-        "@anthropic-ai/claude-agent-sdk-darwin-x64",
-      ),
+      verifyClaudeAgentSdkPlatformPackage(baseDir, DARWIN_X64_SDK_PACKAGE),
     ).not.toThrow();
   });
 
@@ -172,10 +191,43 @@ describe("prepare-claude-code-acp-ts helpers", () => {
     );
 
     expect(() =>
-      verifyClaudeAgentSdkPlatformPackage(
-        baseDir,
-        "@anthropic-ai/claude-agent-sdk-darwin-x64",
-      ),
+      verifyClaudeAgentSdkPlatformPackage(baseDir, DARWIN_X64_SDK_PACKAGE),
     ).toThrow(/多余平台包/);
+  });
+
+  it("reads platform package version from claude-agent-sdk optionalDependencies", () => {
+    const baseDir = fs.mkdtempSync(
+      path.join(os.tmpdir(), "prepare-claude-code-acp-ts-"),
+    );
+    tempDirs.push(baseDir);
+
+    fs.mkdirSync(
+      path.join(baseDir, "node_modules", "@anthropic-ai", "claude-agent-sdk"),
+      { recursive: true },
+    );
+    fs.writeFileSync(
+      path.join(
+        baseDir,
+        "node_modules",
+        "@anthropic-ai",
+        "claude-agent-sdk",
+        "package.json",
+      ),
+      JSON.stringify({
+        name: "@anthropic-ai/claude-agent-sdk",
+        version: "0.3.191",
+        optionalDependencies: {
+          [DARWIN_X64_SDK_PACKAGE]: "0.3.191",
+        },
+      }),
+      "utf8",
+    );
+
+    expect(
+      resolveClaudeAgentSdkPlatformPackageVersion(
+        baseDir,
+        DARWIN_X64_SDK_PACKAGE,
+      ),
+    ).toBe("0.3.191");
   });
 });
