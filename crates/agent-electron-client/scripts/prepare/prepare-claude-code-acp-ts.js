@@ -29,6 +29,11 @@ const { url: GIT_REPO, branch: GIT_BRANCH } = pkgJson.bundledSources['claude-cod
 
 const SOURCE_DIR = path.join(electronClientRoot, 'sources', 'claude-code-acp-ts');
 const destDir = path.join(electronClientRoot, 'resources', 'claude-code-acp-ts');
+const CLAUDE_AGENT_SDK_DIR = path.join(
+  'node_modules',
+  '@anthropic-ai',
+  'claude-agent-sdk',
+);
 
 function exec(cmd, opts = {}) {
   console.log(`  $ ${cmd}`);
@@ -39,7 +44,129 @@ function execGit(cmd, opts = {}) {
   return exec(`git ${cmd}`, opts);
 }
 
+/**
+ * 将 CI/local build 传入的目标架构统一映射到 claude-agent-sdk 平台包名。
+ *
+ * 这里不能依赖 npm 在 optionalDependencies 上的自动平台选择：
+ * - prepare 脚本常在 Apple Silicon 机器上执行
+ * - 但同一台机器会构建 macOS x64 安装包
+ * - 如果直接复用宿主机装出来的 node_modules，就会把 darwin-arm64 错打进 x64 包
+ */
+function resolveClaudeAgentSdkPlatformPackage({
+  platform = process.platform,
+  targetArch = process.env.TARGET_ARCH || process.arch,
+} = {}) {
+  const normalizedArch = String(targetArch).trim().toLowerCase();
+
+  if (platform === 'darwin') {
+    if (normalizedArch === 'x64') {
+      return '@anthropic-ai/claude-agent-sdk-darwin-x64';
+    }
+    if (normalizedArch === 'arm64') {
+      return '@anthropic-ai/claude-agent-sdk-darwin-arm64';
+    }
+  }
+
+  if (platform === 'win32') {
+    if (normalizedArch === 'x64') {
+      return '@anthropic-ai/claude-agent-sdk-win32-x64';
+    }
+    if (normalizedArch === 'arm64') {
+      return '@anthropic-ai/claude-agent-sdk-win32-arm64';
+    }
+  }
+
+  if (platform === 'linux') {
+    if (normalizedArch === 'x64') {
+      return '@anthropic-ai/claude-agent-sdk-linux-x64';
+    }
+    if (normalizedArch === 'arm64') {
+      return '@anthropic-ai/claude-agent-sdk-linux-arm64';
+    }
+  }
+
+  throw new Error(
+    `[prepare-claude-code-acp-ts] 不支持的目标平台组合: ${platform}/${normalizedArch}`,
+  );
+}
+
+function getInstalledClaudeAgentSdkPlatformPackages(baseDir) {
+  const anthropicDir = path.join(baseDir, 'node_modules', '@anthropic-ai');
+  if (!fs.existsSync(anthropicDir)) return [];
+
+  return fs.readdirSync(anthropicDir)
+    .filter((name) => name.startsWith('claude-agent-sdk-'))
+    .map((name) => `@anthropic-ai/${name}`)
+    .sort();
+}
+
+/**
+ * 在 prepare 阶段显式修正 Claude Agent SDK 的平台子包。
+ *
+ * npm 在 optionalDependencies 上的自动安装结果依赖“执行安装命令的宿主机架构”，
+ * 不是“最终 electron-builder 目标架构”。由于我们后面会把整个 node_modules 原样拷贝
+ * 到 resources/，这里必须主动移除错误平台包并补装目标平台包，避免 cross-arch 构建污染。
+ */
+function ensureClaudeAgentSdkPlatformPackage(baseDir, platformPackage) {
+  const installedBefore = getInstalledClaudeAgentSdkPlatformPackages(baseDir);
+  const stalePackages = installedBefore.filter((name) => name !== platformPackage);
+
+  for (const pkgName of stalePackages) {
+    const pkgDir = path.join(
+      baseDir,
+      'node_modules',
+      '@anthropic-ai',
+      pkgName.replace('@anthropic-ai/', ''),
+    );
+    if (fs.existsSync(pkgDir)) {
+      console.log(`[prepare-claude-code-acp-ts] 删除错误平台包: ${pkgName}`);
+      fs.rmSync(pkgDir, { recursive: true, force: true });
+    }
+  }
+
+  const expectedDir = path.join(
+    baseDir,
+    'node_modules',
+    '@anthropic-ai',
+    platformPackage.replace('@anthropic-ai/', ''),
+  );
+  if (!fs.existsSync(expectedDir)) {
+    console.log(
+      `[prepare-claude-code-acp-ts] 补装目标平台包: ${platformPackage}`,
+    );
+    exec(`cd "${baseDir}" && npm install --no-save --ignore-scripts ${platformPackage}`);
+  }
+}
+
+function verifyClaudeAgentSdkPlatformPackage(baseDir, platformPackage) {
+  const sdkPkgPath = path.join(baseDir, CLAUDE_AGENT_SDK_DIR, 'package.json');
+  if (!fs.existsSync(sdkPkgPath)) {
+    throw new Error(
+      `[prepare-claude-code-acp-ts] 缺少主包 @anthropic-ai/claude-agent-sdk: ${sdkPkgPath}`,
+    );
+  }
+
+  const installed = getInstalledClaudeAgentSdkPlatformPackages(baseDir);
+  if (!installed.includes(platformPackage)) {
+    throw new Error(
+      `[prepare-claude-code-acp-ts] 目标平台包缺失: expected=${platformPackage}, actual=${installed.join(', ') || '(none)'}`,
+    );
+  }
+
+  const extras = installed.filter((name) => name !== platformPackage);
+  if (extras.length > 0) {
+    throw new Error(
+      `[prepare-claude-code-acp-ts] 检测到多余平台包: expected=${platformPackage}, extras=${extras.join(', ')}`,
+    );
+  }
+}
+
 function main() {
+  const targetPlatformPackage = resolveClaudeAgentSdkPlatformPackage();
+  console.log(
+    `[prepare-claude-code-acp-ts] 目标 Claude SDK 平台包: ${targetPlatformPackage}`,
+  );
+
   // 0. 版本检查：若源码已存在且目标版本匹配，跳过全部工作
   const srcPkgPath = path.join(SOURCE_DIR, 'package.json');
   const destPkgPath = path.join(destDir, 'package.json');
@@ -50,6 +177,7 @@ function main() {
       if (destPkg.version === srcPkg.version
         && fs.existsSync(path.join(destDir, 'dist'))
         && fs.existsSync(path.join(destDir, 'node_modules'))) {
+        verifyClaudeAgentSdkPlatformPackage(destDir, targetPlatformPackage);
         console.log(`[prepare-claude-code-acp-ts] ${destPkg.version} 已是最新，跳过`);
         return;
       }
@@ -105,6 +233,10 @@ function main() {
     console.log('[prepare-claude-code-acp-ts] 安装依赖...');
     exec(`cd "${SOURCE_DIR}" && npm install --ignore-scripts`);
 
+    // 对 optionalDependencies 做二次校正，确保 cross-arch 打包时携带的是目标平台包。
+    ensureClaudeAgentSdkPlatformPackage(SOURCE_DIR, targetPlatformPackage);
+    verifyClaudeAgentSdkPlatformPackage(SOURCE_DIR, targetPlatformPackage);
+
     // 4. 构建
     // 注意：不用 npm run build，因为其 build 脚本可能是 ./node_modules/.bin/tsc（Unix 风格），Windows 不认识
     //改用 npx tsc 替代，可跨平台
@@ -112,6 +244,9 @@ function main() {
     exec(`cd "${SOURCE_DIR}" && npx tsc`);
   } else {
     console.log('[prepare-claude-code-acp-ts] 构建产物已就绪，跳过构建');
+    // 即便复用已有 node_modules，也要再次校正/校验一次，避免错误缓存被直接复用。
+    ensureClaudeAgentSdkPlatformPackage(SOURCE_DIR, targetPlatformPackage);
+    verifyClaudeAgentSdkPlatformPackage(SOURCE_DIR, targetPlatformPackage);
   }
 
   // 5. 读取版本
@@ -137,6 +272,7 @@ function main() {
   // 9. 复制 node_modules/
   console.log('[prepare-claude-code-acp-ts] 复制 node_modules/...');
   exec(`cp -R "${path.join(SOURCE_DIR, 'node_modules')}" "${destDir}/"`);
+  verifyClaudeAgentSdkPlatformPackage(destDir, targetPlatformPackage);
 
   // 10. 复制 LICENSE
   const licenseSrc = path.join(SOURCE_DIR, 'LICENSE');
@@ -147,4 +283,13 @@ function main() {
   console.log(`[prepare-claude-code-acp-ts] ✓ resources/claude-code-acp-ts/ (${srcPkg.version})`);
 }
 
-main();
+module.exports = {
+  resolveClaudeAgentSdkPlatformPackage,
+  getInstalledClaudeAgentSdkPlatformPackages,
+  ensureClaudeAgentSdkPlatformPackage,
+  verifyClaudeAgentSdkPlatformPackage,
+};
+
+if (require.main === module) {
+  main();
+}
