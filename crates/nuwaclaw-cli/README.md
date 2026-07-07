@@ -37,6 +37,8 @@ Most agent wrappers either bundle their own copy of the model runtime (heavy, an
 
 Checks Node version, whether `claude`/`codex` are installed and logged in, `uv`, gui-agent MCP install state, macOS TCC risk for the current directory, Nuwax cloud login state, and counts your local session history.
 
+Exit code only reflects checks that actually block core functionality: Node version, and having *at least one* of claude/codex usable. Everything else (`uv`, gui-agent, TCC risk, Nuwax login) is opt-in and shown as `○` rather than `✖` when unmet — `doctor` still exits `0` in that case, so it's safe to use in scripts/CI without false positives from features you haven't opted into.
+
 ### `nuwaclaw chat`
 
 ```bash
@@ -102,6 +104,8 @@ nuwaclaw config set domain <host>
 ```
 
 Credentials live in `~/.nuwaclaw/cli/credentials.json` (mode `0600`). Passwords are never persisted.
+
+If you already use the Electron NuwaClaw client on the same machine, `nuwaclaw login` (with no `--saved-key`/`-u`, and no prior nuwaclaw-cli login of its own) detects its saved login(s) — read-only, from its local SQLite settings file — and offers to reuse one instead of asking you to type/paste a key by hand. This only imports the *value*: nuwaclaw-cli still registers with its own device id, so it's an independent device from the Electron client's session, not a shared one.
 
 ### `nuwaclaw serve`
 

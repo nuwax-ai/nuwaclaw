@@ -33,12 +33,28 @@ describe("checkNuwaxLogin", () => {
     fs.rmSync(tmpHome, { recursive: true, force: true });
   });
 
-  it("reports not logged in when credentials.json is missing", async () => {
+  it("reports not logged in when credentials.json is missing, with the plain manual-login fix hint when there's no Electron client data", async () => {
     const { checkNuwaxLogin } =
       await import("../src/core/detect/doctorChecks.js");
     const result = checkNuwaxLogin();
     expect(result.ok).toBe(false);
     expect(result.detail).toContain("未登录");
+    expect(result.fix).toContain("--domain");
+    expect(result.fix).not.toContain("NuwaClaw 客户端");
+  });
+
+  it("mentions the Electron-client auto-detect in the fix hint when its db file exists, without reading it (no lazy-install side effect from doctor)", async () => {
+    fs.mkdirSync(path.join(tmpHome, ".nuwaclaw"), { recursive: true });
+    fs.writeFileSync(
+      path.join(tmpHome, ".nuwaclaw", "nuwaclaw.db"),
+      "not actually queried by this check",
+    );
+    const { checkNuwaxLogin } =
+      await import("../src/core/detect/doctorChecks.js");
+    const result = checkNuwaxLogin();
+    expect(result.ok).toBe(false);
+    expect(result.fix).toContain("NuwaClaw 客户端");
+    expect(result.fix).toContain("nuwaclaw login");
   });
 
   it("reports logged in when credentials.json has a configKey", async () => {

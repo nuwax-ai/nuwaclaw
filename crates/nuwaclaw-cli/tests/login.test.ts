@@ -12,10 +12,14 @@ vi.mock("node:os", async (importOriginal) => {
 
 const textMock = vi.fn();
 const passwordMock = vi.fn();
+const confirmMock = vi.fn();
+const selectMock = vi.fn();
 const isCancelMock = vi.fn(() => false);
 vi.mock("@clack/prompts", () => ({
   text: (...args: unknown[]) => textMock(...args),
   password: (...args: unknown[]) => passwordMock(...args),
+  confirm: (...args: unknown[]) => confirmMock(...args),
+  select: (...args: unknown[]) => selectMock(...args),
   isCancel: (...args: unknown[]) => isCancelMock(...args),
 }));
 
@@ -29,14 +33,27 @@ vi.mock("../src/core/auth/regClient.js", async (importOriginal) => {
   };
 });
 
+const listElectronSavedLoginsMock = vi.fn(() => []);
+vi.mock("../src/core/auth/electronImport.js", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("../src/core/auth/electronImport.js")>();
+  return {
+    ...actual,
+    listElectronSavedLogins: () => listElectronSavedLoginsMock(),
+  };
+});
+
 describe("login/logout/status commands", () => {
   beforeEach(() => {
     tmpHome = fs.mkdtempSync(path.join(os.tmpdir(), "nuwaclaw-login-test-"));
     vi.resetModules();
     textMock.mockReset();
     passwordMock.mockReset();
+    confirmMock.mockReset();
+    selectMock.mockReset();
     isCancelMock.mockReset().mockReturnValue(false);
     registerClientMock.mockReset();
+    listElectronSavedLoginsMock.mockReset().mockReturnValue([]);
     process.exitCode = 0;
   });
 
@@ -131,6 +148,149 @@ describe("login/logout/status commands", () => {
     expect(registerClientMock).not.toHaveBeenCalled();
     expect(process.exitCode).toBe(1);
     errSpy.mockRestore();
+  });
+
+  it("offers and uses a single detected Electron-client login when nothing else was given, without sharing device identity (own deviceId still used)", async () => {
+    listElectronSavedLoginsMock.mockReturnValue([
+      {
+        domain: "agent.nuwax.com",
+        username: "alice",
+        savedKey: "electron-saved-key",
+        isCurrent: true,
+      },
+    ]);
+    confirmMock.mockResolvedValue(true);
+    registerClientMock.mockResolvedValue({
+      id: 1,
+      configKey: "new-key",
+      name: "alice",
+      online: true,
+    });
+
+    const { loginCommand } = await import("../src/commands/login.js");
+    await loginCommand({});
+
+    expect(confirmMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        message: expect.stringContaining("agent.nuwax.com"),
+      }),
+    );
+    expect(registerClientMock).toHaveBeenCalledWith(
+      "https://agent.nuwax.com",
+      expect.objectContaining({
+        username: "alice",
+        savedKey: "electron-saved-key",
+      }),
+    );
+    const { readCredentials } = await import("../src/core/auth/credentials.js");
+    expect(readCredentials()).toMatchObject({
+      domain: "https://agent.nuwax.com",
+    });
+  });
+
+  it("declining the single-match Electron import confirm falls through to the existing error, without calling reg", async () => {
+    listElectronSavedLoginsMock.mockReturnValue([
+      {
+        domain: "agent.nuwax.com",
+        username: "alice",
+        savedKey: "electron-saved-key",
+        isCurrent: true,
+      },
+    ]);
+    confirmMock.mockResolvedValue(false);
+    const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    const { loginCommand } = await import("../src/commands/login.js");
+    await loginCommand({});
+
+    expect(registerClientMock).not.toHaveBeenCalled();
+    expect(process.exitCode).toBe(1);
+    errSpy.mockRestore();
+  });
+
+  it("shows a picker with multiple detected Electron logins and uses the picked one", async () => {
+    listElectronSavedLoginsMock.mockReturnValue([
+      {
+        domain: "agent.nuwax.com",
+        username: "alice",
+        savedKey: "key-alice",
+        isCurrent: false,
+      },
+      {
+        domain: "localhost",
+        username: "bob",
+        savedKey: "key-bob",
+        isCurrent: true,
+      },
+    ]);
+    // The "current" entry is sorted first; index 1 = the second option shown.
+    selectMock.mockResolvedValue(1);
+    registerClientMock.mockResolvedValue({
+      id: 1,
+      configKey: "new-key",
+      name: "bob",
+      online: true,
+    });
+
+    const { loginCommand } = await import("../src/commands/login.js");
+    await loginCommand({});
+
+    expect(selectMock).toHaveBeenCalled();
+    expect(registerClientMock).toHaveBeenCalledWith(
+      "https://agent.nuwax.com",
+      expect.objectContaining({ username: "alice", savedKey: "key-alice" }),
+    );
+  });
+
+  it("picking 'manual login' from the multi-match picker falls through to the existing error", async () => {
+    listElectronSavedLoginsMock.mockReturnValue([
+      { domain: "a.com", username: "x", savedKey: "k1", isCurrent: false },
+      { domain: "b.com", username: "y", savedKey: "k2", isCurrent: false },
+    ]);
+    selectMock.mockResolvedValue(-1);
+    const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    const { loginCommand } = await import("../src/commands/login.js");
+    await loginCommand({});
+
+    expect(registerClientMock).not.toHaveBeenCalled();
+    expect(process.exitCode).toBe(1);
+    errSpy.mockRestore();
+  });
+
+  it("--domain filters detected Electron logins down to that domain only", async () => {
+    listElectronSavedLoginsMock.mockReturnValue([
+      {
+        domain: "agent.nuwax.com",
+        username: "alice",
+        savedKey: "key-alice",
+        isCurrent: false,
+      },
+      {
+        domain: "other.example.com",
+        username: "carol",
+        savedKey: "key-carol",
+        isCurrent: false,
+      },
+    ]);
+    confirmMock.mockResolvedValue(true);
+    registerClientMock.mockResolvedValue({
+      id: 1,
+      configKey: "new-key",
+      name: "alice",
+      online: true,
+    });
+
+    const { loginCommand } = await import("../src/commands/login.js");
+    await loginCommand({ domain: "https://agent.nuwax.com" });
+
+    // Only one match after filtering -> confirm, not select.
+    expect(confirmMock).toHaveBeenCalled();
+    expect(selectMock).not.toHaveBeenCalled();
+    expect(registerClientMock).toHaveBeenCalledWith(
+      "https://agent.nuwax.com",
+      expect.objectContaining({ username: "alice", savedKey: "key-alice" }),
+    );
   });
 
   it("surfaces a RegError message and sets exitCode on failed registration", async () => {

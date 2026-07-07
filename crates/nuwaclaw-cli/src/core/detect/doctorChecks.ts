@@ -3,6 +3,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { cliCredentialsPath, cliToolsDir } from "../../util/paths.js";
 import { findOnPath, getVersion } from "../../util/which.js";
+import { hasElectronLoginData } from "../auth/electronImport.js";
 
 export interface DoctorCheckResult {
   id: string;
@@ -10,6 +11,16 @@ export interface DoctorCheckResult {
   ok: boolean;
   detail: string;
   fix?: string;
+  /**
+   * "required": an unmet check means the CLI's core promise (chat with your
+   * already-installed claude/codex) can't work at all — should fail the
+   * overall `doctor` exit code.
+   * "info": worth surfacing (with a fix hint) but doesn't block anything by
+   * itself — e.g. gui-agent/uv/Nuwax login are opt-in features, and a lone
+   * missing engine is fine as long as the other one works. Defaults to
+   * "info" if omitted.
+   */
+  severity?: "required" | "info";
 }
 
 export function checkNodeVersion(): DoctorCheckResult {
@@ -22,6 +33,7 @@ export function checkNodeVersion(): DoctorCheckResult {
     ok,
     detail: ok ? `v${version}` : `v${version}（需要 >= 22）`,
     fix: ok ? undefined : "安装 Node.js 22 或更高版本：https://nodejs.org",
+    severity: "required",
   };
 }
 
@@ -84,6 +96,7 @@ export function checkUv(): DoctorCheckResult {
       ok: false,
       detail: "未在 PATH 中找到（可选，部分 MCP 依赖需要）",
       fix: "安装 uv：https://docs.astral.sh/uv/getting-started/installation/",
+      severity: "info",
     };
   }
   const version = getVersion(binPath);
@@ -92,6 +105,7 @@ export function checkUv(): DoctorCheckResult {
     label: "uv",
     ok: true,
     detail: `${binPath}${version ? ` (${version})` : ""}`,
+    severity: "info",
   };
 }
 
@@ -111,6 +125,7 @@ export function checkGuiAgent(): DoctorCheckResult {
     detail: installed
       ? "已安装"
       : "未安装（可选，`chat --gui-mcp` 时按需安装）",
+    severity: "info",
   };
 }
 
@@ -127,7 +142,23 @@ export function checkTccRisk(): DoctorCheckResult {
     fix: risky
       ? "在「系统设置 → 隐私与安全性」授予终端对该目录的完全磁盘访问权限，或切换到非受保护目录"
       : undefined,
+    severity: "info",
   };
+}
+
+/**
+ * Fix hint for "not logged in, no own savedKey to fall back on" — mentions
+ * the Electron-import auto-detect (see login.ts's offerElectronImport) when
+ * there's actually something for it to find, since `nuwaclaw login` alone
+ * will trigger that flow rather than requiring manual --domain/--saved-key.
+ * Only checks for the *db file's existence*, not its contents — reading it
+ * would lazy-install better-sqlite3, a side effect `doctor` (read-only,
+ * frequently re-run) shouldn't cause just to print a hint.
+ */
+function noOwnLoginFixHint(): string {
+  return hasElectronLoginData()
+    ? "检测到本机 NuwaClaw 客户端保存的登录，运行 `nuwaclaw login` 即可选择复用（或用 --domain/--saved-key 手动登录）"
+    : "运行 `nuwaclaw login --domain <host> --saved-key <key>` 登录";
 }
 
 export function checkNuwaxLogin(): DoctorCheckResult {
@@ -138,7 +169,8 @@ export function checkNuwaxLogin(): DoctorCheckResult {
       label: "Nuwax 云账号",
       ok: false,
       detail: "未登录",
-      fix: "运行 `nuwaclaw login --domain <host> --saved-key <key>` 登录",
+      fix: noOwnLoginFixHint(),
+      severity: "info",
     };
   }
   try {
@@ -160,7 +192,8 @@ export function checkNuwaxLogin(): DoctorCheckResult {
         ? undefined
         : raw?.savedKey
           ? "运行 `nuwaclaw login` 免密重新登录"
-          : "运行 `nuwaclaw login --domain <host> --saved-key <key>` 登录",
+          : noOwnLoginFixHint(),
+      severity: "info",
     };
   } catch {
     return {
@@ -169,6 +202,7 @@ export function checkNuwaxLogin(): DoctorCheckResult {
       ok: false,
       detail: "凭证文件损坏",
       fix: "运行 `nuwaclaw login` 重新登录",
+      severity: "info",
     };
   }
 }
@@ -214,6 +248,7 @@ export function checkLocalSessions(): DoctorCheckResult {
     label: "本地会话历史",
     ok: true,
     detail: `claude: ${claudeCount} 个会话，codex: ${codexCount} 个会话`,
+    severity: "info",
   };
 }
 

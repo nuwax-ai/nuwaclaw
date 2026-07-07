@@ -37,6 +37,8 @@ pnpm run dev:chat -- -p "hello"
 
 检查 Node 版本、`claude`/`codex` 是否安装并登录、`uv`、gui-agent MCP 安装状态、当前目录的 macOS TCC 风险、Nuwax 云端登录态，并统计本地会话历史数量。
 
+退出码只反映真正阻塞核心功能的检测项：Node 版本，以及 claude/codex **至少有一个**可用。其余项（`uv`、gui-agent、TCC 风险、Nuwax 登录）都是可选功能，未满足时显示 `○` 而非 `✖`——`doctor` 仍然退出 `0`，可以放心用在脚本/CI 里，不会因为没开启的可选功能而误报失败。
+
 ### `nuwaclaw chat`
 
 ```bash
@@ -102,6 +104,8 @@ nuwaclaw config set domain <host>
 ```
 
 凭证存放在 `~/.nuwaclaw/cli/credentials.json`（权限 `0600`）。密码永不落盘。
+
+如果这台机器上已经在用 Electron 版 NuwaClaw 客户端，`nuwaclaw login`（不带 `--saved-key`/`-u`，且 nuwaclaw-cli 自己还没登录过）会检测它保存的登录信息——只读，直接读它本地的 SQLite settings 文件——并提示是否直接复用，省去手动复制 key。这只导入**值**：nuwaclaw-cli 仍然用自己独立的 device id 注册，是和 Electron 客户端会话独立的另一台设备，不是共享同一个。
 
 ### `nuwaclaw serve`
 
