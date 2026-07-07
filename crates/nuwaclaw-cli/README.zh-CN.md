@@ -147,7 +147,7 @@ nuwaclaw serve --port 60016
 - ACP 连接：使用 `@agentclientprotocol/sdk` 的 `client().connectWith(...)` 构建器，通过 stdio NDJSON 拉起引擎。
 - `claude` 引擎：拉起 [`claude-code-acp-ts`](https://www.npmjs.com/package/claude-code-acp-ts) 适配器（首次使用时安装，并跳过它约 200MB 的可选平台二进制——因为 `CLAUDE_CODE_EXECUTABLE` 始终指向**你自己的** `claude`，适配器自带的 bundled-binary 回退路径永远不会走到）。
 - `codex` 引擎：首次使用时从 GitHub Releases 下载 `nuwax-codex-acp` 二进制（codex-acp 的 Rust fork），缓存到 `~/.nuwaclaw/engines/`。
-- 不会往你 shell 的全局 `node_modules` 里装任何东西，nuwaclaw 自己的数据都在 `~/.nuwaclaw/cli/` 下——即使你同时装了 NuwaClaw Electron 桌面端，两者也不会互相触碰或冲突。
+- 不会往你 shell 的全局 `node_modules` 里装任何东西，nuwaclaw 自己的凭证存放在 `~/.nuwaclaw/cli/` 下。若同时安装了 NuwaClaw Electron 桌面端，两者可在同一台机器共存：device id 独立、端口独立（`serve` 默认 60016，Electron 为 60005–60009），且不会写入 Electron 客户端的 SQLite——`login` 可能**只读**访问 `~/.nuwaclaw/nuwaclaw.db` 以提供复用已保存登录的选项（见上文）。
 
 ## 运行要求
 

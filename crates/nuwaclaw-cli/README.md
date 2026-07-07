@@ -147,7 +147,7 @@ Lifecycle:
 - ACP connection: `@agentclientprotocol/sdk`'s `client().connectWith(...)` builder, spawning the engine over stdio NDJSON.
 - `claude` engine: spawns the [`claude-code-acp-ts`](https://www.npmjs.com/package/claude-code-acp-ts) adapter (installed on first use, without its ~200MB optional platform binary — because `CLAUDE_CODE_EXECUTABLE` always points at *your* `claude`, the adapter's own bundled-binary fallback path is never reached).
 - `codex` engine: downloads the `nuwax-codex-acp` binary (a Rust codex-acp fork) from GitHub Releases on first use, cached in `~/.nuwaclaw/engines/`.
-- Nothing is installed into your shell's global `node_modules`, and nuwaclaw's own data lives under `~/.nuwaclaw/cli/` — it doesn't touch or conflict with the NuwaClaw Electron app's data if you also have that installed.
+- Nothing is installed into your shell's global `node_modules`, and nuwaclaw's own credentials live under `~/.nuwaclaw/cli/`. If you also run the NuwaClaw Electron app, the two coexist on the same machine: separate device ids, separate ports (`serve` defaults to 60016 vs. Electron's 60005–60009), and no writes to the Electron client's SQLite DB — `login` may *read* `~/.nuwaclaw/nuwaclaw.db` read-only to offer importing an already-saved login (see above).
 
 ## Requirements
 
