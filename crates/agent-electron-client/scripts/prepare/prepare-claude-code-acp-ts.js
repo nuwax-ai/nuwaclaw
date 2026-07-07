@@ -1,13 +1,15 @@
 #!/usr/bin/env node
 /**
- * 准备 claude-code-acp-ts 源码并生成 resources/
+ * 准备 claude-code-acp-ts 源码并复制到 resources/
  *
  * 逻辑：
  *   1. 若 sources/claude-code-acp-ts 不存在 → git clone + npm install + npm run build
  *   2. 若存在但无 node_modules → npm install + npm run build
  *   3. 否则跳过构建（认为已就绪）
- *   4. 在 staging 目录重新 install 运行时依赖
- *   5. 复制 staging 产物到 resources/claude-code-acp-ts/
+ *   4. 复制到 resources/claude-code-acp-ts/
+ *
+ * macOS x64 交叉编译（arm64 宿主机 + TARGET_ARCH=x64）时，额外用 npm pack 替换
+ * Claude SDK 平台子包；其他平台保持原有 npm install + 整包复制流程，不做特殊处理。
  *
  * 产物：
  *   resources/claude-code-acp-ts/
@@ -36,6 +38,7 @@ const CLAUDE_AGENT_SDK_DIR = path.join(
   '@anthropic-ai',
   'claude-agent-sdk',
 );
+const DARWIN_X64_SDK_PACKAGE = '@anthropic-ai/claude-agent-sdk-darwin-x64';
 
 function exec(cmd, opts = {}) {
   console.log(`  $ ${cmd}`);
@@ -46,54 +49,24 @@ function execGit(cmd, opts = {}) {
   return exec(`git ${cmd}`, opts);
 }
 
-function copyDir(srcDir, dstDir) {
-  exec(`cp -R "${srcDir}" "${dstDir}"`);
-}
-
 /**
- * 将 CI/local build 传入的目标架构统一映射到 claude-agent-sdk 平台包名。
+ * 是否需要在打包产物中修正 Claude SDK 为 darwin-x64。
  *
- * 这里不能依赖 npm 在 optionalDependencies 上的自动平台选择：
- * - prepare 脚本常在 Apple Silicon 机器上执行
- * - 但同一台机器会构建 macOS x64 安装包
- * - 如果直接复用宿主机装出来的 node_modules，就会把 darwin-arm64 错打进 x64 包
+ * 仅覆盖一种已知问题场景：GitHub Actions 在 Apple Silicon (arm64) runner 上
+ * 交叉构建 macOS Intel (x64) 安装包。此时 npm optionalDependencies 会装上 darwin-arm64。
+ *
+ * Windows / Linux / macOS arm64 原生构建均返回 false，走原有复制逻辑。
  */
-function resolveClaudeAgentSdkPlatformPackage({
+function needsDarwinX64CrossArchBundling({
   platform = process.platform,
+  hostArch = process.arch,
   targetArch = process.env.TARGET_ARCH || process.arch,
 } = {}) {
-  const normalizedArch = String(targetArch).trim().toLowerCase();
-
-  if (platform === 'darwin') {
-    if (normalizedArch === 'x64') {
-      return '@anthropic-ai/claude-agent-sdk-darwin-x64';
-    }
-    if (normalizedArch === 'arm64') {
-      return '@anthropic-ai/claude-agent-sdk-darwin-arm64';
-    }
-  }
-
-  if (platform === 'win32') {
-    if (normalizedArch === 'x64') {
-      return '@anthropic-ai/claude-agent-sdk-win32-x64';
-    }
-    if (normalizedArch === 'arm64') {
-      return '@anthropic-ai/claude-agent-sdk-win32-arm64';
-    }
-  }
-
-  if (platform === 'linux') {
-    if (normalizedArch === 'x64') {
-      return '@anthropic-ai/claude-agent-sdk-linux-x64';
-    }
-    if (normalizedArch === 'arm64') {
-      return '@anthropic-ai/claude-agent-sdk-linux-arm64';
-    }
-  }
-
-  throw new Error(
-    `[prepare-claude-code-acp-ts] 不支持的目标平台组合: ${platform}/${normalizedArch}`,
-  );
+  const normalizedTarget = String(targetArch).trim().toLowerCase();
+  const normalizedHost = String(hostArch).trim().toLowerCase();
+  return platform === 'darwin'
+    && normalizedTarget === 'x64'
+    && normalizedHost === 'arm64';
 }
 
 function getInstalledClaudeAgentSdkPlatformPackages(baseDir) {
@@ -119,11 +92,10 @@ function resolveClaudeAgentSdkPlatformPackageVersion(baseDir, platformPackage) {
 }
 
 /**
- * 跨架构安装 Claude SDK 平台子包。
+ * 跨架构安装 Claude SDK 平台子包（仅 macOS x64 交叉编译使用）。
  *
- * 不能直接用 npm install：平台包在 package.json 中声明了 os/cpu，
- * arm64 runner 安装 darwin-x64 会触发 EBADPLATFORM。
- * 改用 npm pack 拉取 tarball 再解压到 node_modules。
+ * arm64 runner 上不能 npm install darwin-x64（EBADPLATFORM），
+ * 改用 npm pack 拉 tarball 再解压。
  */
 function installClaudeAgentSdkPlatformPackage(baseDir, platformPackage, version) {
   const shortName = platformPackage.replace('@anthropic-ai/', '');
@@ -172,13 +144,6 @@ function installClaudeAgentSdkPlatformPackage(baseDir, platformPackage, version)
   }
 }
 
-/**
- * 在 prepare 阶段显式修正 Claude Agent SDK 的平台子包。
- *
- * npm 在 optionalDependencies 上的自动安装结果依赖“执行安装命令的宿主机架构”，
- * 不是“最终 electron-builder 目标架构”。所以即便我们在干净的 staging 目录里重新 install，
- * 仍然要显式删除错误平台包并补装目标平台包，避免 cross-arch 构建污染。
- */
 function ensureClaudeAgentSdkPlatformPackage(baseDir, platformPackage) {
   const installedBefore = getInstalledClaudeAgentSdkPlatformPackages(baseDir);
   const stalePackages = installedBefore.filter((name) => name !== platformPackage);
@@ -237,67 +202,25 @@ function verifyClaudeAgentSdkPlatformPackage(baseDir, platformPackage) {
   }
 }
 
-function buildRuntimePackageJson(sourcePackageJson) {
-  return {
-    name: sourcePackageJson.name,
-    version: sourcePackageJson.version,
-    description: sourcePackageJson.description,
-    main: sourcePackageJson.main,
-    types: sourcePackageJson.types,
-    bin: sourcePackageJson.bin,
-    type: sourcePackageJson.type,
-    exports: sourcePackageJson.exports,
-    engines: sourcePackageJson.engines,
-    dependencies: sourcePackageJson.dependencies || {},
-  };
-}
-
-function createStagingDir() {
-  return fs.mkdtempSync(
-    path.join(os.tmpdir(), 'prepare-claude-code-acp-ts-'),
-  );
-}
-
-/**
- * 用独立 staging 目录重新安装运行时依赖，而不是直接复制源码目录 node_modules。
- *
- * 这样 resources/ 里的依赖集合只反映“打包产物实际需要的运行时内容”，不会把源码目录中
- * 的开发依赖、宿主机构建痕迹或历史缓存一股脑带进安装包。
- */
-function prepareRuntimeBundle({
-  sourceDir,
-  stagingDir,
-  sourcePackageJson,
-  targetPlatformPackage,
-}) {
-  fs.mkdirSync(stagingDir, { recursive: true });
-
-  copyDir(path.join(sourceDir, 'dist'), `${stagingDir}/`);
-
-  const runtimePackageJson = buildRuntimePackageJson(sourcePackageJson);
-  fs.writeFileSync(
-    path.join(stagingDir, 'package.json'),
-    `${JSON.stringify(runtimePackageJson, null, 2)}\n`,
-    'utf8',
-  );
-
-  const licenseSrc = path.join(sourceDir, 'LICENSE');
-  if (fs.existsSync(licenseSrc)) {
-    fs.copyFileSync(licenseSrc, path.join(stagingDir, 'LICENSE'));
+function maybeFixDarwinX64BundledSdk(baseDir) {
+  if (!needsDarwinX64CrossArchBundling()) {
+    return;
   }
 
-  console.log('[prepare-claude-code-acp-ts] 在 staging 目录安装运行时依赖...');
-  exec(`cd "${stagingDir}" && npm install --omit=dev --ignore-scripts`);
-
-  ensureClaudeAgentSdkPlatformPackage(stagingDir, targetPlatformPackage);
-  verifyClaudeAgentSdkPlatformPackage(stagingDir, targetPlatformPackage);
+  console.log(
+    '[prepare-claude-code-acp-ts] macOS x64 交叉编译：校正 Claude SDK 平台包为 darwin-x64',
+  );
+  ensureClaudeAgentSdkPlatformPackage(baseDir, DARWIN_X64_SDK_PACKAGE);
+  verifyClaudeAgentSdkPlatformPackage(baseDir, DARWIN_X64_SDK_PACKAGE);
 }
 
 function main() {
-  const targetPlatformPackage = resolveClaudeAgentSdkPlatformPackage();
-  console.log(
-    `[prepare-claude-code-acp-ts] 目标 Claude SDK 平台包: ${targetPlatformPackage}`,
-  );
+  const crossArchDarwinX64 = needsDarwinX64CrossArchBundling();
+  if (crossArchDarwinX64) {
+    console.log(
+      '[prepare-claude-code-acp-ts] 检测到 macOS x64 交叉编译 (host=arm64, target=x64)',
+    );
+  }
 
   // 0. 版本检查：若源码已存在且目标版本匹配，跳过全部工作
   const srcPkgPath = path.join(SOURCE_DIR, 'package.json');
@@ -309,7 +232,9 @@ function main() {
       if (destPkg.version === srcPkg.version
         && fs.existsSync(path.join(destDir, 'dist'))
         && fs.existsSync(path.join(destDir, 'node_modules'))) {
-        verifyClaudeAgentSdkPlatformPackage(destDir, targetPlatformPackage);
+        if (crossArchDarwinX64) {
+          verifyClaudeAgentSdkPlatformPackage(destDir, DARWIN_X64_SDK_PACKAGE);
+        }
         console.log(`[prepare-claude-code-acp-ts] ${destPkg.version} 已是最新，跳过`);
         return;
       }
@@ -326,7 +251,6 @@ function main() {
   } else if (!hasBuild || !hasNodeModules) {
     console.log('[prepare-claude-code-acp-ts] 更新源码...');
     let updated = false;
-    // 重试 fetch + checkout 最多 3 次，网络抖动时有用
     for (let attempt = 1; attempt <= 3 && !updated; attempt++) {
       try {
         execGit(`fetch origin ${GIT_BRANCH} --depth=1`, { cwd: SOURCE_DIR });
@@ -352,83 +276,60 @@ function main() {
     );
   }
 
-  // 2. 检查构建产物是否存在
-
+  // 2. 安装依赖并构建（所有平台共用）
   if (!hasBuild || !hasNodeModules) {
-    // 清理旧的 node_modules（若有）
     if (fs.existsSync(path.join(SOURCE_DIR, 'node_modules'))) {
       console.log('[prepare-claude-code-acp-ts] 清理旧的 node_modules...');
       exec(`rm -rf "${path.join(SOURCE_DIR, 'node_modules')}"`);
     }
 
-    // 3. 安装依赖
     console.log('[prepare-claude-code-acp-ts] 安装依赖...');
     exec(`cd "${SOURCE_DIR}" && npm install --ignore-scripts`);
 
-    // 对 optionalDependencies 做二次校正，确保 cross-arch 打包时携带的是目标平台包。
-    ensureClaudeAgentSdkPlatformPackage(SOURCE_DIR, targetPlatformPackage);
-    verifyClaudeAgentSdkPlatformPackage(SOURCE_DIR, targetPlatformPackage);
-
-    // 4. 构建
-    // 注意：不用 npm run build，因为其 build 脚本可能是 ./node_modules/.bin/tsc（Unix 风格），Windows 不认识
-    //改用 npx tsc 替代，可跨平台
     console.log('[prepare-claude-code-acp-ts] 构建项目...');
     exec(`cd "${SOURCE_DIR}" && npx tsc`);
   } else {
     console.log('[prepare-claude-code-acp-ts] 构建产物已就绪，跳过构建');
-    // 即便复用已有 node_modules，也要再次校正/校验一次，避免错误缓存被直接复用。
-    ensureClaudeAgentSdkPlatformPackage(SOURCE_DIR, targetPlatformPackage);
-    verifyClaudeAgentSdkPlatformPackage(SOURCE_DIR, targetPlatformPackage);
   }
 
-  // 5. 读取版本并在独立 staging 目录重建 runtime bundle
   const srcPkg = JSON.parse(fs.readFileSync(path.join(SOURCE_DIR, 'package.json'), 'utf8'));
   console.log(`[prepare-claude-code-acp-ts] 源码版本: ${srcPkg.name}@${srcPkg.version}`);
 
-  const stagingDir = createStagingDir();
-  try {
-    prepareRuntimeBundle({
-      sourceDir: SOURCE_DIR,
-      stagingDir,
-      sourcePackageJson: srcPkg,
-      targetPlatformPackage,
-    });
-
-    // 6. 清理并创建目标目录
-    if (fs.existsSync(destDir)) {
-      fs.rmSync(destDir, { recursive: true });
-    }
-    fs.mkdirSync(destDir, { recursive: true });
-
-    // 7. 复制 staging 产物
-    console.log('[prepare-claude-code-acp-ts] 复制 staging runtime bundle...');
-    copyDir(path.join(stagingDir, 'dist'), `${destDir}/`);
-    copyDir(path.join(stagingDir, 'node_modules'), `${destDir}/`);
-    fs.copyFileSync(
-      path.join(stagingDir, 'package.json'),
-      path.join(destDir, 'package.json'),
-    );
-
-    const stagedLicense = path.join(stagingDir, 'LICENSE');
-    if (fs.existsSync(stagedLicense)) {
-      fs.copyFileSync(stagedLicense, path.join(destDir, 'LICENSE'));
-    }
-
-    verifyClaudeAgentSdkPlatformPackage(destDir, targetPlatformPackage);
-  } finally {
-    fs.rmSync(stagingDir, { recursive: true, force: true });
+  // 3. 复制到 resources/
+  if (fs.existsSync(destDir)) {
+    fs.rmSync(destDir, { recursive: true });
   }
+  fs.mkdirSync(destDir, { recursive: true });
+
+  console.log('[prepare-claude-code-acp-ts] 复制 dist/...');
+  exec(`cp -R "${path.join(SOURCE_DIR, 'dist')}" "${destDir}/"`);
+
+  fs.copyFileSync(
+    path.join(SOURCE_DIR, 'package.json'),
+    path.join(destDir, 'package.json'),
+  );
+
+  console.log('[prepare-claude-code-acp-ts] 复制 node_modules/...');
+  exec(`cp -R "${path.join(SOURCE_DIR, 'node_modules')}" "${destDir}/"`);
+
+  const licenseSrc = path.join(SOURCE_DIR, 'LICENSE');
+  if (fs.existsSync(licenseSrc)) {
+    fs.copyFileSync(licenseSrc, path.join(destDir, 'LICENSE'));
+  }
+
+  // 4. 仅 macOS x64 交叉编译：在最终产物里替换 Claude SDK 平台包
+  maybeFixDarwinX64BundledSdk(destDir);
 
   console.log(`[prepare-claude-code-acp-ts] ✓ resources/claude-code-acp-ts/ (${srcPkg.version})`);
 }
 
 module.exports = {
-  resolveClaudeAgentSdkPlatformPackage,
+  needsDarwinX64CrossArchBundling,
+  DARWIN_X64_SDK_PACKAGE,
   resolveClaudeAgentSdkPlatformPackageVersion,
   getInstalledClaudeAgentSdkPlatformPackages,
   ensureClaudeAgentSdkPlatformPackage,
   verifyClaudeAgentSdkPlatformPackage,
-  buildRuntimePackageJson,
 };
 
 if (require.main === module) {

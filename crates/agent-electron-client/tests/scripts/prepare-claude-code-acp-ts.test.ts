@@ -9,11 +9,11 @@ const testFileDir = path.dirname(fileURLToPath(import.meta.url));
 const projectRoot = path.resolve(testFileDir, "..", "..");
 const require = createRequire(import.meta.url);
 const {
-  resolveClaudeAgentSdkPlatformPackage,
+  needsDarwinX64CrossArchBundling,
+  DARWIN_X64_SDK_PACKAGE,
   resolveClaudeAgentSdkPlatformPackageVersion,
   getInstalledClaudeAgentSdkPlatformPackages,
   verifyClaudeAgentSdkPlatformPackage,
-  buildRuntimePackageJson,
 } = require(
   path.join(
     projectRoot,
@@ -22,10 +22,12 @@ const {
     "prepare-claude-code-acp-ts.js",
   ),
 ) as {
-  resolveClaudeAgentSdkPlatformPackage: (options?: {
+  needsDarwinX64CrossArchBundling: (options?: {
     platform?: string;
+    hostArch?: string;
     targetArch?: string;
-  }) => string;
+  }) => boolean;
+  DARWIN_X64_SDK_PACKAGE: string;
   resolveClaudeAgentSdkPlatformPackageVersion: (
     baseDir: string,
     platformPackage: string,
@@ -35,7 +37,6 @@ const {
     baseDir: string,
     platformPackage: string,
   ) => void;
-  buildRuntimePackageJson: (sourcePackageJson: Record<string, unknown>) => Record<string, unknown>;
 };
 
 describe("prepare-claude-code-acp-ts helpers", () => {
@@ -48,20 +49,38 @@ describe("prepare-claude-code-acp-ts helpers", () => {
     tempDirs.length = 0;
   });
 
-  it("maps macOS target arch to the matching Claude SDK platform package", () => {
+  it("only enables darwin-x64 cross-arch fix for arm64 host building x64", () => {
     expect(
-      resolveClaudeAgentSdkPlatformPackage({
+      needsDarwinX64CrossArchBundling({
         platform: "darwin",
+        hostArch: "arm64",
         targetArch: "x64",
       }),
-    ).toBe("@anthropic-ai/claude-agent-sdk-darwin-x64");
+    ).toBe(true);
 
     expect(
-      resolveClaudeAgentSdkPlatformPackage({
+      needsDarwinX64CrossArchBundling({
         platform: "darwin",
+        hostArch: "arm64",
         targetArch: "arm64",
       }),
-    ).toBe("@anthropic-ai/claude-agent-sdk-darwin-arm64");
+    ).toBe(false);
+
+    expect(
+      needsDarwinX64CrossArchBundling({
+        platform: "win32",
+        hostArch: "x64",
+        targetArch: "x64",
+      }),
+    ).toBe(false);
+
+    expect(
+      needsDarwinX64CrossArchBundling({
+        platform: "linux",
+        hostArch: "arm64",
+        targetArch: "arm64",
+      }),
+    ).toBe(false);
   });
 
   it("lists installed Claude SDK platform packages under @anthropic-ai", () => {
@@ -86,10 +105,6 @@ describe("prepare-claude-code-acp-ts helpers", () => {
         "@anthropic-ai",
         "claude-agent-sdk-darwin-arm64",
       ),
-      { recursive: true },
-    );
-    fs.mkdirSync(
-      path.join(baseDir, "node_modules", "@anthropic-ai", "sdk"),
       { recursive: true },
     );
 
@@ -131,10 +146,7 @@ describe("prepare-claude-code-acp-ts helpers", () => {
     );
 
     expect(() =>
-      verifyClaudeAgentSdkPlatformPackage(
-        baseDir,
-        "@anthropic-ai/claude-agent-sdk-darwin-x64",
-      ),
+      verifyClaudeAgentSdkPlatformPackage(baseDir, DARWIN_X64_SDK_PACKAGE),
     ).not.toThrow();
   });
 
@@ -179,10 +191,7 @@ describe("prepare-claude-code-acp-ts helpers", () => {
     );
 
     expect(() =>
-      verifyClaudeAgentSdkPlatformPackage(
-        baseDir,
-        "@anthropic-ai/claude-agent-sdk-darwin-x64",
-      ),
+      verifyClaudeAgentSdkPlatformPackage(baseDir, DARWIN_X64_SDK_PACKAGE),
     ).toThrow(/多余平台包/);
   });
 
@@ -208,7 +217,7 @@ describe("prepare-claude-code-acp-ts helpers", () => {
         name: "@anthropic-ai/claude-agent-sdk",
         version: "0.3.191",
         optionalDependencies: {
-          "@anthropic-ai/claude-agent-sdk-darwin-x64": "0.3.191",
+          [DARWIN_X64_SDK_PACKAGE]: "0.3.191",
         },
       }),
       "utf8",
@@ -217,39 +226,8 @@ describe("prepare-claude-code-acp-ts helpers", () => {
     expect(
       resolveClaudeAgentSdkPlatformPackageVersion(
         baseDir,
-        "@anthropic-ai/claude-agent-sdk-darwin-x64",
+        DARWIN_X64_SDK_PACKAGE,
       ),
     ).toBe("0.3.191");
-  });
-
-  it("builds a runtime-only package manifest for staging install", () => {
-    const runtimePkg = buildRuntimePackageJson({
-      name: "claude-code-acp-ts",
-      version: "0.52.0",
-      description: "runtime",
-      main: "dist/lib.js",
-      types: "dist/lib.d.ts",
-      bin: { "claude-code-acp-ts": "./dist/index.js" },
-      type: "module",
-      exports: { ".": "./dist/lib.js" },
-      engines: { node: ">=22" },
-      dependencies: { zod: "^4.0.0" },
-      devDependencies: { vitest: "^2.0.0" },
-      scripts: { build: "tsc" },
-      files: ["dist/"],
-    });
-
-    expect(runtimePkg).toEqual({
-      name: "claude-code-acp-ts",
-      version: "0.52.0",
-      description: "runtime",
-      main: "dist/lib.js",
-      types: "dist/lib.d.ts",
-      bin: { "claude-code-acp-ts": "./dist/index.js" },
-      type: "module",
-      exports: { ".": "./dist/lib.js" },
-      engines: { node: ">=22" },
-      dependencies: { zod: "^4.0.0" },
-    });
   });
 });
