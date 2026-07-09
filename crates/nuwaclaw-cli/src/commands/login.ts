@@ -17,6 +17,7 @@ import {
   normalizeHostname,
   type ElectronSavedLogin,
 } from "../core/auth/electronImport.js";
+import { getServeStatus } from "../core/serve/serveLock.js";
 
 export interface LoginCommandOptions {
   domain?: string;
@@ -209,6 +210,37 @@ export interface StatusCommandOptions {
   remote?: boolean;
 }
 
+/**
+ * Reports whether a local `serve` is running and on which port, by reading the
+ * lock `serve` writes on listen and probing `/health` (no secret needed). The
+ * X-Nuwax-Internal-Secret itself is never persisted, so this can only say a
+ * serve is up — to actually call `/computer/chat` the user must still grab the
+ * secret from the serve process's startup output.
+ */
+async function printServeStatus(): Promise<void> {
+  const status = await getServeStatus();
+  if (status.state === "running") {
+    console.log(
+      `serve：${pc.green("运行中")}  端口 ${status.port}  PID ${status.pid}  启动于 ${status.startedAt}`,
+    );
+    console.log(
+      pc.dim(
+        `  地址 http://${status.host}:${status.port}（X-Nuwax-Internal-Secret 仅启动时打印，未落盘）`,
+      ),
+    );
+  } else if (status.state === "unhealthy") {
+    console.log(
+      `serve：${pc.yellow("异常")}  PID ${status.pid}  端口 ${status.port}（/health 无响应，可能仍在启动或不健康）`,
+    );
+  } else {
+    console.log(
+      `serve：${pc.dim("未运行")}${
+        status.note ? `  ${pc.dim(status.note)}` : ""
+      }（可用 \`nuwaclaw serve\` 启动）`,
+    );
+  }
+}
+
 export async function statusCommand(
   options: StatusCommandOptions,
 ): Promise<void> {
@@ -224,6 +256,7 @@ export async function statusCommand(
           : "未登录。运行 `nuwaclaw login --domain <host> --saved-key <key>` 登录。",
       ),
     );
+    await printServeStatus();
     return;
   }
 
@@ -231,6 +264,7 @@ export async function statusCommand(
   console.log(`用户：${credentials.username || "(未知)"}`);
   console.log(`savedKey：已保存`);
   console.log(`上次注册：${credentials.lastRegAt ?? "(未知)"}`);
+  await printServeStatus();
 
   if (options.remote && credentials.domain) {
     try {

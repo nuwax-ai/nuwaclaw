@@ -172,6 +172,12 @@ pnpm run dev:serve
 curl http://127.0.0.1:60016/health
 ```
 
+查看 serve 是否在运行及端口（读取 serve 启动时写的锁文件并探活 `/health`，无需 secret）：
+
+```bash
+pnpm run dev:cli -- status
+```
+
 如果调试 `/computer/chat`，需要从启动日志里拿到 `X-Nuwax-Internal-Secret`。
 
 示例：

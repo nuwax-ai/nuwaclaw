@@ -3,6 +3,7 @@ import * as crypto from "node:crypto";
 import type { EngineKind } from "../env/inheritEnv.js";
 import type { PermissionMode } from "../permissions/policy.js";
 import { SessionHub } from "./sessionHub.js";
+import { writeServeLock, clearServeLock } from "./serveLock.js";
 
 export interface ServeOptions {
   port: number;
@@ -142,6 +143,21 @@ export function startServeHttp(options: ServeOptions): {
 
   server.listen(options.port, options.host);
 
+  // Write a pid/port/host lock on listen so `status` can report a running
+  // serve without persisting the secret (which stays ephemeral). Cleared in
+  // stop(); a crash leaves a stale lock that getServeStatus() auto-cleans.
+  server.once("listening", () => {
+    const address = server.address();
+    const actualPort =
+      typeof address === "object" && address ? address.port : options.port;
+    writeServeLock({
+      pid: process.pid,
+      port: actualPort,
+      host: options.host,
+      startedAt: new Date().toISOString(),
+    });
+  });
+
   return {
     secret,
     server,
@@ -154,6 +170,7 @@ export function startServeHttp(options: ServeOptions): {
       await hub.stopAll().catch(() => {});
       server.closeAllConnections();
       await new Promise<void>((resolve) => server.close(() => resolve()));
+      clearServeLock();
     },
   };
 }

@@ -7,6 +7,8 @@ import {
   beforeEach,
   afterEach,
 } from "vitest";
+import * as os from "node:os";
+import * as path from "node:path";
 import { startServeHttp } from "../src/core/serve/server.js";
 
 // Deterministically forces engine.resolve() to fail without needing a real
@@ -24,6 +26,13 @@ afterEach(() => {
 describe("serve HTTP server", () => {
   let handle: ReturnType<typeof startServeHttp>;
   beforeAll(async () => {
+    // Isolate the serve lock so the test's server doesn't clobber a real
+    // `nuwaclaw serve` lock on the dev machine (startServeHttp writes one on
+    // listen, stop() clears it).
+    process.env.NUWACLAW_SERVE_LOCK_PATH = path.join(
+      os.tmpdir(),
+      "nuwaclaw-server-test.lock",
+    );
     handle = startServeHttp({
       port: 0,
       host: "127.0.0.1",
@@ -40,6 +49,7 @@ describe("serve HTTP server", () => {
 
   afterAll(async () => {
     await handle.stop();
+    delete process.env.NUWACLAW_SERVE_LOCK_PATH;
   });
 
   function url(pathname: string): string {

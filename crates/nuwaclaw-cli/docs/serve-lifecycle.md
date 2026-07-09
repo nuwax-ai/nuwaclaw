@@ -64,10 +64,14 @@
 |---|---|
 | `src/core/acp/connection.ts` | `withEngineConnection` 加 `signal` 参数；abort 时 kill；`finally` 清理监听 |
 | `src/core/serve/sessionHub.ts` | `ManagedSession` 加 `abortController`；新增 `terminateSession` / `stopAll`；`stopSession` 中断+限时；所有退出路径收口 |
-| `src/core/serve/server.ts` | `stop()` 改 async：`hub.stopAll()` → `closeAllConnections()` → `close()` |
+| `src/core/serve/server.ts` | `stop()` 改 async：`hub.stopAll()` → `closeAllConnections()` → `close()`；listening 写 serve 锁、stop 清锁 |
 | `src/commands/serve.ts` | `--approve` 校验；yolo 告警；shutdown 调 `stopFileServer` |
 | `tests/fixtures/mock-acp-agent.mjs` | 新增 `trigger-hang` 模式（永不回应 session/prompt） |
 | `tests/connection.test.ts` | 新增 abort 中断用例 |
+| `src/core/serve/serveLock.ts` | 新增：serve 锁读写 + `/health` 探活 + `getServeStatus`（PID 已死则自动清残留锁） |
+| `src/util/paths.ts` | 新增 `cliServeLockPath()`（含 `NUWACLAW_SERVE_LOCK_PATH` 测试覆盖） |
+| `src/commands/login.ts` | `status` 增加 serve 运行态报告（端口/PID/地址） |
+| `tests/serveLock.test.ts` | 锁读写 / 探活 / 僵尸清理 / startServeHttp 写锁-清锁集成 |
 
 ## 回归对照
 
@@ -78,6 +82,7 @@
 | 全套不破坏既有行为 | `vitest run`：113/113 通过；`tsc --noEmit`：通过 |
 | 手工回归 `serve` 关闭 | 启 `serve` → 发 chat → Ctrl-C：应无 `claude-code-acp-ts` / `nuwax-codex-acp` / `nuwax-file-server` 残留进程 |
 | 手工回归 `/agent/stop` 中断 | 会话执行长工具时 POST stop，应在数秒内返回，引擎进程随之退出 |
+| `status` 反映 serve 运行态 | `tests/serveLock.test.ts`：写锁/读锁/探活/僵尸清理；手工：起 `serve` → `status` 见"运行中 端口 X"，停后 `status` 见"未运行"且锁文件已清 |
 
 ## 暂未覆盖（后续项）
 
@@ -86,6 +91,16 @@
 1. **yolo 路径越界守卫**：未移植 Electron 客户端的 strict-permission gate。需要 workspace 根跟踪 + 按工具类型解析目标路径，工作量较大，建议单独立项。当前仅启动告警。
 2. **进程树清理（孙进程孤儿）**：`proc.kill()` 仅 SIGTERM 直接子进程；`claude-code-acp-ts` 再拉起的 `claude`、`--gui-mcp` 的 `agent-gui-server` 等孙进程不受信号。建议改为 `detached:true` spawn + 进程组 kill。注意：本方案的 abort/stopAll 也走同一个 `proc.kill`，因此 serve 路径同样未覆盖孙进程。
 3. **SIGTERM → SIGKILL 升级**：当前只发 SIGTERM；若引擎忽略信号，靠 `stopSession` 的 3s 上限兜底（强制返回，但底层 runner promise 会延迟回收）。
+
+## 可观测性：serve 锁与 `status`
+
+`serve` 在 `listening` 时写一份**不含 secret**的轻量锁 `~/.nuwaclaw/cli/serve.lock`（`{pid, port, host, startedAt}`），`stop()` 清除。`nuwaclaw status` 读取该锁并探活 `GET /health`（无需 secret），输出运行态：
+
+- **运行中**：端口 / PID / 启动时间 / 地址；并提示 `X-Nuwax-Internal-Secret` 仅启动时打印、未落盘（要调用 `/computer/chat` 仍需从启动日志取 secret）。
+- **异常**：锁存在、PID 活着但 `/health` 无响应（可能仍在启动或不健康）。
+- **未运行**：无锁；若锁存在但 PID 已死，自动清理残留锁并提示。
+
+设计要点：**secret 永不落盘**的承诺不变——锁里只有 pid/port/host/startedAt，是可观测性数据，不是凭证。
 
 ## 决策记录
 

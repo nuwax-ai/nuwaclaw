@@ -105,6 +105,8 @@ nuwaclaw config set domain <host>
 
 凭证存放在 `~/.nuwaclaw/cli/credentials.json`（权限 `0600`）。密码永不落盘。
 
+`nuwaclaw status` 还会报告本地 `serve` 是否在运行、端口多少——读取的是 `serve` 启动时写的锁文件。`X-Nuwax-Internal-Secret` 本身**仍然永不落盘**，所以要实际调用 `/computer/chat` 还得从 serve 进程的启动输出里取 secret。
+
 如果这台机器上已经在用 Electron 版 NuwaClaw 客户端，`nuwaclaw login`（不带 `--saved-key`/`-u`，且 nuwaclaw-cli 自己还没登录过）会检测它保存的登录信息——只读，直接读它本地的 SQLite settings 文件——并提示是否直接复用，省去手动复制 key。这只导入**值**：nuwaclaw-cli 仍然用自己独立的 device id 注册，是和 Electron 客户端会话独立的另一台设备，不是共享同一个。
 
 ### `nuwaclaw serve`

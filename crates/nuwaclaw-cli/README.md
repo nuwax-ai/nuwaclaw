@@ -105,6 +105,8 @@ nuwaclaw config set domain <host>
 
 Credentials live in `~/.nuwaclaw/cli/credentials.json` (mode `0600`). Passwords are never persisted.
 
+`nuwaclaw status` also reports whether a local `serve` is running and on which port — read from a lockfile `serve` writes on listen. The `X-Nuwax-Internal-Secret` itself is still never persisted, so to actually call `/computer/chat` you must grab the secret from the serve process's startup output.
+
 If you already use the Electron NuwaClaw client on the same machine, `nuwaclaw login` (with no `--saved-key`/`-u`, and no prior nuwaclaw-cli login of its own) detects its saved login(s) — read-only, from its local SQLite settings file — and offers to reuse one instead of asking you to type/paste a key by hand. This only imports the *value*: nuwaclaw-cli still registers with its own device id, so it's an independent device from the Electron client's session, not a shared one.
 
 ### `nuwaclaw serve`
