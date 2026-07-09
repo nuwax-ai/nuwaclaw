@@ -56,6 +56,25 @@ describe("sandboxed-bash security helpers", () => {
     expect(env.OPENAI_API_KEY).toBeUndefined();
   });
 
+  it("should pass ORIGINAL_PATH and MSYS2_PATH_TYPE for Git Bash python recovery", () => {
+    const env = securityMod.buildSandboxHelperEnv(
+      {
+        PATH: "C:\\sandbox\\bin",
+        ORIGINAL_PATH:
+          "/c/Users/demo/AppData/Local/Programs/Python/Python312:/c/Windows/System32",
+        MSYS2_PATH_TYPE: "inherit",
+        ANTHROPIC_API_KEY: "secret",
+      },
+      "C:\\sandbox\\bin",
+    );
+
+    expect(env.ORIGINAL_PATH).toBe(
+      "/c/Users/demo/AppData/Local/Programs/Python/Python312:/c/Windows/System32",
+    );
+    expect(env.MSYS2_PATH_TYPE).toBe("inherit");
+    expect(env.ANTHROPIC_API_KEY).toBeUndefined();
+  });
+
   it("should prepend sandbox tool path to PATH", () => {
     const env = securityMod.buildSandboxHelperEnv(
       {

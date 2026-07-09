@@ -117,6 +117,7 @@ export function injectSandboxedMcpForSession(
       });
     } else {
       const appEnv = getAppEnv({ includeSystemPath: false });
+      const fullAppEnv = getAppEnv({ includeSystemPath: true });
       const gitBashPath = getBundledGitBashPath();
       if (!gitBashPath) {
         log.warn(
@@ -154,6 +155,17 @@ export function injectSandboxedMcpForSession(
             : []),
           ...(gitBashPath
             ? [{ name: "NUWAX_SANDBOX_GIT_BASH_PATH", value: gitBashPath }]
+            : []),
+          ...(fullAppEnv.ORIGINAL_PATH
+            ? [{ name: "ORIGINAL_PATH", value: fullAppEnv.ORIGINAL_PATH }]
+            : []),
+          ...(fullAppEnv.MSYS2_PATH_TYPE
+            ? [
+                {
+                  name: "MSYS2_PATH_TYPE",
+                  value: fullAppEnv.MSYS2_PATH_TYPE,
+                },
+              ]
             : []),
         ]),
       });

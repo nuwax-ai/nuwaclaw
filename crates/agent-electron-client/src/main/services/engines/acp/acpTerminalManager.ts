@@ -86,6 +86,8 @@ export const TERMINAL_SANDBOX_SAFE_ENV_KEYS = [
   "PROCESSOR_ARCHITECTURE",
   "LANG",
   "TZ",
+  "ORIGINAL_PATH",
+  "MSYS2_PATH_TYPE",
 ] as const;
 
 function isPathWithinRoot(candidate: string, root: string): boolean {

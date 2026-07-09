@@ -211,6 +211,22 @@ function getSystemPaths(): string[] {
   return cachedSystemPaths;
 }
 
+/** Git Bash 用 POSIX `:` 分隔；优先保留 python/uv 路径供 ensure-python.sh 恢复。 */
+function buildOriginalPathPosix(pathEntries: string[]): string {
+  const MAX_ORIGINAL_PATH_ENTRIES = 20;
+  const isPythonOrUv = (entry: string): boolean => {
+    const lower = entry.toLowerCase();
+    return lower.includes("python") || lower.includes("uv");
+  };
+  const pythonEntries = pathEntries.filter(isPythonOrUv);
+  const otherEntries = pathEntries.filter((e) => !isPythonOrUv(e));
+  const limitedEntries = [...pythonEntries, ...otherEntries].slice(
+    0,
+    MAX_ORIGINAL_PATH_ENTRIES,
+  );
+  return limitedEntries.map((p) => p.replace(/\\/g, "/")).join(":");
+}
+
 // ==================== getAppEnv ====================
 
 export interface GetAppEnvOptions {
@@ -439,20 +455,6 @@ export function getAppEnv(opts?: GetAppEnvOptions): Record<string, string> {
       }
     }
 
-    if (includeSystemPath && bundledGitBashPath) {
-      const MAX_ORIGINAL_PATH_ENTRIES = 20;
-      const pathEntries = (cleanEnv.PATH || "").split(";").filter(Boolean);
-      const limitedEntries = pathEntries.slice(0, MAX_ORIGINAL_PATH_ENTRIES);
-      const posixPath = limitedEntries
-        .map((p) => p.replace(/\\/g, "/"))
-        .join(":");
-      cleanEnv.ORIGINAL_PATH = posixPath;
-      logAppEnv(
-        detailLevel,
-        `[getAppEnv] Set ORIGINAL_PATH (${limitedEntries.length}/${pathEntries.length} entries)`,
-      );
-    }
-
     if (includeSystemPath) {
       try {
         const { execSync } = require("child_process");
@@ -507,6 +509,16 @@ export function getAppEnv(opts?: GetAppEnvOptions): Record<string, string> {
       logAppEnv(
         detailLevel,
         `[getAppEnv] Skipping registry PATH read (includeSystemPath=false)`,
+      );
+    }
+
+    // 须在 registry PATH 合并之后构建，否则用户 Python 目录不会进入 ORIGINAL_PATH。
+    if (includeSystemPath && bundledGitBashPath) {
+      const allPathEntries = (cleanEnv.PATH || "").split(";").filter(Boolean);
+      cleanEnv.ORIGINAL_PATH = buildOriginalPathPosix(allPathEntries);
+      logAppEnv(
+        detailLevel,
+        `[getAppEnv] Set ORIGINAL_PATH (${allPathEntries.length} entries, python/uv prioritized)`,
       );
     }
   }
