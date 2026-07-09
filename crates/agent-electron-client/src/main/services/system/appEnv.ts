@@ -523,5 +523,7 @@ export function getAppEnv(opts?: GetAppEnvOptions): Record<string, string> {
     }
   }
 
+  cleanEnv.NUWACLAW_RUNTIME = "1";
+
   return cleanEnv;
 }
