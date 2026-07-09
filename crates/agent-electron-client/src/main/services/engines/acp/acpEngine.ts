@@ -33,6 +33,7 @@ import {
 } from "./openAICompatRouting";
 import {
   buildSessionModelSyncPlan,
+  isAcpSessionModelSyncMethodNotFound,
   isSessionModelInSync,
   parseAcpCurrentModelId,
   resolveTargetModelForChat,
@@ -327,6 +328,13 @@ export class AcpEngine extends EventEmitter {
         `${this.logTag} session model sync failed (${plan.currentModelId || "(unknown)"} → ${plan.targetModelId}):`,
         err,
       );
+      // Agent 未实现本次 model sync RPC 时继续 prompt（模型由 spawn env 注入）；勿虚标 acpCurrentModelId。
+      if (isAcpSessionModelSyncMethodNotFound(err, plan.method)) {
+        log.info(
+          `${this.logTag} Agent does not implement ${plan.method}; continuing with env-injected model (session model state unchanged)`,
+        );
+        return;
+      }
       throw err;
     }
 

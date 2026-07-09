@@ -104,6 +104,38 @@ export function isSessionModelInSync(
   return !!current && !!target && modelsEquivalentForProvider(current, target);
 }
 
+/** ACP agent 未实现 session model sync RPC 时（Method not found），nuwaclaw 可继续 prompt。 */
+export function isAcpMethodNotFoundError(err: unknown): boolean {
+  if (!err || typeof err !== "object") return false;
+  const candidate = err as { code?: unknown; message?: unknown };
+  if (candidate.code === -32601) return true;
+  const message =
+    typeof candidate.message === "string" ? candidate.message : String(err);
+  return /method not found/i.test(message);
+}
+
+/**
+ * 仅当「本次 model sync 调用的 RPC」未实现时返回 true，避免吞掉其它 -32601。
+ */
+export function isAcpSessionModelSyncMethodNotFound(
+  err: unknown,
+  method: "unstable_setSessionModel" | "setSessionConfigOption",
+): boolean {
+  if (!isAcpMethodNotFoundError(err)) return false;
+  const message =
+    err &&
+    typeof err === "object" &&
+    typeof (err as { message?: unknown }).message === "string"
+      ? (err as { message: string }).message
+      : String(err);
+  if (method === "setSessionConfigOption") {
+    return /set_config_option|setSessionConfigOption/i.test(message);
+  }
+  return /setSessionModel|unstable_setSessionModel|set_session_model/i.test(
+    message,
+  );
+}
+
 export function buildSessionModelSyncPlan(input: {
   targetModelId: string | null | undefined;
   currentEngineModelHint?: string | null;
