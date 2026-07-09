@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   buildWindowsBatchSpawn,
   quoteWindowsCmdArg,
+  resolveWindowsNpmShim,
 } from '../src/customStdio.js';
 
 describe('quoteWindowsCmdArg', () => {
@@ -26,7 +27,7 @@ describe('buildWindowsBatchSpawn', () => {
       '/d',
       '/s',
       '/c',
-      'C:\\tools\\npx.cmd -y pkg@1',
+      '""C:\\tools\\npx.cmd" -y pkg@1"',
     ]);
   });
 
@@ -34,6 +35,20 @@ describe('buildWindowsBatchSpawn', () => {
     const result = buildWindowsBatchSpawn('C:\\Program Files\\npx.cmd', [
       '--version',
     ]);
-    expect(result.args[3]).toBe('"C:\\Program Files\\npx.cmd" --version');
+    expect(result.args[3]).toBe('"""C:\\Program Files\\npx.cmd"" --version"');
+  });
+});
+
+describe('resolveWindowsNpmShim', () => {
+  it('rewrites npx.cmd to node.exe + npx-cli.js on Windows', () => {
+    if (process.platform !== 'win32') return;
+
+    const npxCmd =
+      'C:\\soddy-git-workspace\\nuwaclaw\\crates\\agent-electron-client\\resources\\node\\win32-x64\\bin\\npx.cmd';
+    const result = resolveWindowsNpmShim(npxCmd, ['-y', 'pkg@1']);
+    expect(result).not.toBeNull();
+    expect(result!.command).toMatch(/node\.exe$/i);
+    expect(result!.args[0]).toMatch(/npx-cli\.js$/i);
+    expect(result!.args.slice(1)).toEqual(['-y', 'pkg@1']);
   });
 });

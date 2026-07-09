@@ -156,12 +156,34 @@ export function resolveUvCommand(
 }
 
 /**
- * Resolves `npx`/`npm` on Windows to a concrete executable path.
+ * Resolve npx/npm on Windows to node.exe + npm cli.js (avoids fragile cmd.exe /c quoting).
+ */
+function resolveWindowsNpmCli(
+  binDir: string,
+  base: "npx" | "npm",
+  args: string[],
+): { command: string; args: string[] } | null {
+  const nodeExe = path.join(binDir, "node.exe");
+  const cliJs = path.join(
+    binDir,
+    "node_modules",
+    "npm",
+    "bin",
+    base === "npx" ? "npx-cli.js" : "npm-cli.js",
+  );
+  if (fs.existsSync(nodeExe) && fs.existsSync(cliJs)) {
+    return { command: nodeExe, args: [cliJs, ...args] };
+  }
+  return null;
+}
+
+/**
+ * Resolves `npx`/`npm` on Windows to node.exe + cli.js when possible.
  *
  * Rationale:
  * - Many Node distributions ship `npx.cmd`/`npm.cmd` (not a bare `npx.exe`)
- * - Some spawn call-sites pass a sanitized env that may not include PATHEXT
- * - Using an absolute path avoids PATH/PATHEXT resolution quirks and ENOENT
+ * - Spawning .cmd via cmd.exe /c is fragile on Windows (quoting /s quirks)
+ * - node.exe + npx-cli.js/npm-cli.js is the same as npx.cmd but reliable
  */
 function resolveNpmCliCommand(
   command: string,
@@ -174,8 +196,14 @@ function resolveNpmCliCommand(
   const base = path.basename(command).replace(/\.(exe|cmd|bat)$/i, "");
   if (base !== "npx" && base !== "npm") return { command, args };
 
-  // If caller already provided a concrete path, keep it.
+  // Absolute npx.cmd/npm.cmd path → rewrite to node.exe + cli.js
   if (path.isAbsolute(command) && fs.existsSync(command)) {
+    const shim = resolveWindowsNpmCli(
+      path.dirname(command),
+      base as "npx" | "npm",
+      args,
+    );
+    if (shim) return shim;
     return { command, args };
   }
 
@@ -183,18 +211,19 @@ function resolveNpmCliCommand(
   const bundledNode = getNodeBinPath();
   if (bundledNode) {
     const binDir = path.dirname(bundledNode);
+    const shim = resolveWindowsNpmCli(binDir, base as "npx" | "npm", args);
+    if (shim) return shim;
+
     const candidate = path.join(binDir, `${base}.cmd`);
     if (fs.existsSync(candidate)) {
       return { command: candidate, args };
     }
-    // Fallback: some builds may ship without .cmd (rare)
     const exeCandidate = path.join(binDir, `${base}.exe`);
     if (fs.existsSync(exeCandidate)) {
       return { command: exeCandidate, args };
     }
   }
 
-  // Last resort: prefer .cmd name to leverage normal Windows resolution.
   return { command: `${base}.cmd`, args };
 }
 
