@@ -32,6 +32,14 @@ import {
   resolveOpenAICompatModel,
 } from "./openAICompatRouting";
 import {
+  buildSessionModelSyncPlan,
+  isSessionModelInSync,
+  parseAcpCurrentModelId,
+  resolveTargetModelForChat,
+  normalizeModelSyncErrorMessage,
+} from "./acpSessionModelSync";
+import { normalizePromptErrorForDisplay } from "./acpPromptErrorNormalizer";
+import {
   isPersistentIsolatedHome,
   type IsolatedHomeScope,
 } from "./isolatedHomePaths";
@@ -167,8 +175,12 @@ interface AcpSession {
   memoryModel?: string; // 记忆处理使用的模型名（来自 model_provider.default_model）
   /** session/resume 返回的初始 mode，chat 同步后清除 */
   resumedModeState?: { currentModeId?: string } | null;
+  /** session/load|resume 返回的当前模型，chat 同步后继续作为运行时 hint 使用 */
+  resumedModelId?: string | null;
   /** 上次与 ACP Agent 对齐的 mode（仅运行时跟踪，不做持久化） */
   acpCurrentModeId?: AcpMode;
+  /** 上次与 ACP Agent 对齐的 model（仅运行时跟踪，不做持久化） */
+  acpCurrentModelId?: string | null;
 }
 
 // Session counter removed — ACP protocol UUID is used as canonical session.id
@@ -251,6 +263,76 @@ export class AcpEngine extends EventEmitter {
     this.setEffectiveMode(acpSessionId, targetMode);
     if (session) {
       session.acpCurrentModeId = targetMode;
+    }
+  }
+
+  /**
+   * OpenCode 会在 loadSession 后继续沿用历史 session 绑定的模型。
+   * 当请求侧已切换 model_provider 时，需要在 prompt 前显式把 session model
+   * 对齐到当前请求模型，否则会出现 ProviderModelNotFound / service failure。
+   */
+  private async syncSessionModelForChat(
+    acpSessionId: string,
+    targetModelId: string | null,
+    currentEngineModelHint?: string | null,
+  ): Promise<void> {
+    const session = this.sessions.get(acpSessionId);
+    const plan = buildSessionModelSyncPlan({
+      targetModelId,
+      currentEngineModelHint,
+      session,
+      supportsDedicatedModelSync:
+        !!this.acpConnection?.unstable_setSessionModel,
+      supportsConfigOptionSync: !!this.acpConnection?.setSessionConfigOption,
+    });
+    if (!plan) return;
+
+    if (plan.kind === "noop") {
+      if (session) {
+        session.acpCurrentModelId = plan.currentModelId;
+      }
+      return;
+    }
+
+    if (plan.kind === "error") {
+      throw new Error(plan.message);
+    }
+
+    const connection = this.acpConnection;
+    if (!connection) {
+      throw new Error("AcpEngine not initialized");
+    }
+
+    try {
+      if (plan.method === "unstable_setSessionModel") {
+        await connection.unstable_setSessionModel?.({
+          sessionId: acpSessionId,
+          modelId: plan.targetModelId,
+        });
+        log.info(
+          `${this.logTag} setSessionModel: ${plan.currentModelId || "(unknown)"} → ${plan.targetModelId}`,
+        );
+      } else {
+        await connection.setSessionConfigOption?.({
+          sessionId: acpSessionId,
+          configId: "model",
+          value: plan.targetModelId,
+        });
+        log.info(
+          `${this.logTag} setSessionConfigOption(model): ${plan.currentModelId || "(unknown)"} → ${plan.targetModelId}`,
+        );
+      }
+    } catch (err) {
+      log.warn(
+        `${this.logTag} session model sync failed (${plan.currentModelId || "(unknown)"} → ${plan.targetModelId}):`,
+        err,
+      );
+      throw err;
+    }
+
+    if (session) {
+      session.acpCurrentModelId = plan.targetModelId;
+      session.resumedModelId = plan.targetModelId;
     }
   }
 
@@ -931,11 +1013,18 @@ export class AcpEngine extends EventEmitter {
     session.mcpServerCount = mcpServers.length;
     session.lastActivity = Date.now();
     session.resumedModeState = resumeResult.modes ?? null;
+    session.resumedModelId = parseAcpCurrentModelId(resumeResult.configOptions);
     this.applyAcpModeFromRpc(session, resumeResult.modes ?? null);
+    if (session.resumedModelId) {
+      session.acpCurrentModelId = session.resumedModelId;
+    }
     if (session.status === undefined) session.status = "idle";
     this.sessions.set(sessionId, session);
 
-    log.info(`${this.logTag} Session resumed`, { sessionId });
+    log.info(`${this.logTag} Session resumed`, {
+      sessionId,
+      resumedModelId: session.resumedModelId || "(unknown)",
+    });
 
     return {
       id: sessionId,
@@ -1020,14 +1109,21 @@ export class AcpEngine extends EventEmitter {
     session.resumedModeState =
       (loadResult.modes as { currentModeId?: string } | null | undefined) ??
       null;
+    session.resumedModelId = parseAcpCurrentModelId(loadResult.configOptions);
     this.applyAcpModeFromRpc(
       session,
       loadResult.modes as { currentModeId?: string } | null | undefined,
     );
+    if (session.resumedModelId) {
+      session.acpCurrentModelId = session.resumedModelId;
+    }
     if (session.status === undefined) session.status = "idle";
     this.sessions.set(sessionId, session);
 
-    log.info(`${this.logTag} Session loaded`, { sessionId });
+    log.info(`${this.logTag} Session loaded`, {
+      sessionId,
+      resumedModelId: session.resumedModelId || "(unknown)",
+    });
 
     return {
       id: sessionId,
@@ -1470,7 +1566,15 @@ export class AcpEngine extends EventEmitter {
       });
     } catch (error) {
       log.error(`${this.logTag} Prompt failed:`, error);
-      const errMsg = toErrorMessage(error);
+      const currentSession = this.sessions.get(sessionId);
+      const errMsg = normalizePromptErrorForDisplay({
+        error,
+        engineName: this.engineName,
+        currentModelId: currentSession?.acpCurrentModelId,
+        resumedModelId: currentSession?.resumedModelId,
+        targetModelId:
+          this.config?.model || this.config?.env?.OPENCODE_MODEL || null,
+      });
       const isMcpReconnect = this.isMcpReconnectFailure(errMsg);
       const isCancelled = isPromptCancellation(error);
       const promptEndReason = isMcpReconnect
@@ -1863,12 +1967,19 @@ export class AcpEngine extends EventEmitter {
           parseAcpModeId(session.resumedModeState?.currentModeId) ??
           session.acpCurrentModeId ??
           null;
+        const targetModelId = resolveTargetModelForChat(request, this.config);
         await this.syncSessionModeForChat(
           session.acpSessionId,
           effectiveMode,
           engineModeHint,
         );
+        await this.syncSessionModelForChat(
+          session.acpSessionId,
+          targetModelId,
+          session.resumedModelId ?? session.acpCurrentModelId ?? null,
+        );
         session.resumedModeState = null;
+        session.resumedModelId = null;
         // 每次 chat 请求刷新该会话的 tool_approval_rules（不传则清除，保持向后兼容）
         this.permissions.setSessionApprovalRules(
           session.acpSessionId,

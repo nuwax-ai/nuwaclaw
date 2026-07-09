@@ -273,6 +273,26 @@ export interface AcpClientSideConnection {
     modeId: string;
   }): Promise<{ _meta?: Record<string, unknown> } | void>;
 
+  /**
+   * OpenCode/nuwaxcode currently exposes session model mutation as an unstable ACP
+   * extension. Keep it optional so other engines remain unaffected.
+   */
+  unstable_setSessionModel?(params: {
+    sessionId: string;
+    modelId: string;
+  }): Promise<{ _meta?: Record<string, unknown> } | void>;
+
+  /**
+   * Some ACP agents expose model switching through a generic config option API.
+   * Keep this optional as a fallback for engines that don't implement the
+   * unstable dedicated session model method.
+   */
+  setSessionConfigOption?(params: {
+    sessionId: string;
+    configId: string;
+    value: string;
+  }): Promise<{ _meta?: Record<string, unknown> } | void>;
+
   closed: Promise<void>;
 }
 
