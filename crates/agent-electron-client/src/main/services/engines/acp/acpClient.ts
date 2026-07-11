@@ -43,7 +43,7 @@ import {
 } from "../../utils/spawnNoWindow";
 import { processRegistry } from "../../system/processRegistry";
 import { killProcessTreeGraceful } from "../../utils/processTree";
-import { writeShellProfiles } from "../../utils/shellProfile";
+import { writeBundledDevShellProfiles } from "../../utils/shellProfile";
 import { perfEmitter } from "../perf/perfEmitter";
 import { firstTokenTrace } from "../perf/firstTokenTrace";
 import { resolveCustomAgentBinary } from "../../agentInstaller";
@@ -271,6 +271,26 @@ export interface AcpClientSideConnection {
   setSessionMode?(params: {
     sessionId: string;
     modeId: string;
+  }): Promise<{ _meta?: Record<string, unknown> } | void>;
+
+  /**
+   * OpenCode/nuwaxcode currently exposes session model mutation as an unstable ACP
+   * extension. Keep it optional so other engines remain unaffected.
+   */
+  unstable_setSessionModel?(params: {
+    sessionId: string;
+    modelId: string;
+  }): Promise<{ _meta?: Record<string, unknown> } | void>;
+
+  /**
+   * Some ACP agents expose model switching through a generic config option API.
+   * Keep this optional as a fallback for engines that don't implement the
+   * unstable dedicated session model method.
+   */
+  setSessionConfigOption?(params: {
+    sessionId: string;
+    configId: string;
+    value: string;
   }): Promise<{ _meta?: Record<string, unknown> } | void>;
 
   closed: Promise<void>;
@@ -754,13 +774,9 @@ export async function createAcpConnection(
   // 获取应用隔离环境变量（包含隔离的 PATH、npm、uv 配置等）
   const appEnv = getAppEnv();
 
-  // Prepend bundled ripgrep to isolated HOME profiles so Bash tool can run `rg`.
-  // getAppEnv() already puts ripgrep on PATH, but Windows env probe may corrupt PATH;
-  // ~/.bash_profile / ~/.bashrc (sourced by claude.exe) sanitize + prepend ripgrep bin.
-  writeShellProfiles(
-    isolatedHome,
-    [appEnv.CLAUDE_CODE_RIPGREP_DIR].filter(Boolean),
-  );
+  // Isolated Git Bash login shells on Windows rebuild PATH; inject full bundled dev env
+  // (node/pnpm/uv/rg + PNPM_/UV_ exports) — same coverage as ttyd pickTtydBundledEnv.
+  writeBundledDevShellProfiles(isolatedHome, appEnv);
 
   // 构建最终环境变量：以 appEnv 为基础，添加 ACP 特定配置
   const env: Record<string, string> = {

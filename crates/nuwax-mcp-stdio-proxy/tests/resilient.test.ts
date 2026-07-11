@@ -118,9 +118,9 @@ describe('ResilientTransportWrapper', () => {
     expect(mockTransports.length).toBe(2);
     const secondTransport = mockTransports[1];
     
-    // The queued message should have been flushed
-    expect(secondTransport.sentMessages.length).toBe(1);
-    expect(secondTransport.sentMessages[0]).toEqual(testMsg);
+    // Messages queued during reconnect are intentionally dropped because they may
+    // carry a stale MCP session context (e.g. old session_id) after reconnect.
+    expect(secondTransport.sentMessages.length).toBe(0);
     
     await wrapper.close();
   });
