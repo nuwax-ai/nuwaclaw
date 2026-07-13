@@ -125,7 +125,7 @@ export async function serveCommand(
         );
         console.log(
           pc.yellow(
-            "[nuwaclaw] lanproxy 云端隧道尚未接入（lanproxy 目前没有独立分发渠道，且需要真实后端联调确认调用参数）——本次仅本地 file-server 可用，云端/IM 暂无法通过隧道访问。",
+            "[nuwaclaw] lanproxy 云端隧道尚未接入（lanproxy 是唯一预置资源，仍需真实后端联调确认调用参数）——本次仅本地 file-server 可用，云端/IM 暂无法通过隧道访问。",
           ),
         );
       } catch (err) {

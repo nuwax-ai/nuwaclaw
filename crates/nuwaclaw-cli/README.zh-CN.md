@@ -28,7 +28,7 @@ pnpm run dev:chat -- -p "hello"
 大多数 Agent 封装要么自带一整套模型运行时（体积大，而且看不到你已有的登录态），要么让你重新配置一遍 API key。`nuwaclaw` 两者都不做：
 
 - **继承你的环境。** `HOME`、`~/.claude`、`~/.codex`、MCP server、skills、模型偏好——全部保持原样。引擎看到的，和你自己的 `claude`/`codex` CLI 看到的完全一致。
-- **几乎不预装东西。** npm 包只有几百 KB。引擎适配器和 codex 二进制只在**第一次真正用到时**才下载到 `~/.nuwaclaw-cli`。
+- **使用正常包依赖。** ACP 适配器（`claude-code-acp-ts`、`nuwax-codex-acp`）和 `nuwax-file-server` 会随 `nuwaclaw` 通过 npm/pnpm 安装；运行时只解析这些已安装包的入口。`agent-gui-server` 仍是可选的 GUI MCP 能力，lanproxy 是唯一预置资源例外。
 - **走 ACP 协议。** 两个引擎都通过 [Agent Client Protocol](https://agentclientprotocol.com) 驱动——和 Zed 等编辑器用的是同一套协议，而不是抓取 CLI 文本输出的那种封装。
 
 ## 命令
@@ -156,19 +156,20 @@ nuwaclaw serve --port 60016
 ## 已知限制
 
 - **Windows / Linux ARM 上的 codex**：目前仅在 macOS arm64 上测试过。
-- **Windows 首次安装**：`claude` 引擎、`--gui-mcp`、`serve --tunnel` 通过 `spawnSync("npm", …)`（不带 `shell:true`）安装各自的 npm 包；在 Windows 上 Node 拒绝以这种方式启动 `npm.cmd`，因此这些功能首次使用会失败。macOS/Linux 不受影响。
+- **Windows 首次安装**：`--gui-mcp` 仍会通过 `spawnSync("npm", …)`（不带 `shell:true`）安装 `agent-gui-server`；在 Windows 上 Node 拒绝以这种方式启动 `npm.cmd`，因此这个可选功能首次使用会失败。`claude`/`codex` ACP 适配器和 `nuwax-file-server` 已改为正常包依赖。
 - **退出时的进程树清理**：只有直接的引擎子进程会收到 `SIGTERM`；孙进程（`claude-code-acp-ts` 适配器再拉起的 `claude` 二进制，以及 `--gui-mcp` 下的 `agent-gui-server`）不会被信号通知，可能成为孤儿。`serve` 关闭仍会停止自身的 HTTP 会话，但零散的孙进程可能残留。
 - **`yolo` 没有路径限制**：`--approve auto` 不论目标路径一律自动批准工具调用，目前没有可写根目录守卫（Electron 客户端的严格权限闸门尚未移植过来）。
 - **自定义/第三方 ACP 引擎**（pi-acp、hermes、kilo、openclaw 等）暂不支持——仅支持 `claude` 和 `codex`。
-- **`serve --tunnel`** 会启动本地 file server，但尚未建立云端隧道（lanproxy 目前没有独立分发渠道可拉取）。
+- **`serve --tunnel`** 会启动本地 file server，但尚未建立云端隧道（lanproxy 是唯一预置客户端资源，没有可安装的 npm 分发）。
 - **云端会话同步/列表**：`sessions`/`status` 目前仅本地可用，跨设备会话历史的后端接口尚未确定。
 
 ## 工作原理
 
 - ACP 连接：使用 `@agentclientprotocol/sdk` 的 `client().connectWith(...)` 构建器，通过 stdio NDJSON 拉起引擎。
-- `claude` 引擎：拉起 [`claude-code-acp-ts`](https://www.npmjs.com/package/claude-code-acp-ts) 适配器（首次使用时安装，并跳过它约 200MB 的可选平台二进制——因为 `CLAUDE_CODE_EXECUTABLE` 始终指向**你自己的** `claude`，适配器自带的 bundled-binary 回退路径永远不会走到）。
-- `codex` 引擎：首次使用时从 GitHub Releases 下载 `nuwax-codex-acp` 二进制（codex-acp 的 Rust fork），缓存到 `~/.nuwaclaw-cli/engines/`。
-- 不会往你 shell 的全局 `node_modules` 里装任何东西，nuwaclaw-cli 自己的 credentials、device id、tools/cache、logs、serve lock 都存放在 `~/.nuwaclaw-cli/` 下。若同时安装了 NuwaClaw Electron 桌面端，两者可在同一台机器共存但不共享 savedKey 或本地状态；`serve` 默认使用 CLI 专属端口 60016/60015，与 Electron 的 60005–60009 范围分开。
+- `claude` 引擎：拉起包依赖 [`claude-code-acp-ts`](https://www.npmjs.com/package/claude-code-acp-ts)，并通过 `CLAUDE_CODE_EXECUTABLE` 指向**你自己的** `claude` 二进制。
+- `codex` 引擎：拉起包依赖 [`nuwax-codex-acp`](https://www.npmjs.com/package/nuwax-codex-acp)；该包通过 npm optionalDependencies 拉取匹配平台的二进制。
+- `serve --tunnel`：启动包依赖 [`nuwax-file-server`](https://www.npmjs.com/package/nuwax-file-server)。真正的云端隧道仍等待 lanproxy 集成。
+- 不会往你 shell 的全局 `node_modules` 里装任何东西，nuwaclaw-cli 自己的 credentials、device id、cache、logs、serve lock 都存放在 `~/.nuwaclaw-cli/` 下。若同时安装了 NuwaClaw Electron 桌面端，两者可在同一台机器共存但不共享 savedKey 或本地状态；`serve` 默认使用 CLI 专属端口 60016/60015，与 Electron 的 60005–60009 范围分开。
 
 ## 运行要求
 

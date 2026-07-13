@@ -2,17 +2,11 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 
 /**
- * Unlike codex-acp and nuwax-file-server, lanproxy currently has **no
- * independent distribution channel** — its binaries only exist checked into
- * the Electron client's own resources/lanproxy/binaries/ (confirmed: no npm
- * package, no GitHub Release). There's nothing for nuwaclaw to lazily
- * download.
- *
- * `--lanproxy-path` is therefore not a "before npm publish" escape hatch
- * like --gui-mcp-path — it's the *only* path today. It accepts either a
- * direct binary file, or a directory shaped like the Electron client's
- * resources/lanproxy/binaries/ (this repo's own agent-electron-client crate
- * is a valid value when running from a source checkout).
+ * lanproxy is the only component that is expected to come from a preintegrated
+ * client resource. ACP adapters and file-server are normal npm package
+ * dependencies; lanproxy has no npm package or GitHub Release to fetch from,
+ * so the only supported source is an existing binary or the Electron client's
+ * resources/lanproxy/binaries/ directory.
  */
 const RUST_TARGET_MAP: Record<string, string> = {
   "darwin-arm64": "aarch64-apple-darwin",
@@ -58,7 +52,7 @@ export function resolveLanproxyBinary(pathOverride: string): string {
   const found = candidates.find((candidate) => fs.existsSync(candidate));
   if (!found) {
     throw new Error(
-      `在 --lanproxy-path ${pathOverride} 下未找到 ${binaryName}（也未找到 universal 兜底）。lanproxy 目前没有独立分发渠道，可指向本仓 crates/agent-electron-client/resources/lanproxy/binaries/`,
+      `在 --lanproxy-path ${pathOverride} 下未找到 ${binaryName}（也未找到 universal 兜底）。lanproxy 是唯一预置资源，可指向本仓 crates/agent-electron-client/resources/lanproxy/binaries/`,
     );
   }
   return found;

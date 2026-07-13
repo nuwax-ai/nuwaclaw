@@ -80,7 +80,7 @@ describe("resolveLanproxyBinary", () => {
   it("throws a clear error when the directory has no matching binary", () => {
     fs.mkdirSync(path.join(tmpDir, "empty"));
     expect(() => resolveLanproxyBinary(path.join(tmpDir, "empty"))).toThrow(
-      /没有独立分发渠道/,
+      /唯一预置资源/,
     );
   });
 });

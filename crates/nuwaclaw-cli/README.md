@@ -28,7 +28,7 @@ More local debugging scripts and step-by-step workflows live in [`docs/local-deb
 Most agent wrappers either bundle their own copy of the model runtime (heavy, and it can't see your existing login) or ask you to configure API keys again. `nuwaclaw` does neither:
 
 - **Inherits your environment.** `HOME`, `~/.claude`, `~/.codex`, MCP servers, skills, model preferences — all untouched. The engine sees exactly what your own `claude`/`codex` CLI would see.
-- **Installs almost nothing up front.** The npm package is a few hundred KB. Engine adapters and the codex binary are fetched into `~/.nuwaclaw-cli` only the first time you actually use them.
+- **Uses normal package dependencies.** ACP adapters (`claude-code-acp-ts`, `nuwax-codex-acp`) and `nuwax-file-server` are installed by npm/pnpm with `nuwaclaw`; runtime code only resolves those installed package entries. `agent-gui-server` remains an optional GUI MCP add-on, and lanproxy is the only preintegrated-resource exception.
 - **Talks ACP.** Both engines are driven over the [Agent Client Protocol](https://agentclientprotocol.com), the same protocol editors like Zed use — not a scraped CLI wrapper.
 
 ## Commands
@@ -156,19 +156,20 @@ Lifecycle:
 ## Known limitations
 
 - **codex on Windows/Linux ARM**: only tested on macOS arm64 so far.
-- **Windows first-use install**: the `claude` engine, `--gui-mcp`, and `serve --tunnel` install their npm packages via `spawnSync("npm", …)` without `shell:true`; on Windows Node refuses to launch the `npm.cmd` shim that way, so first use of those features fails. macOS/Linux are unaffected.
+- **Windows first-use install**: `--gui-mcp` still installs `agent-gui-server` via `spawnSync("npm", …)` without `shell:true`; on Windows Node refuses to launch the `npm.cmd` shim that way, so first use of that optional feature fails. The `claude`/`codex` ACP adapters and `nuwax-file-server` are normal package dependencies instead.
 - **Process-tree teardown on exit**: only the direct engine child receives `SIGTERM`; grandchildren (the `claude` binary the `claude-code-acp-ts` adapter spawns, and `agent-gui-server` under `--gui-mcp`) aren't signalled and may be orphaned. `serve` shutdown still stops its own HTTP sessions, but stray grandchildren can linger.
 - **No path-confinement in `yolo`**: `--approve auto` auto-approves every tool call regardless of target path; there is no writable-root guard yet (the Electron client's strict-permission gate hasn't been ported).
 - **Custom/third-party ACP engines** (pi-acp, hermes, kilo, openclaw, ...) aren't supported yet — only `claude` and `codex`.
-- **`serve --tunnel`** starts the local file server but does not yet establish a cloud tunnel (lanproxy has no independent distribution channel to fetch it from yet).
+- **`serve --tunnel`** starts the local file server but does not yet establish a cloud tunnel (lanproxy is the only preintegrated client resource and has no npm distribution to install from).
 - **Cloud session sync/listing**: `sessions`/`status` are local-only for now: there's no confirmed backend API yet for cross-device session history.
 
 ## How it works
 
 - ACP connection: `@agentclientprotocol/sdk`'s `client().connectWith(...)` builder, spawning the engine over stdio NDJSON.
-- `claude` engine: spawns the [`claude-code-acp-ts`](https://www.npmjs.com/package/claude-code-acp-ts) adapter (installed on first use, without its ~200MB optional platform binary — because `CLAUDE_CODE_EXECUTABLE` always points at *your* `claude`, the adapter's own bundled-binary fallback path is never reached).
-- `codex` engine: downloads the `nuwax-codex-acp` binary (a Rust codex-acp fork) from GitHub Releases on first use, cached in `~/.nuwaclaw-cli/engines/`.
-- Nothing is installed into your shell's global `node_modules`, and nuwaclaw-cli stores its own credentials, device id, tools/cache, logs, and serve lock under `~/.nuwaclaw-cli/`. If you also run the NuwaClaw Electron app, the two coexist on the same machine without sharing savedKey or local state; `serve` defaults to CLI-only ports 60016/60015, separate from Electron's 60005–60009 range.
+- `claude` engine: spawns the package dependency [`claude-code-acp-ts`](https://www.npmjs.com/package/claude-code-acp-ts) with `CLAUDE_CODE_EXECUTABLE` pointed at *your* `claude` binary.
+- `codex` engine: spawns the package dependency [`nuwax-codex-acp`](https://www.npmjs.com/package/nuwax-codex-acp); that package pulls the matching platform binary through npm optional dependencies.
+- `serve --tunnel`: starts the package dependency [`nuwax-file-server`](https://www.npmjs.com/package/nuwax-file-server). The actual cloud tunnel is still pending lanproxy integration.
+- Nothing is installed into your shell's global `node_modules`, and nuwaclaw-cli stores its own credentials, device id, cache, logs, and serve lock under `~/.nuwaclaw-cli/`. If you also run the NuwaClaw Electron app, the two coexist on the same machine without sharing savedKey or local state; `serve` defaults to CLI-only ports 60016/60015, separate from Electron's 60005–60009 range.
 
 ## Requirements
 

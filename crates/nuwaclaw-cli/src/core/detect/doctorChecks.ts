@@ -57,10 +57,10 @@ export function checkClaude(): DoctorCheckResult {
 }
 
 export function checkCodex(): DoctorCheckResult {
-  // nuwaclaw's codex engine (nuwax-codex-acp) embeds codex-core directly and
-  // never shells out to a separate `codex` binary — the real prerequisite is
-  // ~/.codex/auth.json, which any codex-using tool (CLI, Codex Desktop, the
-  // VS Code extension) can have produced. Only检测文件是否存在，不读取其内容。
+  // nuwaclaw's codex engine installs nuwax-codex-acp through npm. The local
+  // login-state prerequisite is ~/.codex/auth.json, which any Codex-using
+  // tool (CLI, Codex Desktop, the VS Code extension) can have produced.
+  // Only检测文件是否存在，不读取其内容。
   const binPath = findOnPath("codex");
   const version = binPath ? getVersion(binPath) : null;
   const authFile = path.join(os.homedir(), ".codex", "auth.json");

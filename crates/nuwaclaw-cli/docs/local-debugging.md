@@ -225,7 +225,7 @@ pnpm run dev:cli -- login --domain https://agent.nuwax.com --saved-key <key>
 pnpm run dev:cli -- serve --port 60016 --tunnel
 ```
 
-注意：当前只会启动本地 `nuwax-file-server`，不会真正建立云端 lanproxy 隧道。
+注意：当前只会启动本地 `nuwax-file-server`，不会真正建立云端 lanproxy 隧道；`nuwax-file-server` 随 CLI 的 npm/pnpm 依赖安装，lanproxy 是唯一预置资源。
 
 ## 测试建议
 

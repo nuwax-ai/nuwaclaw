@@ -39,8 +39,9 @@ Pre-release review of the `serve` lifecycle and permission model. Design rationa
 
 ### Design notes
 
-- The `claude` engine spawns the npm-published `claude-code-acp-ts` adapter with `CLAUDE_CODE_EXECUTABLE` pointed at the user's own `claude` binary, installed with `--omit=optional` to skip the ~200MB platform-specific binary that adapter would otherwise pull in as a fallback.
-- The `codex` engine downloads the `nuwax-codex-acp` binary from GitHub Releases on first use and caches it under `~/.nuwaclaw-cli/engines/`.
+- The `claude` engine spawns the npm package dependency `claude-code-acp-ts` with `CLAUDE_CODE_EXECUTABLE` pointed at the user's own `claude` binary.
+- The `codex` engine spawns the npm package dependency `nuwax-codex-acp`; the package pulls its platform binary through npm optional dependencies.
+- `serve --tunnel` now starts the npm package dependency `nuwax-file-server` instead of installing it lazily at runtime.
 - Both engines run with the caller's real environment inherited — no `HOME`/`XDG`/`CLAUDE_CONFIG_DIR` redirection, no default credential injection.
 - Cross-engine context (`--ref-session`) deliberately avoids eagerly expanding the referenced transcript into the prompt (prompt bloat, stale snapshots) in favor of an on-demand pull via the model's own shell tool — the same pattern the [tutti](https://tutti.sh) multi-agent workspace uses for cross-provider session references.
 - nuwaclaw-cli deliberately does not import Electron-client login data. Keeping CLI savedKey/device id/local state under `~/.nuwaclaw-cli/` and using ports 60016/60015 keeps it separated from the Electron client's `~/.nuwaclaw/` data and 60005-60009 port range.

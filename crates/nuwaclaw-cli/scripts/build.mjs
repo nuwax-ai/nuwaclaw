@@ -1,10 +1,10 @@
 /**
  * esbuild build script — bundles nuwaclaw CLI into a single ESM entry.
  *
- * Runtime dependencies are inlined; the published package ships only
- * dist/cli.js plus its shebang. No native deps, no postinstall downloads —
- * anything heavy (adapter runtimes, codex-acp binary) is fetched lazily at
- * runtime into ~/.nuwaclaw-cli, not bundled here.
+ * Runtime dependencies that the CLI imports directly are inlined; adapter
+ * packages resolved through require.resolve stay as normal npm/pnpm
+ * dependencies. No postinstall downloads are added here; lanproxy remains the
+ * only preintegrated-resource exception outside package dependencies.
  */
 
 import * as esbuild from "esbuild";
