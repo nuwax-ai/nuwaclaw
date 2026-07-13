@@ -2,8 +2,10 @@ import { describe, it, expect, vi, afterEach } from "vitest";
 import {
   registerClient,
   normalizeServerHost,
+  defaultSandboxValue,
   RegError,
 } from "../src/core/auth/regClient.js";
+import { CLI_AGENT_PORT, CLI_FILE_SERVER_PORT } from "../src/core/ports.js";
 
 function mockFetchOnce(status: number, body: unknown) {
   vi.stubGlobal(
@@ -105,5 +107,21 @@ describe("registerClient", () => {
     await expect(
       registerClient("https://example.com", params),
     ).rejects.toBeInstanceOf(RegError);
+  });
+});
+
+describe("defaultSandboxValue", () => {
+  it("uses the CLI-owned agent and file-server ports by default", () => {
+    expect(defaultSandboxValue()).toMatchObject({
+      agentPort: CLI_AGENT_PORT,
+      fileServerPort: CLI_FILE_SERVER_PORT,
+    });
+  });
+
+  it("allows serve --tunnel to override the current agent port", () => {
+    expect(defaultSandboxValue({ agentPort: 12345 })).toMatchObject({
+      agentPort: 12345,
+      fileServerPort: CLI_FILE_SERVER_PORT,
+    });
   });
 });

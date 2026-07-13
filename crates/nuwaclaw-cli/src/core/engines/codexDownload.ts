@@ -97,7 +97,7 @@ function extractArchive(
 
 /**
  * Downloads (if not already cached) the nuwax-codex-acp binary for the
- * current platform into ~/.nuwaclaw/engines/codex-acp/<version>/, mirroring
+ * current platform into ~/.nuwaclaw-cli/engines/codex-acp/<version>/, mirroring
  * the Electron client's prepare-codex-acp.js source/versioning. Only runs
  * when the user actually selects the codex engine — never during install.
  */

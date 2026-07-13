@@ -28,7 +28,7 @@ More local debugging scripts and step-by-step workflows live in [`docs/local-deb
 Most agent wrappers either bundle their own copy of the model runtime (heavy, and it can't see your existing login) or ask you to configure API keys again. `nuwaclaw` does neither:
 
 - **Inherits your environment.** `HOME`, `~/.claude`, `~/.codex`, MCP servers, skills, model preferences — all untouched. The engine sees exactly what your own `claude`/`codex` CLI would see.
-- **Installs almost nothing up front.** The npm package is a few hundred KB. Engine adapters and the codex binary are fetched into `~/.nuwaclaw` only the first time you actually use them.
+- **Installs almost nothing up front.** The npm package is a few hundred KB. Engine adapters and the codex binary are fetched into `~/.nuwaclaw-cli` only the first time you actually use them.
 - **Talks ACP.** Both engines are driven over the [Agent Client Protocol](https://agentclientprotocol.com), the same protocol editors like Zed use — not a scraped CLI wrapper.
 
 ## Commands
@@ -49,6 +49,7 @@ nuwaclaw chat --resume <sessionId>              # continue a specific one
 nuwaclaw chat --yolo                           # auto-approve tool calls
 nuwaclaw chat --mode acceptEdits               # engine-specific session mode
 nuwaclaw chat --gui-mcp                        # let the engine take screenshots / click / type
+nuwaclaw chat --handoff claude:<sessionId> -p "keep going"
 ```
 
 Flags:
@@ -62,6 +63,7 @@ Flags:
 | `--mode <modeId>` | Set an engine session mode (`acceptEdits`, `bypassPermissions`, `read-only`, `full-access`, ... — varies by engine) |
 | `--resume [sessionId]` | Resume a session from your local `claude`/`codex` history; omit the id to pick interactively |
 | `--ref-session <engine>:<sessionId>` | Point the model at a session from the *other* engine as background context (not a true resume — see below). Mutually exclusive with `--resume` |
+| `--handoff <engine>:<sessionId>` | Generate a structured handoff package from another local session and inject it into the first turn of a new ACP session. Mutually exclusive with `--resume` / `--ref-session` |
 | `--gui-mcp` / `--gui-mcp-path <dir>` | Give the engine desktop-automation tools (screenshot, click, type) via the `agent-gui-server` MCP |
 | `--api-key` / `--base-url` / `--model` | Override model connection — only needed if you don't want the engine's own configured provider |
 
@@ -71,13 +73,28 @@ By default nuwaclaw injects **no** credentials and overrides **no** model/skill/
 
 Lists local `claude`/`codex` session history (read directly from `~/.claude/projects` and `~/.codex/sessions`), so you can find a session id to resume.
 
-`nuwaclaw sessions summary --engine <claude|codex> --session-id <id> [--limit N]` prints a compact, engine-agnostic JSON digest of one session's full transcript (`{engine, sessionId, cwd, title, messages, hasMore}`). It's meant to be run by an *agent's own shell tool*, not a human — see `chat --ref-session` below.
+`nuwaclaw sessions summary --engine <claude|codex> --session-id <id> [--limit N]` prints a compact, engine-agnostic JSON digest of one session's full transcript (`{engine, sessionId, cwd, title, messages, hasMore}`). This is kept as a low-level compatibility command; the newer cross-agent context surface is `nuwaclaw context`.
+
+### `nuwaclaw context`
+
+An ACP-adjacent context reference layer. It does not replace ACP session lifecycle and does not perform cross-engine native resume; it only turns local session history into JSON a target agent can read on demand:
+
+```bash
+nuwaclaw context list --json
+nuwaclaw context read --ref claude:<sessionId> --limit 40 --json
+nuwaclaw context digest --ref claude:<sessionId> --json
+nuwaclaw context handoff --ref claude:<sessionId> --json
+```
+
+- `read`: normalized message stream, close to `sessions summary`.
+- `digest`: rule-based compact summary with recent goal, tool calls, file paths, decisions, open tasks, and risks.
+- `handoff`: structured package for another agent to take over the work.
 
 #### Cross-engine context with `chat --ref-session`
 
 ACP's `session/load` is engine-native — a `claude-code-acp-ts` session can't be resumed by `nuwax-codex-acp` and vice versa, since each only understands its own on-disk transcript format and tool-calling conventions. There's no true cross-engine resume, and `nuwaclaw` doesn't pretend otherwise.
 
-Instead, `chat --ref-session <engine>:<sessionId>` prepends a one-line reminder to the *first* prompt of a **new** session, pointing the model at `nuwaclaw sessions summary` so it can pull the other engine's history on demand — via its own already-available Bash tool, with no new MCP server or protocol needed:
+Instead, `chat --ref-session <engine>:<sessionId>` prepends a one-line reminder to the *first* prompt of a **new** session, pointing the model at `nuwaclaw context digest/read` so it can pull the other engine's history on demand — via its own already-available Bash tool, with no new MCP server or protocol needed:
 
 ```bash
 nuwaclaw chat --engine codex --ref-session claude:c6e84245-a81c-4563-b0c8-2f0e2cf4682a \
@@ -86,7 +103,9 @@ nuwaclaw chat --engine codex --ref-session claude:c6e84245-a81c-4563-b0c8-2f0e2c
 
 This mirrors how [tutti](https://tutti.sh) bridges context between claude-code/codex/cursor/etc: a short routing hint rather than eagerly dumping the whole transcript into the prompt, so the model reads only as much as it actually needs.
 
-`--ref-session` cannot be combined with `--resume` — the reminder only makes sense on a brand-new session's first turn, and a resumed session already has its own real history to continue, so `nuwaclaw` rejects the combination with an error rather than guessing which one you meant.
+`--handoff <engine>:<sessionId>` first generates a structured handoff package (goal, decisions, open tasks, files, risks, recent messages) and injects it into the first turn of a new ACP session. It is for "let another agent take over", but it is still not native resume.
+
+`--ref-session` / `--handoff` cannot be combined with `--resume`, and they are mutually exclusive with each other — they represent native resume, read-only reference, and handoff start respectively.
 
 This is local-only, read-only context sharing between two engines' history on the same machine — it's unrelated to (and doesn't require) the Nuwax cloud login below. There's no unified local+cloud session list yet; `sessions`/`sessions summary` only ever see local `~/.claude`/`~/.codex` history.
 
@@ -103,11 +122,11 @@ nuwaclaw config get
 nuwaclaw config set domain <host>
 ```
 
-Credentials live in `~/.nuwaclaw/cli/credentials.json` (mode `0600`). Passwords are never persisted.
+Credentials live in `~/.nuwaclaw-cli/credentials.json` (mode `0600`). Passwords are never persisted.
 
 `nuwaclaw status` also reports whether a local `serve` is running and on which port — read from a lockfile `serve` writes on listen. The `X-Nuwax-Internal-Secret` itself is still never persisted, so to actually call `/computer/chat` you must grab the secret from the serve process's startup output.
 
-If you already use the Electron NuwaClaw client on the same machine, `nuwaclaw login` (with no `--saved-key`/`-u`, and no prior nuwaclaw-cli login of its own) detects its saved login(s) — read-only, from its local SQLite settings file — and offers to reuse one instead of asking you to type/paste a key by hand. This only imports the *value*: nuwaclaw-cli still registers with its own device id, so it's an independent device from the Electron client's session, not a shared one.
+CLI login state is intentionally isolated from the NuwaClaw Electron client. `nuwaclaw login` never reads the Electron client's SQLite database and never reuses its savedKey; run it with `--saved-key` or `-u` to create CLI-owned credentials and a CLI-owned device id.
 
 ### `nuwaclaw serve`
 
@@ -148,8 +167,8 @@ Lifecycle:
 
 - ACP connection: `@agentclientprotocol/sdk`'s `client().connectWith(...)` builder, spawning the engine over stdio NDJSON.
 - `claude` engine: spawns the [`claude-code-acp-ts`](https://www.npmjs.com/package/claude-code-acp-ts) adapter (installed on first use, without its ~200MB optional platform binary — because `CLAUDE_CODE_EXECUTABLE` always points at *your* `claude`, the adapter's own bundled-binary fallback path is never reached).
-- `codex` engine: downloads the `nuwax-codex-acp` binary (a Rust codex-acp fork) from GitHub Releases on first use, cached in `~/.nuwaclaw/engines/`.
-- Nothing is installed into your shell's global `node_modules`, and nuwaclaw's own credentials live under `~/.nuwaclaw/cli/`. If you also run the NuwaClaw Electron app, the two coexist on the same machine: separate device ids, separate ports (`serve` defaults to 60016 vs. Electron's 60005–60009), and no writes to the Electron client's SQLite DB — `login` may *read* `~/.nuwaclaw/nuwaclaw.db` read-only to offer importing an already-saved login (see above).
+- `codex` engine: downloads the `nuwax-codex-acp` binary (a Rust codex-acp fork) from GitHub Releases on first use, cached in `~/.nuwaclaw-cli/engines/`.
+- Nothing is installed into your shell's global `node_modules`, and nuwaclaw-cli stores its own credentials, device id, tools/cache, logs, and serve lock under `~/.nuwaclaw-cli/`. If you also run the NuwaClaw Electron app, the two coexist on the same machine without sharing savedKey or local state; `serve` defaults to CLI-only ports 60016/60015, separate from Electron's 60005–60009 range.
 
 ## Requirements
 

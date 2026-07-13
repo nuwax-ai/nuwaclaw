@@ -12,9 +12,13 @@ import {
 } from "../core/acp/sessionHandle.js";
 import { resolveResumeTarget } from "./resolveResumeTarget.js";
 import { buildGuiAgentMcpServer } from "../core/mcp/guiServer.js";
-import { listLocalSessions } from "../core/sessions/discovery.js";
 import type { PermissionMode } from "../core/permissions/policy.js";
 import type { McpServer } from "@agentclientprotocol/sdk";
+import {
+  buildContextHandoff,
+  resolveContextRef,
+  shellQuote,
+} from "../core/context/context.js";
 
 export interface ChatCommandOptions {
   engine: string;
@@ -29,6 +33,7 @@ export interface ChatCommandOptions {
   baseUrl?: string;
   model?: string;
   refSession?: string;
+  handoff?: string;
 }
 
 /**
@@ -45,41 +50,43 @@ export async function resolveRefSessionReminder(
   refSession: string | undefined,
 ): Promise<string> {
   if (!refSession) return "";
-  const sep = refSession.indexOf(":");
-  if (sep === -1) {
-    throw new Error(
-      `--ref-session 格式应为 <engine>:<sessionId>，如 claude:xxxxxxxx`,
-    );
-  }
-  const refEngine = refSession.slice(0, sep);
-  const refSessionId = refSession.slice(sep + 1);
-  if (refEngine !== "claude" && refEngine !== "codex") {
-    throw new Error(`--ref-session 的引擎部分必须是 claude 或 codex`);
-  }
-  const refSessions = await listLocalSessions(refEngine);
-  const refMatch = refSessions.find((s) => s.sessionId === refSessionId);
-  if (!refMatch) {
-    throw new Error(
-      `未在本地 ${refEngine} 会话历史中找到 sessionId "${refSessionId}"（--ref-session）。`,
-    );
-  }
+  const refMatch = await resolveContextRef(refSession);
+  const quotedRef = shellQuote(`${refMatch.engine}:${refMatch.sessionId}`);
   return (
-    `<system-reminder>关联历史会话 [${refEngine}:${refSessionId}] cwd=${refMatch.cwd}；` +
-    `如需其中的上下文，运行 \`nuwaclaw sessions summary --engine ${refEngine} --session-id ${refSessionId} --json\` 查看，` +
-    `可加 --limit 只看最近 N 条；不要假设内容，需要时再查。</system-reminder>\n\n`
+    `<system-reminder>关联历史会话 [${refMatch.engine}:${refMatch.sessionId}] cwd=${refMatch.cwd}；` +
+    `如需其中的上下文，先运行 \`nuwaclaw context digest --ref ${quotedRef} --json\` 查看摘要；` +
+    `若仍不够，再运行 \`nuwaclaw context read --ref ${quotedRef} --limit 40 --json\` 查看最近消息；` +
+    `不要假设未读取的内容，需要时再查。</system-reminder>\n\n`
+  );
+}
+
+export async function resolveHandoffReminder(
+  handoff: string | undefined,
+): Promise<string> {
+  if (!handoff) return "";
+  const pack = await buildContextHandoff(handoff);
+  return (
+    `<system-reminder>以下是来自本地历史会话的结构化交接包。` +
+    `目标 Agent 当前仍是一个新的 ACP 会话；这不是原生续接。` +
+    `请把它当作接手工作的背景，必要时再运行 \`nuwaclaw context read --ref ${shellQuote(`${pack.source.engine}:${pack.source.sessionId}`)} --limit 40 --json\` 读取更多上下文。\n` +
+    `${JSON.stringify(pack)}\n` +
+    `</system-reminder>\n\n`
   );
 }
 
 export async function chatCommand(options: ChatCommandOptions): Promise<void> {
-  // Mutually exclusive: --ref-session's reminder is only meaningful on a
-  // brand-new session's opening turn. A resumed session already has real
-  // history, so silently prepending a reminder about a *different* session
-  // into its next turn would pollute that history with something unrelated
-  // to what's actually being continued — fail fast instead of guessing.
-  if (options.resume && options.refSession) {
+  // These are three different semantics: native same-engine ACP resume,
+  // read-only context reference, and structured handoff into a new ACP
+  // session. Combining them would make the first turn ambiguous.
+  const contextModes = [
+    options.resume ? "--resume" : "",
+    options.refSession ? "--ref-session" : "",
+    options.handoff ? "--handoff" : "",
+  ].filter(Boolean);
+  if (contextModes.length > 1) {
     console.error(
       pc.red(
-        "[nuwaclaw] --resume 与 --ref-session 不能同时使用：--ref-session 只在新建会话的首轮生效，与续接历史会话的语义冲突。",
+        `[nuwaclaw] --resume、--ref-session、--handoff 不能同时使用（收到：${contextModes.join(", ")}）。`,
       ),
     );
     process.exitCode = 1;
@@ -108,6 +115,16 @@ export async function chatCommand(options: ChatCommandOptions): Promise<void> {
     process.exitCode = 1;
     return;
   }
+
+  let handoffReminder: string;
+  try {
+    handoffReminder = await resolveHandoffReminder(options.handoff);
+  } catch (err) {
+    console.error(pc.red(`[nuwaclaw] ${(err as Error).message}`));
+    process.exitCode = 1;
+    return;
+  }
+  let firstTurnPrefix = refSessionReminder + handoffReminder;
   // A resumed session must be loaded with the cwd it was originally created
   // with — session/load correctness depends on it — so it overrides --cwd.
   const cwd = resumeTarget
@@ -194,7 +211,7 @@ export async function chatCommand(options: ChatCommandOptions): Promise<void> {
       await applySessionMode(ctx, session, options.mode, Boolean(options.yolo));
 
       if (options.print) {
-        await session.prompt(refSessionReminder + options.print);
+        await session.prompt(firstTurnPrefix + options.print);
         if (wroteAny) process.stdout.write("\n");
         return;
       }
@@ -226,8 +243,8 @@ export async function chatCommand(options: ChatCommandOptions): Promise<void> {
           if (trimmed === "/exit" || trimmed === "/quit") break;
           if (!trimmed) continue;
           wroteAny = false;
-          await session.prompt(refSessionReminder + line);
-          refSessionReminder = ""; // only the first turn carries the reminder
+          await session.prompt(firstTurnPrefix + line);
+          firstTurnPrefix = ""; // only the first turn carries context routing
           if (wroteAny) process.stdout.write("\n");
         }
       } finally {

@@ -28,7 +28,7 @@ pnpm run dev:chat -- -p "hello"
 大多数 Agent 封装要么自带一整套模型运行时（体积大，而且看不到你已有的登录态），要么让你重新配置一遍 API key。`nuwaclaw` 两者都不做：
 
 - **继承你的环境。** `HOME`、`~/.claude`、`~/.codex`、MCP server、skills、模型偏好——全部保持原样。引擎看到的，和你自己的 `claude`/`codex` CLI 看到的完全一致。
-- **几乎不预装东西。** npm 包只有几百 KB。引擎适配器和 codex 二进制只在**第一次真正用到时**才下载到 `~/.nuwaclaw`。
+- **几乎不预装东西。** npm 包只有几百 KB。引擎适配器和 codex 二进制只在**第一次真正用到时**才下载到 `~/.nuwaclaw-cli`。
 - **走 ACP 协议。** 两个引擎都通过 [Agent Client Protocol](https://agentclientprotocol.com) 驱动——和 Zed 等编辑器用的是同一套协议，而不是抓取 CLI 文本输出的那种封装。
 
 ## 命令
@@ -49,6 +49,7 @@ nuwaclaw chat --resume <sessionId>             # 续接指定会话
 nuwaclaw chat --yolo                           # 自动批准工具调用
 nuwaclaw chat --mode acceptEdits               # 设置引擎会话模式
 nuwaclaw chat --gui-mcp                        # 让引擎能截图 / 点击 / 输入
+nuwaclaw chat --handoff claude:<sessionId> -p "接着做"
 ```
 
 参数：
@@ -62,6 +63,7 @@ nuwaclaw chat --gui-mcp                        # 让引擎能截图 / 点击 / �
 | `--mode <modeId>` | 设置引擎会话模式（`acceptEdits`、`bypassPermissions`、`read-only`、`full-access` 等，因引擎而异） |
 | `--resume [sessionId]` | 从本地 `claude`/`codex` 历史续接会话；不带 id 时弹出交互选择 |
 | `--ref-session <engine>:<sessionId>` | 把**另一个**引擎的历史会话作为背景上下文指向给模型（不是真正的续接——见下文）。与 `--resume` 互斥 |
+| `--handoff <engine>:<sessionId>` | 从另一个本地会话生成结构化交接包，并在新的 ACP 会话首轮注入。与 `--resume` / `--ref-session` 互斥 |
 | `--gui-mcp` / `--gui-mcp-path <dir>` | 通过 `agent-gui-server` MCP 给引擎加上桌面自动化能力（截图、点击、输入） |
 | `--api-key` / `--base-url` / `--model` | 覆盖模型连接——仅当你不想用引擎自身已配置的 provider 时才需要 |
 
@@ -71,13 +73,28 @@ nuwaclaw chat --gui-mcp                        # 让引擎能截图 / 点击 / �
 
 列出本地 `claude`/`codex` 会话历史（直接读取 `~/.claude/projects` 与 `~/.codex/sessions`），方便你找到要续接的 session id。
 
-`nuwaclaw sessions summary --engine <claude|codex> --session-id <id> [--limit N]` 输出某个会话完整 transcript 的紧凑、跨引擎通用的 JSON 摘要（`{engine, sessionId, cwd, title, messages, hasMore}`）。它是给**Agent 自己的 shell 工具**调用的，不是给人看的——见下文 `chat --ref-session`。
+`nuwaclaw sessions summary --engine <claude|codex> --session-id <id> [--limit N]` 输出某个会话完整 transcript 的紧凑、跨引擎通用的 JSON 摘要（`{engine, sessionId, cwd, title, messages, hasMore}`）。这是底层兼容命令；新的跨 Agent 上下文入口见 `nuwaclaw context`。
+
+### `nuwaclaw context`
+
+ACP 之上的跨 Agent 上下文引用层。它不替代 ACP 会话生命周期，也不做跨引擎原生续接；只把本地会话历史解析成目标 Agent 可以按需读取的 JSON：
+
+```bash
+nuwaclaw context list --json
+nuwaclaw context read --ref claude:<sessionId> --limit 40 --json
+nuwaclaw context digest --ref claude:<sessionId> --json
+nuwaclaw context handoff --ref claude:<sessionId> --json
+```
+
+- `read`：规范化消息流，接近 `sessions summary`。
+- `digest`：规则型压缩摘要，包含最近目标、工具调用、文件路径、决策、待办和风险。
+- `handoff`：适合另一个 Agent 接手工作的结构化交接包。
 
 #### 用 `chat --ref-session` 做跨引擎上下文
 
 ACP 的 `session/load` 是引擎原生的——`claude-code-acp-ts` 的会话无法被 `nuwax-codex-acp` 续接，反之亦然，因为各自只理解自己的落盘 transcript 格式与工具调用约定。目前**没有真正的跨引擎续接**，`nuwaclaw` 也不假装有。
 
-取而代之，`chat --ref-session <engine>:<sessionId>` 会在**新**会话的**首轮** prompt 前加一行提醒，把模型指向 `nuwaclaw sessions summary`，让它**按需**拉取另一个引擎的历史——通过模型自带的 Bash 工具即可，无需新增 MCP server 或协议：
+取而代之，`chat --ref-session <engine>:<sessionId>` 会在**新**会话的**首轮** prompt 前加一行提醒，把模型指向 `nuwaclaw context digest/read`，让它**按需**拉取另一个引擎的历史——通过模型自带的 Bash 工具即可，无需新增 MCP server 或协议：
 
 ```bash
 nuwaclaw chat --engine codex --ref-session claude:c6e84245-a81c-4563-b0c8-2f0e2cf4682a \
@@ -86,7 +103,9 @@ nuwaclaw chat --engine codex --ref-session claude:c6e84245-a81c-4563-b0c8-2f0e2c
 
 这和 [tutti](https://tutti.sh) 在 claude-code/codex/cursor 等之间桥接上下文的方式一致：给一句简短的路由提示，而不是把整段 transcript 急切地塞进 prompt，模型只读它真正需要的那部分。
 
-`--ref-session` 不能和 `--resume` 同时使用——这个提醒只在新建会话的首轮有意义，续接会话本身已经有真实历史可以继续，两者同传时 `nuwaclaw` 会直接报错，而不是替你猜该按哪个来。
+`--handoff <engine>:<sessionId>` 则会先生成一个结构化交接包（目标、决策、待办、文件、风险、最近消息），并在新 ACP 会话的首轮注入。它适合“换一个 Agent 接手继续做”，但仍然不是原生续接。
+
+`--ref-session` / `--handoff` 不能和 `--resume` 同时使用，彼此之间也互斥——它们分别代表原生续接、只读引用和交接启动，混用会让首轮语义不清。
 
 这是同一台机器上两个引擎之间**本地、只读**的上下文共享，和下文的 Nuwax 云端登录无关、也不依赖它。目前**没有**本地+云端统一的会话列表——`sessions`/`sessions summary` 目前只能看到本地 `~/.claude`/`~/.codex` 的历史。
 
@@ -103,11 +122,11 @@ nuwaclaw config get
 nuwaclaw config set domain <host>
 ```
 
-凭证存放在 `~/.nuwaclaw/cli/credentials.json`（权限 `0600`）。密码永不落盘。
+凭证存放在 `~/.nuwaclaw-cli/credentials.json`（权限 `0600`）。密码永不落盘。
 
 `nuwaclaw status` 还会报告本地 `serve` 是否在运行、端口多少——读取的是 `serve` 启动时写的锁文件。`X-Nuwax-Internal-Secret` 本身**仍然永不落盘**，所以要实际调用 `/computer/chat` 还得从 serve 进程的启动输出里取 secret。
 
-如果这台机器上已经在用 Electron 版 NuwaClaw 客户端，`nuwaclaw login`（不带 `--saved-key`/`-u`，且 nuwaclaw-cli 自己还没登录过）会检测它保存的登录信息——只读，直接读它本地的 SQLite settings 文件——并提示是否直接复用，省去手动复制 key。这只导入**值**：nuwaclaw-cli 仍然用自己独立的 device id 注册，是和 Electron 客户端会话独立的另一台设备，不是共享同一个。
+nuwaclaw-cli 的登录态会与 NuwaClaw Electron 客户端完全隔离。`nuwaclaw login` 不会读取 Electron 客户端 SQLite，也不会复用它的 savedKey；请通过 `--saved-key` 或 `-u` 创建 CLI 自己的凭证和 device id。
 
 ### `nuwaclaw serve`
 
@@ -148,8 +167,8 @@ nuwaclaw serve --port 60016
 
 - ACP 连接：使用 `@agentclientprotocol/sdk` 的 `client().connectWith(...)` 构建器，通过 stdio NDJSON 拉起引擎。
 - `claude` 引擎：拉起 [`claude-code-acp-ts`](https://www.npmjs.com/package/claude-code-acp-ts) 适配器（首次使用时安装，并跳过它约 200MB 的可选平台二进制——因为 `CLAUDE_CODE_EXECUTABLE` 始终指向**你自己的** `claude`，适配器自带的 bundled-binary 回退路径永远不会走到）。
-- `codex` 引擎：首次使用时从 GitHub Releases 下载 `nuwax-codex-acp` 二进制（codex-acp 的 Rust fork），缓存到 `~/.nuwaclaw/engines/`。
-- 不会往你 shell 的全局 `node_modules` 里装任何东西，nuwaclaw 自己的凭证存放在 `~/.nuwaclaw/cli/` 下。若同时安装了 NuwaClaw Electron 桌面端，两者可在同一台机器共存：device id 独立、端口独立（`serve` 默认 60016，Electron 为 60005–60009），且不会写入 Electron 客户端的 SQLite——`login` 可能**只读**访问 `~/.nuwaclaw/nuwaclaw.db` 以提供复用已保存登录的选项（见上文）。
+- `codex` 引擎：首次使用时从 GitHub Releases 下载 `nuwax-codex-acp` 二进制（codex-acp 的 Rust fork），缓存到 `~/.nuwaclaw-cli/engines/`。
+- 不会往你 shell 的全局 `node_modules` 里装任何东西，nuwaclaw-cli 自己的 credentials、device id、tools/cache、logs、serve lock 都存放在 `~/.nuwaclaw-cli/` 下。若同时安装了 NuwaClaw Electron 桌面端，两者可在同一台机器共存但不共享 savedKey 或本地状态；`serve` 默认使用 CLI 专属端口 60016/60015，与 Electron 的 60005–60009 范围分开。
 
 ## 运行要求
 

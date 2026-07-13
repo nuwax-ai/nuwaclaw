@@ -74,11 +74,10 @@ describe("buildGuiAgentMcpServer", () => {
     ]);
   });
 
-  it("resolves an already-installed package under ~/.nuwaclaw/cli/tools without needing devPath", async () => {
+  it("resolves an already-installed package under ~/.nuwaclaw-cli/tools without needing devPath", async () => {
     const installed = path.join(
       tmpHome,
-      ".nuwaclaw",
-      "cli",
+      ".nuwaclaw-cli",
       "tools",
       "node_modules",
       "agent-gui-server",

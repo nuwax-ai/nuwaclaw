@@ -75,7 +75,7 @@ pnpm run dev:doctor
 说明：
 
 - 可选项未配置（例如还没 `nuwaclaw login`、没装 gui-agent）不算失败，适合脚本/CI 反复调用（例如 `pnpm run dev:doctor` 不应因未登录 Nuwax 而误报失败）。
-- 若本机已安装 NuwaClaw Electron 客户端且存在 `~/.nuwaclaw/nuwaclaw.db`，Nuwax 登录项的修复提示会建议直接运行 `nuwaclaw login` 复用客户端已保存的登录（`doctor` 本身只检查 db 文件是否存在，不会读取 sqlite）。
+- nuwaclaw-cli 的登录态与 NuwaClaw Electron 客户端隔离；`doctor` 不检查也不读取客户端 DB，只提示手动 `login --domain --saved-key`。
 
 ## 逐项调试
 
@@ -203,17 +203,7 @@ pnpm run dev:cli -- login --domain https://agent.nuwax.com --saved-key <key>
 pnpm run dev:cli -- login --domain https://agent.nuwax.com -u <username>
 ```
 
-若本机已用 NuwaClaw Electron 客户端登录过，且 nuwaclaw-cli 自己尚未登录，可直接运行：
-
-```bash
-pnpm run dev:cli -- login
-```
-
-会检测 `~/.nuwaclaw/nuwaclaw.db` 中保存的登录（只读），单个匹配时确认复用，多个匹配时弹出选择器。只导入凭证值，注册时仍使用 nuwaclaw-cli 自己的 device id，与 Electron 客户端会话独立。`--domain` 可缩小检测范围：
-
-```bash
-pnpm run dev:cli -- login --domain https://agent.nuwax.com
-```
+nuwaclaw-cli 不读取 NuwaClaw Electron 客户端登录数据。无 CLI 自有 savedKey 且未传 `--saved-key` / `-u` 时，`login` 会直接失败并提示手动提供登录参数。
 
 查看当前登录态：
 
@@ -223,7 +213,7 @@ pnpm run dev:cli -- status
 
 ### 调试 `serve --tunnel`
 
-先确保已经登录（见上方 `login` 小节；有 Electron 客户端时可直接 `pnpm run dev:cli -- login`）：
+先确保已经登录（见上方 `login` 小节）：
 
 ```bash
 pnpm run dev:cli -- login --domain https://agent.nuwax.com --saved-key <key>
@@ -260,7 +250,7 @@ pnpm run test:run -- tests/transcript.test.ts tests/sessionsSummary.test.ts test
 ### 跑 `doctor` / `login` / Electron 导入回归
 
 ```bash
-pnpm run test:run -- tests/doctor.test.ts tests/doctorChecks.test.ts tests/login.test.ts tests/electronImport.test.ts
+pnpm run test:run -- tests/doctor.test.ts tests/doctorChecks.test.ts tests/login.test.ts
 ```
 
 ### 监听模式

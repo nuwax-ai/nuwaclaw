@@ -72,7 +72,10 @@ describe("resolveRefSessionReminder", () => {
     expect(reminder).toContain("claude:s1");
     expect(reminder).toContain("cwd=/p");
     expect(reminder).toContain(
-      "nuwaclaw sessions summary --engine claude --session-id s1 --json",
+      "nuwaclaw context digest --ref 'claude:s1' --json",
+    );
+    expect(reminder).toContain(
+      "nuwaclaw context read --ref 'claude:s1' --limit 40 --json",
     );
     expect(reminder.endsWith("\n\n")).toBe(true);
   });
@@ -99,6 +102,37 @@ describe("resolveRefSessionReminder", () => {
     const { resolveRefSessionReminder } =
       await import("../src/commands/chat.js");
     const reminder = await resolveRefSessionReminder("codex:weird:id");
-    expect(reminder).toContain("--session-id weird:id");
+    expect(reminder).toContain("--ref 'codex:weird:id'");
+  });
+
+  it("builds a structured handoff reminder without treating it as ACP native resume", async () => {
+    const projectDir = path.join(tmpHome, ".claude", "projects", "-p");
+    fs.mkdirSync(projectDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(projectDir, "s2.jsonl"),
+      [
+        JSON.stringify({
+          type: "user",
+          sessionId: "s2",
+          cwd: "/p",
+          message: { role: "user", content: "继续完善 src/cli.ts" },
+        }),
+        JSON.stringify({
+          type: "assistant",
+          sessionId: "s2",
+          cwd: "/p",
+          message: {
+            role: "assistant",
+            content: [{ type: "text", text: "结论：新增 context 命令。" }],
+          },
+        }),
+      ].join("\n") + "\n",
+    );
+
+    const { resolveHandoffReminder } = await import("../src/commands/chat.js");
+    const reminder = await resolveHandoffReminder("claude:s2");
+    expect(reminder).toContain("新的 ACP 会话");
+    expect(reminder).toContain('"sessionId":"s2"');
+    expect(reminder).toContain("新增 context 命令");
   });
 });

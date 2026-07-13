@@ -1,3 +1,5 @@
+import { CLI_AGENT_PORT, CLI_FILE_SERVER_PORT } from "../ports.js";
+
 const SUCCESS_CODE = "0000";
 
 const ERROR_MESSAGES: Record<string, string> = {
@@ -83,9 +85,9 @@ export function defaultSandboxValue(
 ): SandboxValue {
   return {
     hostWithScheme: "http://127.0.0.1",
-    agentPort: 60016,
+    agentPort: CLI_AGENT_PORT,
     vncPort: 0,
-    fileServerPort: 60015,
+    fileServerPort: CLI_FILE_SERVER_PORT,
     guiMcpPort: 0,
     adminServerPort: 0,
     ttydPort: 0,

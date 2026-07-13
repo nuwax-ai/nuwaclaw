@@ -12,6 +12,7 @@ import {
   defaultSandboxValue,
   RegError,
 } from "../core/auth/regClient.js";
+import { CLI_AGENT_PORT } from "../core/ports.js";
 
 export interface ServeCommandOptions {
   port?: string;
@@ -38,7 +39,7 @@ export async function serveCommand(
   }
 
   const cwd = path.resolve(options.cwd ?? process.cwd());
-  const port = Number(options.port ?? 60016);
+  const port = Number(options.port ?? CLI_AGENT_PORT);
   const host = options.host ?? "127.0.0.1";
   // Validate explicitly so a typo (e.g. `--approve deni`, `--approve strict`)
   // errors out instead of silently falling through to yolo (full auto-approve).

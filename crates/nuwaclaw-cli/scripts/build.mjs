@@ -4,7 +4,7 @@
  * Runtime dependencies are inlined; the published package ships only
  * dist/cli.js plus its shebang. No native deps, no postinstall downloads —
  * anything heavy (adapter runtimes, codex-acp binary) is fetched lazily at
- * runtime into ~/.nuwaclaw, not bundled here.
+ * runtime into ~/.nuwaclaw-cli, not bundled here.
  */
 
 import * as esbuild from "esbuild";

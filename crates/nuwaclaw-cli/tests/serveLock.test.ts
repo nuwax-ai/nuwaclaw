@@ -32,6 +32,9 @@ describe("serveLock", () => {
     };
     writeServeLock(info);
     expect(readServeLock()).toEqual(info);
+    expect(cliServeLockPath()).toBe(
+      path.join(tmpHome, ".nuwaclaw-cli", "serve.lock"),
+    );
     expect(fs.existsSync(cliServeLockPath())).toBe(true);
     clearServeLock();
     expect(readServeLock()).toBeNull();

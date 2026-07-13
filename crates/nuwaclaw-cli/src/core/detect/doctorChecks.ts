@@ -3,7 +3,6 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { cliCredentialsPath, cliToolsDir } from "../../util/paths.js";
 import { findOnPath, getVersion } from "../../util/which.js";
-import { hasElectronLoginData } from "../auth/electronImport.js";
 
 export interface DoctorCheckResult {
   id: string;
@@ -146,19 +145,8 @@ export function checkTccRisk(): DoctorCheckResult {
   };
 }
 
-/**
- * Fix hint for "not logged in, no own savedKey to fall back on" — mentions
- * the Electron-import auto-detect (see login.ts's offerElectronImport) when
- * there's actually something for it to find, since `nuwaclaw login` alone
- * will trigger that flow rather than requiring manual --domain/--saved-key.
- * Only checks for the *db file's existence*, not its contents — reading it
- * would lazy-install better-sqlite3, a side effect `doctor` (read-only,
- * frequently re-run) shouldn't cause just to print a hint.
- */
 function noOwnLoginFixHint(): string {
-  return hasElectronLoginData()
-    ? "检测到本机 NuwaClaw 客户端保存的登录，运行 `nuwaclaw login` 即可选择复用（或用 --domain/--saved-key 手动登录）"
-    : "运行 `nuwaclaw login --domain <host> --saved-key <key>` 登录";
+  return "运行 `nuwaclaw login --domain <host> --saved-key <key>` 登录";
 }
 
 export function checkNuwaxLogin(): DoctorCheckResult {

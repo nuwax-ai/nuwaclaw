@@ -12,6 +12,13 @@ import {
 } from "./commands/login.js";
 import { configGetCommand, configSetCommand } from "./commands/config.js";
 import { serveCommand } from "./commands/serve.js";
+import {
+  contextDigestCommand,
+  contextHandoffCommand,
+  contextListCommand,
+  contextReadCommand,
+} from "./commands/context.js";
+import { CLI_AGENT_PORT } from "./core/ports.js";
 
 const pkgVersion = "0.1.0";
 
@@ -48,6 +55,10 @@ program
     "--ref-session <engine:sessionId>",
     "关联另一个引擎的历史会话作为上下文（如 claude:xxxx）；不是真续接，" +
       "只在首轮提醒模型按需运行 `sessions summary` 查看",
+  )
+  .option(
+    "--handoff <engine:sessionId>",
+    "从另一个本地会话生成结构化交接包，并在新 ACP 会话首轮注入",
   )
   .option(
     "--gui-mcp",
@@ -88,6 +99,37 @@ sessions
   .option("--json", "以 JSON 输出（当前是唯一输出格式）")
   .action(sessionsSummaryCommand);
 
+const context = program
+  .command("context")
+  .description("跨 Agent 上下文引用与交接（ACP 会话之上的只读辅助层）");
+context
+  .command("list")
+  .description("列出本地可引用上下文")
+  .option("--engine <engine>", "只看某个引擎：claude 或 codex")
+  .option("--json", "以 JSON 输出")
+  .action(contextListCommand);
+context
+  .command("read")
+  .description("读取一个本地会话的规范化消息流 JSON")
+  .requiredOption("--ref <engine:sessionId>", "上下文引用，如 claude:xxxx")
+  .option("--limit <n>", "只返回最近 N 条消息")
+  .option("--json", "以 JSON 输出（当前是唯一输出格式）")
+  .action(contextReadCommand);
+context
+  .command("digest")
+  .description("输出一个本地会话的规则型压缩摘要 JSON")
+  .requiredOption("--ref <engine:sessionId>", "上下文引用，如 claude:xxxx")
+  .option("--limit <n>", "最多读取最近 N 条消息参与摘要")
+  .option("--json", "以 JSON 输出（当前是唯一输出格式）")
+  .action(contextDigestCommand);
+context
+  .command("handoff")
+  .description("输出一个适合跨 Agent 接手工作的结构化交接包 JSON")
+  .requiredOption("--ref <engine:sessionId>", "上下文引用，如 claude:xxxx")
+  .option("--limit <n>", "最多读取最近 N 条消息参与交接包")
+  .option("--json", "以 JSON 输出（当前是唯一输出格式）")
+  .action(contextHandoffCommand);
+
 program
   .command("login")
   .description("登录 Nuwax 云账号（domain+savedKey，无 UI）")
@@ -122,7 +164,7 @@ config
 program
   .command("serve")
   .description("启动本机 HTTP API（chat + SSE），供脚本/云端/IM 远程调度")
-  .option("--port <port>", "监听端口", "60016")
+  .option("--port <port>", "监听端口", String(CLI_AGENT_PORT))
   .option("--host <host>", "监听地址", "127.0.0.1")
   .option("--engine <engine>", "使用的引擎：claude 或 codex", "claude")
   .option("--cwd <dir>", "工作目录", process.cwd())

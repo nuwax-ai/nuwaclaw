@@ -35,10 +35,8 @@
     "zod": "^3.25.0"
   },
   "devDependencies": {
-    "@types/better-sqlite3": "^7.6.13",
     "@types/node": "^22.0.0",
     "@vitest/coverage-v8": "^2.1.9",
-    "better-sqlite3": "^12.11.1",
     "esbuild": "^0.27.3",
     "typescript": "^5.7.0",
     "vitest": "^2.1.8"

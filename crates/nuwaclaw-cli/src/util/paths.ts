@@ -3,11 +3,11 @@ import * as path from "node:path";
 import * as fs from "node:fs";
 
 export function nuwaclawHome(): string {
-  return path.join(os.homedir(), ".nuwaclaw");
+  return path.join(os.homedir(), ".nuwaclaw-cli");
 }
 
 export function cliDir(): string {
-  return path.join(nuwaclawHome(), "cli");
+  return nuwaclawHome();
 }
 
 export function cliConfigPath(): string {

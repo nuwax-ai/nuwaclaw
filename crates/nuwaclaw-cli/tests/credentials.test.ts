@@ -29,7 +29,7 @@ describe("credentials", () => {
     const { writeCredentials } =
       await import("../src/core/auth/credentials.js");
     writeCredentials({ domain: "https://example.com", savedKey: "sk" });
-    const filePath = path.join(tmpHome, ".nuwaclaw", "cli", "credentials.json");
+    const filePath = path.join(tmpHome, ".nuwaclaw-cli", "credentials.json");
     const mode = fs.statSync(filePath).mode & 0o777;
     expect(mode).toBe(0o600);
   });
@@ -47,7 +47,7 @@ describe("credentials", () => {
   });
 
   it("readCredentials returns {} for a corrupted file instead of throwing", async () => {
-    const filePath = path.join(tmpHome, ".nuwaclaw", "cli", "credentials.json");
+    const filePath = path.join(tmpHome, ".nuwaclaw-cli", "credentials.json");
     fs.mkdirSync(path.dirname(filePath), { recursive: true });
     fs.writeFileSync(filePath, "{not json");
     const { readCredentials } = await import("../src/core/auth/credentials.js");

@@ -94,7 +94,7 @@
 
 ## 可观测性：serve 锁与 `status`
 
-`serve` 在 `listening` 时写一份**不含 secret**的轻量锁 `~/.nuwaclaw/cli/serve.lock`（`{pid, port, host, startedAt}`），`stop()` 清除。`nuwaclaw status` 读取该锁并探活 `GET /health`（无需 secret），输出运行态：
+`serve` 在 `listening` 时写一份**不含 secret**的轻量锁 `~/.nuwaclaw-cli/serve.lock`（`{pid, port, host, startedAt}`），`stop()` 清除。`nuwaclaw status` 读取该锁并探活 `GET /health`（无需 secret），输出运行态：
 
 - **运行中**：端口 / PID / 启动时间 / 地址；并提示 `X-Nuwax-Internal-Secret` 仅启动时打印、未落盘（要调用 `/computer/chat` 仍需从启动日志取 secret）。
 - **异常**：锁存在、PID 活着但 `/health` 无响应（可能仍在启动或不健康）。

@@ -20,7 +20,7 @@ function adapterEntryPath(): string {
 }
 
 /**
- * Installs the ACP adapter (a thin ~300KB JS package) into ~/.nuwaclaw/cli/tools.
+ * Installs the ACP adapter (a thin ~300KB JS package) into ~/.nuwaclaw-cli/tools.
  * `--omit=optional` skips the ~210MB platform-specific claude binary that
  * @anthropic-ai/claude-agent-sdk would otherwise pull down — safe because the
  * adapter's own claudeCliPath() checks CLAUDE_CODE_EXECUTABLE first and never
