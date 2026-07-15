@@ -42,13 +42,17 @@ describe("config get/set", () => {
   it("configGetCommand() with no key prints all three fields without throwing", async () => {
     const { configSetCommand, configGetCommand } =
       await import("../src/commands/config.js");
+    const { updateCredentials } =
+      await import("../src/core/auth/credentials.js");
     await configSetCommand("domain", "example.com");
     await configSetCommand("username", "alice");
+    updateCredentials({ computerName: "我的电脑001" });
     const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
     await configGetCommand();
     const printed = logSpy.mock.calls.map((c) => c[0]).join("\n");
     expect(printed).toContain("example.com");
     expect(printed).toContain("alice");
+    expect(printed).toContain("computer-name: 我的电脑001");
     logSpy.mockRestore();
   });
 });

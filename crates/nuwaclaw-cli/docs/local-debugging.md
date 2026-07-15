@@ -25,12 +25,26 @@
     "dev:chat:codex": "node dist/cli.js chat --engine codex",
     "dev:sessions": "node dist/cli.js sessions",
     "dev:sessions:summary": "node dist/cli.js sessions summary",
+    "dev:up": "node dist/cli.js up",
     "dev:serve": "node dist/cli.js serve --port 60016",
     "test": "vitest",
     "test:run": "vitest run"
   }
 }
 ```
+
+## 源码结构速记
+
+CLI 入口已经拆成注册层与执行层，新增命令时优先按这个边界放置：
+
+- `src/cli.ts`：极薄入口，只创建 program 并 `parseAsync`。
+- `src/cli/createProgram.ts`：创建顶层 commander program，集中注册命令组。
+- `src/cli/register*.ts`：按领域注册命令组，例如 agent、本地 context、云账号、serve/up、update。
+- `src/cli/options.ts`：共享 commander 选项和 help 文案，例如 Nuwax 登录参数、serve/up 运行参数、模型覆盖参数。
+- `src/commands/*.ts`：命令行为实现，只处理业务流程，不负责顶层命令树组织。
+- `src/core/**`：可复用核心能力，例如 ACP、auth、engines、serve、sessions、ports。
+
+约定：不要把新命令直接堆回 `src/cli.ts`；先判断属于哪个 `register*.ts`，需要复用的 option/help 放到 `src/cli/options.ts`。
 
 ## 推荐调试流程
 
@@ -82,17 +96,137 @@ pnpm run dev:doctor
 ### 调试基础 CLI 入口
 
 ```bash
-pnpm run dev:cli -- --help
+pnpm run dev:cli --help
+pnpm run dev:cli login --help
+pnpm run dev:cli up --help
+pnpm run dev:cli update --help
+pnpm run dev:cli account --help
+pnpm run dev:cli account switch --help
 ```
 
-注意：通过包管理器转发参数时，`--` 不能省略。
+注意：当前 pnpm 会把命令后面的参数直接追加到脚本命令后面；不要额外插入 `--`，否则 `node dist/cli.js` 会收到一个多余的 `--` 并导致 commander 解析错位。
+
+### 未发布 npm 时模拟安装运行
+
+开发期最直接的方式是跑构建产物：
+
+```bash
+cd crates/nuwaclaw-cli
+pnpm install
+pnpm run build
+pnpm run dev:cli doctor
+pnpm run dev:up --domain https://agent.nuwax.com --saved-key <key> --engine claude
+```
+
+如果要模拟“用户已经安装了 `nuwaclaw` 命令”的体验，可以用本地 link：
+
+```bash
+cd crates/nuwaclaw-cli
+pnpm install
+pnpm run build
+npm link
+nuwaclaw --help
+nuwaclaw doctor
+```
+
+调试结束后取消全局 link：
+
+```bash
+npm unlink -g nuwaclaw
+```
+
+如果要更接近 npm 发布后的安装形态，可以先打本地 tarball，再在临时目录安装：
+
+```bash
+cd crates/nuwaclaw-cli
+pnpm install
+pnpm run build
+mkdir -p /tmp/nuwaclaw-pack
+pnpm pack --pack-destination /tmp/nuwaclaw-pack
+
+tmpdir="$(mktemp -d)"
+cd "$tmpdir"
+npm init -y
+npm install /tmp/nuwaclaw-pack/nuwaclaw-0.1.0.tgz
+npx nuwaclaw --help
+npx nuwaclaw doctor
+```
+
+这种方式会验证 `package.json` 的 `bin`、`files`、依赖解析和 `dist/cli.js` 产物是否像真实 npm 安装一样工作。未发布 npm 时不能通过 `npx nuwaclaw@latest up` 拉取远端包，但可以用本地 tarball 的 `npx nuwaclaw up` 或 `npm link` 后的 `nuwaclaw up` 调试同一条命令。
+
+### 调试 `update`
+
+`update` 默认会执行全局包升级。开发期建议先用 `--dry-run` 验证命令拼接：
+
+```bash
+pnpm run dev:cli update --dry-run
+pnpm run dev:cli update 0.2.0 --dry-run
+pnpm run dev:cli update --package-manager pnpm --dry-run
+```
+
+只查询远端目标版本：
+
+```bash
+pnpm run dev:cli update --check
+```
+
+如果要验证安装态，可以先 `npm link` 或安装本地 tarball，再执行：
+
+```bash
+nuwaclaw update --dry-run
+nuwaclaw update --check
+```
+
+`update` 不读写 `~/.nuwaclaw-cli/credentials.json`，不会影响 savedKey、账号列表或正在运行的服务。真正执行 `nuwaclaw update` 后，需要重新打开 shell 或确认 `which nuwaclaw` 指向刚升级的全局包路径。
+
+### 调试 `up`
+
+`up` 会串联：检测可用引擎、登录/注册、启动 `serve --tunnel`。
+
+savedKey 方式：
+
+```bash
+pnpm run dev:up --domain https://agent.nuwax.com --saved-key <key> --engine claude
+```
+
+账号密码方式：
+
+```bash
+pnpm run dev:up --domain https://agent.nuwax.com -u <username> --engine claude
+```
+
+非交互密码方式：
+
+```bash
+NUWACLAW_PASSWORD='<password>' pnpm run dev:up \
+  --domain https://agent.nuwax.com \
+  -u <username> \
+  --engine claude
+```
+
+如果同一 `domain + username` 已经在 `~/.nuwaclaw-cli/credentials.json` 里保存过，`up -u` 会复用该账号 savedKey，避免后端新建电脑。不传 `--domain` / `-u` / `--saved-key` 时，`up` 会使用当前默认账号。
+
+本地 tarball 方式：
+
+```bash
+cd crates/nuwaclaw-cli
+pnpm run build
+mkdir -p /tmp/nuwaclaw-pack
+pnpm pack --pack-destination /tmp/nuwaclaw-pack
+
+tmpdir="$(mktemp -d)"
+cd "$tmpdir"
+npm init -y
+npm install /tmp/nuwaclaw-pack/nuwaclaw-0.1.0.tgz
+npx nuwaclaw up --domain https://agent.nuwax.com --saved-key <key> --engine claude
+```
 
 ### 调试 `chat`
 
 Claude 单次调用：
 
 ```bash
-pnpm run dev:chat -- -p "hello"
+pnpm run dev:chat -p "hello"
 ```
 
 Claude 交互模式：
@@ -104,13 +238,13 @@ pnpm run dev:chat
 Codex 单次调用：
 
 ```bash
-pnpm run dev:chat:codex -- -p "summarize this repository"
+pnpm run dev:chat:codex -p "summarize this repository"
 ```
 
 带 `gui-mcp` 的调试：
 
 ```bash
-pnpm run dev:chat -- --gui-mcp -p "take a screenshot"
+pnpm run dev:chat --gui-mcp -p "take a screenshot"
 ```
 
 ### 调试本地会话列表
@@ -124,25 +258,25 @@ pnpm run dev:sessions
 只看 Claude：
 
 ```bash
-pnpm run dev:sessions -- --engine claude
+pnpm run dev:sessions --engine claude
 ```
 
 只看 Codex：
 
 ```bash
-pnpm run dev:sessions -- --engine codex
+pnpm run dev:sessions --engine codex
 ```
 
 ### 调试 `sessions summary`
 
 ```bash
-pnpm run dev:sessions:summary -- --engine claude --session-id <sessionId>
+pnpm run dev:sessions:summary --engine claude --session-id <sessionId>
 ```
 
 只看最近 5 条消息：
 
 ```bash
-pnpm run dev:sessions:summary -- --engine claude --session-id <sessionId> --limit 5
+pnpm run dev:sessions:summary --engine claude --session-id <sessionId> --limit 5
 ```
 
 ### 调试跨引擎引用
@@ -150,7 +284,7 @@ pnpm run dev:sessions:summary -- --engine claude --session-id <sessionId> --limi
 这个能力不是“真续接”，而是在**新会话首轮**注入一个提醒，让模型按需去调用 `sessions summary`：
 
 ```bash
-pnpm run dev:chat:codex -- --ref-session claude:<sessionId> -p "那个会话里最后决定了什么？"
+pnpm run dev:chat:codex --ref-session claude:<sessionId> -p "那个会话里最后决定了什么？"
 ```
 
 注意：
@@ -172,10 +306,10 @@ pnpm run dev:serve
 curl http://127.0.0.1:60016/health
 ```
 
-查看 serve 是否在运行及端口（读取 serve 启动时写的锁文件并探活 `/health`，无需 secret）：
+`serve` 会优先使用 `60016`，如果已占用会自动向后找可用端口；实际端口以启动日志或 `status` 为准。查看 serve 是否在运行及端口（读取 serve 启动时写的锁文件并探活 `/health`，无需 secret）：
 
 ```bash
-pnpm run dev:cli -- status
+pnpm run dev:cli status
 ```
 
 如果调试 `/computer/chat`，需要从启动日志里拿到 `X-Nuwax-Internal-Secret`。
@@ -194,21 +328,30 @@ curl -X POST http://127.0.0.1:60016/computer/chat \
 手动指定 savedKey（适合 CI 或无 Electron 客户端的环境）：
 
 ```bash
-pnpm run dev:cli -- login --domain https://agent.nuwax.com --saved-key <key>
+pnpm run dev:cli login --domain https://agent.nuwax.com --saved-key <key>
 ```
 
 首次登录（交互输入密码）：
 
 ```bash
-pnpm run dev:cli -- login --domain https://agent.nuwax.com -u <username>
+pnpm run dev:cli login --domain https://agent.nuwax.com -u <username>
 ```
 
-nuwaclaw-cli 不读取 NuwaClaw Electron 客户端登录数据。无 CLI 自有 savedKey 且未传 `--saved-key` / `-u` 时，`login` 会直接失败并提示手动提供登录参数。
+nuwaclaw-cli 不读取 NuwaClaw Electron 客户端登录数据。CLI 不使用 SQLite，凭证只写入 `~/.nuwaclaw-cli/credentials.json`；同一 `domain + username` 已保存时会复用 savedKey。无当前默认账号、无 CLI 自有 savedKey 且未传 `--saved-key` / `-u` 时，`login` 会直接失败并提示手动提供登录参数。
+
+调试多账号：
+
+```bash
+pnpm run dev:cli account list
+pnpm run dev:cli account switch <account-key>
+```
+
+`account switch` 会重新注册目标账号并设置为当前默认账号。切换会影响 `serve`、file-server、lanproxy 和后端注册状态，不支持热切换；如果 `serve` 正在运行，先在运行 `up/serve` 的终端按 `Ctrl-C`，再执行切换并重新启动服务。
 
 查看当前登录态：
 
 ```bash
-pnpm run dev:cli -- status
+pnpm run dev:cli status
 ```
 
 ### 调试 `serve --tunnel`
@@ -216,16 +359,28 @@ pnpm run dev:cli -- status
 先确保已经登录（见上方 `login` 小节）：
 
 ```bash
-pnpm run dev:cli -- login --domain https://agent.nuwax.com --saved-key <key>
+pnpm run dev:cli login --domain https://agent.nuwax.com --saved-key <key>
 ```
 
 再启动：
 
 ```bash
-pnpm run dev:cli -- serve --port 60016 --tunnel
+pnpm run dev:cli serve --port 60016 --tunnel \
+  --lanproxy-path resources/lanproxy \
+  --lanproxy-host agent.nuwax.com \
+  --lanproxy-port 443
 ```
 
-注意：当前只会启动本地 `nuwax-file-server`，不会真正建立云端 lanproxy 隧道；`nuwax-file-server` 随 CLI 的 npm/pnpm 依赖安装，lanproxy 是唯一预置资源。
+注意：`nuwax-file-server` 随 CLI 的 npm/pnpm 依赖安装；lanproxy 是 CLI 自己的预置资源，源码目录在 `crates/nuwaclaw-cli/resources/lanproxy`，构建时会复制到 `dist/resources/lanproxy`。`--lanproxy-path`、`config set lanproxy-path` 或 `NUWACLAW_LANPROXY_PATH` 只用于覆盖内置资源或调试指定二进制。若注册接口返回 `serverHost`/`serverPort`，可省略 `--lanproxy-host` / `--lanproxy-port`。
+
+端口隔离：HTTP API 默认优先 `60016`，file-server 默认优先 `60015`；两者若被占用都会自动后移。file-server 的 PID/lock 临时目录按端口固定在 `~/.nuwaclaw-cli/tmp/file-server-<port>`，不会复用系统默认的 `nuwax-file-server` 全局 PID 目录。
+
+后台运行：
+
+```bash
+pnpm run dev:cli serve --port 60016 --tunnel --daemon
+tail -f ~/.nuwaclaw-cli/logs/serve.log
+```
 
 ## 测试建议
 
@@ -247,10 +402,10 @@ pnpm run test:run -- tests/transcript.test.ts
 pnpm run test:run -- tests/transcript.test.ts tests/sessionsSummary.test.ts tests/resolveRefSessionReminder.test.ts
 ```
 
-### 跑 `doctor` / `login` / Electron 导入回归
+### 跑 `doctor` / `login` / account 回归
 
 ```bash
-pnpm run test:run -- tests/doctor.test.ts tests/doctorChecks.test.ts tests/login.test.ts
+pnpm run test:run -- tests/doctor.test.ts tests/doctorChecks.test.ts tests/login.test.ts tests/account.test.ts tests/credentials.test.ts tests/update.test.ts
 ```
 
 ### 监听模式
@@ -270,9 +425,9 @@ pnpm test
 - `build`：适合提交前或验证完整类型安全
 - `dev:build`：适合本地快速重打包
 
-### 为什么 `pnpm run ... -- ...` 后面一定要加第二个 `--`？
+### 为什么这里的 `pnpm run ...` 示例没有加第二个 `--`？
 
-因为前一个 `--` 是告诉 `pnpm`：后面的参数不要自己消费，而是转发给脚本里的 `node dist/cli.js ...`。
+当前仓库使用的 pnpm 会把脚本名后面的参数直接追加到脚本命令后面；额外加 `--` 反而会让 `node dist/cli.js` 收到一个多余的 `--`，导致 commander 解析错位。因此本文示例统一写成 `pnpm run dev:cli login --help`、`pnpm run dev:up --domain ...`。
 
 ### `dev:doctor` 退出码为 0，但输出里有 `○` 未配置项，正常吗？
 

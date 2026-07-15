@@ -22,6 +22,20 @@ const STRIP_VARS = [
   "ELECTRON_RUN_AS_NODE",
   "NODE_OPTIONS",
   "CLAUDE_CODE_ENTRYPOINT",
+  "CLAUDE_CODE_ACP_PATH",
+  "CODEX_ACP_BIN",
+  "NUWACLAW_CODEX_ACP_BIN",
+  "NUWACLAW_FORCE_ENGINE",
+  "NUWACLAW_LANPROXY_PATH",
+  "NUWACLAW_PASSWORD",
+  "NUWACLAW_SERVE_DAEMONIZED",
+  "NUWACLAW_SERVE_LOCK_PATH",
+  "NUWAX_AGENT_PORT",
+  "NUWAX_CONFIG_KEY",
+  "NUWAX_FILE_SERVER_PORT",
+  "NUWAX_SAVED_KEY",
+  "NUWAX_SERVER_HOST",
+  "NUWAX_WORKSPACE_DIR",
   "npm_config_registry",
   "npm_config_prefix",
   "npm_lifecycle_event",
@@ -32,11 +46,21 @@ function stripNoise(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
   const result: NodeJS.ProcessEnv = { ...env };
   for (const key of STRIP_VARS) delete result[key];
   for (const key of Object.keys(result)) {
-    if (key.startsWith("npm_config_") || key.startsWith("npm_package_")) {
+    if (
+      key.startsWith("npm_config_") ||
+      key.startsWith("npm_package_") ||
+      key.startsWith("NUWACLAW_SERVE_")
+    ) {
       delete result[key];
     }
   }
   return result;
+}
+
+export function buildCliChildEnv(
+  extra: NodeJS.ProcessEnv = {},
+): NodeJS.ProcessEnv {
+  return { ...stripNoise(process.env), ...extra };
 }
 
 export type EngineKind = "claude" | "codex";
@@ -52,7 +76,7 @@ export function buildEngineEnv(
   engine: EngineKind,
   overlay?: ModelOverlay,
 ): NodeJS.ProcessEnv {
-  const env = stripNoise(process.env);
+  const env = buildCliChildEnv();
   if (!overlay) return env;
 
   if (engine === "claude") {

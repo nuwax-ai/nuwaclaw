@@ -20,6 +20,7 @@
     "dev:chat:codex": "node dist/cli.js chat --engine codex",
     "dev:sessions": "node dist/cli.js sessions",
     "dev:sessions:summary": "node dist/cli.js sessions summary",
+    "dev:up": "node dist/cli.js up",
     "dev:serve": "node dist/cli.js serve --port 60016",
     "test": "vitest",
     "test:run": "vitest run",
@@ -27,7 +28,7 @@
     "prepublishOnly": "pnpm run build"
   },
   "dependencies": {
-    "@agentclientprotocol/sdk": "1.2.1",
+    "@agentclientprotocol/sdk": "^1.2.1",
     "@anthropic-ai/sdk": "^0.111.0",
     "@clack/prompts": "^1.7.0",
     "@modelcontextprotocol/sdk": "^1.29.0",

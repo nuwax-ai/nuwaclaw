@@ -17,8 +17,9 @@ nuwaclaw chat -p "列出当前目录下的文件"
 ```bash
 pnpm install
 pnpm run build
+pnpm run dev:cli --version
 pnpm run dev:doctor
-pnpm run dev:chat -- -p "hello"
+pnpm run dev:chat -p "hello"
 ```
 
 更完整的本地调试脚本和分步说明见 [`docs/local-debugging.md`](docs/local-debugging.md)。
@@ -28,7 +29,7 @@ pnpm run dev:chat -- -p "hello"
 大多数 Agent 封装要么自带一整套模型运行时（体积大，而且看不到你已有的登录态），要么让你重新配置一遍 API key。`nuwaclaw` 两者都不做：
 
 - **继承你的环境。** `HOME`、`~/.claude`、`~/.codex`、MCP server、skills、模型偏好——全部保持原样。引擎看到的，和你自己的 `claude`/`codex` CLI 看到的完全一致。
-- **使用正常包依赖。** ACP 适配器（`claude-code-acp-ts`、`nuwax-codex-acp`）和 `nuwax-file-server` 会随 `nuwaclaw` 通过 npm/pnpm 安装；运行时只解析这些已安装包的入口。`agent-gui-server` 仍是可选的 GUI MCP 能力，lanproxy 是唯一预置资源例外。
+- **使用正常包依赖。** ACP 适配器（`claude-code-acp-ts`、`nuwax-codex-acp`）和 `nuwax-file-server` 会随 `nuwaclaw` 通过 npm/pnpm 安装；运行时只解析这些已安装包的入口。`agent-gui-server` 仍是可选的 GUI MCP 能力，lanproxy 是随 CLI 包发布的预置资源。
 - **走 ACP 协议。** 两个引擎都通过 [Agent Client Protocol](https://agentclientprotocol.com) 驱动——和 Zed 等编辑器用的是同一套协议，而不是抓取 CLI 文本输出的那种封装。
 
 ## 命令
@@ -114,6 +115,7 @@ nuwaclaw chat --engine codex --ref-session claude:c6e84245-a81c-4563-b0c8-2f0e2c
 无需 UI 的 Nuwax 账号登录，以便启用云端/远程功能：
 
 ```bash
+nuwaclaw login --help
 nuwaclaw login --domain https://agent.nuwax.com --saved-key <key>   # 已有 key
 nuwaclaw login --domain https://agent.nuwax.com -u <username>       # 首次登录（随后提示输入密码）
 nuwaclaw status --remote     # 向服务器重新校验已保存的 key 是否仍有效
@@ -122,11 +124,61 @@ nuwaclaw config get
 nuwaclaw config set domain <host>
 ```
 
-凭证存放在 `~/.nuwaclaw-cli/credentials.json`（权限 `0600`）。密码永不落盘。
+凭证存放在 `~/.nuwaclaw-cli/credentials.json`（权限 `0600`）。密码永不落盘。CLI 不使用 SQLite；为了和 NuwaClaw Electron 客户端的行为一致，`credentials.json` 会用轻量 JSON 映射按 `domain + username` 记住各账号 savedKey。再次用同一 domain/账号登录时会复用该 savedKey，避免后端新建一台电脑；不传 domain/账号时默认命中当前账号。
 
 `nuwaclaw status` 还会报告本地 `serve` 是否在运行、端口多少——读取的是 `serve` 启动时写的锁文件。`X-Nuwax-Internal-Secret` 本身**仍然永不落盘**，所以要实际调用 `/computer/chat` 还得从 serve 进程的启动输出里取 secret。
 
 nuwaclaw-cli 的登录态会与 NuwaClaw Electron 客户端完全隔离。`nuwaclaw login` 不会读取 Electron 客户端 SQLite，也不会复用它的 savedKey；请通过 `--saved-key` 或 `-u` 创建 CLI 自己的凭证和 device id。
+
+### `nuwaclaw account`
+
+管理 `~/.nuwaclaw-cli/credentials.json` 中已保存的多个账号：
+
+```bash
+nuwaclaw account --help
+nuwaclaw account list
+nuwaclaw account switch --help
+nuwaclaw account switch <account-key>
+```
+
+`account list` 会输出可切换账号的 key（形如 `testagent.xspaceagi.com_18011447397`）并用 `*` 标记当前默认账号。`account switch` 会用该账号保存的 savedKey 重新注册并设为当前默认账号。
+
+切换账号会影响 `serve`、file-server、lanproxy、后端注册状态，因此**不做热切换**。如果 `serve` 正在运行，`account switch` 会拒绝执行；请先在运行 `up/serve` 的终端按 `Ctrl-C` 停止所有服务，再切换账号并重新启动。
+
+### `nuwaclaw up`
+
+一键检测可用引擎、登录/注册并启动 `serve --tunnel`：
+
+```bash
+nuwaclaw up --help
+nuwaclaw up --domain https://agent.nuwax.com --saved-key <key>
+nuwaclaw up --domain https://agent.nuwax.com -u <username>
+NUWACLAW_PASSWORD='<password>' nuwaclaw up --domain https://agent.nuwax.com -u <username>
+```
+
+未传 `--engine` 时会检测本机可用的 `claude` / `codex`：只有一个可用就使用它；多个可用时随机选择一个；都不可用则提示先完成 `claude login` 或 `codex login`。`NUWACLAW_PASSWORD` 只用于本次账号密码注册，不会写入 credentials，也会从 engine/lanproxy/file-server 子进程环境里清理掉。
+
+npm 发布后，干净环境可用零安装入口：
+
+```bash
+npx -y nuwaclaw@latest up --domain https://agent.nuwax.com --saved-key <key>
+```
+
+本地未发布 npm 时的调试方式见 [`docs/local-debugging.md`](docs/local-debugging.md)，完整设计说明见 [`docs/one-click-up.md`](docs/one-click-up.md)。
+
+### `nuwaclaw update`
+
+升级 npm/pnpm 安装的 CLI 包：
+
+```bash
+nuwaclaw update --help
+nuwaclaw update                 # 升级到 latest
+nuwaclaw update 0.2.0           # 升级到指定版本
+nuwaclaw update --check         # 只查询目标版本
+nuwaclaw update --package-manager pnpm
+```
+
+`update` 只执行包升级，不修改 `~/.nuwaclaw-cli/credentials.json`、savedKey、账号列表或服务锁。若是 `npx` / `pnpm dlx` 临时运行，建议直接使用 `npx -y nuwaclaw@latest ...` 或 `pnpm dlx nuwaclaw@latest ...`。
 
 ### `nuwaclaw serve`
 
@@ -136,12 +188,16 @@ nuwaclaw-cli 的登录态会与 NuwaClaw Electron 客户端完全隔离。`nuwac
 nuwaclaw serve --port 60016
 # -> POST /computer/chat            { prompt, session_id?, cwd? } -> { session_id }
 # -> GET  /computer/progress/:id    会话更新的 SSE 流
-# -> GET  /computer/agent/status
+# -> GET/POST /computer/agent/status
 # -> POST /computer/agent/stop      { session_id }
+# -> POST /computer/agent/session/cancel
+# -> POST /computer/notify-resolved （headless 模式下接受并忽略）
 # -> GET  /health                   （无需鉴权）
 ```
 
-除 `/health` 外，每个路由都需要 `X-Nuwax-Internal-Secret` 请求头——服务器启动时会打印一个随机生成的新 secret；它永不落盘。
+`serve` 默认优先使用 CLI 专属端口 `agentPort=60016`；如果该端口已被占用，会自动向后寻找可用端口并在启动日志里提示实际端口。`--tunnel` 下的 `nuwax-file-server` 同样优先使用 `fileServerPort=60015`，占用时自动后移，并把最终端口上报到 `sandboxConfigValue`。
+
+除 `/health` 外，每个路由都需要 `X-Nuwax-Internal-Secret` 请求头。服务器启动时会打印一个随机生成的新 secret，并在 `--tunnel` 注册时作为 `sandboxConfigValue.apiKey` 上报给后端；它永不落盘。
 
 `--approve` 控制工具调用授权：`auto`（默认）自动批准每一个工具调用（`yolo`），`deny` 则全部拒绝（适合让引擎无副作用地运行）。任何其他值都会被**拒绝**，而不是被静默当作 `auto`。在 `auto`/`yolo` 模式下，服务器启动时会打印一条警告：**所有**工具调用（含破坏性写文件、执行命令、网络访问）都会被自动放行，且**不做路径限制**；如不能接受，请用 `--approve deny`。
 
@@ -149,9 +205,15 @@ nuwaclaw serve --port 60016
 
 - `POST /computer/agent/stop` 会**中断**会话——它中止引擎连接（向引擎子进程发 SIGTERM）并最多等待约 3 秒退出，而不是一直阻塞到正在执行的工具调用自行结束。
 - 引擎死亡的会话会被驱逐，并向 `/computer/progress` 客户端发送终结事件 `session_ended`（SSE `subType` 为 `error` 或 `ended`），让订阅者得知会话已结束，而不是永远等下去。
-- 收到 `SIGINT`/`SIGTERM` 时，服务器会停止所有活动会话（拆除它们的引擎子进程）、停止 `--tunnel` 的 `nuwax-file-server`，然后再关闭 HTTP 监听——引擎子进程和 file server 不再被遗留成孤儿。
+- 收到 `SIGINT`/`SIGTERM` 时，服务器会停止所有活动会话（拆除它们的引擎子进程）、停止 `--tunnel` 的 `nuwax-file-server` 与 lanproxy 子进程，然后再关闭 HTTP 监听——引擎子进程和辅助服务不再被遗留成孤儿。
 
-`--tunnel` 目前是**实验性**能力。它需要先 `nuwaclaw login`，并会额外启动一个本地 `nuwax-file-server` 实例；通过真正的云端隧道（lanproxy）暴露它**尚未接入**——见[已知限制](#已知限制)。
+`--tunnel` 需要先 `nuwaclaw login`。它会向后端重新注册 CLI，启动本地 `nuwax-file-server`，再启动随 CLI 包发布的 lanproxy 二进制：
+
+```bash
+nuwaclaw serve --tunnel --lanproxy-host agent.nuwax.com --lanproxy-port 443
+```
+
+如果注册响应已包含 `serverHost`/`serverPort`，可以省略显式 host/port。`--lanproxy-path` 仅用于覆盖内置二进制或本地联调。`--daemon` 可后台启动同一服务，日志写入 `~/.nuwaclaw-cli/logs/serve.log`。
 
 ## 已知限制
 
@@ -160,7 +222,6 @@ nuwaclaw serve --port 60016
 - **退出时的进程树清理**：只有直接的引擎子进程会收到 `SIGTERM`；孙进程（`claude-code-acp-ts` 适配器再拉起的 `claude` 二进制，以及 `--gui-mcp` 下的 `agent-gui-server`）不会被信号通知，可能成为孤儿。`serve` 关闭仍会停止自身的 HTTP 会话，但零散的孙进程可能残留。
 - **`yolo` 没有路径限制**：`--approve auto` 不论目标路径一律自动批准工具调用，目前没有可写根目录守卫（Electron 客户端的严格权限闸门尚未移植过来）。
 - **自定义/第三方 ACP 引擎**（pi-acp、hermes、kilo、openclaw 等）暂不支持——仅支持 `claude` 和 `codex`。
-- **`serve --tunnel`** 会启动本地 file server，但尚未建立云端隧道（lanproxy 是唯一预置客户端资源，没有可安装的 npm 分发）。
 - **云端会话同步/列表**：`sessions`/`status` 目前仅本地可用，跨设备会话历史的后端接口尚未确定。
 
 ## 工作原理
@@ -168,8 +229,8 @@ nuwaclaw serve --port 60016
 - ACP 连接：使用 `@agentclientprotocol/sdk` 的 `client().connectWith(...)` 构建器，通过 stdio NDJSON 拉起引擎。
 - `claude` 引擎：拉起包依赖 [`claude-code-acp-ts`](https://www.npmjs.com/package/claude-code-acp-ts)，并通过 `CLAUDE_CODE_EXECUTABLE` 指向**你自己的** `claude` 二进制。
 - `codex` 引擎：拉起包依赖 [`nuwax-codex-acp`](https://www.npmjs.com/package/nuwax-codex-acp)；该包通过 npm optionalDependencies 拉取匹配平台的二进制。
-- `serve --tunnel`：启动包依赖 [`nuwax-file-server`](https://www.npmjs.com/package/nuwax-file-server)。真正的云端隧道仍等待 lanproxy 集成。
-- 不会往你 shell 的全局 `node_modules` 里装任何东西，nuwaclaw-cli 自己的 credentials、device id、cache、logs、serve lock 都存放在 `~/.nuwaclaw-cli/` 下。若同时安装了 NuwaClaw Electron 桌面端，两者可在同一台机器共存但不共享 savedKey 或本地状态；`serve` 默认使用 CLI 专属端口 60016/60015，与 Electron 的 60005–60009 范围分开。
+- `serve --tunnel`：启动包依赖 [`nuwax-file-server`](https://www.npmjs.com/package/nuwax-file-server)，再用注册得到的 savedKey 拉起随 CLI 包发布的 `nuwax-lanproxy` 二进制。file-server 的 PID/lock 临时目录会按端口放到 `~/.nuwaclaw-cli/tmp/file-server-<port>`，避免误停 Electron 客户端或另一个 CLI tunnel 实例。
+- 不会往你 shell 的全局 `node_modules` 里装任何东西，nuwaclaw-cli 自己的 credentials、device id、cache、logs、serve lock 都存放在 `~/.nuwaclaw-cli/` 下。若同时安装了 NuwaClaw Electron 桌面端，两者可在同一台机器共存但不共享 savedKey 或本地状态；`serve` 默认优先使用 CLI 专属端口 60016/60015，冲突时自动寻找后续可用端口，与 Electron 的 60005–60009 范围分开。
 
 ## 运行要求
 

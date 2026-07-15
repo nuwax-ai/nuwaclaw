@@ -43,6 +43,10 @@ export function logsDir(): string {
   return path.join(nuwaclawHome(), "logs");
 }
 
+export function tmpDir(): string {
+  return path.join(nuwaclawHome(), "tmp");
+}
+
 export function ensureDir(dir: string): void {
   fs.mkdirSync(dir, { recursive: true });
 }

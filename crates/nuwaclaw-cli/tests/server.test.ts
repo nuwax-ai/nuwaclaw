@@ -61,7 +61,10 @@ describe("serve HTTP server", () => {
   it("/health responds without requiring the secret", async () => {
     const res = await fetch(url("/health"));
     expect(res.status).toBe(200);
-    expect(await res.json()).toEqual({ status: "ok" });
+    expect(await res.json()).toMatchObject({
+      status: "ok",
+      engine: "claude",
+    });
   });
 
   it("rejects requests missing the X-Nuwax-Internal-Secret header", async () => {
@@ -81,7 +84,12 @@ describe("serve HTTP server", () => {
       headers: { "X-Nuwax-Internal-Secret": handle.secret },
     });
     expect(res.status).toBe(200);
-    expect(await res.json()).toEqual({ sessions: [] });
+    expect(await res.json()).toMatchObject({
+      code: "0000",
+      data: { sessions: [] },
+      sessions: [],
+      success: true,
+    });
   });
 
   it("rejects /computer/chat with no prompt", async () => {
@@ -119,7 +127,11 @@ describe("serve HTTP server", () => {
     const statusRes = await fetch(url("/computer/agent/status"), {
       headers: { "X-Nuwax-Internal-Secret": handle.secret },
     });
-    expect(await statusRes.json()).toEqual({ sessions: [] });
+    expect(await statusRes.json()).toMatchObject({
+      code: "0000",
+      data: { sessions: [] },
+      sessions: [],
+    });
   });
 
   it("returns 404 when stopping an unknown session", async () => {
@@ -132,5 +144,58 @@ describe("serve HTTP server", () => {
       body: JSON.stringify({ session_id: "does-not-exist" }),
     });
     expect(res.status).toBe(404);
+  });
+
+  it("supports Electron-style POST /computer/agent/status", async () => {
+    const res = await fetch(url("/computer/agent/status"), {
+      method: "POST",
+      headers: {
+        "X-Nuwax-Internal-Secret": handle.secret,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ user_id: "u1", project_id: "p1" }),
+    });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({
+      code: "0000",
+      data: {
+        user_id: "u1",
+        project_id: "p1",
+        is_alive: false,
+        session_id: null,
+      },
+    });
+  });
+
+  it("supports idempotent Electron-style session cancel", async () => {
+    const res = await fetch(url("/computer/agent/session/cancel"), {
+      method: "POST",
+      headers: {
+        "X-Nuwax-Internal-Secret": handle.secret,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ user_id: "u1", project_id: "p1" }),
+    });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({
+      code: "0000",
+      data: { success: true },
+    });
+  });
+
+  it("accepts notify-resolved as a no-op in headless CLI mode", async () => {
+    const res = await fetch(url("/computer/notify-resolved"), {
+      method: "POST",
+      headers: {
+        "X-Nuwax-Internal-Secret": handle.secret,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ ok: true }),
+    });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({
+      code: "0000",
+      data: { success: true, ignored: true },
+    });
   });
 });

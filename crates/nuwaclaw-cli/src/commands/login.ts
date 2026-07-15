@@ -10,6 +10,8 @@ import {
   readCredentials,
   updateCredentials,
   clearSessionKeepingSavedKey,
+  getSavedKeyForAccount,
+  rememberAccountCredentials,
 } from "../core/auth/credentials.js";
 import { getDeviceId } from "../core/auth/deviceId.js";
 import { getServeStatus } from "../core/serve/serveLock.js";
@@ -20,7 +22,7 @@ export interface LoginCommandOptions {
   username?: string;
 }
 
-async function resolveDomain(
+export async function resolveDomain(
   explicit: string | undefined,
 ): Promise<string | null> {
   if (explicit) return normalizeServerHost(explicit);
@@ -34,7 +36,7 @@ async function resolveDomain(
   return normalizeServerHost(answer);
 }
 
-async function performReg(
+export async function performReg(
   domain: string,
   auth: { username: string; password: string; savedKey?: string },
 ): Promise<void> {
@@ -45,15 +47,44 @@ async function performReg(
     deviceId: getDeviceId(),
     sandboxConfigValue: defaultSandboxValue(),
   });
-  updateCredentials({
+  const patch: Parameters<typeof updateCredentials>[0] = {
     domain,
     username: auth.username || undefined,
+    computerName: result.name,
     configKey: result.configKey,
     savedKey: result.configKey,
+    serverHost: result.serverHost,
+    serverPort: result.serverPort,
     token: result.token,
     lastRegAt: new Date().toISOString(),
-  });
+  };
+  if (auth.username) {
+    const remembered = rememberAccountCredentials({
+      domain,
+      username: auth.username,
+      computerName: result.name,
+      savedKey: result.configKey,
+      serverHost: result.serverHost,
+      serverPort: result.serverPort,
+      lastRegAt: patch.lastRegAt,
+    });
+    patch.savedKeys = remembered.savedKeys;
+    patch.accounts = remembered.accounts;
+  }
+  updateCredentials(patch);
   console.log(pc.green(`已登录：${result.name ?? auth.username}（${domain}）`));
+}
+
+export async function resolveLoginPassword(
+  username: string,
+  domain: string,
+): Promise<string | null> {
+  if (process.env.NUWACLAW_PASSWORD) return process.env.NUWACLAW_PASSWORD;
+  const password = await clack.password({
+    message: `${username}@${domain} 密码：`,
+  });
+  if (clack.isCancel(password)) return null;
+  return password;
 }
 
 export async function loginCommand(
@@ -81,17 +112,15 @@ export async function loginCommand(
         console.error(pc.dim("已取消。"));
         return;
       }
-      const password = await clack.password({
-        message: `${options.username}@${domain} 密码：`,
-      });
-      if (clack.isCancel(password)) {
+      const password = await resolveLoginPassword(options.username, domain);
+      if (password === null) {
         console.error(pc.dim("已取消。"));
         return;
       }
       await performReg(domain, {
         username: options.username,
         password,
-        savedKey: undefined,
+        savedKey: getSavedKeyForAccount(domain, options.username),
       });
       return;
     }
@@ -183,6 +212,7 @@ export async function statusCommand(
 
   console.log(`域名：${credentials.domain}`);
   console.log(`用户：${credentials.username || "(未知)"}`);
+  console.log(`电脑名：${credentials.computerName || "(未知)"}`);
   console.log(`savedKey：已保存`);
   console.log(`上次注册：${credentials.lastRegAt ?? "(未知)"}`);
   await printServeStatus();

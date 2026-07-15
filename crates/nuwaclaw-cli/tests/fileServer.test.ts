@@ -5,6 +5,8 @@ const mocks = vi.hoisted(() => ({
   spawn: vi.fn(),
   spawnSync: vi.fn(),
   unref: vi.fn(),
+  ensureDir: vi.fn(),
+  tmpDir: vi.fn(() => "/tmp/nuwaclaw-cli-test"),
 }));
 
 vi.mock("../src/core/engines/packageResolve.js", () => ({
@@ -16,6 +18,11 @@ vi.mock("node:child_process", () => ({
   spawnSync: mocks.spawnSync,
 }));
 
+vi.mock("../src/util/paths.js", () => ({
+  ensureDir: mocks.ensureDir,
+  tmpDir: mocks.tmpDir,
+}));
+
 describe("fileServer", () => {
   beforeEach(() => {
     vi.resetModules();
@@ -23,6 +30,8 @@ describe("fileServer", () => {
     mocks.spawn.mockReset();
     mocks.spawnSync.mockReset();
     mocks.unref.mockReset();
+    mocks.ensureDir.mockReset();
+    mocks.tmpDir.mockClear();
     mocks.resolveInstalledPackageEntry.mockReturnValue(
       "/fake/nuwax-file-server.js",
     );
@@ -41,7 +50,18 @@ describe("fileServer", () => {
     expect(mocks.spawn).toHaveBeenCalledWith(
       process.execPath,
       ["/fake/nuwax-file-server.js", "start", "--port", "60015"],
-      { stdio: "ignore", detached: true },
+      {
+        env: expect.objectContaining({
+          TMPDIR: "/tmp/nuwaclaw-cli-test/file-server-60015",
+          TMP: "/tmp/nuwaclaw-cli-test/file-server-60015",
+          TEMP: "/tmp/nuwaclaw-cli-test/file-server-60015",
+        }),
+        stdio: "ignore",
+        detached: true,
+      },
+    );
+    expect(mocks.ensureDir).toHaveBeenCalledWith(
+      "/tmp/nuwaclaw-cli-test/file-server-60015",
     );
     expect(mocks.unref).toHaveBeenCalled();
   });
@@ -49,12 +69,19 @@ describe("fileServer", () => {
   it("stops the package dependency entry when available", async () => {
     const { stopFileServer } = await import("../src/core/serve/fileServer.js");
 
-    stopFileServer();
+    stopFileServer(60015);
 
     expect(mocks.spawnSync).toHaveBeenCalledWith(
       process.execPath,
       ["/fake/nuwax-file-server.js", "stop"],
-      { stdio: "ignore" },
+      {
+        env: expect.objectContaining({
+          TMPDIR: "/tmp/nuwaclaw-cli-test/file-server-60015",
+          TMP: "/tmp/nuwaclaw-cli-test/file-server-60015",
+          TEMP: "/tmp/nuwaclaw-cli-test/file-server-60015",
+        }),
+        stdio: "ignore",
+      },
     );
   });
 
@@ -64,7 +91,7 @@ describe("fileServer", () => {
     });
     const { stopFileServer } = await import("../src/core/serve/fileServer.js");
 
-    expect(() => stopFileServer()).not.toThrow();
+    expect(() => stopFileServer(60015)).not.toThrow();
     expect(mocks.spawnSync).not.toHaveBeenCalled();
   });
 });

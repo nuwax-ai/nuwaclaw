@@ -14,6 +14,16 @@ const WATCHED_KEYS = [
   "CODEX_MODEL",
   "NODE_OPTIONS",
   "ELECTRON_RUN_AS_NODE",
+  "NUWAX_SERVER_HOST",
+  "NUWAX_SAVED_KEY",
+  "NUWAX_AGENT_PORT",
+  "NUWAX_FILE_SERVER_PORT",
+  "NUWACLAW_FORCE_ENGINE",
+  "NUWACLAW_PASSWORD",
+  "NUWACLAW_SERVE_LOCK_PATH",
+  "NUWACLAW_CODEX_ACP_BIN",
+  "CODEX_ACP_BIN",
+  "CLAUDE_CODE_ACP_PATH",
   "npm_config_registry",
 ];
 
@@ -49,11 +59,31 @@ describe("buildEngineEnv", () => {
     Object.assign(process.env, {
       NODE_OPTIONS: "--inspect",
       ELECTRON_RUN_AS_NODE: "1",
+      NUWAX_SERVER_HOST: "https://electron.example",
+      NUWAX_SAVED_KEY: "electron-key",
+      NUWAX_AGENT_PORT: "60005",
+      NUWAX_FILE_SERVER_PORT: "60006",
+      NUWACLAW_FORCE_ENGINE: "codex",
+      NUWACLAW_PASSWORD: "secret",
+      NUWACLAW_SERVE_LOCK_PATH: "/tmp/electron.lock",
+      NUWACLAW_CODEX_ACP_BIN: "/tmp/codex-acp",
+      CODEX_ACP_BIN: "/tmp/codex-acp",
+      CLAUDE_CODE_ACP_PATH: "/tmp/claude-acp",
       npm_config_registry: "https://example.com",
     });
     const env = buildEngineEnv("claude");
     expect(env.NODE_OPTIONS).toBeUndefined();
     expect(env.ELECTRON_RUN_AS_NODE).toBeUndefined();
+    expect(env.NUWAX_SERVER_HOST).toBeUndefined();
+    expect(env.NUWAX_SAVED_KEY).toBeUndefined();
+    expect(env.NUWAX_AGENT_PORT).toBeUndefined();
+    expect(env.NUWAX_FILE_SERVER_PORT).toBeUndefined();
+    expect(env.NUWACLAW_FORCE_ENGINE).toBeUndefined();
+    expect(env.NUWACLAW_PASSWORD).toBeUndefined();
+    expect(env.NUWACLAW_SERVE_LOCK_PATH).toBeUndefined();
+    expect(env.NUWACLAW_CODEX_ACP_BIN).toBeUndefined();
+    expect(env.CODEX_ACP_BIN).toBeUndefined();
+    expect(env.CLAUDE_CODE_ACP_PATH).toBeUndefined();
     expect(env.npm_config_registry).toBeUndefined();
   });
 

@@ -1,11 +1,17 @@
 import pc from "picocolors";
 import {
+  listStoredAccounts,
   readCredentials,
   updateCredentials,
 } from "../core/auth/credentials.js";
 import { normalizeServerHost } from "../core/auth/regClient.js";
 
-const SETTABLE_KEYS = ["domain", "saved-key", "username"] as const;
+const SETTABLE_KEYS = [
+  "domain",
+  "saved-key",
+  "username",
+  "lanproxy-path",
+] as const;
 type SettableKey = (typeof SETTABLE_KEYS)[number];
 
 function isSettableKey(key: string): key is SettableKey {
@@ -17,7 +23,10 @@ export async function configGetCommand(key?: string): Promise<void> {
   if (!key) {
     console.log(`domain: ${credentials.domain ?? "(未设置)"}`);
     console.log(`username: ${credentials.username ?? "(未设置)"}`);
+    console.log(`computer-name: ${credentials.computerName ?? "(未设置)"}`);
+    console.log(`accounts: ${listStoredAccounts(credentials).length}`);
     console.log(`saved-key: ${credentials.savedKey ? "(已设置)" : "(未设置)"}`);
+    console.log(`lanproxy-path: ${credentials.lanproxyPath ?? "(未设置)"}`);
     return;
   }
   if (!isSettableKey(key)) {
@@ -31,6 +40,10 @@ export async function configGetCommand(key?: string): Promise<void> {
   }
   if (key === "saved-key") {
     console.log(credentials.savedKey ? "(已设置)" : "(未设置)");
+    return;
+  }
+  if (key === "lanproxy-path") {
+    console.log(credentials.lanproxyPath ?? "(未设置)");
     return;
   }
   console.log(
@@ -55,6 +68,8 @@ export async function configSetCommand(
     updateCredentials({ domain: normalizeServerHost(value) });
   } else if (key === "saved-key") {
     updateCredentials({ savedKey: value });
+  } else if (key === "lanproxy-path") {
+    updateCredentials({ lanproxyPath: value });
   } else {
     updateCredentials({ username: value });
   }

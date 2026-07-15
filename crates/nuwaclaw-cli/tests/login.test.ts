@@ -4,6 +4,7 @@ import * as path from "node:path";
 import * as os from "node:os";
 
 let tmpHome: string;
+let savedPasswordEnv: string | undefined;
 
 vi.mock("node:os", async (importOriginal) => {
   const actual = await importOriginal<typeof os>();
@@ -32,6 +33,8 @@ vi.mock("../src/core/auth/regClient.js", async (importOriginal) => {
 describe("login/logout/status commands", () => {
   beforeEach(() => {
     tmpHome = fs.mkdtempSync(path.join(os.tmpdir(), "nuwaclaw-login-test-"));
+    savedPasswordEnv = process.env.NUWACLAW_PASSWORD;
+    delete process.env.NUWACLAW_PASSWORD;
     vi.resetModules();
     textMock.mockReset();
     passwordMock.mockReset();
@@ -41,6 +44,8 @@ describe("login/logout/status commands", () => {
   });
 
   afterEach(() => {
+    if (savedPasswordEnv === undefined) delete process.env.NUWACLAW_PASSWORD;
+    else process.env.NUWACLAW_PASSWORD = savedPasswordEnv;
     fs.rmSync(tmpHome, { recursive: true, force: true });
   });
 
@@ -64,6 +69,7 @@ describe("login/logout/status commands", () => {
     const { readCredentials } = await import("../src/core/auth/credentials.js");
     expect(readCredentials()).toMatchObject({
       domain: "https://example.com",
+      computerName: "alice",
       configKey: "new-saved-key",
       savedKey: "new-saved-key",
     });
@@ -93,6 +99,94 @@ describe("login/logout/status commands", () => {
     expect(readCredentials().configKey).toBe("fresh-key");
   });
 
+  it("reuses the savedKey for the same domain + username during password login", async () => {
+    const { writeCredentials } =
+      await import("../src/core/auth/credentials.js");
+    writeCredentials({
+      domain: "https://example.com",
+      username: "bob",
+      savedKey: "old-bob-key",
+      savedKeys: { "example.com_bob": "old-bob-key" },
+    });
+    passwordMock.mockResolvedValueOnce("hunter2");
+    registerClientMock.mockResolvedValue({
+      id: 1,
+      configKey: "renewed-bob-key",
+      name: "bob",
+      online: true,
+    });
+
+    const { loginCommand } = await import("../src/commands/login.js");
+    await loginCommand({ domain: "https://example.com", username: "bob" });
+
+    expect(registerClientMock).toHaveBeenCalledWith(
+      "https://example.com",
+      expect.objectContaining({
+        username: "bob",
+        password: "hunter2",
+        savedKey: "old-bob-key",
+      }),
+    );
+    const { readCredentials } = await import("../src/core/auth/credentials.js");
+    expect(readCredentials().savedKeys).toMatchObject({
+      "example.com_bob": "renewed-bob-key",
+    });
+  });
+
+  it("does not reuse the default savedKey for a different username", async () => {
+    const { writeCredentials } =
+      await import("../src/core/auth/credentials.js");
+    writeCredentials({
+      domain: "https://example.com",
+      username: "alice",
+      savedKey: "alice-key",
+      savedKeys: { "example.com_alice": "alice-key" },
+    });
+    passwordMock.mockResolvedValueOnce("hunter2");
+    registerClientMock.mockResolvedValue({
+      id: 1,
+      configKey: "bob-key",
+      name: "bob",
+      online: true,
+    });
+
+    const { loginCommand } = await import("../src/commands/login.js");
+    await loginCommand({ domain: "https://example.com", username: "bob" });
+
+    expect(registerClientMock).toHaveBeenCalledWith(
+      "https://example.com",
+      expect.objectContaining({
+        username: "bob",
+        password: "hunter2",
+        savedKey: undefined,
+      }),
+    );
+  });
+
+  it("uses NUWACLAW_PASSWORD for non-interactive username login", async () => {
+    process.env.NUWACLAW_PASSWORD = "env-secret";
+    registerClientMock.mockResolvedValue({
+      id: 1,
+      configKey: "fresh-key",
+      name: "bob",
+      online: true,
+    });
+    const { loginCommand } = await import("../src/commands/login.js");
+    await loginCommand({ domain: "example.com", username: "bob" });
+
+    expect(passwordMock).not.toHaveBeenCalled();
+    expect(registerClientMock).toHaveBeenCalledWith(
+      "https://example.com",
+      expect.objectContaining({
+        username: "bob",
+        password: "env-secret",
+        savedKey: undefined,
+      }),
+    );
+    const { readCredentials } = await import("../src/core/auth/credentials.js");
+    expect(JSON.stringify(readCredentials())).not.toContain("env-secret");
+  });
+
   it("cancelling the password prompt aborts without calling reg", async () => {
     passwordMock.mockResolvedValueOnce(Symbol("cancel"));
     isCancelMock.mockReturnValueOnce(true);
@@ -108,6 +202,7 @@ describe("login/logout/status commands", () => {
       domain: "https://example.com",
       username: "alice",
       savedKey: "existing-key",
+      savedKeys: { "example.com_alice": "existing-key" },
     });
     registerClientMock.mockResolvedValue({
       id: 1,
@@ -150,6 +245,7 @@ describe("login/logout/status commands", () => {
     writeCredentials({
       domain: "https://example.com",
       username: "alice",
+      computerName: "我的电脑001",
       configKey: "sk",
       savedKey: "sk",
       token: "one-shot",
@@ -160,6 +256,7 @@ describe("login/logout/status commands", () => {
     expect(readCredentials()).toEqual({
       domain: "https://example.com",
       username: "alice",
+      computerName: "我的电脑001",
       savedKey: "sk",
     });
   });
@@ -170,6 +267,7 @@ describe("login/logout/status commands", () => {
     writeCredentials({
       domain: "https://example.com",
       username: "alice",
+      computerName: "我的电脑001",
       configKey: "sk",
       savedKey: "sk",
     });
@@ -191,6 +289,7 @@ describe("login/logout/status commands", () => {
     writeCredentials({
       domain: "https://example.com",
       username: "alice",
+      computerName: "我的电脑001",
       configKey: "sk",
       savedKey: "sk",
     });
@@ -201,11 +300,15 @@ describe("login/logout/status commands", () => {
       online: true,
     });
     const { statusCommand } = await import("../src/commands/login.js");
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
     await statusCommand({ remote: true });
     expect(registerClientMock).toHaveBeenCalledWith(
       "https://example.com",
       expect.objectContaining({ savedKey: "sk" }),
     );
+    const printed = logSpy.mock.calls.map((c) => c[0]).join("\n");
+    expect(printed).toContain("电脑名：我的电脑001");
+    logSpy.mockRestore();
   });
 
   it("status --remote is a no-op (no network call) when logged out, even with --remote passed", async () => {

@@ -46,6 +46,37 @@ describe("credentials", () => {
     });
   });
 
+  it("stores and resolves savedKey by domain + username without SQLite", async () => {
+    const {
+      writeCredentials,
+      getSavedKeyForAccount,
+      rememberSavedKeyForAccount,
+      savedKeyAccountKey,
+    } = await import("../src/core/auth/credentials.js");
+    writeCredentials({
+      domain: "https://example.com",
+      username: "alice",
+      savedKey: "global-key",
+      savedKeys: {
+        [savedKeyAccountKey("https://example.com", "bob")]: "bob-key",
+      },
+    });
+
+    expect(getSavedKeyForAccount("https://example.com", "bob")).toBe("bob-key");
+    expect(getSavedKeyForAccount("https://example.com", "alice")).toBe(
+      "global-key",
+    );
+    expect(getSavedKeyForAccount("https://example.com", "charlie")).toBe(
+      undefined,
+    );
+    expect(
+      rememberSavedKeyForAccount("https://example.com", "alice", "alice-key"),
+    ).toMatchObject({
+      [savedKeyAccountKey("https://example.com", "bob")]: "bob-key",
+      [savedKeyAccountKey("https://example.com", "alice")]: "alice-key",
+    });
+  });
+
   it("readCredentials returns {} for a corrupted file instead of throwing", async () => {
     const filePath = path.join(tmpHome, ".nuwaclaw-cli", "credentials.json");
     fs.mkdirSync(path.dirname(filePath), { recursive: true });
@@ -54,13 +85,15 @@ describe("credentials", () => {
     expect(readCredentials()).toEqual({});
   });
 
-  it("clearSessionKeepingSavedKey drops token/lastRegAt but keeps domain/username/savedKey", async () => {
+  it("clearSessionKeepingSavedKey drops token/lastRegAt but keeps domain/username/computerName/savedKey", async () => {
     const { writeCredentials, clearSessionKeepingSavedKey, readCredentials } =
       await import("../src/core/auth/credentials.js");
     writeCredentials({
       domain: "https://example.com",
       username: "alice",
+      computerName: "我的电脑001",
       savedKey: "sk-1",
+      savedKeys: { "example.com_alice": "sk-1" },
       token: "one-shot-token",
       lastRegAt: "2026-01-01T00:00:00.000Z",
     });
@@ -68,7 +101,9 @@ describe("credentials", () => {
     expect(readCredentials()).toEqual({
       domain: "https://example.com",
       username: "alice",
+      computerName: "我的电脑001",
       savedKey: "sk-1",
+      savedKeys: { "example.com_alice": "sk-1" },
     });
   });
 });

@@ -17,8 +17,9 @@ For local package development inside `crates/nuwaclaw-cli`:
 ```bash
 pnpm install
 pnpm run build
+pnpm run dev:cli --version
 pnpm run dev:doctor
-pnpm run dev:chat -- -p "hello"
+pnpm run dev:chat -p "hello"
 ```
 
 More local debugging scripts and step-by-step workflows live in [`docs/local-debugging.md`](docs/local-debugging.md).
@@ -114,6 +115,7 @@ This is local-only, read-only context sharing between two engines' history on th
 Headless login to a Nuwax account, so cloud/remote features can be enabled without any UI:
 
 ```bash
+nuwaclaw login --help
 nuwaclaw login --domain https://agent.nuwax.com --saved-key <key>   # already have a key
 nuwaclaw login --domain https://agent.nuwax.com -u <username>       # first time (prompts for password)
 nuwaclaw status --remote     # re-validate the stored key against the server
@@ -122,11 +124,61 @@ nuwaclaw config get
 nuwaclaw config set domain <host>
 ```
 
-Credentials live in `~/.nuwaclaw-cli/credentials.json` (mode `0600`). Passwords are never persisted.
+Credentials live in `~/.nuwaclaw-cli/credentials.json` (mode `0600`). Passwords are never persisted. The CLI does not use SQLite; to match the Electron client's behavior, `credentials.json` keeps a lightweight JSON account map keyed by `domain + username`. Logging in again with the same domain/account reuses that savedKey so the backend renews the same computer instead of creating a new one; omitting domain/account uses the current default account.
 
 `nuwaclaw status` also reports whether a local `serve` is running and on which port — read from a lockfile `serve` writes on listen. The `X-Nuwax-Internal-Secret` itself is still never persisted, so to actually call `/computer/chat` you must grab the secret from the serve process's startup output.
 
 CLI login state is intentionally isolated from the NuwaClaw Electron client. `nuwaclaw login` never reads the Electron client's SQLite database and never reuses its savedKey; run it with `--saved-key` or `-u` to create CLI-owned credentials and a CLI-owned device id.
+
+### `nuwaclaw account`
+
+Manage multiple accounts stored in `~/.nuwaclaw-cli/credentials.json`:
+
+```bash
+nuwaclaw account --help
+nuwaclaw account list
+nuwaclaw account switch --help
+nuwaclaw account switch <account-key>
+```
+
+`account list` prints switchable account keys such as `testagent.xspaceagi.com_18011447397` and marks the current default with `*`. `account switch` re-registers with that account's savedKey and makes it the current default.
+
+Account switching affects `serve`, file-server, lanproxy, and backend registration, so it is **not hot-swapped**. If `serve` is running, `account switch` refuses to proceed; press `Ctrl-C` in the running `up/serve` terminal first, then switch accounts and start services again.
+
+### `nuwaclaw up`
+
+One command to detect an available engine, log in/register, and start `serve --tunnel`:
+
+```bash
+nuwaclaw up --help
+nuwaclaw up --domain https://agent.nuwax.com --saved-key <key>
+nuwaclaw up --domain https://agent.nuwax.com -u <username>
+NUWACLAW_PASSWORD='<password>' nuwaclaw up --domain https://agent.nuwax.com -u <username>
+```
+
+When `--engine` is omitted, nuwaclaw checks local `claude` / `codex` availability: it uses the only available engine, randomly selects one when multiple are available, and fails with `claude login` / `codex login` hints when neither is available. `NUWACLAW_PASSWORD` is only read for the current username/password registration, is never written to credentials, and is stripped from engine/lanproxy/file-server child environments.
+
+After npm publish, clean machines can use the zero-install entry:
+
+```bash
+npx -y nuwaclaw@latest up --domain https://agent.nuwax.com --saved-key <key>
+```
+
+For local debugging before npm publish, see [`docs/local-debugging.md`](docs/local-debugging.md). Full design notes live in [`docs/one-click-up.md`](docs/one-click-up.md).
+
+### `nuwaclaw update`
+
+Upgrade the npm/pnpm-installed CLI package:
+
+```bash
+nuwaclaw update --help
+nuwaclaw update                 # upgrade to latest
+nuwaclaw update 0.2.0           # upgrade to a specific version
+nuwaclaw update --check         # only query the target version
+nuwaclaw update --package-manager pnpm
+```
+
+`update` only upgrades the package. It does not modify `~/.nuwaclaw-cli/credentials.json`, savedKeys, accounts, or service locks. For temporary `npx` / `pnpm dlx` runs, prefer `npx -y nuwaclaw@latest ...` or `pnpm dlx nuwaclaw@latest ...` directly.
 
 ### `nuwaclaw serve`
 
@@ -136,12 +188,16 @@ Starts a local-only HTTP API (`127.0.0.1` by default) for scripting or remote/IM
 nuwaclaw serve --port 60016
 # -> POST /computer/chat            { prompt, session_id?, cwd? } -> { session_id }
 # -> GET  /computer/progress/:id    SSE stream of session updates
-# -> GET  /computer/agent/status
+# -> GET/POST /computer/agent/status
 # -> POST /computer/agent/stop      { session_id }
+# -> POST /computer/agent/session/cancel
+# -> POST /computer/notify-resolved (accepted as a no-op in headless mode)
 # -> GET  /health                   (no auth required)
 ```
 
-Every route except `/health` requires an `X-Nuwax-Internal-Secret` header — the server prints a fresh random secret on startup; it's never written to disk.
+`serve` prefers the CLI-owned `agentPort=60016` by default; if that port is already occupied it automatically advances to the next available port and prints the actual address. Under `--tunnel`, `nuwax-file-server` similarly prefers `fileServerPort=60015`, advances when occupied, and reports the final port in `sandboxConfigValue`.
+
+Every route except `/health` requires an `X-Nuwax-Internal-Secret` header. The server prints a fresh random secret on startup and also reports it to the Nuwax backend as `sandboxConfigValue.apiKey` during `--tunnel` registration; it is never written to disk.
 
 `--approve` controls tool-call approval: `auto` (default) auto-approves every tool call (`yolo`), and `deny` refuses them (useful when the engine should run without side effects). Any other value is rejected rather than silently treated as `auto`. In `auto`/`yolo` mode the server prints a startup warning that **all** tool calls — including destructive writes, shell, and network — are auto-approved with no path confinement; pass `--approve deny` if that's not acceptable.
 
@@ -149,9 +205,16 @@ Lifecycle:
 
 - `POST /computer/agent/stop` interrupts the session — it aborts the engine connection (SIGTERM to the engine child) and waits up to ~3s for it to exit, rather than blocking until an in-flight tool call finishes on its own.
 - A session whose engine dies is evicted and emits a terminal `session_ended` event (SSE `subType` `error` or `ended`) to `/computer/progress` clients, so subscribers learn the session is gone instead of waiting forever.
-- On `SIGINT`/`SIGTERM` the server stops every active session (tearing down their engine children), stops the `--tunnel` `nuwax-file-server`, then closes the HTTP listener — engine children and the file server are no longer orphaned.
+- On `SIGINT`/`SIGTERM` the server stops every active session (tearing down their engine children), stops the `--tunnel` `nuwax-file-server` and lanproxy child, then closes the HTTP listener — engine children and helper services are no longer orphaned.
 
-`--tunnel` is **experimental**. It requires `nuwaclaw login` first and starts a local `nuwax-file-server` instance, but exposing it over an actual cloud tunnel (lanproxy) is not wired up yet — see [Known limitations](#known-limitations).
+`--tunnel` requires `nuwaclaw login` first. It re-registers the CLI with the backend, starts local `nuwax-file-server`, then starts the preintegrated lanproxy binary:
+
+```bash
+nuwaclaw config set lanproxy-path /path/to/resources/lanproxy
+nuwaclaw serve --tunnel --lanproxy-host agent.nuwax.com --lanproxy-port 443
+```
+
+If the register response includes `serverHost`/`serverPort`, the explicit host/port flags can be omitted. `--daemon` starts the same server in the background and writes logs to `~/.nuwaclaw-cli/logs/serve.log`.
 
 ## Known limitations
 
@@ -160,7 +223,7 @@ Lifecycle:
 - **Process-tree teardown on exit**: only the direct engine child receives `SIGTERM`; grandchildren (the `claude` binary the `claude-code-acp-ts` adapter spawns, and `agent-gui-server` under `--gui-mcp`) aren't signalled and may be orphaned. `serve` shutdown still stops its own HTTP sessions, but stray grandchildren can linger.
 - **No path-confinement in `yolo`**: `--approve auto` auto-approves every tool call regardless of target path; there is no writable-root guard yet (the Electron client's strict-permission gate hasn't been ported).
 - **Custom/third-party ACP engines** (pi-acp, hermes, kilo, openclaw, ...) aren't supported yet — only `claude` and `codex`.
-- **`serve --tunnel`** starts the local file server but does not yet establish a cloud tunnel (lanproxy is the only preintegrated client resource and has no npm distribution to install from).
+- **lanproxy distribution**: lanproxy is still the only preintegrated client resource; point `--lanproxy-path` (or `NUWACLAW_LANPROXY_PATH`) at an existing binary or `resources/lanproxy` directory.
 - **Cloud session sync/listing**: `sessions`/`status` are local-only for now: there's no confirmed backend API yet for cross-device session history.
 
 ## How it works
@@ -168,8 +231,8 @@ Lifecycle:
 - ACP connection: `@agentclientprotocol/sdk`'s `client().connectWith(...)` builder, spawning the engine over stdio NDJSON.
 - `claude` engine: spawns the package dependency [`claude-code-acp-ts`](https://www.npmjs.com/package/claude-code-acp-ts) with `CLAUDE_CODE_EXECUTABLE` pointed at *your* `claude` binary.
 - `codex` engine: spawns the package dependency [`nuwax-codex-acp`](https://www.npmjs.com/package/nuwax-codex-acp); that package pulls the matching platform binary through npm optional dependencies.
-- `serve --tunnel`: starts the package dependency [`nuwax-file-server`](https://www.npmjs.com/package/nuwax-file-server). The actual cloud tunnel is still pending lanproxy integration.
-- Nothing is installed into your shell's global `node_modules`, and nuwaclaw-cli stores its own credentials, device id, cache, logs, and serve lock under `~/.nuwaclaw-cli/`. If you also run the NuwaClaw Electron app, the two coexist on the same machine without sharing savedKey or local state; `serve` defaults to CLI-only ports 60016/60015, separate from Electron's 60005–60009 range.
+- `serve --tunnel`: starts the package dependency [`nuwax-file-server`](https://www.npmjs.com/package/nuwax-file-server), then launches the preintegrated `nuwax-lanproxy` binary with the registered savedKey. file-server PID/lock temp files are scoped per port under `~/.nuwaclaw-cli/tmp/file-server-<port>`, so CLI shutdown does not target the Electron client's instance or another CLI tunnel instance.
+- Nothing is installed into your shell's global `node_modules`, and nuwaclaw-cli stores its own credentials, device id, cache, logs, and serve lock under `~/.nuwaclaw-cli/`. If you also run the NuwaClaw Electron app, the two coexist on the same machine without sharing savedKey or local state; `serve` prefers CLI-only ports 60016/60015 and automatically moves forward on conflicts, separate from Electron's 60005–60009 range.
 
 ## Requirements
 

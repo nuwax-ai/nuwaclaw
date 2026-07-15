@@ -80,7 +80,7 @@ describe("resolveLanproxyBinary", () => {
   it("throws a clear error when the directory has no matching binary", () => {
     fs.mkdirSync(path.join(tmpDir, "empty"));
     expect(() => resolveLanproxyBinary(path.join(tmpDir, "empty"))).toThrow(
-      /唯一预置资源/,
+      /nuwaclaw-cli\/resources\/lanproxy/,
     );
   });
 });

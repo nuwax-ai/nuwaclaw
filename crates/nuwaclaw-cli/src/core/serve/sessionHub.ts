@@ -28,6 +28,8 @@ interface ManagedSession {
   sessionId: string;
   engine: EngineKind;
   cwd: string;
+  userId?: string;
+  projectId?: string;
   queue: AsyncQueue<string>;
   sseClients: Set<ServerResponse>;
   /** Aborted by stopSession/stopAll to interrupt an in-flight prompt. */
@@ -69,7 +71,11 @@ export class SessionHub {
   }
 
   /** Starts a brand-new session and returns its id immediately; the engine connects in the background. */
-  startSession(engineId: EngineKind, cwd: string): ManagedSession {
+  startSession(
+    engineId: EngineKind,
+    cwd: string,
+    metadata?: { userId?: string; projectId?: string },
+  ): ManagedSession {
     const sessionId = crypto.randomUUID();
     const queue = new AsyncQueue<string>();
     let readyResolve!: (v: { ok: true } | { ok: false; error: string }) => void;
@@ -83,6 +89,8 @@ export class SessionHub {
       sessionId,
       engine: engineId,
       cwd,
+      userId: metadata?.userId,
+      projectId: metadata?.projectId,
       queue,
       sseClients: new Set(),
       abortController: new AbortController(),
@@ -195,6 +203,10 @@ export class SessionHub {
     return this.sessions.get(sessionId);
   }
 
+  findSessionByProjectId(projectId: string): ManagedSession | undefined {
+    return [...this.sessions.values()].find((s) => s.projectId === projectId);
+  }
+
   enqueuePrompt(sessionId: string, text: string): boolean {
     const session = this.sessions.get(sessionId);
     if (!session) return false;
@@ -266,11 +278,15 @@ export class SessionHub {
     sessionId: string;
     engine: EngineKind;
     cwd: string;
+    userId?: string;
+    projectId?: string;
   }> {
     return [...this.sessions.values()].map((s) => ({
       sessionId: s.sessionId,
       engine: s.engine,
       cwd: s.cwd,
+      userId: s.userId,
+      projectId: s.projectId,
     }));
   }
 }

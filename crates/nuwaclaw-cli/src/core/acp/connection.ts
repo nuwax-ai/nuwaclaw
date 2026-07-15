@@ -13,6 +13,7 @@ import {
 } from "@agentclientprotocol/sdk";
 import type { PermissionMode } from "../permissions/policy.js";
 import { decidePermission } from "../permissions/policy.js";
+import { CLI_VERSION } from "../version.js";
 
 export interface SpawnTarget {
   command: string;
@@ -131,7 +132,7 @@ export async function withEngineConnection<T>(
     await ctx.request(AGENT_METHODS.initialize, {
       protocolVersion: PROTOCOL_VERSION,
       clientCapabilities: {},
-      clientInfo: { name: "nuwaclaw", version: "0.1.0" },
+      clientInfo: { name: "nuwaclaw", version: CLI_VERSION },
     });
     return op(ctx);
   });
