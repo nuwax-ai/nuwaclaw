@@ -7,6 +7,7 @@ import { selectEngine } from "../core/engines/probe.js";
 import type { EngineKind } from "../core/env/inheritEnv.js";
 import { performReg, resolveDomain, resolveLoginPassword } from "./login.js";
 import { serveCommand, type ServeCommandOptions } from "./serve.js";
+import { debugLog } from "../core/debugLog.js";
 
 export interface UpCommandOptions {
   domain?: string;
@@ -95,6 +96,14 @@ async function ensureRegistered(options: UpCommandOptions): Promise<void> {
 
 export async function upCommand(options: UpCommandOptions): Promise<void> {
   try {
+    debugLog("up.command", "start", {
+      domain: options.domain,
+      username: options.username,
+      engine: options.engine,
+      hasSavedKey: Boolean(options.savedKey),
+      daemon: options.daemon === true,
+      cwd: options.cwd,
+    });
     const { engine, probes } = await selectEngine(options.engine);
     const available = probes
       .filter((probe) => probe.ok)
@@ -105,8 +114,19 @@ export async function upCommand(options: UpCommandOptions): Promise<void> {
         `已选择引擎：${engine}${available ? `（可用：${available}）` : ""}`,
       ),
     );
+    debugLog("up.command", "engine selected", {
+      engine,
+      available,
+      probes: probes.map((probe) => ({
+        id: probe.id,
+        ok: probe.ok,
+        detail: probe.ok ? undefined : probe.detail,
+        fix: probe.ok ? undefined : probe.fix,
+      })),
+    });
 
     await ensureRegistered(options);
+    debugLog("up.command", "registered");
 
     const serveOptions: ServeCommandOptions = {
       port: options.port,
@@ -127,8 +147,18 @@ export async function upCommand(options: UpCommandOptions): Promise<void> {
       baseUrl: options.baseUrl,
       model: options.model,
     };
+    debugLog("up.command", "serve handoff", {
+      engine,
+      tunnel: serveOptions.tunnel,
+      daemon: serveOptions.daemon,
+      cwd: serveOptions.cwd,
+      port: serveOptions.port,
+    });
     await serveCommand(serveOptions);
   } catch (err) {
+    debugLog("up.command", "failed", {
+      message: (err as Error).message,
+    });
     console.error(pc.red(`[nuwaclaw] up 失败：${(err as Error).message}`));
     process.exitCode = 1;
   }

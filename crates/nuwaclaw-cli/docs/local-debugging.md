@@ -373,14 +373,18 @@ pnpm run dev:cli serve --port 60016 --tunnel \
 
 注意：`nuwax-file-server` 随 CLI 的 npm/pnpm 依赖安装；lanproxy 是 CLI 自己的预置资源，源码目录在 `crates/nuwaclaw-cli/resources/lanproxy`，构建时会复制到 `dist/resources/lanproxy`。`--lanproxy-path`、`config set lanproxy-path` 或 `NUWACLAW_LANPROXY_PATH` 只用于覆盖内置资源或调试指定二进制。若注册接口返回 `serverHost`/`serverPort`，可省略 `--lanproxy-host` / `--lanproxy-port`。
 
+工作空间：未传 `--cwd` 时，`serve/up` 使用 `~/.nuwaclaw-cli/workspaces` 作为工作空间根目录；云端请求里的 `agent_work_dir` / `project_id` 会映射到 `~/.nuwaclaw-cli/workspaces/computer-project-workspace/<user_id>/<agent_work_dir-or-project_id>`，file-server 使用同一根目录。需要固定到其他目录时传 `--cwd <dir>`。
+
 端口隔离：HTTP API 默认优先 `60016`，file-server 默认优先 `60015`；两者若被占用都会自动后移。file-server 的 PID/lock 临时目录按端口固定在 `~/.nuwaclaw-cli/tmp/file-server-<port>`，不会复用系统默认的 `nuwax-file-server` 全局 PID 目录。
 
 后台运行：
 
 ```bash
 pnpm run dev:cli serve --port 60016 --tunnel --daemon
-tail -f ~/.nuwaclaw-cli/logs/serve.log
+tail -f ~/.nuwaclaw-cli/logs/latest.log
 ```
+
+日志规则对齐客户端：CLI 结构化运行日志写入 `~/.nuwaclaw-cli/logs/main.YYYY-MM-DD.log`，`latest.log` 指向当日活跃日志；`up-debug.log` 保留为兼容别名。`--daemon` 的原始 stdout/stderr 仍会追加到 `serve.log`，主要用于查看启动命令输出。
 
 ## 测试建议
 

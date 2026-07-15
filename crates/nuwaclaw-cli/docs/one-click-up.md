@@ -220,6 +220,7 @@ nuwaclaw serve --tunnel --engine <selected-engine>
 - credentials：`~/.nuwaclaw-cli/credentials.json`
 - serve lock：`~/.nuwaclaw-cli/serve.lock`
 - logs：`~/.nuwaclaw-cli/logs`
+- 默认工作空间根目录：`~/.nuwaclaw-cli/workspaces`；云端 `agent_work_dir` / `project_id` 映射到 `~/.nuwaclaw-cli/workspaces/computer-project-workspace/<user_id>/<agent_work_dir-or-project_id>`，`--cwd <dir>` 可覆盖根目录。
 - file-server PID/lock 临时目录：`~/.nuwaclaw-cli/tmp/file-server-<port>`
 - agentPort 默认优先 `60016`，占用时自动后移。
 - fileServerPort 默认优先 `60015`，占用时自动后移。
@@ -259,6 +260,6 @@ nuwaclaw serve --tunnel --engine <selected-engine>
 - `account switch <key>`：serve 停止时可切换并刷新当前账号；serve 运行时拒绝切换。
 - 无登录参数但已有当前默认账号：复用当前账号 savedKey 免密注册。
 - 无登录参数且无当前默认账号/savedKey：失败并提示登录参数。
-- `--daemon`：后台启动，日志写入 `~/.nuwaclaw-cli/logs/serve.log`。
+- `--daemon`：后台启动；结构化运行日志看 `~/.nuwaclaw-cli/logs/latest.log`（指向 `main.YYYY-MM-DD.log`），原始 stdout/stderr 仍追加到 `serve.log`。
 - 端口被占用：agent/file-server 自动后移，注册上报最终端口。
 - `--help`：`login` / `up` / `account switch` 帮助里说明默认账号、多账号 JSON、密码环境变量和服务重启要求。

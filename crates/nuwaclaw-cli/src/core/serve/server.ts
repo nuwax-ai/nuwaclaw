@@ -1,9 +1,13 @@
 import * as http from "node:http";
 import * as crypto from "node:crypto";
+import * as fs from "node:fs";
+import * as path from "node:path";
 import type { EngineKind } from "../env/inheritEnv.js";
 import type { PermissionMode } from "../permissions/policy.js";
 import { SessionHub } from "./sessionHub.js";
 import { writeServeLock, clearServeLock } from "./serveLock.js";
+import { computerProjectWorkspacesDir, ensureDir } from "../../util/paths.js";
+import { debugLog } from "../debugLog.js";
 
 export interface ServeOptions {
   port: number;
@@ -13,6 +17,7 @@ export interface ServeOptions {
   permissionMode: PermissionMode;
   overlay?: { apiKey?: string; baseUrl?: string; model?: string };
   acceptedSecrets?: string[];
+  allowUnauthenticatedComputerRoutes?: boolean;
 }
 
 async function readJsonBody(
@@ -43,7 +48,8 @@ function sendJson(
     "Content-Type": "application/json",
     "Access-Control-Allow-Origin": "*",
     "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
-    "Access-Control-Allow-Headers": "Content-Type, X-Nuwax-Internal-Secret",
+    "Access-Control-Allow-Headers":
+      "Content-Type, Authorization, X-Nuwax-Internal-Secret",
   });
   res.end(JSON.stringify(body));
 }
@@ -90,14 +96,110 @@ function textField(
   return undefined;
 }
 
-function validateAgentWorkDir(value: string): string | null {
-  if (value.length === 0 || value.length > 64) {
-    return "agent_work_dir must be 1-64 characters";
+function secretCandidates(req: http.IncomingMessage, url: URL): string[] {
+  const candidates: string[] = [];
+  const headerSecret = req.headers["x-nuwax-internal-secret"];
+  if (typeof headerSecret === "string") candidates.push(headerSecret);
+
+  const authorization = req.headers.authorization;
+  if (typeof authorization === "string") {
+    const bearer = authorization.match(/^Bearer\s+(.+)$/i);
+    candidates.push(bearer ? bearer[1] : authorization);
   }
-  if (!/^[a-zA-Z0-9_-]+$/.test(value)) {
-    return "agent_work_dir may only contain [a-zA-Z0-9_-]";
+
+  for (const key of [
+    "apiKey",
+    "api_key",
+    "token",
+    "access_token",
+    "x-nuwax-internal-secret",
+  ]) {
+    const value = url.searchParams.get(key);
+    if (value) candidates.push(value);
   }
-  return null;
+
+  return candidates;
+}
+
+function chatProjectKey(
+  body: Record<string, unknown>,
+  ...fallbacks: Array<string | undefined | null>
+): string | undefined {
+  return (
+    textField(body, "agent_work_dir", "agentWorkDir") ??
+    textField(body, "project_id", "projectId") ??
+    textField(body, "session_id", "sessionId") ??
+    fallbacks.find((value) => typeof value === "string" && value.length > 0) ??
+    undefined
+  );
+}
+
+function safeWorkspaceSegment(value: string, fallback: string): string {
+  const normalized = value.trim();
+  if (!normalized) return fallback;
+  const hash = crypto
+    .createHash("sha256")
+    .update(normalized)
+    .digest("hex")
+    .slice(0, 8);
+  const readable = normalized
+    .replace(/[^a-zA-Z0-9._-]+/g, "_")
+    .replace(/\s+/g, "_")
+    .replace(/_+/g, "_")
+    .replace(/^_+|_+$/g, "");
+  const base = readable || fallback;
+  if (base === normalized && base.length <= 64) return base;
+  return `${base.slice(0, 55)}-${hash}`;
+}
+
+function resolveExistingDirectory(
+  candidate: string,
+): { ok: true; cwd: string } | { ok: false; error: string } {
+  const cwd = path.resolve(candidate);
+  let stat: fs.Stats;
+  try {
+    stat = fs.statSync(cwd);
+  } catch {
+    return {
+      ok: false,
+      error: `workspace directory does not exist: ${cwd}`,
+    };
+  }
+  if (!stat.isDirectory()) {
+    return {
+      ok: false,
+      error: `workspace path is not a directory: ${cwd}`,
+    };
+  }
+  return { ok: true, cwd };
+}
+
+function resolveChatCwd(
+  body: Record<string, unknown>,
+  defaultCwd: string,
+):
+  | { ok: true; cwd: string; projectKey?: string }
+  | { ok: false; error: string } {
+  const explicitCwd = textField(body, "cwd", "workspace_dir", "workspaceDir");
+  const projectKey = chatProjectKey(body);
+  if (explicitCwd) {
+    const resolved = resolveExistingDirectory(explicitCwd);
+    return resolved.ok ? { ...resolved, projectKey } : resolved;
+  }
+
+  const userId = textField(body, "user_id", "userId") ?? "default";
+  if (projectKey) {
+    const cwd = path.join(
+      computerProjectWorkspacesDir(),
+      safeWorkspaceSegment(userId, "default"),
+      safeWorkspaceSegment(projectKey, "default"),
+    );
+    ensureDir(cwd);
+    return { ok: true, cwd, projectKey };
+  }
+
+  const resolved = resolveExistingDirectory(defaultCwd);
+  return resolved.ok ? { ...resolved, projectKey } : resolved;
 }
 
 /**
@@ -108,6 +210,7 @@ function validateAgentWorkDir(value: string): string | null {
 export function startServeHttp(options: ServeOptions): {
   secret: string;
   server: http.Server;
+  addAcceptedSecret: (secret: string | undefined) => void;
   stop: () => Promise<void>;
 } {
   const secret = crypto.randomBytes(24).toString("hex");
@@ -115,10 +218,38 @@ export function startServeHttp(options: ServeOptions): {
   const acceptedSecrets = new Set(
     [secret, ...(options.acceptedSecrets ?? [])].filter(Boolean),
   );
+  debugLog("serve.http", "starting", {
+    host: options.host,
+    port: options.port,
+    engine: options.engine,
+    cwd: options.cwd,
+    permissionMode: options.permissionMode,
+    acceptedSecretCount: acceptedSecrets.size,
+    allowUnauthenticatedComputerRoutes:
+      options.allowUnauthenticatedComputerRoutes === true,
+  });
 
   const server = http.createServer((req, res) => {
-    const url = new URL(req.url ?? "/", `http://${req.headers.host}`);
+    let url = new URL(req.url ?? "/", `http://${req.headers.host}`);
+    const originalPath = url.pathname;
+    if (url.pathname.startsWith("/devcomputer/")) {
+      url = new URL(
+        url.pathname.replace("/devcomputer/", "/computer/") + url.search,
+        `http://${req.headers.host}`,
+      );
+    }
     const method = req.method?.toUpperCase() ?? "GET";
+    debugLog("serve.http", "request", {
+      method,
+      path: url.pathname,
+      originalPath,
+      hasInternalSecretHeader:
+        typeof req.headers["x-nuwax-internal-secret"] === "string",
+      hasAuthorizationHeader: typeof req.headers.authorization === "string",
+      queryAuthKeys: ["apiKey", "api_key", "token", "access_token"].filter(
+        (key) => url.searchParams.has(key),
+      ),
+    });
 
     if (method === "OPTIONS") {
       sendJson(res, 204, {});
@@ -134,17 +265,26 @@ export function startServeHttp(options: ServeOptions): {
       return;
     }
 
-    const suppliedSecret = req.headers["x-nuwax-internal-secret"];
+    const isProgressRoute =
+      url.pathname.startsWith("/computer/progress/") && method === "GET";
+    const isComputerRoute = url.pathname.startsWith("/computer/");
+    const allowElectronCompatibleComputerRoute =
+      options.allowUnauthenticatedComputerRoutes === true && isComputerRoute;
+    const authorized = secretCandidates(req, url).some((candidate) =>
+      acceptedSecrets.has(candidate),
+    );
     if (
-      typeof suppliedSecret !== "string" ||
-      !acceptedSecrets.has(suppliedSecret)
+      !authorized &&
+      !isProgressRoute &&
+      !allowElectronCompatibleComputerRoute
     ) {
+      debugLog("serve.http", "unauthorized", {
+        method,
+        path: url.pathname,
+      });
       sendJson(res, 401, {
-        ...httpError(
-          "UNAUTHORIZED",
-          "missing or invalid X-Nuwax-Internal-Secret",
-        ),
-        error: "missing or invalid X-Nuwax-Internal-Secret",
+        ...httpError("UNAUTHORIZED", "missing or invalid internal secret"),
+        error: "missing or invalid internal secret",
       });
       return;
     }
@@ -162,24 +302,35 @@ export function startServeHttp(options: ServeOptions): {
             return;
           }
           const existingId = textField(body, "session_id", "sessionId");
-          const cwd = typeof body.cwd === "string" ? body.cwd : options.cwd;
           const userId = textField(body, "user_id", "userId");
           const projectId = textField(body, "project_id", "projectId");
-          const agentWorkDir = textField(body, "agent_work_dir");
-          if (agentWorkDir) {
-            const validationError = validateAgentWorkDir(agentWorkDir);
-            if (validationError) {
-              sendJson(
-                res,
-                400,
-                httpError("VALIDATION_ERROR", validationError),
-              );
-              return;
-            }
+          const cwdResult = resolveChatCwd(body, options.cwd);
+          if (!cwdResult.ok) {
+            debugLog("serve.chat", "cwd resolution failed", {
+              userId,
+              projectId,
+              agentWorkDir: textField(body, "agent_work_dir", "agentWorkDir"),
+              error: cwdResult.error,
+            });
+            sendJson(res, 400, httpError("VALIDATION_ERROR", cwdResult.error));
+            return;
           }
+          debugLog("serve.chat", "received", {
+            userId,
+            projectId,
+            agentWorkDir: textField(body, "agent_work_dir", "agentWorkDir"),
+            existingId,
+            projectKey: cwdResult.projectKey,
+            cwd: cwdResult.cwd,
+            promptLength: prompt.length,
+            hasExplicitCwd: Boolean(
+              textField(body, "cwd", "workspace_dir", "workspaceDir"),
+            ),
+          });
 
           const session = existingId ? hub.getSession(existingId) : undefined;
           if (existingId && !session) {
+            debugLog("serve.chat", "session not found", { existingId });
             sendJson(
               res,
               404,
@@ -192,9 +343,9 @@ export function startServeHttp(options: ServeOptions): {
           }
           const target =
             session ??
-            hub.startSession(options.engine, cwd, {
+            hub.startSession(options.engine, cwdResult.cwd, {
               userId,
-              projectId: projectId ?? agentWorkDir,
+              projectId: cwdResult.projectKey ?? projectId,
             });
 
           // Wait for the engine to actually connect before responding — if
@@ -204,6 +355,10 @@ export function startServeHttp(options: ServeOptions): {
           const readiness = await target.ready;
           if (!readiness.ok) {
             await hub.stopSession(target.sessionId);
+            debugLog("serve.chat", "engine start failed", {
+              sessionId: target.sessionId,
+              error: readiness.error,
+            });
             sendJson(
               res,
               502,
@@ -213,6 +368,11 @@ export function startServeHttp(options: ServeOptions): {
           }
 
           hub.enqueuePrompt(target.sessionId, prompt);
+          debugLog("serve.chat", "accepted", {
+            sessionId: target.sessionId,
+            isNewSession: !session,
+            projectKey: cwdResult.projectKey,
+          });
           const payload = {
             session_id: target.sessionId,
             is_new_session: !session,
@@ -233,20 +393,35 @@ export function startServeHttp(options: ServeOptions): {
 
     if (url.pathname.startsWith("/computer/progress/") && method === "GET") {
       const sessionId = url.pathname.replace("/computer/progress/", "");
-      if (!hub.subscribeSse(sessionId, res)) {
-        sendJson(
-          res,
-          404,
-          httpError("ERR_SESSION_NOT_FOUND", `session ${sessionId} not found`),
-        );
-        return;
-      }
+      debugLog("serve.progress", "connect", {
+        sessionId,
+        authorized,
+      });
       res.writeHead(200, {
         "Content-Type": "text/event-stream",
         "Cache-Control": "no-cache",
         Connection: "keep-alive",
+        "Access-Control-Allow-Origin": "*",
       });
       res.write("\n");
+      if (!hub.subscribeSse(sessionId, res)) {
+        debugLog("serve.progress", "session not found; sent idle end", {
+          sessionId,
+        });
+        const message = {
+          sessionId,
+          messageType: "sessionPromptEnd",
+          subType: "end_turn",
+          data: {
+            reason: "EndTurn",
+            description: "Agent has no task in progress",
+          },
+          timestamp: new Date().toISOString(),
+        };
+        res.write(`event: end_turn\ndata: ${JSON.stringify(message)}\n\n`);
+        res.end();
+        return;
+      }
       const heartbeat = setInterval(() => {
         const message = {
           sessionId,
@@ -267,6 +442,7 @@ export function startServeHttp(options: ServeOptions): {
 
     if (url.pathname === "/computer/agent/status" && method === "GET") {
       const sessions = hub.listSessions();
+      debugLog("serve.status", "list", { count: sessions.length });
       sendJson(res, 200, { ...httpResult({ sessions }), sessions });
       return;
     }
@@ -276,10 +452,17 @@ export function startServeHttp(options: ServeOptions): {
         .then(async (body) => {
           const projectId = textField(body, "project_id", "projectId");
           const sessionId = textField(body, "session_id", "sessionId");
+          const projectKey = chatProjectKey(body, projectId);
+          debugLog("serve.status", "query", {
+            sessionId,
+            projectId,
+            agentWorkDir: textField(body, "agent_work_dir", "agentWorkDir"),
+            projectKey,
+          });
           const session = sessionId
             ? hub.getSession(sessionId)
-            : projectId
-              ? hub.findSessionByProjectId(projectId)
+            : projectKey
+              ? hub.findSessionByProjectId(projectKey)
               : undefined;
           sendJson(
             res,
@@ -306,20 +489,31 @@ export function startServeHttp(options: ServeOptions): {
         .then(async (body) => {
           const sessionId = textField(body, "session_id", "sessionId");
           const projectId = textField(body, "project_id", "projectId");
+          const projectKey = chatProjectKey(body, projectId);
+          debugLog("serve.stop", "request", {
+            sessionId,
+            projectId,
+            agentWorkDir: textField(body, "agent_work_dir", "agentWorkDir"),
+            projectKey,
+          });
           const session = sessionId
             ? hub.getSession(sessionId)
-            : projectId
-              ? hub.findSessionByProjectId(projectId)
+            : projectKey
+              ? hub.findSessionByProjectId(projectKey)
               : undefined;
           if (!session) {
+            debugLog("serve.stop", "session not found", {
+              sessionId,
+              projectKey,
+            });
             sendJson(
               res,
               404,
               httpError(
                 "ERR_SESSION_NOT_FOUND",
-                sessionId || projectId
-                  ? `session ${sessionId ?? projectId} not found`
-                  : "session_id or project_id is required",
+                sessionId || projectKey
+                  ? `session ${sessionId ?? projectKey} not found`
+                  : "session_id, agent_work_dir or project_id is required",
               ),
             );
             return;
@@ -356,12 +550,24 @@ export function startServeHttp(options: ServeOptions): {
             textField(body, "project_id", "projectId") ??
             url.searchParams.get("project_id") ??
             undefined;
+          const agentWorkDir =
+            textField(body, "agent_work_dir", "agentWorkDir") ??
+            url.searchParams.get("agent_work_dir") ??
+            undefined;
+          const projectKey = agentWorkDir ?? projectId;
           const session = sessionId
             ? hub.getSession(sessionId)
-            : projectId
-              ? hub.findSessionByProjectId(projectId)
+            : projectKey
+              ? hub.findSessionByProjectId(projectKey)
               : undefined;
           if (session) await hub.stopSession(session.sessionId);
+          debugLog("serve.cancel", "request", {
+            sessionId,
+            projectId,
+            agentWorkDir,
+            projectKey,
+            found: Boolean(session),
+          });
           sendJson(
             res,
             200,
@@ -400,6 +606,10 @@ export function startServeHttp(options: ServeOptions): {
     const address = server.address();
     const actualPort =
       typeof address === "object" && address ? address.port : options.port;
+    debugLog("serve.http", "listening", {
+      host: options.host,
+      port: actualPort,
+    });
     writeServeLock({
       pid: process.pid,
       port: actualPort,
@@ -411,7 +621,15 @@ export function startServeHttp(options: ServeOptions): {
   return {
     secret,
     server,
+    addAcceptedSecret: (value) => {
+      if (!value) return;
+      acceptedSecrets.add(value);
+      debugLog("serve.http", "accepted secret added", {
+        acceptedSecretCount: acceptedSecrets.size,
+      });
+    },
     stop: async () => {
+      debugLog("serve.http", "stopping");
       // Tear down every active engine session first so their child processes
       // don't outlive the server, then close the HTTP server.
       // closeAllConnections() is what lets server.close(cb) actually fire —
@@ -421,6 +639,7 @@ export function startServeHttp(options: ServeOptions): {
       server.closeAllConnections();
       await new Promise<void>((resolve) => server.close(() => resolve()));
       clearServeLock();
+      debugLog("serve.http", "stopped");
     },
   };
 }

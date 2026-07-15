@@ -186,7 +186,7 @@ Starts a local-only HTTP API (`127.0.0.1` by default) for scripting or remote/IM
 
 ```bash
 nuwaclaw serve --port 60016
-# -> POST /computer/chat            { prompt, session_id?, cwd? } -> { session_id }
+# -> POST /computer/chat            { prompt, session_id?, agent_work_dir?, project_id?, cwd? } -> { session_id }
 # -> GET  /computer/progress/:id    SSE stream of session updates
 # -> GET/POST /computer/agent/status
 # -> POST /computer/agent/stop      { session_id }
@@ -197,7 +197,9 @@ nuwaclaw serve --port 60016
 
 `serve` prefers the CLI-owned `agentPort=60016` by default; if that port is already occupied it automatically advances to the next available port and prints the actual address. Under `--tunnel`, `nuwax-file-server` similarly prefers `fileServerPort=60015`, advances when occupied, and reports the final port in `sandboxConfigValue`.
 
-Every route except `/health` requires an `X-Nuwax-Internal-Secret` header. The server prints a fresh random secret on startup and also reports it to the Nuwax backend as `sandboxConfigValue.apiKey` during `--tunnel` registration; it is never written to disk.
+If `--cwd` is not provided, the workspace root is `~/.nuwaclaw-cli/workspaces`. Cloud/Electron-style requests that carry `agent_work_dir` or `project_id` create and use `~/.nuwaclaw-cli/workspaces/computer-project-workspace/<user_id>/<agent_work_dir-or-project_id>`, and `nuwax-file-server` is pointed at the same root. Passing `--cwd <dir>` overrides that workspace root.
+
+For plain local `serve`, every route except `/health` and the read-only SSE `/computer/progress/:session_id` requires authentication. The preferred form is `X-Nuwax-Internal-Secret`, with `Authorization: Bearer <secret>` and `?apiKey=<secret>` accepted for clients that cannot set custom headers. In `--tunnel` mode, `/computer/*` and `/devcomputer/*` follow the Electron client's contract: the lanproxy connection is authenticated with the savedKey/configKey client key, and the forwarded local HTTP calls do not carry another per-request savedKey. The server still prints a fresh local debug secret on startup; it is never written to disk.
 
 `--approve` controls tool-call approval: `auto` (default) auto-approves every tool call (`yolo`), and `deny` refuses them (useful when the engine should run without side effects). Any other value is rejected rather than silently treated as `auto`. In `auto`/`yolo` mode the server prints a startup warning that **all** tool calls — including destructive writes, shell, and network — are auto-approved with no path confinement; pass `--approve deny` if that's not acceptable.
 
@@ -214,7 +216,7 @@ nuwaclaw config set lanproxy-path /path/to/resources/lanproxy
 nuwaclaw serve --tunnel --lanproxy-host agent.nuwax.com --lanproxy-port 443
 ```
 
-If the register response includes `serverHost`/`serverPort`, the explicit host/port flags can be omitted. `--daemon` starts the same server in the background and writes logs to `~/.nuwaclaw-cli/logs/serve.log`.
+If the register response includes `serverHost`/`serverPort`, the explicit host/port flags can be omitted. CLI runtime logs follow the Electron client's shape: structured JSONL entries go to `~/.nuwaclaw-cli/logs/main.YYYY-MM-DD.log`, and `latest.log` points at today's active log. `up-debug.log` is kept as a compatibility alias. `--daemon` still appends raw stdout/stderr to `serve.log` for startup-output capture.
 
 ## Known limitations
 

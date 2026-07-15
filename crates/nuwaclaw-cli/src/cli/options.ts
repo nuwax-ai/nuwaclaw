@@ -43,7 +43,7 @@ export function addServeRuntimeOptions(command: Command): Command {
         String(CLI_AGENT_PORT),
       )
       .option("--host <host>", "HTTP API 监听地址", "127.0.0.1")
-      .option("--cwd <dir>", "工作目录", process.cwd())
+      .option("--cwd <dir>", "工作空间根目录；默认 ~/.nuwaclaw-cli/workspaces")
       .option(
         "--approve <policy>",
         "权限策略：auto（默认，自动批准）或 deny",

@@ -27,7 +27,8 @@ import {
   CLI_FILE_SERVER_PORT,
   findAvailablePort,
 } from "../core/ports.js";
-import { ensureDir, logsDir } from "../util/paths.js";
+import { ensureDir, logsDir, workspacesDir } from "../util/paths.js";
+import { debugLog } from "../core/debugLog.js";
 
 export interface ServeCommandOptions {
   port?: string;
@@ -100,6 +101,11 @@ function launchDaemon(argsOverride?: string[]): void {
     env: buildCliChildEnv({ NUWACLAW_SERVE_DAEMONIZED: "1" }),
   });
   child.unref();
+  debugLog("serve.daemon", "launched", {
+    pid: child.pid,
+    logPath,
+    args,
+  });
   console.log(pc.green(`nuwaclaw serve 已后台启动（pid ${child.pid}）。`));
   console.log(pc.dim(`日志：${logPath}`));
 }
@@ -107,6 +113,14 @@ function launchDaemon(argsOverride?: string[]): void {
 export async function serveCommand(
   options: ServeCommandOptions,
 ): Promise<void> {
+  debugLog("serve.command", "start", {
+    engine: options.engine,
+    tunnel: options.tunnel === true,
+    daemon: options.daemon === true,
+    requestedPort: options.port,
+    requestedHost: options.host,
+    requestedCwd: options.cwd,
+  });
   if (options.daemon && process.env.NUWACLAW_SERVE_DAEMONIZED !== "1") {
     launchDaemon(options.daemonArgs);
     return;
@@ -121,8 +135,10 @@ export async function serveCommand(
     return;
   }
 
-  const cwd = path.resolve(options.cwd ?? process.cwd());
+  const cwd = path.resolve(options.cwd ?? workspacesDir());
+  ensureDir(cwd);
   const host = options.host ?? "127.0.0.1";
+  debugLog("serve.command", "workspace resolved", { cwd });
   let port: number;
   try {
     const preferredPort = parsePortOption(
@@ -154,8 +170,15 @@ export async function serveCommand(
   let activeFileServerPort: number | undefined;
   let lanproxyHandle: LanproxyHandle | undefined;
   const credentials = options.tunnel ? readCredentials() : {};
-  const acceptedSecrets =
-    options.tunnel && credentials.configKey ? [credentials.configKey] : [];
+  const acceptedSecrets = options.tunnel
+    ? [
+        ...new Set(
+          [credentials.configKey, credentials.savedKey].filter(
+            (value): value is string => Boolean(value),
+          ),
+        ),
+      ]
+    : [];
   const overlay =
     options.apiKey || options.baseUrl || options.model
       ? {
@@ -165,7 +188,7 @@ export async function serveCommand(
         }
       : undefined;
 
-  const { secret, stop } = startServeHttp({
+  const { secret, stop, addAcceptedSecret } = startServeHttp({
     port,
     host,
     engine: engineId,
@@ -173,10 +196,23 @@ export async function serveCommand(
     permissionMode,
     overlay,
     acceptedSecrets,
+    allowUnauthenticatedComputerRoutes: options.tunnel === true,
+  });
+  debugLog("serve.command", "http started", {
+    host,
+    port,
+    engine: engineId,
+    acceptedSecrets: acceptedSecrets.length,
   });
   console.log(pc.green(`nuwaclaw serve 已启动：http://${host}:${port}`));
   console.log(pc.dim(`X-Nuwax-Internal-Secret: ${secret}`));
-  console.log(pc.dim("（仅本次进程有效，不会持久化，每个请求需带此 header）"));
+  console.log(
+    pc.dim(
+      options.tunnel
+        ? "（仅本次进程有效，不会持久化；本地直连调试可带此 header，云端隧道请求由 lanproxy savedKey 授权）"
+        : "（仅本次进程有效，不会持久化，每个请求需带此 header）",
+    ),
+  );
 
   if (permissionMode === "yolo") {
     // yolo has no path confinement (unlike the Electron client's strict gate):
@@ -209,6 +245,11 @@ export async function serveCommand(
     } else {
       try {
         const ssl = parseBooleanFlag(options.lanproxySsl, true);
+        debugLog("serve.tunnel", "register start", {
+          domain: credentials.domain,
+          username: credentials.username,
+          preferredAgentPort: port,
+        });
         const fileServerPort = await resolveAvailablePort(
           CLI_FILE_SERVER_PORT,
           "127.0.0.1",
@@ -225,6 +266,15 @@ export async function serveCommand(
             fileServerPort,
             apiKey: secret,
           }),
+        });
+        debugLog("serve.tunnel", "register success", {
+          domain: credentials.domain,
+          username: credentials.username,
+          computerName: reg.name,
+          serverHost: reg.serverHost,
+          serverPort: reg.serverPort,
+          agentPort: port,
+          fileServerPort,
         });
         if (
           reg.configValue?.fileServerPort &&
@@ -245,6 +295,7 @@ export async function serveCommand(
           "--lanproxy-port",
         );
         const lastRegAt = new Date().toISOString();
+        addAcceptedSecret(reg.configKey);
         const serverHost = reg.serverHost ?? credentials.serverHost;
         const serverPort = reg.serverPort ?? credentials.serverPort;
         const patch: Parameters<typeof updateCredentials>[0] = {
@@ -279,7 +330,11 @@ export async function serveCommand(
           );
         }
 
-        startFileServer(fileServerPort);
+        startFileServer(fileServerPort, cwd);
+        debugLog("serve.fileServer", "started", {
+          port: fileServerPort,
+          workspaceRoot: cwd,
+        });
         fileServerStarted = true;
         activeFileServerPort = fileServerPort;
         console.log(
@@ -293,6 +348,12 @@ export async function serveCommand(
           clientKey: reg.configKey,
           ssl,
         });
+        debugLog("serve.lanproxy", "started", {
+          pid: lanproxyHandle.pid,
+          serverHost: lanproxyHost,
+          serverPort: lanproxyPort,
+          ssl,
+        });
         console.log(
           pc.green(
             `lanproxy 已启动（pid ${lanproxyHandle.pid ?? "unknown"}，${lanproxyHost}:${lanproxyPort}，ssl=${ssl}）。`,
@@ -301,6 +362,7 @@ export async function serveCommand(
       } catch (err) {
         const message =
           err instanceof RegError ? err.message : (err as Error).message;
+        debugLog("serve.tunnel", "failed", { message });
         console.error(
           pc.red(
             `[nuwaclaw] --tunnel 注册失败：${message}；本次仅提供本地 API。`,
@@ -318,11 +380,21 @@ export async function serveCommand(
       process.off("SIGINT", shutdown);
       process.off("SIGTERM", shutdown);
       console.log(pc.dim("\n正在关闭..."));
+      debugLog("serve.command", "shutdown start", {
+        fileServerStarted,
+        activeFileServerPort,
+        lanproxyPid: lanproxyHandle?.pid,
+      });
       await stop();
       lanproxyHandle?.stop();
+      if (lanproxyHandle) debugLog("serve.lanproxy", "stopped");
       if (fileServerStarted && activeFileServerPort !== undefined) {
-        stopFileServer(activeFileServerPort);
+        stopFileServer(activeFileServerPort, cwd);
+        debugLog("serve.fileServer", "stopped", {
+          port: activeFileServerPort,
+        });
       }
+      debugLog("serve.command", "shutdown done");
       resolve();
     };
     process.once("SIGINT", shutdown);

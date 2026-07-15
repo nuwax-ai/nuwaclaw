@@ -14,6 +14,7 @@ const mocks = vi.hoisted(() => ({
   registerClient: vi.fn(),
   startServeHttp: vi.fn(),
   stopHttp: vi.fn(),
+  addAcceptedSecret: vi.fn(),
   startFileServer: vi.fn(),
   stopFileServer: vi.fn(),
   startLanproxy: vi.fn(),
@@ -63,6 +64,7 @@ describe("serveCommand", () => {
     mocks.registerClient.mockReset();
     mocks.startServeHttp.mockReset();
     mocks.stopHttp.mockReset().mockResolvedValue(undefined);
+    mocks.addAcceptedSecret.mockReset();
     mocks.startFileServer.mockReset();
     mocks.stopFileServer.mockReset();
     mocks.startLanproxy.mockReset();
@@ -70,6 +72,7 @@ describe("serveCommand", () => {
     mocks.startServeHttp.mockReturnValue({
       secret: "serve-secret",
       stop: mocks.stopHttp,
+      addAcceptedSecret: mocks.addAcceptedSecret,
     });
     mocks.startLanproxy.mockReturnValue({
       pid: 1234,
@@ -142,6 +145,18 @@ describe("serveCommand", () => {
         serverPort: 443,
         clientKey: "renewed-config",
       }),
+    );
+    expect(mocks.addAcceptedSecret).toHaveBeenCalledWith("renewed-config");
+    expect(mocks.startServeHttp).toHaveBeenCalledWith(
+      expect.objectContaining({
+        cwd: path.join(tmpHome, ".nuwaclaw-cli", "workspaces"),
+        acceptedSecrets: ["old-config"],
+        allowUnauthenticatedComputerRoutes: true,
+      }),
+    );
+    expect(mocks.startFileServer).toHaveBeenCalledWith(
+      60015,
+      path.join(tmpHome, ".nuwaclaw-cli", "workspaces"),
     );
     expect(mocks.stopLanproxy).toHaveBeenCalled();
   });

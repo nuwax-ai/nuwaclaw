@@ -7,6 +7,11 @@ const mocks = vi.hoisted(() => ({
   unref: vi.fn(),
   ensureDir: vi.fn(),
   tmpDir: vi.fn(() => "/tmp/nuwaclaw-cli-test"),
+  workspacesDir: vi.fn(() => "/tmp/nuwaclaw-cli-workspaces"),
+  computerProjectWorkspacesDir: vi.fn(
+    () => "/tmp/nuwaclaw-cli-workspaces/computer-project-workspace",
+  ),
+  logsDir: vi.fn(() => "/tmp/nuwaclaw-cli-logs"),
 }));
 
 vi.mock("../src/core/engines/packageResolve.js", () => ({
@@ -19,8 +24,11 @@ vi.mock("node:child_process", () => ({
 }));
 
 vi.mock("../src/util/paths.js", () => ({
+  computerProjectWorkspacesDir: mocks.computerProjectWorkspacesDir,
   ensureDir: mocks.ensureDir,
+  logsDir: mocks.logsDir,
   tmpDir: mocks.tmpDir,
+  workspacesDir: mocks.workspacesDir,
 }));
 
 describe("fileServer", () => {
@@ -32,6 +40,9 @@ describe("fileServer", () => {
     mocks.unref.mockReset();
     mocks.ensureDir.mockReset();
     mocks.tmpDir.mockClear();
+    mocks.workspacesDir.mockClear();
+    mocks.computerProjectWorkspacesDir.mockClear();
+    mocks.logsDir.mockClear();
     mocks.resolveInstalledPackageEntry.mockReturnValue(
       "/fake/nuwax-file-server.js",
     );
@@ -55,6 +66,13 @@ describe("fileServer", () => {
           TMPDIR: "/tmp/nuwaclaw-cli-test/file-server-60015",
           TMP: "/tmp/nuwaclaw-cli-test/file-server-60015",
           TEMP: "/tmp/nuwaclaw-cli-test/file-server-60015",
+          COMPUTER_WORKSPACE_DIR:
+            "/tmp/nuwaclaw-cli-workspaces/computer-project-workspace",
+          PROJECT_SOURCE_DIR: "/tmp/nuwaclaw-cli-workspaces/project_workspace",
+          UPLOAD_PROJECT_DIR: "/tmp/nuwaclaw-cli-test/file-server-project-zips",
+          DIST_TARGET_DIR: "/tmp/nuwaclaw-cli-test/file-server-dist",
+          LOG_BASE_DIR: "/tmp/nuwaclaw-cli-logs/file-server/project_logs",
+          COMPUTER_LOG_DIR: "/tmp/nuwaclaw-cli-logs/file-server/computer_logs",
         }),
         stdio: "ignore",
         detached: true,
@@ -62,6 +80,9 @@ describe("fileServer", () => {
     );
     expect(mocks.ensureDir).toHaveBeenCalledWith(
       "/tmp/nuwaclaw-cli-test/file-server-60015",
+    );
+    expect(mocks.ensureDir).toHaveBeenCalledWith(
+      "/tmp/nuwaclaw-cli-workspaces/computer-project-workspace",
     );
     expect(mocks.unref).toHaveBeenCalled();
   });
@@ -79,6 +100,8 @@ describe("fileServer", () => {
           TMPDIR: "/tmp/nuwaclaw-cli-test/file-server-60015",
           TMP: "/tmp/nuwaclaw-cli-test/file-server-60015",
           TEMP: "/tmp/nuwaclaw-cli-test/file-server-60015",
+          COMPUTER_WORKSPACE_DIR:
+            "/tmp/nuwaclaw-cli-workspaces/computer-project-workspace",
         }),
         stdio: "ignore",
       },

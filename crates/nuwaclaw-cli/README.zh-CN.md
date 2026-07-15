@@ -197,7 +197,7 @@ nuwaclaw serve --port 60016
 
 `serve` 默认优先使用 CLI 专属端口 `agentPort=60016`；如果该端口已被占用，会自动向后寻找可用端口并在启动日志里提示实际端口。`--tunnel` 下的 `nuwax-file-server` 同样优先使用 `fileServerPort=60015`，占用时自动后移，并把最终端口上报到 `sandboxConfigValue`。
 
-除 `/health` 外，每个路由都需要 `X-Nuwax-Internal-Secret` 请求头。服务器启动时会打印一个随机生成的新 secret，并在 `--tunnel` 注册时作为 `sandboxConfigValue.apiKey` 上报给后端；它永不落盘。
+普通本地 `serve` 下，除 `/health` 和只读 SSE `/computer/progress/:session_id` 外，每个路由都需要认证；推荐使用 `X-Nuwax-Internal-Secret`，不能设置自定义 header 的客户端也可用 `Authorization: Bearer <secret>` 或 `?apiKey=<secret>`。`--tunnel` 模式下，`/computer/*` 与 `/devcomputer/*` 对齐 Electron 客户端约定：lanproxy 连接用 savedKey/configKey 作为 clientKey 鉴权，转发到本地的 HTTP 请求不会再逐个携带 savedKey。服务器仍会打印一个仅用于本地调试的随机 secret；它永不落盘。
 
 `--approve` 控制工具调用授权：`auto`（默认）自动批准每一个工具调用（`yolo`），`deny` 则全部拒绝（适合让引擎无副作用地运行）。任何其他值都会被**拒绝**，而不是被静默当作 `auto`。在 `auto`/`yolo` 模式下，服务器启动时会打印一条警告：**所有**工具调用（含破坏性写文件、执行命令、网络访问）都会被自动放行，且**不做路径限制**；如不能接受，请用 `--approve deny`。
 
@@ -213,7 +213,7 @@ nuwaclaw serve --port 60016
 nuwaclaw serve --tunnel --lanproxy-host agent.nuwax.com --lanproxy-port 443
 ```
 
-如果注册响应已包含 `serverHost`/`serverPort`，可以省略显式 host/port。`--lanproxy-path` 仅用于覆盖内置二进制或本地联调。`--daemon` 可后台启动同一服务，日志写入 `~/.nuwaclaw-cli/logs/serve.log`。
+如果注册响应已包含 `serverHost`/`serverPort`，可以省略显式 host/port。`--lanproxy-path` 仅用于覆盖内置二进制或本地联调。CLI 运行日志对齐客户端形态：结构化 JSONL 写入 `~/.nuwaclaw-cli/logs/main.YYYY-MM-DD.log`，`latest.log` 指向当天活跃日志，`up-debug.log` 保留为兼容别名。`--daemon` 仍会把原始 stdout/stderr 追加到 `serve.log`，用于查看启动输出。
 
 ## 已知限制
 

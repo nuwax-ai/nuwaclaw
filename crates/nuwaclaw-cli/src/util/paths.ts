@@ -47,6 +47,14 @@ export function tmpDir(): string {
   return path.join(nuwaclawHome(), "tmp");
 }
 
+export function workspacesDir(): string {
+  return path.join(nuwaclawHome(), "workspaces");
+}
+
+export function computerProjectWorkspacesDir(): string {
+  return path.join(workspacesDir(), "computer-project-workspace");
+}
+
 export function ensureDir(dir: string): void {
   fs.mkdirSync(dir, { recursive: true });
 }
