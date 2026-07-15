@@ -39,14 +39,6 @@ export function registerAgentCommands(program: Command): void {
       .option(
         "--handoff <engine:sessionId>",
         "从另一个本地会话生成结构化交接包，并在新 ACP 会话首轮注入",
-      )
-      .option(
-        "--gui-mcp",
-        "为本次会话追加 gui-agent MCP（截图/键鼠电脑操作能力，默认关闭）",
-      )
-      .option(
-        "--gui-mcp-path <dir>",
-        "gui-agent MCP 的本地路径（未发 npm 前的开发用逃生舱）",
       ),
   ).action(chatCommand);
 

@@ -11,9 +11,7 @@ import {
   wrapResumedSession,
 } from "../core/acp/sessionHandle.js";
 import { resolveResumeTarget } from "./resolveResumeTarget.js";
-import { buildGuiAgentMcpServer } from "../core/mcp/guiServer.js";
 import type { PermissionMode } from "../core/permissions/policy.js";
-import type { McpServer } from "@agentclientprotocol/sdk";
 import {
   buildContextHandoff,
   resolveContextRef,
@@ -27,8 +25,6 @@ export interface ChatCommandOptions {
   yolo?: boolean;
   mode?: string;
   resume?: true | string;
-  guiMcp?: boolean;
-  guiMcpPath?: string;
   apiKey?: string;
   baseUrl?: string;
   model?: string;
@@ -140,22 +136,6 @@ export async function chatCommand(options: ChatCommandOptions): Promise<void> {
     return;
   }
 
-  // opt-in, additive-only: appended to session/new|load's mcpServers, never
-  // replaces whatever the engine already loads from the user's own config.
-  let guiMcpServer: McpServer | undefined;
-  if (options.guiMcp) {
-    try {
-      guiMcpServer = buildGuiAgentMcpServer({
-        devPath: options.guiMcpPath,
-        apiKey: options.apiKey,
-      });
-    } catch (err) {
-      console.error(pc.red(`[nuwa-cli] ${(err as Error).message}`));
-      process.exitCode = 1;
-      return;
-    }
-  }
-
   const overlay =
     options.apiKey || options.baseUrl || options.model
       ? {
@@ -188,7 +168,6 @@ export async function chatCommand(options: ChatCommandOptions): Promise<void> {
     { command: resolved.command, args: resolved.args, env, cwd },
     handlers,
     async (ctx) => {
-      const mcpServers = guiMcpServer ? [guiMcpServer] : [];
       const session = resumeTarget
         ? wrapResumedSession(
             ctx,
@@ -197,17 +176,11 @@ export async function chatCommand(options: ChatCommandOptions): Promise<void> {
               await ctx.request(AGENT_METHODS.session_load, {
                 sessionId: resumeTarget.sessionId,
                 cwd,
-                mcpServers,
+                mcpServers: [],
               })
             ).modes,
           )
-        : wrapNewSession(
-            await (
-              guiMcpServer
-                ? ctx.buildSession(cwd).withMcpServer(guiMcpServer)
-                : ctx.buildSession(cwd)
-            ).start(),
-          );
+        : wrapNewSession(await ctx.buildSession(cwd).start());
       await applySessionMode(ctx, session, options.mode, Boolean(options.yolo));
 
       if (options.print) {

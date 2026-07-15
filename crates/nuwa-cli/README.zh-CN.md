@@ -29,16 +29,16 @@ pnpm run dev:chat -p "hello"
 大多数 Agent 封装要么自带一整套模型运行时（体积大，而且看不到你已有的登录态），要么让你重新配置一遍 API key。`nuwa-cli` 两者都不做：
 
 - **继承你的环境。** `HOME`、`~/.claude`、`~/.codex`、MCP server、skills、模型偏好——全部保持原样。引擎看到的，和你自己的 `claude`/`codex` CLI 看到的完全一致。
-- **使用正常包依赖。** ACP 适配器（`claude-code-acp-ts`、`nuwax-codex-acp`）和 `nuwax-file-server` 会随 `nuwa-cli` 通过 npm/pnpm 安装；运行时只解析这些已安装包的入口。`agent-gui-server` 仍是可选的 GUI MCP 能力，lanproxy 是随 CLI 包发布的预置资源。
+- **使用正常包依赖。** ACP 适配器（`claude-code-acp-ts`、`nuwax-codex-acp`）和 `nuwax-file-server` 会随 `nuwa-cli` 通过 npm/pnpm 安装；运行时只解析这些已安装包的入口。lanproxy 是随 CLI 包发布的预置资源。
 - **走 ACP 协议。** 两个引擎都通过 [Agent Client Protocol](https://agentclientprotocol.com) 驱动——和 Zed 等编辑器用的是同一套协议，而不是抓取 CLI 文本输出的那种封装。
 
 ## 命令
 
 ### `nuwa-cli doctor`
 
-检查 Node 版本、`claude`/`codex` 是否安装并登录、`uv`、gui-agent MCP 安装状态、当前目录的 macOS TCC 风险、Nuwax 云端登录态，并统计本地会话历史数量。
+检查 Node 版本、`claude`/`codex` 是否安装并登录、`uv`、当前目录的 macOS TCC 风险、Nuwax 云端登录态，并统计本地会话历史数量。
 
-退出码只反映真正阻塞核心功能的检测项：Node 版本，以及 claude/codex **至少有一个**可用。其余项（`uv`、gui-agent、TCC 风险、Nuwax 登录）都是可选功能，未满足时显示 `○` 而非 `✖`——`doctor` 仍然退出 `0`，可以放心用在脚本/CI 里，不会因为没开启的可选功能而误报失败。
+退出码只反映真正阻塞核心功能的检测项：Node 版本，以及 claude/codex **至少有一个**可用。其余项（`uv`、TCC 风险、Nuwax 登录）都是可选功能，未满足时显示 `○` 而非 `✖`——`doctor` 仍然退出 `0`，可以放心用在脚本/CI 里，不会因为没开启的可选功能而误报失败。
 
 ### `nuwa-cli chat`
 
@@ -49,7 +49,6 @@ nuwa-cli chat --resume                         # 选择一个历史会话继续
 nuwa-cli chat --resume <sessionId>             # 续接指定会话
 nuwa-cli chat --yolo                           # 自动批准工具调用
 nuwa-cli chat --mode acceptEdits               # 设置引擎会话模式
-nuwa-cli chat --gui-mcp                        # 让引擎能截图 / 点击 / 输入
 nuwa-cli chat --handoff claude:<sessionId> -p "接着做"
 ```
 
@@ -65,7 +64,6 @@ nuwa-cli chat --handoff claude:<sessionId> -p "接着做"
 | `--resume [sessionId]` | 从本地 `claude`/`codex` 历史续接会话；不带 id 时弹出交互选择 |
 | `--ref-session <engine>:<sessionId>` | 把**另一个**引擎的历史会话作为背景上下文指向给模型（不是真正的续接——见下文）。与 `--resume` 互斥 |
 | `--handoff <engine>:<sessionId>` | 从另一个本地会话生成结构化交接包，并在新的 ACP 会话首轮注入。与 `--resume` / `--ref-session` 互斥 |
-| `--gui-mcp` / `--gui-mcp-path <dir>` | 通过 `agent-gui-server` MCP 给引擎加上桌面自动化能力（截图、点击、输入） |
 | `--api-key` / `--base-url` / `--model` | 覆盖模型连接——仅当你不想用引擎自身已配置的 provider 时才需要 |
 
 默认情况下 nuwa-cli **不注入**任何凭证、**不覆盖**任何模型/skill/MCP 配置——引擎就用你已有的配置运行。
@@ -247,8 +245,7 @@ nuwa-cli serve --tunnel --lanproxy-host agent.nuwax.com --lanproxy-port 443
 ## 已知限制
 
 - **Windows / Linux ARM 上的 codex**：目前仅在 macOS arm64 上测试过。
-- **Windows 首次安装**：`--gui-mcp` 仍会通过 `spawnSync("npm", …)`（不带 `shell:true`）安装 `agent-gui-server`；在 Windows 上 Node 拒绝以这种方式启动 `npm.cmd`，因此这个可选功能首次使用会失败。`claude`/`codex` ACP 适配器和 `nuwax-file-server` 已改为正常包依赖。
-- **退出时的进程树清理**：只有直接的引擎子进程会收到 `SIGTERM`；孙进程（`claude-code-acp-ts` 适配器再拉起的 `claude` 二进制，以及 `--gui-mcp` 下的 `agent-gui-server`）不会被信号通知，可能成为孤儿。`serve` 关闭仍会停止自身的 HTTP 会话，但零散的孙进程可能残留。
+- **退出时的进程树清理**：只有直接的引擎子进程会收到 `SIGTERM`；孙进程（例如 `claude-code-acp-ts` 适配器再拉起的 `claude` 二进制）不会被信号通知，可能成为孤儿。`serve` 关闭仍会停止自身的 HTTP 会话，但零散的孙进程可能残留。
 - **`yolo` 没有路径限制**：`--approve auto` 不论目标路径一律自动批准工具调用，目前没有可写根目录守卫（Electron 客户端的严格权限闸门尚未移植过来）。
 - **开机启动是当前用户级别**：`service install` 使用 LaunchAgent / systemd user service / 计划任务，不是需要管理员权限的系统级 daemon。Linux 若要用户未登录也启动，需要在 CLI 外部配置 systemd linger。
 - **自定义/第三方 ACP 引擎**（pi-acp、hermes、kilo、openclaw 等）暂不支持——仅支持 `claude` 和 `codex`。

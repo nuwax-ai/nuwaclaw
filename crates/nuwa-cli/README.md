@@ -29,16 +29,16 @@ More local debugging scripts and step-by-step workflows live in [`docs/local-deb
 Most agent wrappers either bundle their own copy of the model runtime (heavy, and it can't see your existing login) or ask you to configure API keys again. `nuwa-cli` does neither:
 
 - **Inherits your environment.** `HOME`, `~/.claude`, `~/.codex`, MCP servers, skills, model preferences — all untouched. The engine sees exactly what your own `claude`/`codex` CLI would see.
-- **Uses normal package dependencies.** ACP adapters (`claude-code-acp-ts`, `nuwax-codex-acp`) and `nuwax-file-server` are installed by npm/pnpm with `nuwa-cli`; runtime code only resolves those installed package entries. `agent-gui-server` remains an optional GUI MCP add-on, and lanproxy is the only preintegrated-resource exception.
+- **Uses normal package dependencies.** ACP adapters (`claude-code-acp-ts`, `nuwax-codex-acp`) and `nuwax-file-server` are installed by npm/pnpm with `nuwa-cli`; runtime code only resolves those installed package entries. lanproxy is the only preintegrated-resource exception.
 - **Talks ACP.** Both engines are driven over the [Agent Client Protocol](https://agentclientprotocol.com), the same protocol editors like Zed use — not a scraped CLI wrapper.
 
 ## Commands
 
 ### `nuwa-cli doctor`
 
-Checks Node version, whether `claude`/`codex` are installed and logged in, `uv`, gui-agent MCP install state, macOS TCC risk for the current directory, Nuwax cloud login state, and counts your local session history.
+Checks Node version, whether `claude`/`codex` are installed and logged in, `uv`, macOS TCC risk for the current directory, Nuwax cloud login state, and counts your local session history.
 
-Exit code only reflects checks that actually block core functionality: Node version, and having *at least one* of claude/codex usable. Everything else (`uv`, gui-agent, TCC risk, Nuwax login) is opt-in and shown as `○` rather than `✖` when unmet — `doctor` still exits `0` in that case, so it's safe to use in scripts/CI without false positives from features you haven't opted into.
+Exit code only reflects checks that actually block core functionality: Node version, and having *at least one* of claude/codex usable. Everything else (`uv`, TCC risk, Nuwax login) is opt-in and shown as `○` rather than `✖` when unmet — `doctor` still exits `0` in that case, so it's safe to use in scripts/CI without false positives from features you haven't opted into.
 
 ### `nuwa-cli chat`
 
@@ -49,7 +49,6 @@ nuwa-cli chat --resume                         # pick a past session to continue
 nuwa-cli chat --resume <sessionId>              # continue a specific one
 nuwa-cli chat --yolo                           # auto-approve tool calls
 nuwa-cli chat --mode acceptEdits               # engine-specific session mode
-nuwa-cli chat --gui-mcp                        # let the engine take screenshots / click / type
 nuwa-cli chat --handoff claude:<sessionId> -p "keep going"
 ```
 
@@ -65,7 +64,6 @@ Flags:
 | `--resume [sessionId]` | Resume a session from your local `claude`/`codex` history; omit the id to pick interactively |
 | `--ref-session <engine>:<sessionId>` | Point the model at a session from the *other* engine as background context (not a true resume — see below). Mutually exclusive with `--resume` |
 | `--handoff <engine>:<sessionId>` | Generate a structured handoff package from another local session and inject it into the first turn of a new ACP session. Mutually exclusive with `--resume` / `--ref-session` |
-| `--gui-mcp` / `--gui-mcp-path <dir>` | Give the engine desktop-automation tools (screenshot, click, type) via the `agent-gui-server` MCP |
 | `--api-key` / `--base-url` / `--model` | Override model connection — only needed if you don't want the engine's own configured provider |
 
 By default nuwa-cli injects **no** credentials and overrides **no** model/skill/MCP configuration — the engine runs with whatever you already have configured.
@@ -248,8 +246,7 @@ If the register response includes `serverHost`/`serverPort`, the explicit host/p
 ## Known limitations
 
 - **codex on Windows/Linux ARM**: only tested on macOS arm64 so far.
-- **Windows first-use install**: `--gui-mcp` still installs `agent-gui-server` via `spawnSync("npm", …)` without `shell:true`; on Windows Node refuses to launch the `npm.cmd` shim that way, so first use of that optional feature fails. The `claude`/`codex` ACP adapters and `nuwax-file-server` are normal package dependencies instead.
-- **Process-tree teardown on exit**: only the direct engine child receives `SIGTERM`; grandchildren (the `claude` binary the `claude-code-acp-ts` adapter spawns, and `agent-gui-server` under `--gui-mcp`) aren't signalled and may be orphaned. `serve` shutdown still stops its own HTTP sessions, but stray grandchildren can linger.
+- **Process-tree teardown on exit**: only the direct engine child receives `SIGTERM`; grandchildren (for example, the `claude` binary the `claude-code-acp-ts` adapter spawns) aren't signalled and may be orphaned. `serve` shutdown still stops its own HTTP sessions, but stray grandchildren can linger.
 - **No path-confinement in `yolo`**: `--approve auto` auto-approves every tool call regardless of target path; there is no writable-root guard yet (the Electron client's strict-permission gate hasn't been ported).
 - **Autostart is current-user scoped**: `service install` uses LaunchAgent / systemd user service / Scheduled Task. It is not a privileged system-wide daemon. On Linux, true boot-before-login requires systemd linger configured outside the CLI.
 - **Custom/third-party ACP engines** (pi-acp, hermes, kilo, openclaw, ...) aren't supported yet — only `claude` and `codex`.

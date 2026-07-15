@@ -84,11 +84,11 @@ pnpm run dev:doctor
 
 - Node 版本（**阻塞项**：未满足则退出码 `1`）
 - `claude` / `codex` 是否可用（**至少一个**可用即可；两者都不可用则退出码 `1`）
-- `uv`、gui-agent MCP、macOS TCC 风险、Nuwax 云登录、本地会话历史（**可选项**：未满足时显示 `○` 而非 `✖`，`doctor` 仍退出 `0`）
+- `uv`、macOS TCC 风险、Nuwax 云登录、本地会话历史（**可选项**：未满足时显示 `○` 而非 `✖`，`doctor` 仍退出 `0`）
 
 说明：
 
-- 可选项未配置（例如还没 `nuwa-cli login`、没装 gui-agent）不算失败，适合脚本/CI 反复调用（例如 `pnpm run dev:doctor` 不应因未登录 Nuwax 而误报失败）。
+- 可选项未配置（例如还没 `nuwa-cli login`）不算失败，适合脚本/CI 反复调用（例如 `pnpm run dev:doctor` 不应因未登录 Nuwax 而误报失败）。
 - nuwa-cli 的登录态与 NuwaClaw Electron 客户端隔离；`doctor` 不检查也不读取客户端 DB，只提示手动 `login --domain --saved-key`。
 
 ## 逐项调试
@@ -239,12 +239,6 @@ Codex 单次调用：
 
 ```bash
 pnpm run dev:chat:codex -p "summarize this repository"
-```
-
-带 `gui-mcp` 的调试：
-
-```bash
-pnpm run dev:chat --gui-mcp -p "take a screenshot"
 ```
 
 ### 调试本地会话列表
@@ -446,4 +440,4 @@ pnpm test
 
 ### `dev:doctor` 退出码为 0，但输出里有 `○` 未配置项，正常吗？
 
-正常。`○` 表示可选项（`uv`、gui-agent、Nuwax 登录等）尚未配置，不影响 `chat` 等核心功能；只有 `✖`（阻塞项，如 Node 版本不符或 claude/codex 都不可用）才会让 `doctor` 退出 `1`。
+正常。`○` 表示可选项（`uv`、Nuwax 登录等）尚未配置，不影响 `chat` 等核心功能；只有 `✖`（阻塞项，如 Node 版本不符或 claude/codex 都不可用）才会让 `doctor` 退出 `1`。

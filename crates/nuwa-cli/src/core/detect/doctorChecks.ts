@@ -1,7 +1,7 @@
 import * as os from "node:os";
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { cliCredentialsPath, cliToolsDir } from "../../util/paths.js";
+import { cliCredentialsPath } from "../../util/paths.js";
 import { findOnPath, getVersion } from "../../util/which.js";
 
 export interface DoctorCheckResult {
@@ -15,7 +15,7 @@ export interface DoctorCheckResult {
    * already-installed claude/codex) can't work at all — should fail the
    * overall `doctor` exit code.
    * "info": worth surfacing (with a fix hint) but doesn't block anything by
-   * itself — e.g. gui-agent/uv/Nuwax login are opt-in features, and a lone
+   * itself — e.g. uv/Nuwax login are opt-in features, and a lone
    * missing engine is fine as long as the other one works. Defaults to
    * "info" if omitted.
    */
@@ -104,26 +104,6 @@ export function checkUv(): DoctorCheckResult {
     label: "uv",
     ok: true,
     detail: `${binPath}${version ? ` (${version})` : ""}`,
-    severity: "info",
-  };
-}
-
-export function checkGuiAgent(): DoctorCheckResult {
-  const installed = fs.existsSync(
-    path.join(
-      cliToolsDir(),
-      "node_modules",
-      "agent-gui-server",
-      "package.json",
-    ),
-  );
-  return {
-    id: "gui-agent",
-    label: "gui-agent MCP（电脑操作能力）",
-    ok: installed,
-    detail: installed
-      ? "已安装"
-      : "未安装（可选，`chat --gui-mcp` 时按需安装）",
     severity: "info",
   };
 }
@@ -246,7 +226,6 @@ export function runAllDoctorChecks(): DoctorCheckResult[] {
     checkClaude(),
     checkCodex(),
     checkUv(),
-    checkGuiAgent(),
     checkTccRisk(),
     checkNuwaxLogin(),
     checkLocalSessions(),

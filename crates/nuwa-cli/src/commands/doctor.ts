@@ -13,7 +13,7 @@ export async function doctorCommand(): Promise<void> {
       else hasInfoGap = true;
     }
     // "✖" (red) only for a required failure; an unmet optional/info check
-    // (gui-agent not installed, Nuwax not logged in, ...) is expected for
+    // (Nuwax not logged in, optional uv missing, ...) is expected for
     // most setups and isn't an error — shown as "○" instead so the output
     // doesn't read as broken when `doctor` still exits 0.
     const mark = result.ok

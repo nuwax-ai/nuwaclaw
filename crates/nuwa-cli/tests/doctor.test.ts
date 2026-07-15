@@ -26,13 +26,12 @@ describe("doctorCommand exit code", () => {
     process.exitCode = 0;
   });
 
-  it("exits 0 when only optional/info checks fail (e.g. gui-agent not installed, Nuwax not logged in) as long as an engine is usable", async () => {
+  it("exits 0 when only optional/info checks fail (e.g. uv missing, Nuwax not logged in) as long as an engine is usable", async () => {
     runAllDoctorChecksMock.mockReturnValue([
       check("node", true, "required"),
       check("claude", true),
       check("codex", false),
       check("uv", false, "info"),
-      check("gui-agent", false, "info"),
       check("tcc", true, "info"),
       check("nuwax-login", false, "info"),
       check("local-sessions", true, "info"),
