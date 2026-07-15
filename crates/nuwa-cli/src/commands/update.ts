@@ -96,10 +96,10 @@ export function buildViewArgs(
 
 function buildPackageManagerEnv(): NodeJS.ProcessEnv {
   const env = { ...process.env };
-  delete env.NUWACLAW_PASSWORD;
+  delete env.NUWACLI_PASSWORD;
   delete env.NUWAX_CONFIG_KEY;
   delete env.NUWAX_SAVED_KEY;
-  delete env.NUWACLAW_SERVE_LOCK_PATH;
+  delete env.NUWACLI_SERVE_LOCK_PATH;
   return env;
 }
 

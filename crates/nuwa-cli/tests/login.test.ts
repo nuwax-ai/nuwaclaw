@@ -33,8 +33,8 @@ vi.mock("../src/core/auth/regClient.js", async (importOriginal) => {
 describe("login/logout/status commands", () => {
   beforeEach(() => {
     tmpHome = fs.mkdtempSync(path.join(os.tmpdir(), "nuwa-cli-login-test-"));
-    savedPasswordEnv = process.env.NUWACLAW_PASSWORD;
-    delete process.env.NUWACLAW_PASSWORD;
+    savedPasswordEnv = process.env.NUWACLI_PASSWORD;
+    delete process.env.NUWACLI_PASSWORD;
     vi.resetModules();
     textMock.mockReset();
     passwordMock.mockReset();
@@ -44,8 +44,8 @@ describe("login/logout/status commands", () => {
   });
 
   afterEach(() => {
-    if (savedPasswordEnv === undefined) delete process.env.NUWACLAW_PASSWORD;
-    else process.env.NUWACLAW_PASSWORD = savedPasswordEnv;
+    if (savedPasswordEnv === undefined) delete process.env.NUWACLI_PASSWORD;
+    else process.env.NUWACLI_PASSWORD = savedPasswordEnv;
     fs.rmSync(tmpHome, { recursive: true, force: true });
   });
 
@@ -163,8 +163,8 @@ describe("login/logout/status commands", () => {
     );
   });
 
-  it("uses NUWACLAW_PASSWORD for non-interactive username login", async () => {
-    process.env.NUWACLAW_PASSWORD = "env-secret";
+  it("uses NUWACLI_PASSWORD for non-interactive username login", async () => {
+    process.env.NUWACLI_PASSWORD = "env-secret";
     registerClientMock.mockResolvedValue({
       id: 1,
       configKey: "fresh-key",

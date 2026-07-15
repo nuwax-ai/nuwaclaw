@@ -42,7 +42,7 @@ export function registerServiceCommands(program: Command): void {
         "说明：",
         "  - 不传 --domain / -u / --saved-key 时，使用当前默认账号 savedKey 免密注册。",
         "  - 使用 -u 时，若 credentials.json 中已有同 domain+username 的 savedKey，会随注册请求一起提交，避免新建电脑。",
-        "  - 密码通过交互输入；CI 可用 NUWACLAW_PASSWORD，且该变量不会传给 engine/lanproxy/file-server。",
+        "  - 密码通过交互输入；CI 可用 NUWACLI_PASSWORD，且该变量不会传给 engine/lanproxy/file-server。",
         "  - 未传 --engine 时自动检测 claude/codex；多个可用时随机选择一个。",
       ].join("\n"),
     )

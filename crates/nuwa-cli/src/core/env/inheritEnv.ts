@@ -24,12 +24,12 @@ const STRIP_VARS = [
   "CLAUDE_CODE_ENTRYPOINT",
   "CLAUDE_CODE_ACP_PATH",
   "CODEX_ACP_BIN",
-  "NUWACLAW_CODEX_ACP_BIN",
-  "NUWACLAW_FORCE_ENGINE",
-  "NUWACLAW_LANPROXY_PATH",
-  "NUWACLAW_PASSWORD",
-  "NUWACLAW_SERVE_DAEMONIZED",
-  "NUWACLAW_SERVE_LOCK_PATH",
+  "NUWACLI_CODEX_ACP_BIN",
+  "NUWACLI_FORCE_ENGINE",
+  "NUWACLI_LANPROXY_PATH",
+  "NUWACLI_PASSWORD",
+  "NUWACLI_SERVE_DAEMONIZED",
+  "NUWACLI_SERVE_LOCK_PATH",
   "NUWAX_AGENT_PORT",
   "NUWAX_CONFIG_KEY",
   "NUWAX_FILE_SERVER_PORT",
@@ -49,7 +49,7 @@ function stripNoise(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
     if (
       key.startsWith("npm_config_") ||
       key.startsWith("npm_package_") ||
-      key.startsWith("NUWACLAW_SERVE_")
+      key.startsWith("NUWACLI_SERVE_")
     ) {
       delete result[key];
     }

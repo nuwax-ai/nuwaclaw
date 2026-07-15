@@ -18,10 +18,10 @@ const WATCHED_KEYS = [
   "NUWAX_SAVED_KEY",
   "NUWAX_AGENT_PORT",
   "NUWAX_FILE_SERVER_PORT",
-  "NUWACLAW_FORCE_ENGINE",
-  "NUWACLAW_PASSWORD",
-  "NUWACLAW_SERVE_LOCK_PATH",
-  "NUWACLAW_CODEX_ACP_BIN",
+  "NUWACLI_FORCE_ENGINE",
+  "NUWACLI_PASSWORD",
+  "NUWACLI_SERVE_LOCK_PATH",
+  "NUWACLI_CODEX_ACP_BIN",
   "CODEX_ACP_BIN",
   "CLAUDE_CODE_ACP_PATH",
   "npm_config_registry",
@@ -63,10 +63,10 @@ describe("buildEngineEnv", () => {
       NUWAX_SAVED_KEY: "electron-key",
       NUWAX_AGENT_PORT: "60005",
       NUWAX_FILE_SERVER_PORT: "60006",
-      NUWACLAW_FORCE_ENGINE: "codex",
-      NUWACLAW_PASSWORD: "secret",
-      NUWACLAW_SERVE_LOCK_PATH: "/tmp/electron.lock",
-      NUWACLAW_CODEX_ACP_BIN: "/tmp/codex-acp",
+      NUWACLI_FORCE_ENGINE: "codex",
+      NUWACLI_PASSWORD: "secret",
+      NUWACLI_SERVE_LOCK_PATH: "/tmp/electron.lock",
+      NUWACLI_CODEX_ACP_BIN: "/tmp/codex-acp",
       CODEX_ACP_BIN: "/tmp/codex-acp",
       CLAUDE_CODE_ACP_PATH: "/tmp/claude-acp",
       npm_config_registry: "https://example.com",
@@ -78,10 +78,10 @@ describe("buildEngineEnv", () => {
     expect(env.NUWAX_SAVED_KEY).toBeUndefined();
     expect(env.NUWAX_AGENT_PORT).toBeUndefined();
     expect(env.NUWAX_FILE_SERVER_PORT).toBeUndefined();
-    expect(env.NUWACLAW_FORCE_ENGINE).toBeUndefined();
-    expect(env.NUWACLAW_PASSWORD).toBeUndefined();
-    expect(env.NUWACLAW_SERVE_LOCK_PATH).toBeUndefined();
-    expect(env.NUWACLAW_CODEX_ACP_BIN).toBeUndefined();
+    expect(env.NUWACLI_FORCE_ENGINE).toBeUndefined();
+    expect(env.NUWACLI_PASSWORD).toBeUndefined();
+    expect(env.NUWACLI_SERVE_LOCK_PATH).toBeUndefined();
+    expect(env.NUWACLI_CODEX_ACP_BIN).toBeUndefined();
     expect(env.CODEX_ACP_BIN).toBeUndefined();
     expect(env.CLAUDE_CODE_ACP_PATH).toBeUndefined();
     expect(env.npm_config_registry).toBeUndefined();

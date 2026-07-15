@@ -198,7 +198,7 @@ pnpm run dev:up --domain https://agent.nuwax.com -u <username> --engine claude
 非交互密码方式：
 
 ```bash
-NUWACLAW_PASSWORD='<password>' pnpm run dev:up \
+NUWACLI_PASSWORD='<password>' pnpm run dev:up \
   --domain https://agent.nuwax.com \
   -u <username> \
   --engine claude
@@ -371,7 +371,7 @@ pnpm run dev:cli serve --port 60016 --tunnel \
   --lanproxy-port 443
 ```
 
-注意：`nuwax-file-server` 随 CLI 的 npm/pnpm 依赖安装；lanproxy 是 CLI 自己的预置资源，源码目录在 `crates/nuwa-cli/resources/lanproxy`，构建时会复制到 `dist/resources/lanproxy`。`--lanproxy-path`、`config set lanproxy-path` 或 `NUWACLAW_LANPROXY_PATH` 只用于覆盖内置资源或调试指定二进制。若注册接口返回 `serverHost`/`serverPort`，可省略 `--lanproxy-host` / `--lanproxy-port`。
+注意：`nuwax-file-server` 随 CLI 的 npm/pnpm 依赖安装；lanproxy 是 CLI 自己的预置资源，源码目录在 `crates/nuwa-cli/resources/lanproxy`，构建时会复制到 `dist/resources/lanproxy`。`--lanproxy-path`、`config set lanproxy-path` 或 `NUWACLI_LANPROXY_PATH` 只用于覆盖内置资源或调试指定二进制。若注册接口返回 `serverHost`/`serverPort`，可省略 `--lanproxy-host` / `--lanproxy-port`。
 
 工作空间：未传 `--cwd` 时，`serve/up` 使用 `~/.nuwa-cli/workspaces` 作为默认根目录；云端请求里的 `project_id` 会映射到 `~/.nuwa-cli/workspaces/<project_id>`，`agent_work_dir` / `session_id` 仅在缺少 `project_id` 时作为兼容 fallback。`user_id` 只作为请求元数据，不参与本地路径。传了 `--cwd <dir>` 时，`<dir>` 就是当前项目目录本身，不会再追加 `project_id`。file-server 使用同一活动目录/根目录。
 
@@ -393,7 +393,7 @@ pnpm run dev:cli service stop
 pnpm run dev:cli service uninstall
 ```
 
-`service install` 会把当前 `dist/cli.js` 写入系统启动项，因此本地开发时重新构建后仍指向同一个 dist 路径。macOS 写入 `~/Library/LaunchAgents/com.nuwax.nuwa-cli.plist`，Linux 写入 `~/.config/systemd/user/com.nuwax.nuwa-cli.service`，Windows 写入当前用户计划任务 `NuwaCLI`。启动项不会写入 `NUWACLAW_PASSWORD`、savedKey/configKey 或模型 API key；登录态仍从 `~/.nuwa-cli/credentials.json` 读取。Linux 默认用户登录后启动，如需未登录也启动，需要系统启用 linger。
+`service install` 会把当前 `dist/cli.js` 写入系统启动项，因此本地开发时重新构建后仍指向同一个 dist 路径。macOS 写入 `~/Library/LaunchAgents/com.nuwax.nuwa-cli.plist`，Linux 写入 `~/.config/systemd/user/com.nuwax.nuwa-cli.service`，Windows 写入当前用户计划任务 `NuwaCLI`。启动项不会写入 `NUWACLI_PASSWORD`、savedKey/configKey 或模型 API key；登录态仍从 `~/.nuwa-cli/credentials.json` 读取。Linux 默认用户登录后启动，如需未登录也启动，需要系统启用 linger。
 
 日志规则对齐客户端：CLI 结构化运行日志写入 `~/.nuwa-cli/logs/main.YYYY-MM-DD.log`，`latest.log` 指向当日活跃日志；`up-debug.log` 保留为兼容别名。`--daemon` 的原始 stdout/stderr 仍会追加到 `serve.log`，主要用于查看启动命令输出。
 

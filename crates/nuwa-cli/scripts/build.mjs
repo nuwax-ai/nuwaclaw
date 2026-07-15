@@ -33,7 +33,7 @@ await esbuild.build({
   minify: false,
   legalComments: "none",
   define: {
-    __NUWA_CLI_VERSION__: JSON.stringify(pkg.version),
+    __NUWACLI_VERSION__: JSON.stringify(pkg.version),
   },
   // node-machine-id does a runtime `require("child_process")` inside its own
   // CJS module body to shell out to platform-specific commands; esbuild's

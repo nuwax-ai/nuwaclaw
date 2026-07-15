@@ -36,11 +36,11 @@ describe("serve HTTP server", () => {
     // Isolate the serve lock so the test's server doesn't clobber a real
     // `nuwa-cli serve` lock on the dev machine (startServeHttp writes one on
     // listen, stop() clears it).
-    process.env.NUWACLAW_SERVE_LOCK_PATH = path.join(
+    process.env.NUWACLI_SERVE_LOCK_PATH = path.join(
       os.tmpdir(),
       "nuwa-cli-server-test.lock",
     );
-    process.env.NUWACLAW_DEBUG_LOG_PATH = path.join(
+    process.env.NUWACLI_DEBUG_LOG_PATH = path.join(
       os.tmpdir(),
       "nuwa-cli-server-test-debug.log",
     );
@@ -62,11 +62,11 @@ describe("serve HTTP server", () => {
   afterAll(async () => {
     await handle.stop();
     fs.rmSync(serverCwd, { recursive: true, force: true });
-    if (process.env.NUWACLAW_DEBUG_LOG_PATH) {
-      fs.rmSync(process.env.NUWACLAW_DEBUG_LOG_PATH, { force: true });
+    if (process.env.NUWACLI_DEBUG_LOG_PATH) {
+      fs.rmSync(process.env.NUWACLI_DEBUG_LOG_PATH, { force: true });
     }
-    delete process.env.NUWACLAW_SERVE_LOCK_PATH;
-    delete process.env.NUWACLAW_DEBUG_LOG_PATH;
+    delete process.env.NUWACLI_SERVE_LOCK_PATH;
+    delete process.env.NUWACLI_DEBUG_LOG_PATH;
   });
 
   function url(pathname: string): string {

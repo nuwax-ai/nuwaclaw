@@ -26,12 +26,12 @@ export function cliToolsDir(): string {
  * Lockfile `serve` writes on listen and removes on graceful shutdown, so
  * `status` can report whether a local serve is running and on which port.
  * Holds only pid/port/host/startedAt — NEVER the X-Nuwax-Internal-Secret
- * (that stays ephemeral, printed at startup only). `NUWACLAW_SERVE_LOCK_PATH`
+ * (that stays ephemeral, printed at startup only). `NUWACLI_SERVE_LOCK_PATH`
  * is a test-only override so the suite doesn't clobber a real serve's lock.
  */
 export function cliServeLockPath(): string {
   return (
-    process.env.NUWACLAW_SERVE_LOCK_PATH ?? path.join(cliDir(), "serve.lock")
+    process.env.NUWACLI_SERVE_LOCK_PATH ?? path.join(cliDir(), "serve.lock")
   );
 }
 

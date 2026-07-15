@@ -112,7 +112,7 @@ export function buildServiceEnvironment(
     result.PATH =
       "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin";
   }
-  result.NUWA_CLI_SERVICE = "1";
+  result.NUWACLI_SERVICE = "1";
   return result;
 }
 

@@ -153,10 +153,10 @@ One command to detect an available engine, log in/register, and start `serve --t
 nuwa-cli up --help
 nuwa-cli up --domain https://agent.nuwax.com --saved-key <key>
 nuwa-cli up --domain https://agent.nuwax.com -u <username>
-NUWACLAW_PASSWORD='<password>' nuwa-cli up --domain https://agent.nuwax.com -u <username>
+NUWACLI_PASSWORD='<password>' nuwa-cli up --domain https://agent.nuwax.com -u <username>
 ```
 
-When `--engine` is omitted, nuwa-cli checks local `claude` / `codex` availability: it uses the only available engine, randomly selects one when multiple are available, and fails with `claude login` / `codex login` hints when neither is available. `NUWACLAW_PASSWORD` is only read for the current username/password registration, is never written to credentials, and is stripped from engine/lanproxy/file-server child environments.
+When `--engine` is omitted, nuwa-cli checks local `claude` / `codex` availability: it uses the only available engine, randomly selects one when multiple are available, and fails with `claude login` / `codex login` hints when neither is available. `NUWACLI_PASSWORD` is only read for the current username/password registration, is never written to credentials, and is stripped from engine/lanproxy/file-server child environments.
 
 After npm publish, clean machines can use the zero-install entry:
 
@@ -253,7 +253,7 @@ If the register response includes `serverHost`/`serverPort`, the explicit host/p
 - **No path-confinement in `yolo`**: `--approve auto` auto-approves every tool call regardless of target path; there is no writable-root guard yet (the Electron client's strict-permission gate hasn't been ported).
 - **Autostart is current-user scoped**: `service install` uses LaunchAgent / systemd user service / Scheduled Task. It is not a privileged system-wide daemon. On Linux, true boot-before-login requires systemd linger configured outside the CLI.
 - **Custom/third-party ACP engines** (pi-acp, hermes, kilo, openclaw, ...) aren't supported yet — only `claude` and `codex`.
-- **lanproxy distribution**: lanproxy is still the only preintegrated client resource; point `--lanproxy-path` (or `NUWACLAW_LANPROXY_PATH`) at an existing binary or `resources/lanproxy` directory.
+- **lanproxy distribution**: lanproxy is still the only preintegrated client resource; point `--lanproxy-path` (or `NUWACLI_LANPROXY_PATH`) at an existing binary or `resources/lanproxy` directory.
 - **Cloud session sync/listing**: `sessions`/`status` are local-only for now: there's no confirmed backend API yet for cross-device session history.
 
 ## How it works

@@ -48,7 +48,7 @@ describe("serviceManager", () => {
       {
         PATH: "/usr/local/bin:/usr/bin",
         HOME: "/home/alice",
-        NUWACLAW_PASSWORD: "pw",
+        NUWACLI_PASSWORD: "pw",
         ANTHROPIC_API_KEY: "sk-secret",
         USER: "alice",
       },
@@ -59,7 +59,7 @@ describe("serviceManager", () => {
       PATH: "/usr/local/bin:/usr/bin",
       HOME: "/home/alice",
       USER: "alice",
-      NUWA_CLI_SERVICE: "1",
+      NUWACLI_SERVICE: "1",
     });
     expect(JSON.stringify(env)).not.toContain("pw");
     expect(JSON.stringify(env)).not.toContain("sk-secret");
@@ -71,7 +71,7 @@ describe("serviceManager", () => {
       {
         nodePath: "/opt/homebrew/bin/node",
         cliPath: "/Users/alice/bin/nuwa-cli.js",
-        env: { PATH: "/opt/homebrew/bin:/usr/bin", NUWACLAW_PASSWORD: "pw" },
+        env: { PATH: "/opt/homebrew/bin:/usr/bin", NUWACLI_PASSWORD: "pw" },
         cwd: "/Users/alice/project",
       },
     );

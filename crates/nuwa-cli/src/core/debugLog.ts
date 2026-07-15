@@ -24,7 +24,7 @@ let lastLinkedDate = "";
 
 function isDev(): boolean {
   return (
-    process.env.NODE_ENV === "development" || process.env.NUWACLAW_DEV === "1"
+    process.env.NODE_ENV === "development" || process.env.NUWACLI_DEV === "1"
   );
 }
 
@@ -60,7 +60,7 @@ function linkOrCopy(targetPath: string, linkPath: string): void {
 }
 
 function updateLogLinks(): void {
-  if (process.env.NUWACLAW_DEBUG_LOG_PATH) return;
+  if (process.env.NUWACLI_DEBUG_LOG_PATH) return;
   const date = todayDateStr();
   if (date === lastLinkedDate) return;
   const dir = logsDir();
@@ -135,7 +135,7 @@ function redact(value: unknown): unknown {
 }
 
 export function debugLogPath(): string {
-  return process.env.NUWACLAW_DEBUG_LOG_PATH ?? activeMainLogPath();
+  return process.env.NUWACLI_DEBUG_LOG_PATH ?? activeMainLogPath();
 }
 
 export function debugLog(

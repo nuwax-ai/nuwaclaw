@@ -59,12 +59,12 @@ nuwa-cli service install --engine claude --now
 CI 中不适合交互输入密码时，可允许环境变量：
 
 ```bash
-NUWACLAW_PASSWORD='<password>' npx -y @nuwax-ai/nuwa-cli@latest up \
+NUWACLI_PASSWORD='<password>' npx -y @nuwax-ai/nuwa-cli@latest up \
   --domain https://agent.nuwax.com \
   -u <username>
 ```
 
-`NUWACLAW_PASSWORD` 只在 `up` 注册阶段读取，不写入 credentials。优先推荐 CI 使用 `--saved-key`。
+`NUWACLI_PASSWORD` 只在 `up` 注册阶段读取，不写入 credentials。优先推荐 CI 使用 `--saved-key`。
 
 ## 命令形态
 
@@ -80,7 +80,7 @@ nuwa-cli up
 |---|---|
 | `--domain <host>` | Nuwax 后端地址。未传时使用当前默认账号的 domain |
 | `--saved-key <key>` | 使用已有 savedKey 注册，并保存到当前账号/多账号 JSON 映射 |
-| `-u, --username <username>` | 使用账号密码注册；同一 domain+username 已保存时会复用 savedKey，密码通过交互或 `NUWACLAW_PASSWORD` 获取 |
+| `-u, --username <username>` | 使用账号密码注册；同一 domain+username 已保存时会复用 savedKey，密码通过交互或 `NUWACLI_PASSWORD` 获取 |
 | `--engine <claude\|codex>` | 指定引擎；未传时自动检测并选择 |
 | `--daemon` | 后台启动 serve |
 | `--port <port>` | HTTP API 优先端口，默认 `60016`，占用时自动后移 |
@@ -194,7 +194,7 @@ testagent.xspaceagi.com_18011447397
 登录解析优先级：
 
 1. `--saved-key`：使用传入 savedKey，并保存为当前账号。
-2. `-u/--username`：若 `credentials.json` 里已有同一 `domain + username` 的 savedKey，会随注册请求一起提交，避免后端新建电脑；密码仍通过交互或 `NUWACLAW_PASSWORD` 只用于本次请求。
+2. `-u/--username`：若 `credentials.json` 里已有同一 `domain + username` 的 savedKey，会随注册请求一起提交，避免后端新建电脑；密码仍通过交互或 `NUWACLI_PASSWORD` 只用于本次请求。
 3. 不传 `--domain` / `-u` / `--saved-key`：使用当前默认账号的 domain、username、savedKey 免密重新注册。
 4. 都没有：失败并提示提供 `--domain --saved-key` 或 `--domain -u`。
 
@@ -269,7 +269,7 @@ nuwa-cli serve --tunnel --engine <selected-engine>
 - 两个都不可用：失败并提示 `claude login` / `codex login`。
 - `--domain --saved-key`：注册成功并写入 `~/.nuwa-cli/credentials.json`。
 - `--domain -u`：交互密码注册，密码不落盘。
-- `NUWACLAW_PASSWORD + -u`：非交互注册。
+- `NUWACLI_PASSWORD + -u`：非交互注册。
 - 同一 `domain + username` 再次使用账号密码：复用已有 savedKey，不新建电脑。
 - 多个账号已保存：`account list` 能列出并标记当前账号。
 - `account switch <key>`：serve 停止时可切换并刷新当前账号；serve 运行时拒绝切换。

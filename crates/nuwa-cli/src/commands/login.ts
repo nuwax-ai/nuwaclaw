@@ -79,7 +79,7 @@ export async function resolveLoginPassword(
   username: string,
   domain: string,
 ): Promise<string | null> {
-  if (process.env.NUWACLAW_PASSWORD) return process.env.NUWACLAW_PASSWORD;
+  if (process.env.NUWACLI_PASSWORD) return process.env.NUWACLI_PASSWORD;
   const password = await clack.password({
     message: `${username}@${domain} 密码：`,
   });

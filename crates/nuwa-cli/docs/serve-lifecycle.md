@@ -69,7 +69,7 @@
 | `tests/fixtures/mock-acp-agent.mjs` | 新增 `trigger-hang` 模式（永不回应 session/prompt） |
 | `tests/connection.test.ts` | 新增 abort 中断用例 |
 | `src/core/serve/serveLock.ts` | 新增：serve 锁读写 + `/health` 探活 + `getServeStatus`（PID 已死则自动清残留锁） |
-| `src/util/paths.ts` | 新增 `cliServeLockPath()`（含 `NUWACLAW_SERVE_LOCK_PATH` 测试覆盖） |
+| `src/util/paths.ts` | 新增 `cliServeLockPath()`（含 `NUWACLI_SERVE_LOCK_PATH` 测试覆盖） |
 | `src/commands/login.ts` | `status` 增加 serve 运行态报告（端口/PID/地址） |
 | `tests/serveLock.test.ts` | 锁读写 / 探活 / 僵尸清理 / startServeHttp 写锁-清锁集成 |
 

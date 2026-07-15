@@ -19,7 +19,7 @@ const RUST_TARGET_MAP: Record<string, string> = {
 };
 
 const DEFAULT_LANPROXY_PATH_CANDIDATES = [
-  () => process.env.NUWACLAW_LANPROXY_PATH,
+  () => process.env.NUWACLI_LANPROXY_PATH,
   () =>
     path.join(
       path.dirname(fileURLToPath(import.meta.url)),
@@ -86,6 +86,6 @@ export function resolveDefaultLanproxyBinary(): string {
     }
   }
   throw new Error(
-    `未找到 lanproxy 预置二进制。请通过 --lanproxy-path 指向二进制或 resources/lanproxy 目录，或设置 NUWACLAW_LANPROXY_PATH。已尝试：${tried.join(", ")}`,
+    `未找到 lanproxy 预置二进制。请通过 --lanproxy-path 指向二进制或 resources/lanproxy 目录，或设置 NUWACLI_LANPROXY_PATH。已尝试：${tried.join(", ")}`,
   );
 }

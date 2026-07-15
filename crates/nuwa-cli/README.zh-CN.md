@@ -153,10 +153,10 @@ nuwa-cli account switch <account-key>
 nuwa-cli up --help
 nuwa-cli up --domain https://agent.nuwax.com --saved-key <key>
 nuwa-cli up --domain https://agent.nuwax.com -u <username>
-NUWACLAW_PASSWORD='<password>' nuwa-cli up --domain https://agent.nuwax.com -u <username>
+NUWACLI_PASSWORD='<password>' nuwa-cli up --domain https://agent.nuwax.com -u <username>
 ```
 
-未传 `--engine` 时会检测本机可用的 `claude` / `codex`：只有一个可用就使用它；多个可用时随机选择一个；都不可用则提示先完成 `claude login` 或 `codex login`。`NUWACLAW_PASSWORD` 只用于本次账号密码注册，不会写入 credentials，也会从 engine/lanproxy/file-server 子进程环境里清理掉。
+未传 `--engine` 时会检测本机可用的 `claude` / `codex`：只有一个可用就使用它；多个可用时随机选择一个；都不可用则提示先完成 `claude login` 或 `codex login`。`NUWACLI_PASSWORD` 只用于本次账号密码注册，不会写入 credentials，也会从 engine/lanproxy/file-server 子进程环境里清理掉。
 
 npm 发布后，干净环境可用零安装入口：
 

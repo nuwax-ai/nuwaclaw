@@ -98,7 +98,7 @@ function launchDaemon(argsOverride?: string[]): void {
   const child = spawn(process.execPath, args, {
     detached: true,
     stdio: ["ignore", out, err],
-    env: buildCliChildEnv({ NUWACLAW_SERVE_DAEMONIZED: "1" }),
+    env: buildCliChildEnv({ NUWACLI_SERVE_DAEMONIZED: "1" }),
   });
   child.unref();
   debugLog("serve.daemon", "launched", {
@@ -121,7 +121,7 @@ export async function serveCommand(
     requestedHost: options.host,
     requestedCwd: options.cwd,
   });
-  if (options.daemon && process.env.NUWACLAW_SERVE_DAEMONIZED !== "1") {
+  if (options.daemon && process.env.NUWACLI_SERVE_DAEMONIZED !== "1") {
     launchDaemon(options.daemonArgs);
     return;
   }
