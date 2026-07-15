@@ -2,10 +2,10 @@
   "private": true,
   "scripts": {
     "prepare": "husky",
-    "build:cli": "cd crates/nuwaclaw-cli && pnpm run build",
+    "build:cli": "cd crates/nuwa-cli && pnpm run build",
     "test:electron": "cd crates/agent-electron-client && npm run test:run",
     "test:electron:scripts": "cd crates/agent-electron-client && npm run test:scripts",
-    "test:cli": "cd crates/nuwaclaw-cli && pnpm run test:run"
+    "test:cli": "cd crates/nuwa-cli && pnpm run test:run"
   },
   "devDependencies": {
     "husky": "^9",
@@ -16,7 +16,7 @@
     "crates/agent-electron-client/src/**/*.{ts,tsx}": [
       "prettier --write"
     ],
-    "crates/nuwaclaw-cli/{src,tests}/**/*.ts": [
+    "crates/nuwa-cli/{src,tests}/**/*.ts": [
       "prettier --write"
     ]
   },

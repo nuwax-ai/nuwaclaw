@@ -1,0 +1,54 @@
+{
+  "name": "@nuwax-ai/nuwa-cli",
+  "version": "0.1.0",
+  "description": "Headless multi-engine agent CLI — attaches to your already-installed & logged-in claude/codex CLIs over ACP, no separate login, no bundled runtime",
+  "type": "module",
+  "bin": {
+    "nuwa-cli": "dist/cli.js"
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "prepare": "pnpm run build",
+    "build": "tsc --noEmit && node scripts/build.mjs",
+    "build:tsc": "tsc",
+    "dev:build": "node scripts/build.mjs",
+    "dev:cli": "node dist/cli.js",
+    "dev:doctor": "node dist/cli.js doctor",
+    "dev:chat": "node dist/cli.js chat",
+    "dev:chat:codex": "node dist/cli.js chat --engine codex",
+    "dev:sessions": "node dist/cli.js sessions",
+    "dev:sessions:summary": "node dist/cli.js sessions summary",
+    "dev:up": "node dist/cli.js up",
+    "dev:serve": "node dist/cli.js serve --port 60016",
+    "test": "vitest",
+    "test:run": "vitest run",
+    "test:coverage": "vitest run --coverage",
+    "prepublishOnly": "pnpm run build"
+  },
+  "dependencies": {
+    "@agentclientprotocol/sdk": "^1.2.1",
+    "@anthropic-ai/sdk": "^0.111.0",
+    "@clack/prompts": "^1.7.0",
+    "@modelcontextprotocol/sdk": "^1.29.0",
+    "claude-code-acp-ts": "^0.57.0",
+    "commander": "^15.0.0",
+    "node-machine-id": "^1.1.12",
+    "nuwax-codex-acp": "^0.16.1",
+    "nuwax-file-server": "^1.3.4",
+    "picocolors": "^1.1.1",
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "@types/node": "^22.20.1",
+    "@vitest/coverage-v8": "^2.1.9",
+    "esbuild": "^0.27.3",
+    "typescript": "^5.7.0",
+    "vitest": "^2.1.8"
+  },
+  "engines": {
+    "node": ">=22.0.0"
+  },
+  "license": "MIT"
+}
