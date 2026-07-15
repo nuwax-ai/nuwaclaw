@@ -373,16 +373,27 @@ pnpm run dev:cli serve --port 60016 --tunnel \
 
 注意：`nuwax-file-server` 随 CLI 的 npm/pnpm 依赖安装；lanproxy 是 CLI 自己的预置资源，源码目录在 `crates/nuwaclaw-cli/resources/lanproxy`，构建时会复制到 `dist/resources/lanproxy`。`--lanproxy-path`、`config set lanproxy-path` 或 `NUWACLAW_LANPROXY_PATH` 只用于覆盖内置资源或调试指定二进制。若注册接口返回 `serverHost`/`serverPort`，可省略 `--lanproxy-host` / `--lanproxy-port`。
 
-工作空间：未传 `--cwd` 时，`serve/up` 使用 `~/.nuwaclaw-cli/workspaces` 作为工作空间根目录；云端请求里的 `agent_work_dir` / `project_id` 会映射到 `~/.nuwaclaw-cli/workspaces/computer-project-workspace/<user_id>/<agent_work_dir-or-project_id>`，file-server 使用同一根目录。需要固定到其他目录时传 `--cwd <dir>`。
+工作空间：未传 `--cwd` 时，`serve/up` 使用 `~/.nuwaclaw-cli/workspaces` 作为默认根目录；云端请求里的 `project_id` 会映射到 `~/.nuwaclaw-cli/workspaces/<project_id>`，`agent_work_dir` / `session_id` 仅在缺少 `project_id` 时作为兼容 fallback。`user_id` 只作为请求元数据，不参与本地路径。传了 `--cwd <dir>` 时，`<dir>` 就是当前项目目录本身，不会再追加 `project_id`。file-server 使用同一活动目录/根目录。
 
 端口隔离：HTTP API 默认优先 `60016`，file-server 默认优先 `60015`；两者若被占用都会自动后移。file-server 的 PID/lock 临时目录按端口固定在 `~/.nuwaclaw-cli/tmp/file-server-<port>`，不会复用系统默认的 `nuwax-file-server` 全局 PID 目录。
 
 后台运行：
 
 ```bash
-pnpm run dev:cli serve --port 60016 --tunnel --daemon
+pnpm run dev:cli up --engine claude --daemon
 tail -f ~/.nuwaclaw-cli/logs/latest.log
 ```
+
+`--daemon` 会让 serve 脱离当前终端，原始 stdout/stderr 追加到 `~/.nuwaclaw-cli/logs/serve.log`；它不会设置开机自启动。调试当前用户级开机/登录启动：
+
+```bash
+pnpm run dev:cli service install --engine claude --now
+pnpm run dev:cli service status
+pnpm run dev:cli service stop
+pnpm run dev:cli service uninstall
+```
+
+`service install` 会把当前 `dist/cli.js` 写入系统启动项，因此本地开发时重新构建后仍指向同一个 dist 路径。macOS 写入 `~/Library/LaunchAgents/com.nuwaclaw.cli.plist`，Linux 写入 `~/.config/systemd/user/com.nuwaclaw.cli.service`，Windows 写入当前用户计划任务 `NuwaclawCLI`。启动项不会写入 `NUWACLAW_PASSWORD`、savedKey/configKey 或模型 API key；登录态仍从 `~/.nuwaclaw-cli/credentials.json` 读取。Linux 默认用户登录后启动，如需未登录也启动，需要系统启用 linger。
 
 日志规则对齐客户端：CLI 结构化运行日志写入 `~/.nuwaclaw-cli/logs/main.YYYY-MM-DD.log`，`latest.log` 指向当日活跃日志；`up-debug.log` 保留为兼容别名。`--daemon` 的原始 stdout/stderr 仍会追加到 `serve.log`，主要用于查看启动命令输出。
 

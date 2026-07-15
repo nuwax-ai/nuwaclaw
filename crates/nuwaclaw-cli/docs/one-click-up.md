@@ -51,6 +51,7 @@ nuwaclaw up --domain https://agent.nuwax.com --saved-key <key>
 nuwaclaw up --domain https://agent.nuwax.com -u <username>
 nuwaclaw up --engine codex
 nuwaclaw up --engine claude --daemon
+nuwaclaw service install --engine claude --now
 ```
 
 ### 自动化/CI
@@ -90,6 +91,19 @@ nuwaclaw up
 | `--lanproxy-port <port>` | 覆盖注册返回的 lanproxy serverPort |
 | `--lanproxy-ssl <true\|false>` | lanproxy 是否启用 SSL |
 
+常驻/自启动命令：
+
+```bash
+nuwaclaw service install --help
+nuwaclaw service install --engine claude --now
+nuwaclaw service start
+nuwaclaw service stop
+nuwaclaw service status
+nuwaclaw service uninstall
+```
+
+`--daemon` 适合“关闭终端后继续跑”，但重启/注销后不会自动恢复。`service install` 适合开机/登录自启动：macOS 写 LaunchAgent，Linux 写 systemd user service，Windows 写当前用户计划任务。启动项不会保存密码、savedKey/configKey 或模型 API key；运行时从 CLI 自己的 `~/.nuwaclaw-cli/credentials.json` 读取当前默认账号。Linux 默认用户登录后启动；未登录也启动需要系统启用 linger。
+
 查看实际帮助：
 
 ```bash
@@ -98,6 +112,7 @@ nuwaclaw login --help
 nuwaclaw up --help
 nuwaclaw account --help
 nuwaclaw account switch --help
+nuwaclaw service install --help
 ```
 
 ## 流程
@@ -220,7 +235,7 @@ nuwaclaw serve --tunnel --engine <selected-engine>
 - credentials：`~/.nuwaclaw-cli/credentials.json`
 - serve lock：`~/.nuwaclaw-cli/serve.lock`
 - logs：`~/.nuwaclaw-cli/logs`
-- 默认工作空间根目录：`~/.nuwaclaw-cli/workspaces`；云端 `agent_work_dir` / `project_id` 映射到 `~/.nuwaclaw-cli/workspaces/computer-project-workspace/<user_id>/<agent_work_dir-or-project_id>`，`--cwd <dir>` 可覆盖根目录。
+- 默认工作空间根目录：`~/.nuwaclaw-cli/workspaces`；云端 `project_id` 映射到 `~/.nuwaclaw-cli/workspaces/<project_id>`，`agent_work_dir` / `session_id` 仅在缺少 `project_id` 时作为兼容 fallback；`user_id` 不参与本地路径。传 `--cwd <dir>` 时，`<dir>` 就是当前项目目录本身，不会再追加 `project_id`。
 - file-server PID/lock 临时目录：`~/.nuwaclaw-cli/tmp/file-server-<port>`
 - agentPort 默认优先 `60016`，占用时自动后移。
 - fileServerPort 默认优先 `60015`，占用时自动后移。
@@ -261,5 +276,6 @@ nuwaclaw serve --tunnel --engine <selected-engine>
 - 无登录参数但已有当前默认账号：复用当前账号 savedKey 免密注册。
 - 无登录参数且无当前默认账号/savedKey：失败并提示登录参数。
 - `--daemon`：后台启动；结构化运行日志看 `~/.nuwaclaw-cli/logs/latest.log`（指向 `main.YYYY-MM-DD.log`），原始 stdout/stderr 仍追加到 `serve.log`。
+- `service install --now`：安装当前用户级自启动并立即启动；macOS/Linux/Windows 分别使用 LaunchAgent、systemd user service、计划任务。
 - 端口被占用：agent/file-server 自动后移，注册上报最终端口。
-- `--help`：`login` / `up` / `account switch` 帮助里说明默认账号、多账号 JSON、密码环境变量和服务重启要求。
+- `--help`：`login` / `up` / `account switch` / `service install` 帮助里说明默认账号、多账号 JSON、密码环境变量、服务重启要求和自启动机制。

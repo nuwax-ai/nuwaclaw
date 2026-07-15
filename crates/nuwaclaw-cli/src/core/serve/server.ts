@@ -6,7 +6,7 @@ import type { EngineKind } from "../env/inheritEnv.js";
 import type { PermissionMode } from "../permissions/policy.js";
 import { SessionHub } from "./sessionHub.js";
 import { writeServeLock, clearServeLock } from "./serveLock.js";
-import { computerProjectWorkspacesDir, ensureDir } from "../../util/paths.js";
+import { ensureDir } from "../../util/paths.js";
 import { debugLog } from "../debugLog.js";
 
 export interface ServeOptions {
@@ -14,6 +14,7 @@ export interface ServeOptions {
   host: string;
   engine: EngineKind;
   cwd: string;
+  cwdIsProject?: boolean;
   permissionMode: PermissionMode;
   overlay?: { apiKey?: string; baseUrl?: string; model?: string };
   acceptedSecrets?: string[];
@@ -126,30 +127,23 @@ function chatProjectKey(
   ...fallbacks: Array<string | undefined | null>
 ): string | undefined {
   return (
-    textField(body, "agent_work_dir", "agentWorkDir") ??
     textField(body, "project_id", "projectId") ??
+    textField(body, "agent_work_dir", "agentWorkDir") ??
     textField(body, "session_id", "sessionId") ??
     fallbacks.find((value) => typeof value === "string" && value.length > 0) ??
     undefined
   );
 }
 
-function safeWorkspaceSegment(value: string, fallback: string): string {
+function workspaceSegment(value: string, fallback: string): string {
   const normalized = value.trim();
   if (!normalized) return fallback;
-  const hash = crypto
-    .createHash("sha256")
-    .update(normalized)
-    .digest("hex")
-    .slice(0, 8);
-  const readable = normalized
+  const segment = normalized
     .replace(/[^a-zA-Z0-9._-]+/g, "_")
     .replace(/\s+/g, "_")
     .replace(/_+/g, "_")
     .replace(/^_+|_+$/g, "");
-  const base = readable || fallback;
-  if (base === normalized && base.length <= 64) return base;
-  return `${base.slice(0, 55)}-${hash}`;
+  return segment || fallback;
 }
 
 function resolveExistingDirectory(
@@ -177,6 +171,7 @@ function resolveExistingDirectory(
 function resolveChatCwd(
   body: Record<string, unknown>,
   defaultCwd: string,
+  defaultCwdIsProject: boolean,
 ):
   | { ok: true; cwd: string; projectKey?: string }
   | { ok: false; error: string } {
@@ -187,12 +182,15 @@ function resolveChatCwd(
     return resolved.ok ? { ...resolved, projectKey } : resolved;
   }
 
-  const userId = textField(body, "user_id", "userId") ?? "default";
+  if (defaultCwdIsProject) {
+    const resolved = resolveExistingDirectory(defaultCwd);
+    return resolved.ok ? { ...resolved, projectKey } : resolved;
+  }
+
   if (projectKey) {
     const cwd = path.join(
-      computerProjectWorkspacesDir(),
-      safeWorkspaceSegment(userId, "default"),
-      safeWorkspaceSegment(projectKey, "default"),
+      path.resolve(defaultCwd),
+      workspaceSegment(projectKey, "default"),
     );
     ensureDir(cwd);
     return { ok: true, cwd, projectKey };
@@ -304,7 +302,11 @@ export function startServeHttp(options: ServeOptions): {
           const existingId = textField(body, "session_id", "sessionId");
           const userId = textField(body, "user_id", "userId");
           const projectId = textField(body, "project_id", "projectId");
-          const cwdResult = resolveChatCwd(body, options.cwd);
+          const cwdResult = resolveChatCwd(
+            body,
+            options.cwd,
+            options.cwdIsProject === true,
+          );
           if (!cwdResult.ok) {
             debugLog("serve.chat", "cwd resolution failed", {
               userId,

@@ -166,6 +166,33 @@ npx -y nuwaclaw@latest up --domain https://agent.nuwax.com --saved-key <key>
 
 本地未发布 npm 时的调试方式见 [`docs/local-debugging.md`](docs/local-debugging.md)，完整设计说明见 [`docs/one-click-up.md`](docs/one-click-up.md)。
 
+常驻运行方式：
+
+```bash
+nuwaclaw up --engine claude --daemon           # 脱离当前终端后台运行
+nuwaclaw service install --engine claude --now # 安装当前用户自启动服务并立即启动
+nuwaclaw service status
+nuwaclaw service stop
+nuwaclaw service uninstall
+```
+
+`--daemon` 是轻量后台模式：终端关闭后仍运行，但重启/注销后不会自动恢复。`nuwaclaw service` 会安装系统托管的当前用户服务：macOS 用 LaunchAgent，Linux 用 systemd user service，Windows 用计划任务。启动项只保存 engine/port/cwd/lanproxy 等运行参数，**不会**保存密码、savedKey/configKey 或模型 API key；登录态仍只从 `~/.nuwaclaw-cli/credentials.json` 读取。
+
+### `nuwaclaw service`
+
+管理后台常驻与开机/登录自启动：
+
+```bash
+nuwaclaw service install --help
+nuwaclaw service install --engine claude --now
+nuwaclaw service start
+nuwaclaw service stop
+nuwaclaw service status
+nuwaclaw service uninstall
+```
+
+安装前需要已有 CLI 默认账号：先成功运行一次 `nuwaclaw login` 或 `nuwaclaw up`。macOS 和 Windows 会在当前用户登录时启动；Linux 使用 `systemd --user`，默认也是用户登录后启动，如需未登录也随系统启动，需要在系统上启用 linger（例如允许时运行 `loginctl enable-linger $USER`）。
+
 ### `nuwaclaw update`
 
 升级 npm/pnpm 安装的 CLI 包：
@@ -186,7 +213,7 @@ nuwaclaw update --package-manager pnpm
 
 ```bash
 nuwaclaw serve --port 60016
-# -> POST /computer/chat            { prompt, session_id?, cwd? } -> { session_id }
+# -> POST /computer/chat            { prompt, session_id?, project_id?, agent_work_dir?, cwd? } -> { session_id }
 # -> GET  /computer/progress/:id    会话更新的 SSE 流
 # -> GET/POST /computer/agent/status
 # -> POST /computer/agent/stop      { session_id }
@@ -196,6 +223,8 @@ nuwaclaw serve --port 60016
 ```
 
 `serve` 默认优先使用 CLI 专属端口 `agentPort=60016`；如果该端口已被占用，会自动向后寻找可用端口并在启动日志里提示实际端口。`--tunnel` 下的 `nuwax-file-server` 同样优先使用 `fileServerPort=60015`，占用时自动后移，并把最终端口上报到 `sandboxConfigValue`。
+
+未传 `--cwd` 时，默认根目录是 `~/.nuwaclaw-cli/workspaces`，云端请求里的 `project_id` 会创建/使用 `~/.nuwaclaw-cli/workspaces/<project_id>`；`agent_work_dir` / `session_id` 仅在缺少 `project_id` 时作为兼容 fallback。`user_id` 只作为请求元数据，不参与本地路径。传了 `--cwd <dir>` 时，`<dir>` 就是当前项目目录本身，不会再追加 `project_id`。`nuwax-file-server` 使用同一活动目录/根目录。
 
 普通本地 `serve` 下，除 `/health` 和只读 SSE `/computer/progress/:session_id` 外，每个路由都需要认证；推荐使用 `X-Nuwax-Internal-Secret`，不能设置自定义 header 的客户端也可用 `Authorization: Bearer <secret>` 或 `?apiKey=<secret>`。`--tunnel` 模式下，`/computer/*` 与 `/devcomputer/*` 对齐 Electron 客户端约定：lanproxy 连接用 savedKey/configKey 作为 clientKey 鉴权，转发到本地的 HTTP 请求不会再逐个携带 savedKey。服务器仍会打印一个仅用于本地调试的随机 secret；它永不落盘。
 
@@ -221,6 +250,7 @@ nuwaclaw serve --tunnel --lanproxy-host agent.nuwax.com --lanproxy-port 443
 - **Windows 首次安装**：`--gui-mcp` 仍会通过 `spawnSync("npm", …)`（不带 `shell:true`）安装 `agent-gui-server`；在 Windows 上 Node 拒绝以这种方式启动 `npm.cmd`，因此这个可选功能首次使用会失败。`claude`/`codex` ACP 适配器和 `nuwax-file-server` 已改为正常包依赖。
 - **退出时的进程树清理**：只有直接的引擎子进程会收到 `SIGTERM`；孙进程（`claude-code-acp-ts` 适配器再拉起的 `claude` 二进制，以及 `--gui-mcp` 下的 `agent-gui-server`）不会被信号通知，可能成为孤儿。`serve` 关闭仍会停止自身的 HTTP 会话，但零散的孙进程可能残留。
 - **`yolo` 没有路径限制**：`--approve auto` 不论目标路径一律自动批准工具调用，目前没有可写根目录守卫（Electron 客户端的严格权限闸门尚未移植过来）。
+- **开机启动是当前用户级别**：`service install` 使用 LaunchAgent / systemd user service / 计划任务，不是需要管理员权限的系统级 daemon。Linux 若要用户未登录也启动，需要在 CLI 外部配置 systemd linger。
 - **自定义/第三方 ACP 引擎**（pi-acp、hermes、kilo、openclaw 等）暂不支持——仅支持 `claude` 和 `codex`。
 - **云端会话同步/列表**：`sessions`/`status` 目前仅本地可用，跨设备会话历史的后端接口尚未确定。
 
@@ -230,6 +260,7 @@ nuwaclaw serve --tunnel --lanproxy-host agent.nuwax.com --lanproxy-port 443
 - `claude` 引擎：拉起包依赖 [`claude-code-acp-ts`](https://www.npmjs.com/package/claude-code-acp-ts)，并通过 `CLAUDE_CODE_EXECUTABLE` 指向**你自己的** `claude` 二进制。
 - `codex` 引擎：拉起包依赖 [`nuwax-codex-acp`](https://www.npmjs.com/package/nuwax-codex-acp)；该包通过 npm optionalDependencies 拉取匹配平台的二进制。
 - `serve --tunnel`：启动包依赖 [`nuwax-file-server`](https://www.npmjs.com/package/nuwax-file-server)，再用注册得到的 savedKey 拉起随 CLI 包发布的 `nuwax-lanproxy` 二进制。file-server 的 PID/lock 临时目录会按端口放到 `~/.nuwaclaw-cli/tmp/file-server-<port>`，避免误停 Electron 客户端或另一个 CLI tunnel 实例。
+- `service install`：写入当前用户级系统服务，在登录/启动时运行 `nuwaclaw up`；运行时复用 CLI 自己的 credentials，不把密钥嵌入系统服务配置。
 - 不会往你 shell 的全局 `node_modules` 里装任何东西，nuwaclaw-cli 自己的 credentials、device id、cache、logs、serve lock 都存放在 `~/.nuwaclaw-cli/` 下。若同时安装了 NuwaClaw Electron 桌面端，两者可在同一台机器共存但不共享 savedKey 或本地状态；`serve` 默认优先使用 CLI 专属端口 60016/60015，冲突时自动寻找后续可用端口，与 Electron 的 60005–60009 范围分开。
 
 ## 运行要求

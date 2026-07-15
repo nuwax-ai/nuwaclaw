@@ -136,9 +136,10 @@ export async function serveCommand(
   }
 
   const cwd = path.resolve(options.cwd ?? workspacesDir());
+  const cwdIsProject = Boolean(options.cwd);
   ensureDir(cwd);
   const host = options.host ?? "127.0.0.1";
-  debugLog("serve.command", "workspace resolved", { cwd });
+  debugLog("serve.command", "workspace resolved", { cwd, cwdIsProject });
   let port: number;
   try {
     const preferredPort = parsePortOption(
@@ -193,6 +194,7 @@ export async function serveCommand(
     host,
     engine: engineId,
     cwd,
+    cwdIsProject,
     permissionMode,
     overlay,
     acceptedSecrets,

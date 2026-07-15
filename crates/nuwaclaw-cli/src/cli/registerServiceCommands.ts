@@ -1,7 +1,18 @@
 import type { Command } from "commander";
+import {
+  serviceInstallCommand,
+  serviceStartCommand,
+  serviceStatusCommand,
+  serviceStopCommand,
+  serviceUninstallCommand,
+} from "../commands/service.js";
 import { serveCommand } from "../commands/serve.js";
 import { upCommand } from "../commands/up.js";
-import { addCloudLoginOptions, addServeRuntimeOptions } from "./options.js";
+import {
+  addCloudLoginOptions,
+  addServeRuntimeOptions,
+  addServiceInstallOptions,
+} from "./options.js";
 
 export function registerServiceCommands(program: Command): void {
   addServeRuntimeOptions(
@@ -36,4 +47,48 @@ export function registerServiceCommands(program: Command): void {
       ].join("\n"),
     )
     .action(upCommand);
+
+  const service = program
+    .command("service")
+    .description("管理后台常驻与开机/登录自启动服务");
+
+  addServiceInstallOptions(
+    service
+      .command("install")
+      .description(
+        "安装当前用户后台服务；默认下次用户登录启动，传 --now 立即启动",
+      ),
+  )
+    .addHelpText(
+      "after",
+      [
+        "",
+        "说明：",
+        "  - 安装前需要已有 CLI 默认账号：先运行 `nuwaclaw login` 或 `nuwaclaw up` 成功一次。",
+        "  - 启动项不会保存密码、savedKey、configKey 或模型 API key；登录态仍从 ~/.nuwaclaw-cli/credentials.json 读取。",
+        "  - macOS 使用 LaunchAgent，Linux 使用 systemd user service，Windows 使用当前用户计划任务。",
+        "  - Linux 默认是用户登录后启动；未登录也启动需要系统启用 linger。",
+      ].join("\n"),
+    )
+    .action(serviceInstallCommand);
+
+  service
+    .command("start")
+    .description("启动已安装的后台服务")
+    .action(serviceStartCommand);
+
+  service
+    .command("stop")
+    .description("停止已安装的后台服务")
+    .action(serviceStopCommand);
+
+  service
+    .command("status")
+    .description("查看系统启动项与当前 serve 运行状态")
+    .action(serviceStatusCommand);
+
+  service
+    .command("uninstall")
+    .description("停止并移除后台服务/开机启动项")
+    .action(serviceUninstallCommand);
 }

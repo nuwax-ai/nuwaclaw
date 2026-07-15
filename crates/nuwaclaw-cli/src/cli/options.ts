@@ -43,7 +43,10 @@ export function addServeRuntimeOptions(command: Command): Command {
         String(CLI_AGENT_PORT),
       )
       .option("--host <host>", "HTTP API 监听地址", "127.0.0.1")
-      .option("--cwd <dir>", "工作空间根目录；默认 ~/.nuwaclaw-cli/workspaces")
+      .option(
+        "--cwd <dir>",
+        "当前项目目录；不传时按 ~/.nuwaclaw-cli/workspaces/<project_id> 自动创建",
+      )
       .option(
         "--approve <policy>",
         "权限策略：auto（默认，自动批准）或 deny",
@@ -61,4 +64,35 @@ export function addServeRuntimeOptions(command: Command): Command {
         "后台启动 serve（stdout/stderr 写入 ~/.nuwaclaw-cli/logs/serve.log）",
       ),
   );
+}
+
+export function addServiceInstallOptions(command: Command): Command {
+  return command
+    .option(
+      "--engine <engine>",
+      "服务启动时使用的引擎：claude 或 codex；不传则由 up 自动检测",
+    )
+    .option(
+      "--port <port>",
+      "HTTP API 优先监听端口；占用时自动向后寻找可用端口",
+      String(CLI_AGENT_PORT),
+    )
+    .option("--host <host>", "HTTP API 监听地址", "127.0.0.1")
+    .option(
+      "--cwd <dir>",
+      "当前项目目录；不传时按 ~/.nuwaclaw-cli/workspaces/<project_id> 自动创建",
+    )
+    .option(
+      "--approve <policy>",
+      "权限策略：auto（默认，自动批准）或 deny",
+      "auto",
+    )
+    .option(
+      "--lanproxy-path <path>",
+      "lanproxy 二进制或 resources/lanproxy 目录",
+    )
+    .option("--lanproxy-host <host>", "覆盖注册返回的 lanproxy serverHost")
+    .option("--lanproxy-port <port>", "覆盖注册返回的 lanproxy serverPort")
+    .option("--lanproxy-ssl <true|false>", "lanproxy 是否启用 ssl", "true")
+    .option("--now", "安装后立即启动服务");
 }

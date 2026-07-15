@@ -8,9 +8,6 @@ const mocks = vi.hoisted(() => ({
   ensureDir: vi.fn(),
   tmpDir: vi.fn(() => "/tmp/nuwaclaw-cli-test"),
   workspacesDir: vi.fn(() => "/tmp/nuwaclaw-cli-workspaces"),
-  computerProjectWorkspacesDir: vi.fn(
-    () => "/tmp/nuwaclaw-cli-workspaces/computer-project-workspace",
-  ),
   logsDir: vi.fn(() => "/tmp/nuwaclaw-cli-logs"),
 }));
 
@@ -24,7 +21,6 @@ vi.mock("node:child_process", () => ({
 }));
 
 vi.mock("../src/util/paths.js", () => ({
-  computerProjectWorkspacesDir: mocks.computerProjectWorkspacesDir,
   ensureDir: mocks.ensureDir,
   logsDir: mocks.logsDir,
   tmpDir: mocks.tmpDir,
@@ -41,7 +37,6 @@ describe("fileServer", () => {
     mocks.ensureDir.mockReset();
     mocks.tmpDir.mockClear();
     mocks.workspacesDir.mockClear();
-    mocks.computerProjectWorkspacesDir.mockClear();
     mocks.logsDir.mockClear();
     mocks.resolveInstalledPackageEntry.mockReturnValue(
       "/fake/nuwax-file-server.js",
@@ -66,8 +61,7 @@ describe("fileServer", () => {
           TMPDIR: "/tmp/nuwaclaw-cli-test/file-server-60015",
           TMP: "/tmp/nuwaclaw-cli-test/file-server-60015",
           TEMP: "/tmp/nuwaclaw-cli-test/file-server-60015",
-          COMPUTER_WORKSPACE_DIR:
-            "/tmp/nuwaclaw-cli-workspaces/computer-project-workspace",
+          COMPUTER_WORKSPACE_DIR: "/tmp/nuwaclaw-cli-workspaces",
           PROJECT_SOURCE_DIR: "/tmp/nuwaclaw-cli-workspaces/project_workspace",
           UPLOAD_PROJECT_DIR: "/tmp/nuwaclaw-cli-test/file-server-project-zips",
           DIST_TARGET_DIR: "/tmp/nuwaclaw-cli-test/file-server-dist",
@@ -82,7 +76,7 @@ describe("fileServer", () => {
       "/tmp/nuwaclaw-cli-test/file-server-60015",
     );
     expect(mocks.ensureDir).toHaveBeenCalledWith(
-      "/tmp/nuwaclaw-cli-workspaces/computer-project-workspace",
+      "/tmp/nuwaclaw-cli-workspaces",
     );
     expect(mocks.unref).toHaveBeenCalled();
   });
@@ -100,8 +94,7 @@ describe("fileServer", () => {
           TMPDIR: "/tmp/nuwaclaw-cli-test/file-server-60015",
           TMP: "/tmp/nuwaclaw-cli-test/file-server-60015",
           TEMP: "/tmp/nuwaclaw-cli-test/file-server-60015",
-          COMPUTER_WORKSPACE_DIR:
-            "/tmp/nuwaclaw-cli-workspaces/computer-project-workspace",
+          COMPUTER_WORKSPACE_DIR: "/tmp/nuwaclaw-cli-workspaces",
         }),
         stdio: "ignore",
       },

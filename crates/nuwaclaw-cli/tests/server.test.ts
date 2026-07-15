@@ -11,7 +11,6 @@ import * as os from "node:os";
 import * as path from "node:path";
 import * as fs from "node:fs";
 import { startServeHttp } from "../src/core/serve/server.js";
-import { computerProjectWorkspacesDir } from "../src/util/paths.js";
 
 // Deterministically forces engine.resolve() to fail without needing a real
 // network call or a specific machine's installed tools: temporarily hide
@@ -27,13 +26,11 @@ afterEach(() => {
 
 describe("serve HTTP server", () => {
   let handle: ReturnType<typeof startServeHttp>;
+  const serverCwd = path.join(os.tmpdir(), "nuwaclaw-server-test-workspaces");
   const workspaceUser = "nuwaclaw-test-user";
-  const workspaceProject = "nuwaclaw-test-project";
-  const workspacePath = path.join(
-    computerProjectWorkspacesDir(),
-    workspaceUser,
-    workspaceProject,
-  );
+  const agentWorkDir = "nuwaclaw-test-agent-work-dir";
+  const workspaceProject = "nuwaclaw-test-project-id";
+  const workspacePath = path.join(serverCwd, workspaceProject);
 
   beforeAll(async () => {
     // Isolate the serve lock so the test's server doesn't clobber a real
@@ -47,11 +44,12 @@ describe("serve HTTP server", () => {
       os.tmpdir(),
       "nuwaclaw-server-test-debug.log",
     );
+    fs.mkdirSync(serverCwd, { recursive: true });
     handle = startServeHttp({
       port: 0,
       host: "127.0.0.1",
       engine: "claude",
-      cwd: "/tmp",
+      cwd: serverCwd,
       permissionMode: "yolo",
     });
     // port: 0 asks the OS for a free port; listen() is async, so wait for it
@@ -63,7 +61,7 @@ describe("serve HTTP server", () => {
 
   afterAll(async () => {
     await handle.stop();
-    fs.rmSync(workspacePath, { recursive: true, force: true });
+    fs.rmSync(serverCwd, { recursive: true, force: true });
     if (process.env.NUWACLAW_DEBUG_LOG_PATH) {
       fs.rmSync(process.env.NUWACLAW_DEBUG_LOG_PATH, { force: true });
     }
@@ -177,7 +175,7 @@ describe("serve HTTP server", () => {
     });
   });
 
-  it("creates a CLI-owned project workspace from agent_work_dir", async () => {
+  it("creates a CLI-owned project workspace from project_id under the active workspace root", async () => {
     fs.rmSync(workspacePath, { recursive: true, force: true });
 
     const res = await fetch(url("/computer/chat"), {
@@ -189,13 +187,49 @@ describe("serve HTTP server", () => {
       body: JSON.stringify({
         prompt: "hi",
         user_id: workspaceUser,
-        agent_work_dir: workspaceProject,
-        project_id: "legacy-project-id",
+        agent_work_dir: agentWorkDir,
+        project_id: workspaceProject,
       }),
     });
 
     expect(res.status).toBe(502);
     expect(fs.existsSync(workspacePath)).toBe(true);
+  });
+
+  it("uses an explicitly configured cwd as the project directory itself", async () => {
+    const projectDir = path.join(serverCwd, "explicit-project-dir");
+    fs.mkdirSync(projectDir, { recursive: true });
+    const explicit = startServeHttp({
+      port: 0,
+      host: "127.0.0.1",
+      engine: "claude",
+      cwd: projectDir,
+      cwdIsProject: true,
+      permissionMode: "yolo",
+    });
+    await new Promise<void>((resolve) =>
+      explicit.server.once("listening", resolve),
+    );
+    const address = explicit.server.address();
+    const port = typeof address === "object" && address ? address.port : 0;
+    const res = await fetch(`http://127.0.0.1:${port}/computer/chat`, {
+      method: "POST",
+      headers: {
+        "X-Nuwax-Internal-Secret": explicit.secret,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        prompt: "hi",
+        user_id: workspaceUser,
+        project_id: "should-not-be-appended",
+      }),
+    });
+    await explicit.stop();
+
+    expect(res.status).toBe(502);
+    expect(fs.existsSync(path.join(projectDir, "should-not-be-appended"))).toBe(
+      false,
+    );
   });
 
   it("surfaces engine resolution failure as a 502 and doesn't leave a zombie session", async () => {

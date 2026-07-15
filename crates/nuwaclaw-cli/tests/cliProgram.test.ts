@@ -29,6 +29,7 @@ describe("createProgram", () => {
       "account",
       "serve",
       "up",
+      "service",
       "update",
     ]);
   });

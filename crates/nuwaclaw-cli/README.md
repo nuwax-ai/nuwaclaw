@@ -166,6 +166,33 @@ npx -y nuwaclaw@latest up --domain https://agent.nuwax.com --saved-key <key>
 
 For local debugging before npm publish, see [`docs/local-debugging.md`](docs/local-debugging.md). Full design notes live in [`docs/one-click-up.md`](docs/one-click-up.md).
 
+Persistent run modes:
+
+```bash
+nuwaclaw up --engine claude --daemon          # detach from this terminal
+nuwaclaw service install --engine claude --now # install current-user autostart and start now
+nuwaclaw service status
+nuwaclaw service stop
+nuwaclaw service uninstall
+```
+
+`--daemon` is the lightweight "keep running after this terminal closes" mode. It still exits on reboot/logoff. `nuwaclaw service` installs an OS-managed current-user service: macOS LaunchAgent, Linux systemd user service, or Windows Scheduled Task. The service config stores only runtime flags such as engine/port/cwd/lanproxy overrides; it does **not** store passwords, savedKey/configKey, or model API keys. Login state remains in `~/.nuwaclaw-cli/credentials.json`.
+
+### `nuwaclaw service`
+
+Manage background persistence and login/startup autostart:
+
+```bash
+nuwaclaw service install --help
+nuwaclaw service install --engine claude --now
+nuwaclaw service start
+nuwaclaw service stop
+nuwaclaw service status
+nuwaclaw service uninstall
+```
+
+Install requires an existing CLI default account. Run `nuwaclaw login` or `nuwaclaw up` successfully once first. On macOS and Windows the service starts when the current user logs in. On Linux it uses `systemd --user`; starting before login requires enabling linger on the machine, for example `loginctl enable-linger $USER` where allowed.
+
 ### `nuwaclaw update`
 
 Upgrade the npm/pnpm-installed CLI package:
@@ -197,7 +224,7 @@ nuwaclaw serve --port 60016
 
 `serve` prefers the CLI-owned `agentPort=60016` by default; if that port is already occupied it automatically advances to the next available port and prints the actual address. Under `--tunnel`, `nuwax-file-server` similarly prefers `fileServerPort=60015`, advances when occupied, and reports the final port in `sandboxConfigValue`.
 
-If `--cwd` is not provided, the workspace root is `~/.nuwaclaw-cli/workspaces`. Cloud/Electron-style requests that carry `agent_work_dir` or `project_id` create and use `~/.nuwaclaw-cli/workspaces/computer-project-workspace/<user_id>/<agent_work_dir-or-project_id>`, and `nuwax-file-server` is pointed at the same root. Passing `--cwd <dir>` overrides that workspace root.
+If `--cwd` is not provided, the default workspace root is `~/.nuwaclaw-cli/workspaces`, and Cloud/Electron-style requests create project workspaces as `~/.nuwaclaw-cli/workspaces/<project_id>`. `agent_work_dir` / `session_id` are only compatibility fallbacks when `project_id` is missing. `user_id` is kept as request metadata but is not used in the local path. If `--cwd <dir>` is provided, that directory is treated as the project directory itself; nuwaclaw does not append `project_id` under it. `nuwax-file-server` is pointed at the same active directory/root.
 
 For plain local `serve`, every route except `/health` and the read-only SSE `/computer/progress/:session_id` requires authentication. The preferred form is `X-Nuwax-Internal-Secret`, with `Authorization: Bearer <secret>` and `?apiKey=<secret>` accepted for clients that cannot set custom headers. In `--tunnel` mode, `/computer/*` and `/devcomputer/*` follow the Electron client's contract: the lanproxy connection is authenticated with the savedKey/configKey client key, and the forwarded local HTTP calls do not carry another per-request savedKey. The server still prints a fresh local debug secret on startup; it is never written to disk.
 
@@ -224,6 +251,7 @@ If the register response includes `serverHost`/`serverPort`, the explicit host/p
 - **Windows first-use install**: `--gui-mcp` still installs `agent-gui-server` via `spawnSync("npm", …)` without `shell:true`; on Windows Node refuses to launch the `npm.cmd` shim that way, so first use of that optional feature fails. The `claude`/`codex` ACP adapters and `nuwax-file-server` are normal package dependencies instead.
 - **Process-tree teardown on exit**: only the direct engine child receives `SIGTERM`; grandchildren (the `claude` binary the `claude-code-acp-ts` adapter spawns, and `agent-gui-server` under `--gui-mcp`) aren't signalled and may be orphaned. `serve` shutdown still stops its own HTTP sessions, but stray grandchildren can linger.
 - **No path-confinement in `yolo`**: `--approve auto` auto-approves every tool call regardless of target path; there is no writable-root guard yet (the Electron client's strict-permission gate hasn't been ported).
+- **Autostart is current-user scoped**: `service install` uses LaunchAgent / systemd user service / Scheduled Task. It is not a privileged system-wide daemon. On Linux, true boot-before-login requires systemd linger configured outside the CLI.
 - **Custom/third-party ACP engines** (pi-acp, hermes, kilo, openclaw, ...) aren't supported yet — only `claude` and `codex`.
 - **lanproxy distribution**: lanproxy is still the only preintegrated client resource; point `--lanproxy-path` (or `NUWACLAW_LANPROXY_PATH`) at an existing binary or `resources/lanproxy` directory.
 - **Cloud session sync/listing**: `sessions`/`status` are local-only for now: there's no confirmed backend API yet for cross-device session history.
@@ -234,6 +262,7 @@ If the register response includes `serverHost`/`serverPort`, the explicit host/p
 - `claude` engine: spawns the package dependency [`claude-code-acp-ts`](https://www.npmjs.com/package/claude-code-acp-ts) with `CLAUDE_CODE_EXECUTABLE` pointed at *your* `claude` binary.
 - `codex` engine: spawns the package dependency [`nuwax-codex-acp`](https://www.npmjs.com/package/nuwax-codex-acp); that package pulls the matching platform binary through npm optional dependencies.
 - `serve --tunnel`: starts the package dependency [`nuwax-file-server`](https://www.npmjs.com/package/nuwax-file-server), then launches the preintegrated `nuwax-lanproxy` binary with the registered savedKey. file-server PID/lock temp files are scoped per port under `~/.nuwaclaw-cli/tmp/file-server-<port>`, so CLI shutdown does not target the Electron client's instance or another CLI tunnel instance.
+- `service install`: writes a current-user OS service that runs `nuwaclaw up` on login/startup. It reuses CLI-owned credentials at runtime instead of embedding secrets into the OS service definition.
 - Nothing is installed into your shell's global `node_modules`, and nuwaclaw-cli stores its own credentials, device id, cache, logs, and serve lock under `~/.nuwaclaw-cli/`. If you also run the NuwaClaw Electron app, the two coexist on the same machine without sharing savedKey or local state; `serve` prefers CLI-only ports 60016/60015 and automatically moves forward on conflicts, separate from Electron's 60005–60009 range.
 
 ## Requirements
