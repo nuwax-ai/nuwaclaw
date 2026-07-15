@@ -23,6 +23,7 @@ import { app } from "electron";
 import log from "electron-log";
 import {
   getAppEnv,
+  applySharedPackageManagerCacheEnv,
   getNuwaxcodeBundledBinPath,
   getCodexAcpBundledBinPath,
   getNodeBinPathWithFallback,
@@ -787,6 +788,7 @@ export async function createAcpConnection(
     USERPROFILE: isolatedHome, // Windows
 
     // XDG 目录（Unix/Linux 标准，Windows 上也设置以兼容可能的工具）
+    // 配置/数据仍隔离到 project home；包管理器缓存见下方二次覆盖
     XDG_CONFIG_HOME: path.join(isolatedHome, ".config"),
     XDG_DATA_HOME: path.join(isolatedHome, ".local", "share"),
     XDG_CACHE_HOME: path.join(isolatedHome, ".cache"),
@@ -798,6 +800,9 @@ export async function createAcpConnection(
     // Disable non-essential traffic (aligned with rcoder ENV_DISABLE_NONESSENTIAL)
     CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "1",
   };
+
+  // HOME/XDG 重定向后必须再写回共享缓存路径，避免每项目一份 .cache/pnpm、.npm
+  applySharedPackageManagerCacheEnv(env, appEnv);
 
   // Set TMPDIR to isolatedHome/tmp so that sandboxed engines (e.g. claude-code
   // under macOS seatbelt strict mode) create temp files inside a writable path.

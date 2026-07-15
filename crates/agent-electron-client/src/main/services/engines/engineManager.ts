@@ -14,6 +14,7 @@ import { spawn } from "child_process";
 import log from "electron-log";
 import {
   getAppEnv,
+  applySharedPackageManagerCacheEnv,
   getCodexAcpBundledDir,
   getNuwaxcodeBundledBinPath,
 } from "../system/dependencies";
@@ -370,7 +371,7 @@ export function createIsolatedEnvironment(config: EngineConfig): {
     HOME: isolatedHome,
     USERPROFILE: isolatedHome, // Windows 兼容
 
-    // 隔离 XDG 配置
+    // 隔离 XDG 配置（包管理器缓存见下方二次覆盖，避免落在 isolated home）
     XDG_CONFIG_HOME: path.join(isolatedHome, ".config"),
     XDG_DATA_HOME: path.join(isolatedHome, ".local", "share"),
     XDG_CACHE_HOME: path.join(isolatedHome, ".cache"),
@@ -379,6 +380,9 @@ export function createIsolatedEnvironment(config: EngineConfig): {
     CLAUDE_CONFIG_DIR: path.join(isolatedHome, ".claude"),
     NUWAXCODE_CONFIG_DIR: path.join(isolatedHome, ".nuwaxcode"),
   };
+
+  // HOME/XDG 重定向后强制共享 npm/pnpm/uv 缓存，避免 run/ 下每项目膨胀
+  applySharedPackageManagerCacheEnv(env, appEnv);
 
   // API 配置 (优先使用注入的值)
   if (config.apiKey) {

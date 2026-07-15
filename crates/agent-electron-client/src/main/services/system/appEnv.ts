@@ -527,3 +527,36 @@ export function getAppEnv(opts?: GetAppEnvOptions): Record<string, string> {
 
   return cleanEnv;
 }
+
+/**
+ * 包管理器共享缓存相关环境变量。
+ * HOME / XDG_CACHE_HOME 重定向到 isolated home 后，这些键必须重新写回 ~/.nuwaclaw 共享路径，
+ * 否则 pnpm/npm/uv 会落到每个 project home 的 .cache/.npm，造成 run/ 目录膨胀。
+ */
+export const SHARED_PACKAGE_MANAGER_CACHE_ENV_KEYS = [
+  "NPM_CONFIG_CACHE",
+  "PNPM_HOME",
+  "PNPM_STORE_DIR",
+  "PNPM_CACHE_DIR",
+  "PNPM_STATE_DIR",
+  "UV_CACHE_DIR",
+  "UV_TOOL_DIR",
+  "UV_TOOL_BIN_DIR",
+  // 防止 uv python 落到 isolated home 的 XDG_DATA_HOME/.local/share/uv
+  "UV_PYTHON_INSTALL_DIR",
+] as const;
+
+/**
+ * 在 HOME/XDG 隔离之后，强制把包管理器缓存路径写回 getAppEnv() 的共享目录。
+ */
+export function applySharedPackageManagerCacheEnv(
+  env: Record<string, string>,
+  appEnv: Record<string, string>,
+): void {
+  for (const key of SHARED_PACKAGE_MANAGER_CACHE_ENV_KEYS) {
+    const value = appEnv[key];
+    if (value) {
+      env[key] = value;
+    }
+  }
+}
