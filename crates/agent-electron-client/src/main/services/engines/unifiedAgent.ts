@@ -25,6 +25,7 @@ import {
   pruneProjectIsolatedHomeCaches,
 } from "./acp/isolatedHomePaths";
 import { maintainUvPackageCache } from "../system/uvCacheMaintenance";
+import { maintainNpmPackageCache } from "../system/npmCacheMaintenance";
 import { mapAgentCommand } from "./agentHelpers";
 import {
   parseContextServers,
@@ -259,6 +260,18 @@ export class UnifiedAgentService extends EventEmitter {
         }
       } catch (err) {
         log.warn("[UnifiedAgent] Uv cache maintain failed:", err);
+      }
+      // 后台维护共享 npm-cache（超 2GiB 先清 _npx，仍超则 clean）；Win/Linux/macOS
+      try {
+        const npmMaintain = maintainNpmPackageCache();
+        if (!npmMaintain.skipped) {
+          log.info(
+            `[UnifiedAgent] Npm cache maintain: clearedNpx=${npmMaintain.clearedNpx}, cleaned=${npmMaintain.cleaned}, ` +
+              `before=${npmMaintain.beforeBytes}, after=${npmMaintain.afterBytes}`,
+          );
+        }
+      } catch (err) {
+        log.warn("[UnifiedAgent] Npm cache maintain failed:", err);
       }
     });
     this.emit("ready");
