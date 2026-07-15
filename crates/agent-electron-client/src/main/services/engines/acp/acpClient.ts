@@ -35,6 +35,7 @@ import {
   resolveIsolatedHomePath,
   type IsolatedHomeScope,
 } from "./isolatedHomePaths";
+import { prepareOpencodePluginShareForHome } from "./opencodePluginShare";
 import { isWindows } from "../../system/shellEnv";
 import { createPlatformAdapter } from "../../system/platformAdapter";
 import {
@@ -815,6 +816,28 @@ export async function createAcpConnection(
   env.TMP = isolatedTmp;
 
   const isNuwaxcodeEngine = config.engineType === "nuwaxcode";
+
+  // nuwaxcode：共享 @opencode-ai/plugin，避免每个 project home 复制 ~60MB node_modules
+  // Windows=junction / Unix=symlink；失败不阻断启动
+  if (isNuwaxcodeEngine) {
+    try {
+      const pluginLink = await prepareOpencodePluginShareForHome(isolatedHome);
+      if (pluginLink.ok) {
+        log.info("[AcpClient] Opencode plugin share ready", {
+          version: pluginLink.version,
+          linkType: pluginLink.linkType,
+          skipped: pluginLink.skipped,
+          linkPath: pluginLink.linkPath,
+        });
+      } else if (!pluginLink.skipped) {
+        log.warn("[AcpClient] Opencode plugin share unavailable", {
+          reason: pluginLink.reason,
+        });
+      }
+    } catch (err) {
+      log.warn("[AcpClient] Opencode plugin share prepare error:", err);
+    }
+  }
 
   // Set model/api vars from ACP config only (never from user's global env)
   if (config.apiKey) {

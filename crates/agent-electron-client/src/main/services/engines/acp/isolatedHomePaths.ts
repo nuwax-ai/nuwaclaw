@@ -38,6 +38,8 @@ const PROJECT_CACHE_RELATIVE_PATHS = [
   path.join(".local", "share", "pnpm"),
   path.join(".local", "share", "uv"),
   path.join(".local", "share", "opencode", "log"),
+  // OpenCode 插件依赖可重建；保留 package.json，共享安装 + symlink 后应较少再膨胀
+  path.join(".config", "opencode", "node_modules"),
 ] as const;
 
 /** 拒绝路径穿越与分隔符，非法字符替换为下划线 */

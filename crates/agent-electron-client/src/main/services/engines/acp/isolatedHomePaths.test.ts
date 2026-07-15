@@ -195,6 +195,7 @@ describe("isolatedHomePaths", () => {
     const pnpmShare = path.join(home, ".local", "share", "pnpm");
     const uvShare = path.join(home, ".local", "share", "uv");
     const opencodeLog = path.join(home, ".local", "share", "opencode", "log");
+    const opencodeNm = path.join(home, ".config", "opencode", "node_modules");
     const opencodeDb = path.join(home, ".local", "share", "opencode");
     const flowagents = path.join(home, ".flowagents");
     const claude = path.join(home, ".claude");
@@ -204,6 +205,7 @@ describe("isolatedHomePaths", () => {
     fs.mkdirSync(pnpmShare, { recursive: true });
     fs.mkdirSync(uvShare, { recursive: true });
     fs.mkdirSync(opencodeLog, { recursive: true });
+    fs.mkdirSync(opencodeNm, { recursive: true });
     fs.mkdirSync(flowagents, { recursive: true });
     fs.mkdirSync(claude, { recursive: true });
     fs.writeFileSync(path.join(cacheDir, "a"), "1");
@@ -212,7 +214,12 @@ describe("isolatedHomePaths", () => {
     fs.writeFileSync(path.join(pnpmShare, "d"), "4");
     fs.writeFileSync(path.join(uvShare, "python.bin"), "5");
     fs.writeFileSync(path.join(opencodeLog, "app.log"), "log");
+    fs.writeFileSync(path.join(opencodeNm, "pkg.js"), "x");
     fs.writeFileSync(path.join(opencodeDb, "opencode.db"), "db");
+    fs.writeFileSync(
+      path.join(home, ".config", "opencode", "package.json"),
+      '{"dependencies":{}}',
+    );
     fs.writeFileSync(path.join(flowagents, "sess.json"), "{}");
     fs.writeFileSync(path.join(claude, "settings.json"), "{}");
 
@@ -224,21 +231,26 @@ describe("isolatedHomePaths", () => {
       pnpmShare,
       uvShare,
       opencodeLog,
+      opencodeNm,
     ]) {
       fs.utimesSync(p, threeDaysAgo / 1000, threeDaysAgo / 1000);
     }
 
     const deleted = pruneProjectIsolatedHomeCaches(2);
 
-    // .cache .npm tmp pnpm uv opencode/log → 6
-    expect(deleted).toBe(6);
+    // .cache .npm tmp pnpm uv opencode/log opencode/node_modules → 7
+    expect(deleted).toBe(7);
     expect(fs.existsSync(cacheDir)).toBe(false);
     expect(fs.existsSync(npmDir)).toBe(false);
     expect(fs.existsSync(tmpDir)).toBe(false);
     expect(fs.existsSync(pnpmShare)).toBe(false);
     expect(fs.existsSync(uvShare)).toBe(false);
     expect(fs.existsSync(opencodeLog)).toBe(false);
+    expect(fs.existsSync(opencodeNm)).toBe(false);
     expect(fs.existsSync(path.join(opencodeDb, "opencode.db"))).toBe(true);
+    expect(
+      fs.existsSync(path.join(home, ".config", "opencode", "package.json")),
+    ).toBe(true);
     expect(fs.existsSync(flowagents)).toBe(true);
     expect(fs.existsSync(claude)).toBe(true);
   });
