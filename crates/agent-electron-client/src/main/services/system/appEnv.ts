@@ -211,6 +211,22 @@ function getSystemPaths(): string[] {
   return cachedSystemPaths;
 }
 
+/** Git Bash 用 POSIX `:` 分隔；优先保留 python/uv 路径供 ensure-python.sh 恢复。 */
+function buildOriginalPathPosix(pathEntries: string[]): string {
+  const MAX_ORIGINAL_PATH_ENTRIES = 20;
+  const isPythonOrUv = (entry: string): boolean => {
+    const lower = entry.toLowerCase();
+    return lower.includes("python") || lower.includes("uv");
+  };
+  const pythonEntries = pathEntries.filter(isPythonOrUv);
+  const otherEntries = pathEntries.filter((e) => !isPythonOrUv(e));
+  const limitedEntries = [...pythonEntries, ...otherEntries].slice(
+    0,
+    MAX_ORIGINAL_PATH_ENTRIES,
+  );
+  return limitedEntries.map((p) => p.replace(/\\/g, "/")).join(":");
+}
+
 // ==================== getAppEnv ====================
 
 export interface GetAppEnvOptions {
@@ -439,20 +455,6 @@ export function getAppEnv(opts?: GetAppEnvOptions): Record<string, string> {
       }
     }
 
-    if (includeSystemPath && bundledGitBashPath) {
-      const MAX_ORIGINAL_PATH_ENTRIES = 20;
-      const pathEntries = (cleanEnv.PATH || "").split(";").filter(Boolean);
-      const limitedEntries = pathEntries.slice(0, MAX_ORIGINAL_PATH_ENTRIES);
-      const posixPath = limitedEntries
-        .map((p) => p.replace(/\\/g, "/"))
-        .join(":");
-      cleanEnv.ORIGINAL_PATH = posixPath;
-      logAppEnv(
-        detailLevel,
-        `[getAppEnv] Set ORIGINAL_PATH (${limitedEntries.length}/${pathEntries.length} entries)`,
-      );
-    }
-
     if (includeSystemPath) {
       try {
         const { execSync } = require("child_process");
@@ -509,7 +511,52 @@ export function getAppEnv(opts?: GetAppEnvOptions): Record<string, string> {
         `[getAppEnv] Skipping registry PATH read (includeSystemPath=false)`,
       );
     }
+
+    // 须在 registry PATH 合并之后构建，否则用户 Python 目录不会进入 ORIGINAL_PATH。
+    if (includeSystemPath && bundledGitBashPath) {
+      const allPathEntries = (cleanEnv.PATH || "").split(";").filter(Boolean);
+      cleanEnv.ORIGINAL_PATH = buildOriginalPathPosix(allPathEntries);
+      logAppEnv(
+        detailLevel,
+        `[getAppEnv] Set ORIGINAL_PATH (${allPathEntries.length} entries, python/uv prioritized)`,
+      );
+    }
   }
 
+  cleanEnv.NUWACLAW_RUNTIME = "1";
+
   return cleanEnv;
+}
+
+/**
+ * 包管理器共享缓存相关环境变量。
+ * HOME / XDG_CACHE_HOME 重定向到 isolated home 后，这些键必须重新写回 ~/.nuwaclaw 共享路径，
+ * 否则 pnpm/npm/uv 会落到每个 project home 的 .cache/.npm，造成 run/ 目录膨胀。
+ */
+export const SHARED_PACKAGE_MANAGER_CACHE_ENV_KEYS = [
+  "NPM_CONFIG_CACHE",
+  "PNPM_HOME",
+  "PNPM_STORE_DIR",
+  "PNPM_CACHE_DIR",
+  "PNPM_STATE_DIR",
+  "UV_CACHE_DIR",
+  "UV_TOOL_DIR",
+  "UV_TOOL_BIN_DIR",
+  // 防止 uv python 落到 isolated home 的 XDG_DATA_HOME/.local/share/uv
+  "UV_PYTHON_INSTALL_DIR",
+] as const;
+
+/**
+ * 在 HOME/XDG 隔离之后，强制把包管理器缓存路径写回 getAppEnv() 的共享目录。
+ */
+export function applySharedPackageManagerCacheEnv(
+  env: Record<string, string>,
+  appEnv: Record<string, string>,
+): void {
+  for (const key of SHARED_PACKAGE_MANAGER_CACHE_ENV_KEYS) {
+    const value = appEnv[key];
+    if (value) {
+      env[key] = value;
+    }
+  }
 }

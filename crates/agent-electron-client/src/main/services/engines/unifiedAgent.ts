@@ -19,7 +19,13 @@ export { mapAgentCommand, resolveAgentEnv } from "./agentHelpers";
 
 import { AcpEngine } from "./acp/acpEngine";
 import { loadAcpSdk } from "./acp/acpClient";
-import { pruneStaleProjectIsolatedHomes } from "./acp/isolatedHomePaths";
+import {
+  pruneStaleProjectIsolatedHomes,
+  pruneOrphanEphemeralIsolatedHomes,
+  pruneProjectIsolatedHomeCaches,
+} from "./acp/isolatedHomePaths";
+import { maintainUvPackageCache } from "../system/uvCacheMaintenance";
+import { maintainNpmPackageCache } from "../system/npmCacheMaintenance";
 import { mapAgentCommand } from "./agentHelpers";
 import {
   parseContextServers,
@@ -203,9 +209,10 @@ export class UnifiedAgentService extends EventEmitter {
     processRegistry.bindActivePidsFn(() => this.getActivePids());
     processRegistry.startPeriodicSweep(300_000);
     setImmediate(() => {
+      const skipPaths = this.getActiveIsolatedHomes();
       try {
         const deleted = pruneStaleProjectIsolatedHomes(undefined, {
-          skipPaths: this.getActiveIsolatedHomes(),
+          skipPaths,
         });
         if (deleted > 0) {
           log.info(
@@ -214,6 +221,57 @@ export class UnifiedAgentService extends EventEmitter {
         }
       } catch (err) {
         log.warn("[UnifiedAgent] Isolated home prune failed:", err);
+      }
+      try {
+        const ephemeralDeleted = pruneOrphanEphemeralIsolatedHomes(undefined, {
+          skipPaths,
+        });
+        if (ephemeralDeleted > 0) {
+          log.info(
+            `[UnifiedAgent] Pruned ${ephemeralDeleted} orphan ephemeral isolated home(s)`,
+          );
+        }
+      } catch (err) {
+        log.warn("[UnifiedAgent] Ephemeral isolated home prune failed:", err);
+      }
+      try {
+        const cacheDeleted = pruneProjectIsolatedHomeCaches(undefined, {
+          skipPaths,
+        });
+        if (cacheDeleted > 0) {
+          log.info(
+            `[UnifiedAgent] Pruned ${cacheDeleted} project isolated home cache dir(s)`,
+          );
+        }
+      } catch (err) {
+        log.warn(
+          "[UnifiedAgent] Project isolated home cache prune failed:",
+          err,
+        );
+      }
+      // 后台维护共享 uv cache（超 2GiB 则 prune，仍超则 clean）；不阻塞启动
+      try {
+        const uvMaintain = maintainUvPackageCache();
+        if (!uvMaintain.skipped) {
+          log.info(
+            `[UnifiedAgent] Uv cache maintain: pruned=${uvMaintain.pruned}, cleaned=${uvMaintain.cleaned}, ` +
+              `before=${uvMaintain.beforeBytes}, after=${uvMaintain.afterBytes}`,
+          );
+        }
+      } catch (err) {
+        log.warn("[UnifiedAgent] Uv cache maintain failed:", err);
+      }
+      // 后台维护共享 npm-cache（超 2GiB 先清 _npx，仍超则 clean）；Win/Linux/macOS
+      try {
+        const npmMaintain = maintainNpmPackageCache();
+        if (!npmMaintain.skipped) {
+          log.info(
+            `[UnifiedAgent] Npm cache maintain: clearedNpx=${npmMaintain.clearedNpx}, cleaned=${npmMaintain.cleaned}, ` +
+              `before=${npmMaintain.beforeBytes}, after=${npmMaintain.afterBytes}`,
+          );
+        }
+      } catch (err) {
+        log.warn("[UnifiedAgent] Npm cache maintain failed:", err);
       }
     });
     this.emit("ready");

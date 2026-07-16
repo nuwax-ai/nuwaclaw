@@ -1817,6 +1817,112 @@ describe("AcpEngine.chat session restore", () => {
     expect(setSessionMode).not.toHaveBeenCalled();
   });
 
+  it("syncs session model when loaded session model differs from request model", async () => {
+    const engine = new AcpEngine("nuwaxcode");
+    const loadSession = vi.fn().mockResolvedValue({
+      modes: { currentModeId: "ask", availableModes: [] },
+      configOptions: [
+        {
+          id: "model",
+          currentValue: "openai-compatible/glm-5",
+        },
+      ],
+    });
+    const unstable_setSessionModel = vi.fn().mockResolvedValue({});
+    const prompt = vi.fn().mockResolvedValue({ stopReason: "end_turn" });
+
+    (engine as any).config = {
+      engine: "nuwaxcode",
+      model: "openai-compatible/deepseek-v4-flash",
+      workspaceDir: "/workspace/project",
+      mcpServers: {},
+      env: { OPENCODE_MODEL: "openai-compatible/deepseek-v4-flash" },
+    };
+    (engine as any).agentCapabilities = {
+      loadSession: true,
+    };
+    (engine as any).acpConnection = {
+      loadSession,
+      newSession: vi.fn(),
+      prompt,
+      cancel: vi.fn(),
+      setSessionMode: vi.fn(),
+      unstable_setSessionModel,
+    };
+
+    const result = await engine.chat({
+      user_id: "u1",
+      project_id: "proj-1",
+      session_id: "saved-sess",
+      prompt: "continue",
+      request_id: "req-1",
+      agent_config: {
+        agent_server: {
+          agent_mode: "ask",
+          env: {
+            OPENCODE_MODEL: "openai-compatible/deepseek-v4-flash",
+          },
+        },
+      },
+    } as any);
+
+    expect(unstable_setSessionModel).toHaveBeenCalledWith({
+      sessionId: "saved-sess",
+      modelId: "openai-compatible/deepseek-v4-flash",
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it("surfaces friendly model mismatch error when model sync path is unavailable", async () => {
+    const engine = new AcpEngine("nuwaxcode");
+    const prompt = vi.fn();
+
+    (engine as any).config = {
+      engine: "nuwaxcode",
+      model: "openai-compatible/deepseek-v4-flash",
+      workspaceDir: "/workspace/project",
+      mcpServers: {},
+      env: { OPENCODE_MODEL: "openai-compatible/deepseek-v4-flash" },
+    };
+    (engine as any).agentCapabilities = { loadSession: true };
+    (engine as any).acpConnection = {
+      prompt,
+      cancel: vi.fn(),
+      setSessionMode: vi.fn(),
+    };
+    (engine as any).sessions.set("mem-sess", {
+      id: "mem-sess",
+      acpSessionId: "mem-sess",
+      createdAt: Date.now(),
+      status: "idle",
+      acpCurrentModeId: "ask",
+      acpCurrentModelId: "openai-compatible/glm-5",
+      resumedModelId: "openai-compatible/glm-5",
+    });
+
+    const result = await engine.chat({
+      user_id: "u1",
+      project_id: "proj-1",
+      session_id: "mem-sess",
+      prompt: "continue",
+      request_id: "req-3",
+      agent_config: {
+        agent_server: {
+          agent_mode: "ask",
+          env: {
+            OPENCODE_MODEL: "openai-compatible/deepseek-v4-flash",
+          },
+        },
+      },
+    } as any);
+
+    expect(prompt).not.toHaveBeenCalled();
+    expect(result.success).toBe(false);
+    expect(result.message).toContain("Session model is out of sync");
+    expect(result.message).toContain("openai-compatible/glm-5");
+    expect(result.message).toContain("openai-compatible/deepseek-v4-flash");
+  });
+
   it("syncs setSessionMode when reusing in-memory session and agent_mode changes", async () => {
     const engine = new AcpEngine("nuwaxcode");
     const setSessionMode = vi.fn().mockResolvedValue({});

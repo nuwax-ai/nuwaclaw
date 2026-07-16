@@ -109,6 +109,8 @@ export {
   setMirrorConfig,
   getMirrorConfig,
   getAppEnv,
+  applySharedPackageManagerCacheEnv,
+  SHARED_PACKAGE_MANAGER_CACHE_ENV_KEYS,
   type MirrorConfig,
   type GetAppEnvOptions,
 } from "./appEnv";

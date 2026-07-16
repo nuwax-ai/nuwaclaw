@@ -7,7 +7,10 @@ import {
   generatePathExport,
   generatePathSanitizeScript,
   buildShellProfileContent,
+  buildBundledDevShellProfileContent,
+  collectBundledDevPathEntries,
   writeShellProfiles,
+  writeBundledDevShellProfiles,
 } from "./shellProfile";
 import { isWindows } from "../system/shellEnv";
 
@@ -162,6 +165,93 @@ describe("shellProfile", () => {
       expect(() => {
         writeShellProfiles(nonExistentDir, ["/c/tools/bin"]);
       }).not.toThrow();
+    });
+  });
+
+  describe("collectBundledDevPathEntries", () => {
+    it("should collect node, pnpm, uv, ripgrep dirs from appEnv", () => {
+      const entries = collectBundledDevPathEntries({
+        NUWAXCODE_NODE_DIR: "C:\\app\\resources\\node\\bin",
+        PNPM_HOME: "C:\\Users\\demo\\.nuwaclaw\\pnpm\\global",
+        UV_TOOL_BIN_DIR: "C:\\Users\\demo\\.nuwaclaw\\uv\\tools\\bin",
+        CLAUDE_CODE_RIPGREP_DIR: "C:\\app\\resources\\ripgrep\\bin",
+        NODE_PATH: "C:\\Users\\demo\\.nuwaclaw\\node_modules",
+        PATH: "C:\\app\\resources\\node\\bin;C:\\Program Files\\nodejs",
+      });
+
+      expect(entries).toContain("C:\\app\\resources\\node\\bin");
+      expect(entries).toContain("C:\\Users\\demo\\.nuwaclaw\\pnpm\\global");
+      expect(entries).toContain("C:\\Users\\demo\\.nuwaclaw\\uv\\tools\\bin");
+      expect(entries).toContain("C:\\app\\resources\\ripgrep\\bin");
+      expect(entries).toContain(
+        "C:\\Users\\demo\\.nuwaclaw\\node_modules\\.bin",
+      );
+      expect(entries).not.toContain("C:\\Program Files\\nodejs");
+    });
+  });
+
+  describe("buildBundledDevShellProfileContent", () => {
+    const sampleAppEnv = {
+      NUWAXCODE_NODE_DIR: "C:\\app\\resources\\node\\bin",
+      PNPM_HOME: "C:\\Users\\demo\\.nuwaclaw\\pnpm\\global",
+      UV_TOOL_BIN_DIR: "C:\\Users\\demo\\.nuwaclaw\\uv\\tools\\bin",
+      CLAUDE_CODE_RIPGREP_DIR: "C:\\app\\resources\\ripgrep\\bin",
+      NODE_PATH: "C:\\Users\\demo\\.nuwaclaw\\node_modules",
+      NPM_CONFIG_REGISTRY: "https://registry.example.com",
+      MSYS2_PATH_TYPE: "inherit",
+    };
+
+    it("should export NUWACLAW_RUNTIME and PNPM_HOME", () => {
+      const content = buildBundledDevShellProfileContent(sampleAppEnv);
+      expect(content).toContain("export NUWACLAW_RUNTIME='1'");
+      expect(content).toContain(
+        "export PNPM_HOME='C:\\Users\\demo\\.nuwaclaw\\pnpm\\global'",
+      );
+      expect(content).toContain("export UV_TOOL_BIN_DIR=");
+    });
+
+    it("should prepend bundled paths before $PATH", () => {
+      const content = buildBundledDevShellProfileContent(sampleAppEnv);
+      expect(content).toContain("/app/resources/node/bin");
+      expect(content).toContain("/app/resources/ripgrep/bin");
+      expect(content).toMatch(/export PATH="[^"]+:\$PATH"/);
+    });
+
+    it("should place PATH sanitize before bundled exports on Windows", () => {
+      const content = buildBundledDevShellProfileContent(sampleAppEnv);
+      if (!isWindows()) {
+        expect(content).not.toContain("[NuwaClaw] Sanitize PATH");
+        return;
+      }
+      const sanitizeIdx = content.indexOf("[NuwaClaw] Sanitize PATH");
+      const exportIdx = content.indexOf("export NUWACLAW_RUNTIME=");
+      expect(sanitizeIdx).toBeGreaterThanOrEqual(0);
+      expect(exportIdx).toBeGreaterThan(sanitizeIdx);
+    });
+
+    it("should collect ttyd bin from PATH segments", () => {
+      const entries = collectBundledDevPathEntries({
+        PATH: "C:\\app\\resources\\ttyd\\bin;C:\\Windows\\System32",
+      });
+      expect(entries).toContain("C:\\app\\resources\\ttyd\\bin");
+      expect(entries).not.toContain("C:\\Windows\\System32");
+    });
+  });
+
+  describe("writeBundledDevShellProfiles", () => {
+    it("should write bundled profile even without explicit pathEntries arg", () => {
+      writeBundledDevShellProfiles(tempDir, {
+        NUWAXCODE_NODE_DIR: "C:\\app\\resources\\node\\bin",
+        PNPM_HOME: "C:\\Users\\demo\\.nuwaclaw\\pnpm\\global",
+        NPM_CONFIG_REGISTRY: "https://registry.example.com",
+      });
+
+      const bashProfile = fs.readFileSync(
+        path.join(tempDir, ".bash_profile"),
+        "utf-8",
+      );
+      expect(bashProfile).toContain("export NUWACLAW_RUNTIME='1'");
+      expect(bashProfile).toContain("export PNPM_HOME=");
     });
   });
 });

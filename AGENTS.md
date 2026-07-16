@@ -89,15 +89,17 @@ This is the **Nuwax Agent** desktop application - a multi-engine AI assistant th
 
 ### Engine Isolation
 
-Each engine runs in an isolated environment:
+Each engine runs in an isolated environment with **bundled dev toolchain** injected via `getAppEnv()`:
 
 ```typescript
 {
-  // App-internal dependencies injected
-  PATH: '~/.nuwax-agent/node_modules/.bin:~/.nuwax-agent/bin:$PATH',
-  NODE_PATH: '~/.nuwax-agent/node_modules',
+  NUWACLAW_RUNTIME: '1',  // agent signal: skip env archaeology
+  PATH: '<bundled node/pnpm/uv/rg first, then system>',
+  PNPM_HOME: '~/.nuwaclaw/pnpm/global',
+  UV_TOOL_BIN_DIR: '~/.nuwaclaw/uv/tools/bin',
+  NODE_PATH: '~/.nuwaclaw/node_modules',
 
-  // Isolated home
+  // Isolated home (Git Bash login shells read .bash_profile with full bundled PATH)
   HOME: '/tmp/nuwax-agent-run-xxx',
   XDG_CONFIG_HOME: '/tmp/.../.config',
   CLAUDE_CONFIG_DIR: '/tmp/.../.claude',
@@ -106,6 +108,10 @@ Each engine runs in an isolated environment:
   ANTHROPIC_BASE_URL: 'xxx',
 }
 ```
+
+**Development agents** running inside NuWaClaw (even with sandbox disabled): when `NUWACLAW_RUNTIME=1`, use `pnpm` / `node` / `uv` / toolkit scripts directly — do not probe `which node` or manually construct paths.
+
+Data root directory: `~/.nuwaclaw/` (not `~/.nuwax-agent/` in older docs).
 
 ---
 
