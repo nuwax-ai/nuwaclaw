@@ -10,9 +10,12 @@
 # 解压后须得到与 v1 相同的未签名 exe/msi 文件名）。建议 zip -j 扁平打包。
 #
 # Usage:
-#   ./sign-release-win-v2.sh <version> [options]
+#   ./sign-release-win-v2.sh [version] [options]
+#   npm run sign:win
+#   npm run sign:win -- 0.9.2 --skip-upload
 #
 # Examples:
+#   ./sign-release-win-v2.sh                  # version from package.json
 #   ./sign-release-win-v2.sh 0.9.2
 #   ./sign-release-win-v2.sh 0.9.2 --no-bundle-download   # 强制与 v1 相同逐文件下载
 #
@@ -80,9 +83,29 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
+# Default version from package.json when omitted (npm run sign:win / sign:win -- --skip-upload)
 if [[ -z "$VERSION" ]]; then
-    echo "Usage: $0 <version> [--skip-download] [--skip-upload] [--skip-cache-check] [--upload-only]"
+    PKG_JSON=""
+    if [[ -f "./package.json" ]]; then
+        PKG_JSON="./package.json"
+    else
+        PKG_JSON="$SCRIPT_DIR/../../package.json"
+        if command -v cygpath >/dev/null 2>&1; then
+            # Node on Windows cannot require Git Bash /c/... paths
+            PKG_JSON="$(cygpath -m "$PKG_JSON")"
+        fi
+    fi
+    VERSION="$(node -p "require('$PKG_JSON').version" 2>/dev/null || true)"
+    if [[ -n "$VERSION" ]]; then
+        echo "==> Using package.json version: $VERSION"
+    fi
+fi
+
+if [[ -z "$VERSION" ]]; then
+    echo "Usage: $0 [version] [--skip-download] [--skip-upload] [--skip-cache-check] [--upload-only]"
     echo "          [--no-bundle-download]"
+    echo ""
+    echo "Version defaults to crates/agent-electron-client/package.json when omitted."
     echo ""
     echo "Options:"
     echo "  --skip-download       Skip downloading unsigned files, use existing ones"
@@ -92,9 +115,14 @@ if [[ -z "$VERSION" ]]; then
     echo "  --no-bundle-download  禁用未签名 zip 优先策略，始终逐文件下载（与 v1 相同）"
     echo ""
     echo "Examples:"
+    echo "  $0                            # 使用 package.json 当前 version"
     echo "  $0 0.9.2                      # 有可选 Release zip 则一次下载；上传与 v1 相同（仅 exe+msi）"
     echo "  $0 0.9.2 --no-bundle-download # 与 v1 相同逐文件下载"
     echo "  $0 0.9.2 --upload-only        # 仅上传已签名 exe/msi"
+    echo ""
+    echo "npm:"
+    echo "  npm run sign:win"
+    echo "  npm run sign:win -- 0.12.6 --skip-upload"
     exit 1
 fi
 

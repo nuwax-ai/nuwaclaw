@@ -3,17 +3,28 @@
 # 触发 nuwaclaw 仓库的 sync-electron-to-oss.yml（仅同步、不构建），
 # 从 GitHub Release 下载已有资产 → 生成 latest.json → 上传到 OSS。
 # 仅根据 tag + channel 同步，分支固定为仓库默认分支（用于取 workflow 定义），用户无需关心分支。
+#
+# 顺序（stable 正式版）:
+#   1. CI 产出 unsigned Windows 包到 GitHub Release
+#   2. npm run sign:win   （本地签名并上传 NuwaClaw.Setup.*.exe / NuwaClaw.*.msi）
+#   3. npm run sync:oss   （本脚本；stable 会校验签名产物已在 Release 上）
+# beta / prerelease-v* 不做 Windows 签名，可直接 sync:oss。
+#
 # 注意：真正执行同步的是目标 release 仓库（默认 nuwaclaw）里的 workflow，
 # 若本仓库 workflow 有更新，请同步到目标仓库后再使用。
 #
 # 用法（在 crates/agent-electron-client 目录下）:
-#   ./scripts/sync-oss.sh <tag> [channel]
+#   ./scripts/sync-oss.sh [tag] [channel]
+#   npm run sync:oss
+#   npm run sync:oss -- electron-v0.9.0 beta
 # 用法（在仓库根目录）:
 #   ./crates/agent-electron-client/scripts/sync-oss.sh <tag> [channel]
 # 示例（已有 Release 时只推 OSS，不触发构建）:
+#   ./scripts/sync-oss.sh                              # 默认 electron-v{package.json version} + stable
 #   ./scripts/sync-oss.sh electron-v0.9.0              # 默认 stable
 #   ./scripts/sync-oss.sh electron-v0.9.0 beta         # beta 指针（electron tag）
 #   ./scripts/sync-oss.sh prerelease-v0.11.34 beta     # beta 预发布（unsigned Windows 包）
+#   ./scripts/sync-oss.sh beta                         # package.json 版本 + beta
 #
 # 依赖: gh (GitHub CLI)、jq，且需已 gh auth login。
 # Windows Git Bash 下若直接找不到 gh，可与 sign-release-win.sh 一样设置:
@@ -107,16 +118,56 @@ run_gh() {
   "$GH_BIN" "$@"
 }
 
-# 解析参数：tag + 可选 channel，不涉及分支
-if [ $# -eq 0 ]; then
-  echo "用法: $0 <tag> [channel]"
-  echo "示例: $0 electron-v0.8.0 stable"
-  echo "示例: $0 electron-v0.8.0 beta"
-  exit 1
-fi
+resolve_package_version() {
+  local pkg_json=""
+  local script_dir
+  script_dir="$(cd "$(dirname "$0")" && pwd)"
+  if [[ -f "./package.json" ]]; then
+    pkg_json="./package.json"
+  else
+    pkg_json="$script_dir/../package.json"
+    if command -v cygpath >/dev/null 2>&1; then
+      pkg_json="$(cygpath -m "$pkg_json")"
+    fi
+  fi
+  node -p "require('$pkg_json').version" 2>/dev/null || true
+}
 
-TAG="$1"
-CHANNEL="${2:-stable}"
+# 解析参数：tag + 可选 channel；缺省时用 package.json → electron-v{version}
+TAG=""
+CHANNEL="stable"
+if [ $# -eq 0 ]; then
+  VER="$(resolve_package_version)"
+  if [[ -z "$VER" ]]; then
+    echo "用法: $0 [tag] [channel]"
+    echo "示例: $0                         # electron-v{package.json version} stable"
+    echo "示例: $0 electron-v0.8.0 stable"
+    echo "示例: $0 electron-v0.8.0 beta"
+    echo "示例: $0 beta                    # 当前 package.json 版本 + beta"
+    echo ""
+    echo "npm:"
+    echo "  npm run sync:oss"
+    echo "  npm run sync:oss -- electron-v0.12.6 beta"
+    exit 1
+  fi
+  TAG="electron-v$VER"
+  echo "==> Using package.json version tag: $TAG (channel=$CHANNEL)"
+elif [[ "$1" == "stable" || "$1" == "beta" ]]; then
+  VER="$(resolve_package_version)"
+  if [[ -z "$VER" ]]; then
+    echo "错误: 无法从 package.json 读取 version，请显式传入 tag"
+    exit 1
+  fi
+  TAG="electron-v$VER"
+  CHANNEL="$1"
+  echo "==> Using package.json version tag: $TAG (channel=$CHANNEL)"
+elif [[ "$1" =~ ^[0-9]+\.[0-9]+ ]]; then
+  TAG="electron-v$1"
+  CHANNEL="${2:-stable}"
+else
+  TAG="$1"
+  CHANNEL="${2:-stable}"
+fi
 
 # 验证 tag 格式
 if [[ ! "$TAG" =~ ^electron-v ]] && [[ ! "$TAG" =~ ^prerelease-v ]]; then
@@ -145,6 +196,82 @@ if [[ -z "$GH_BIN" ]]; then
   echo "  - 或将 C:\\Program Files\\GitHub CLI 加入 Windows 用户 PATH 后重新打开终端"
   exit 127
 fi
+
+# stable 正式版：必须先完成 Windows 签名（beta / prerelease 跳过）
+# 判定：Release 上已有 NuwaClaw.Setup.{ver}.exe + NuwaClaw.{ver}.msi，且不应再残留 *-unsigned.exe/msi
+ensure_windows_signed_for_stable() {
+  if [[ "$CHANNEL" != "stable" ]]; then
+    echo "==> channel=$CHANNEL：跳过 Windows 签名校验（beta 不要求 sign:win）"
+    return 0
+  fi
+  if [[ "$TAG" =~ ^prerelease-v ]]; then
+    echo "==> prerelease tag：跳过 Windows 签名校验"
+    return 0
+  fi
+
+  local version="${TAG#electron-v}"
+  local signed_exe="NuwaClaw.Setup.${version}.exe"
+  local signed_msi="NuwaClaw.${version}.msi"
+  local unsigned_exe="NuwaClaw-Setup-${version}-unsigned.exe"
+  local unsigned_msi="NuwaClaw-${version}-unsigned.msi"
+
+  echo "==> stable：校验 Release $TAG 已完成 Windows 签名..."
+  local assets=""
+  assets="$(run_gh release view "$TAG" --repo "$REPO" --json assets --jq '.assets[].name' 2>/dev/null | tr -d '\r')" || true
+  if [[ -z "$assets" ]]; then
+    echo "错误: 无法读取 Release $TAG 的资产列表（tag 不存在或 gh 无权限）"
+    echo "请确认已创建 electron-v* Release，并先完成: npm run sign:win"
+    exit 1
+  fi
+
+  local missing=()
+  if ! printf '%s\n' "$assets" | grep -Fxq "$signed_exe"; then
+    missing+=("$signed_exe")
+  fi
+  if ! printf '%s\n' "$assets" | grep -Fxq "$signed_msi"; then
+    missing+=("$signed_msi")
+  fi
+
+  if [[ ${#missing[@]} -gt 0 ]]; then
+    echo "错误: stable 同步 OSS 前必须先完成 Windows 签名（sign:win）。"
+    echo "Release $TAG 缺少已签名产物:"
+    local m
+    for m in "${missing[@]}"; do
+      echo "  - $m"
+    done
+    echo ""
+    echo "请先执行:"
+    echo "  npm run sign:win -- $version"
+    echo "完成后再:"
+    echo "  npm run sync:oss -- $TAG"
+    echo ""
+    echo "（beta 渠道不需要签名，可: npm run sync:oss -- $TAG beta）"
+    exit 1
+  fi
+
+  local leftover=()
+  if printf '%s\n' "$assets" | grep -Fxq "$unsigned_exe"; then
+    leftover+=("$unsigned_exe")
+  fi
+  if printf '%s\n' "$assets" | grep -Fxq "$unsigned_msi"; then
+    leftover+=("$unsigned_msi")
+  fi
+  if [[ ${#leftover[@]} -gt 0 ]]; then
+    echo "错误: Release 上仍残留未签名 Windows 包，签名流程可能未完成上传/清理:"
+    local u
+    for u in "${leftover[@]}"; do
+      echo "  - $u"
+    done
+    echo "请重新执行 npm run sign:win（签名脚本会删除 unsigned 并上传已签名包）"
+    exit 1
+  fi
+
+  echo "  ✓ 已找到 $signed_exe"
+  echo "  ✓ 已找到 $signed_msi"
+  echo "  ✓ 无残留 unsigned Windows 包"
+}
+
+ensure_windows_signed_for_stable
 
 # workflow_dispatch 需要 ref：优先使用当前分支（workflow 定义需在该分支上存在），
 # 当前分支无远程追踪时回退到仓库默认分支。
