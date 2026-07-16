@@ -1,6 +1,6 @@
 {
   "name": "@nuwax-ai/nuwaclaw",
-  "version": "0.12.6",
+  "version": "0.12.59",
   "description": "NuwaClaw",
   "main": "dist/main/main.js",
   "author": "Nuwax Team",
@@ -64,6 +64,9 @@
     "clean:release": "rm -rf release",
     "verify:sign": "node scripts/build/verify-sign.js",
     "verify:sign:win": "node scripts/build/verify-sign-win.js",
+    "sign:win": "bash scripts/build/sign-release-win-v2.sh",
+    "sign:win:v1": "bash scripts/build/sign-release-win.sh",
+    "sync:oss": "bash scripts/sync-oss.sh",
     "lint": "eslint src",
     "lint:fix": "eslint src --fix"
   },
