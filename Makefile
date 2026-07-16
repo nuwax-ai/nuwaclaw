@@ -233,11 +233,10 @@ electron-bundle: electron-bundle-unsigned
 	echo ">>> Sign work dir: $$WORK_DIR"; \
 	mkdir -p "$$UNSIGNED_DIR" "$$SIGNED_DIR"; \
 	cp "$$RELEASE_DIR/NuwaClaw-Setup-$$VERSION-unsigned.exe" "$$UNSIGNED_DIR/"; \
-	cp "$$RELEASE_DIR/NuwaClaw-$$VERSION-unsigned.msi" "$$UNSIGNED_DIR/"; \
 	( cd crates/$(ELECTRON_CLIENT) && SIGN_WORK_DIR="$$WORK_DIR" bash ./scripts/build/sign-release-win.sh "$$VERSION" --skip-download --skip-upload ); \
 	mkdir -p "$$RELEASE_DIR"; \
 	cp "$$SIGNED_DIR/NuwaClaw.Setup.$$VERSION.exe" "$$RELEASE_DIR/"; \
-	cp "$$SIGNED_DIR/NuwaClaw.$$VERSION.msi" "$$RELEASE_DIR/"; \
+	# MSI（NuwaClaw.$$VERSION.msi）由构建直出最终名，不签名
 	echo ">>> Signed artifacts copied to $$RELEASE_DIR"
 else
 .PHONY: electron-bundle

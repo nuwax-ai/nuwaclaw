@@ -5,9 +5,9 @@
 # 仅根据 tag + channel 同步，分支固定为仓库默认分支（用于取 workflow 定义），用户无需关心分支。
 #
 # 顺序（stable 正式版）:
-#   1. CI 产出 unsigned Windows 包到 GitHub Release
-#   2. npm run sign:win   （本地签名并上传 NuwaClaw.Setup.*.exe / NuwaClaw.*.msi）
-#   3. npm run sync:oss   （本脚本；stable 会校验签名产物已在 Release 上）
+#   1. CI 产出 NuwaClaw.*.msi（最终名，不签名）+ unsigned EXE 到 GitHub Release
+#   2. npm run sign:win   （仅签名 EXE → NuwaClaw.Setup.*.exe）
+#   3. npm run sync:oss   （本脚本；stable 会校验 EXE 已签名且 MSI 已在 Release 上）
 # beta / prerelease-v* 不做 Windows 签名，可直接 sync:oss。
 #
 # 注意：真正执行同步的是目标 release 仓库（默认 nuwaclaw）里的 workflow，
@@ -197,8 +197,8 @@ if [[ -z "$GH_BIN" ]]; then
   exit 127
 fi
 
-# stable 正式版：必须先完成 Windows 签名（beta / prerelease 跳过）
-# 判定：Release 上已有 NuwaClaw.Setup.{ver}.exe + NuwaClaw.{ver}.msi，且不应再残留 *-unsigned.exe/msi
+# stable 正式版：必须先完成 Windows EXE 签名（beta / prerelease 跳过）
+# 判定：Release 上已有 NuwaClaw.Setup.{ver}.exe（已签名）+ NuwaClaw.{ver}.msi（CI 直出，不签名），且不应残留 unsigned EXE
 ensure_windows_signed_for_stable() {
   if [[ "$CHANNEL" != "stable" ]]; then
     echo "==> channel=$CHANNEL：跳过 Windows 签名校验（beta 不要求 sign:win）"
@@ -211,11 +211,10 @@ ensure_windows_signed_for_stable() {
 
   local version="${TAG#electron-v}"
   local signed_exe="NuwaClaw.Setup.${version}.exe"
-  local signed_msi="NuwaClaw.${version}.msi"
+  local release_msi="NuwaClaw.${version}.msi"
   local unsigned_exe="NuwaClaw-Setup-${version}-unsigned.exe"
-  local unsigned_msi="NuwaClaw-${version}-unsigned.msi"
 
-  echo "==> stable：校验 Release $TAG 已完成 Windows 签名..."
+  echo "==> stable：校验 Release $TAG 已完成 Windows EXE 签名..."
   local assets=""
   assets="$(run_gh release view "$TAG" --repo "$REPO" --json assets --jq '.assets[].name' 2>/dev/null | tr -d '\r')" || true
   if [[ -z "$assets" ]]; then
@@ -228,13 +227,13 @@ ensure_windows_signed_for_stable() {
   if ! printf '%s\n' "$assets" | grep -Fxq "$signed_exe"; then
     missing+=("$signed_exe")
   fi
-  if ! printf '%s\n' "$assets" | grep -Fxq "$signed_msi"; then
-    missing+=("$signed_msi")
+  if ! printf '%s\n' "$assets" | grep -Fxq "$release_msi"; then
+    missing+=("$release_msi")
   fi
 
   if [[ ${#missing[@]} -gt 0 ]]; then
-    echo "错误: stable 同步 OSS 前必须先完成 Windows 签名（sign:win）。"
-    echo "Release $TAG 缺少已签名产物:"
+    echo "错误: stable 同步 OSS 前 Release 须具备已签名 EXE 与 CI 产出的 MSI。"
+    echo "Release $TAG 缺少:"
     local m
     for m in "${missing[@]}"; do
       echo "  - $m"
@@ -253,22 +252,19 @@ ensure_windows_signed_for_stable() {
   if printf '%s\n' "$assets" | grep -Fxq "$unsigned_exe"; then
     leftover+=("$unsigned_exe")
   fi
-  if printf '%s\n' "$assets" | grep -Fxq "$unsigned_msi"; then
-    leftover+=("$unsigned_msi")
-  fi
   if [[ ${#leftover[@]} -gt 0 ]]; then
-    echo "错误: Release 上仍残留未签名 Windows 包，签名流程可能未完成上传/清理:"
+    echo "错误: Release 上仍残留未签名 EXE，sign:win 可能未完成上传/清理:"
     local u
     for u in "${leftover[@]}"; do
       echo "  - $u"
     done
-    echo "请重新执行 npm run sign:win（签名脚本会删除 unsigned 并上传已签名包）"
+    echo "请重新执行 npm run sign:win（签名脚本会删除 unsigned EXE 并上传已签名包）"
     exit 1
   fi
 
-  echo "  ✓ 已找到 $signed_exe"
-  echo "  ✓ 已找到 $signed_msi"
-  echo "  ✓ 无残留 unsigned Windows 包"
+  echo "  ✓ 已找到 $signed_exe（已签名）"
+  echo "  ✓ 已找到 $release_msi（CI 直出，不签名）"
+  echo "  ✓ 无残留 unsigned EXE"
 }
 
 ensure_windows_signed_for_stable

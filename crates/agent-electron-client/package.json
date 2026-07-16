@@ -406,7 +406,7 @@
     },
     "msi": {
       "perMachine": false,
-      "artifactName": "${productName}-${version}-unsigned.${ext}"
+      "artifactName": "${productName}.${version}.${ext}"
     },
     "nsis": {
       "oneClick": false,

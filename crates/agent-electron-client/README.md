@@ -38,6 +38,48 @@ npm run dist
 
 ### 发布与 OSS 同步
 
+本项目的自动更新（OSS 上的 `latest*.yml/json` 等）来自 GitHub Release 资产同步。
+
+#### Stable（`electron-v*` 正式版）发布流程（Windows 需要先手签）
+
+- **前置**：Windows 手签环境请参考 `docs/windows-signing.md`（SimplySign Desktop / Windows SDK / gh）。
+- **关键顺序**：先 `sign:win`（把 Release 上的 `*-unsigned` Windows 包签名并上传）→ 再 `sync:oss`（同步到 OSS）。
+
+在本 crate 目录下执行：
+
+```bash
+# 1) Windows：对 electron-v{version} Release 执行本地签名并回传（会删除 Release 上的 *-unsigned 产物）
+#   - 默认版本来自 crates/agent-electron-client/package.json
+#   - 必需环境变量：WINDOWS_CERTIFICATE_SHA1（可选：WINDOWS_TIMESTAMP_URL / WINDOWS_PUBLISHER_NAME）
+npm run sign:win
+
+# 2) 触发远端 workflow：从 GitHub Release 同步到 OSS（stable 会强校验已签名产物已存在）
+npm run sync:oss
+```
+
+指定版本/参数示例：
+
+```bash
+# 指定版本签名（等价于 scripts/build/sign-release-win-v2.sh 0.12.6）
+npm run sign:win -- 0.12.6
+
+# 仅本地签名，不上传到 GitHub Release（调试用）
+npm run sign:win -- 0.12.6 --skip-upload
+
+# 同步指定 tag（默认 channel=stable）
+npm run sync:oss -- electron-v0.12.6
+```
+
+#### Beta（`prerelease-v*` / `channel=beta`）
+
+beta 渠道 **不做 Windows 签名**（直接发布 unsigned），可直接同步：
+
+```bash
+npm run sync:oss -- prerelease-v0.11.34 beta
+```
+
+#### 仅同步（手动指定 tag）
+
 将指定 tag 的 Electron 构建产物同步到阿里云 OSS（用于自动更新等）时，可在本 crate 目录下执行：
 
 ```bash
@@ -50,7 +92,7 @@ npm run dist
 ./crates/agent-electron-client/scripts/sync-oss.sh electron-v0.8.0
 ```
 
-依赖：`gh`（GitHub CLI）、`jq`，且需已 `gh auth login`。脚本会触发 `release-electron.yml` workflow 并轮询直至完成。
+依赖：`gh`（GitHub CLI）、`jq`，且需已 `gh auth login`。脚本会触发远端 `sync-electron-to-oss.yml`（workflow_dispatch，仅同步不构建）。
 
 ## Skills & Commands
 
