@@ -10,6 +10,55 @@ vi.mock("node:os", async (importOriginal) => {
   return { ...actual, homedir: () => tmpHome };
 });
 
+function setupSampleSessions(): void {
+  // Claude session 1
+  const claudeDir = path.join(
+    tmpHome,
+    ".claude",
+    "projects",
+    "-Users-apple-project-a",
+  );
+  fs.mkdirSync(claudeDir, { recursive: true });
+  fs.writeFileSync(
+    path.join(claudeDir, "claude-s1.jsonl"),
+    JSON.stringify({
+      type: "user",
+      sessionId: "claude-s1",
+      cwd: "/Users/apple/project-a",
+      message: { role: "user", content: "帮我优化一下性能" },
+    }) +
+      "\n" +
+      JSON.stringify({
+        type: "assistant",
+        sessionId: "claude-s1",
+        cwd: "/Users/apple/project-a",
+      }) +
+      "\n",
+  );
+
+  // Claude session 2
+  fs.writeFileSync(
+    path.join(claudeDir, "claude-s2.jsonl"),
+    JSON.stringify({
+      type: "user",
+      sessionId: "claude-s2",
+      cwd: "/Users/apple/project-b",
+      message: { role: "user", content: "重构 user 模块" },
+    }) + "\n",
+  );
+
+  // Codex session
+  const codexDir = path.join(tmpHome, ".codex", "sessions", "2026", "07", "15");
+  fs.mkdirSync(codexDir, { recursive: true });
+  fs.writeFileSync(
+    path.join(codexDir, "rollout-codex-s1.jsonl"),
+    JSON.stringify({
+      type: "session_meta",
+      payload: { session_id: "codex-s1", cwd: "/Users/apple/project-a" },
+    }) + "\n",
+  );
+}
+
 describe("session discovery", () => {
   beforeEach(() => {
     tmpHome = fs.mkdtempSync(
@@ -177,5 +226,65 @@ describe("session discovery", () => {
     const claudeOnly = await listLocalSessions("claude");
     expect(claudeOnly).toHaveLength(1);
     expect(claudeOnly[0].engine).toBe("claude");
+  });
+
+  describe("listLocalSessions search/filter options", () => {
+    beforeEach(async () => {
+      setupSampleSessions();
+      vi.resetModules();
+    });
+
+    it("filters by search keyword matching sessionId", async () => {
+      const { listLocalSessions } =
+        await import("../src/core/sessions/discovery.js");
+      const result = await listLocalSessions({ search: "s2" });
+      expect(result).toHaveLength(1);
+      expect(result[0].sessionId).toBe("claude-s2");
+    });
+
+    it("filters by search keyword matching title", async () => {
+      const { listLocalSessions } =
+        await import("../src/core/sessions/discovery.js");
+      const result = await listLocalSessions({ search: "性能" });
+      expect(result).toHaveLength(1);
+      expect(result[0].sessionId).toBe("claude-s1");
+    });
+
+    it("filters by engine", async () => {
+      const { listLocalSessions } =
+        await import("../src/core/sessions/discovery.js");
+      const result = await listLocalSessions({ engine: "codex" });
+      expect(result).toHaveLength(1);
+      expect(result[0].engine).toBe("codex");
+    });
+
+    it("combines engine + search filter", async () => {
+      const { listLocalSessions } =
+        await import("../src/core/sessions/discovery.js");
+      const result = await listLocalSessions({
+        engine: "claude",
+        search: "project-a",
+      });
+      expect(result).toHaveLength(1);
+      expect(result[0].sessionId).toBe("claude-s1");
+    });
+
+    it("limits results", async () => {
+      const { listLocalSessions } =
+        await import("../src/core/sessions/discovery.js");
+      await setupSampleSessions();
+      vi.resetModules();
+      const { listLocalSessions: ll } =
+        await import("../src/core/sessions/discovery.js");
+      const result = await ll({ limit: 1 });
+      expect(result).toHaveLength(1);
+    });
+
+    it("returns empty when search matches nothing", async () => {
+      const { listLocalSessions } =
+        await import("../src/core/sessions/discovery.js");
+      const result = await listLocalSessions({ search: "不存在" });
+      expect(result).toHaveLength(0);
+    });
   });
 });

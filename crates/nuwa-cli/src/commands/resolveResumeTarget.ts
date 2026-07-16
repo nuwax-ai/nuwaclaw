@@ -28,7 +28,32 @@ export async function resolveResumeTarget(
   const sessions = await listLocalSessions(engine);
 
   if (typeof resumeOption === "string") {
-    const match = sessions.find((s) => s.sessionId === resumeOption);
+    // Try exact match first
+    let match = sessions.find((s) => s.sessionId === resumeOption);
+    // Fall back to prefix match
+    if (!match) {
+      const prefixMatches = sessions.filter((s) =>
+        s.sessionId.startsWith(resumeOption),
+      );
+      if (prefixMatches.length === 1) {
+        match = prefixMatches[0];
+      } else if (prefixMatches.length > 1) {
+        const picked = await clack.select({
+          message: `多个会话以 "${resumeOption}" 开头，选择一个：`,
+          options: prefixMatches.map((s: LocalSessionSummary) => ({
+            value: s.sessionId,
+            label: `${s.title}`,
+            hint: `${s.engine} · ${s.updatedAt.slice(0, 16).replace("T", " ")} · ${s.cwd}`,
+          })),
+        });
+        if (clack.isCancel(picked)) {
+          console.error(pc.dim("已取消。"));
+          process.exit(0);
+          return null;
+        }
+        match = sessions.find((s) => s.sessionId === picked)!;
+      }
+    }
     if (!match) {
       throw new Error(
         `未在本地 ${engine} 会话历史中找到 sessionId "${resumeOption}"。运行 \`nuwa-cli sessions --engine ${engine}\` 查看可用会话。`,
@@ -41,12 +66,13 @@ export async function resolveResumeTarget(
     throw new Error(`未找到任何本地 ${engine} 会话历史，无法续接。`);
   }
 
-  const picked = await clack.select({
-    message: "选择要续接的会话：",
+  const picked = await clack.autocomplete({
+    message: "搜索或选择要续接的会话：",
+    placeholder: "输入 sessionId/关键词过滤...",
     options: sessions.map((s: LocalSessionSummary) => ({
       value: s.sessionId,
       label: `${s.title}`,
-      hint: `${s.updatedAt.slice(0, 16).replace("T", " ")} · ${s.cwd}`,
+      hint: `${s.engine} · ${s.updatedAt.slice(0, 16).replace("T", " ")} · ${s.cwd}`,
     })),
   });
 

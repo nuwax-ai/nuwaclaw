@@ -161,12 +161,94 @@ export async function listCodexSessions(): Promise<LocalSessionSummary[]> {
   return summaries.filter((s): s is LocalSessionSummary => s !== null);
 }
 
+export interface ListSessionsOptions {
+  /** Filter by engine. */
+  engine?: "claude" | "codex";
+  /** Fuzzy match against title or sessionId (case-insensitive). */
+  search?: string;
+  /** Only sessions updated within the last N days. */
+  sinceDays?: number;
+  /** Only sessions updated after this ISO date. */
+  since?: string;
+  /** Only sessions updated before this ISO date. */
+  until?: string;
+  /** Maximum results to return. */
+  limit?: number;
+}
+
+function matchesSearch(s: LocalSessionSummary, search: string): boolean {
+  const q = search.toLowerCase();
+  return (
+    s.sessionId.toLowerCase().includes(q) ||
+    s.title.toLowerCase().includes(q) ||
+    s.cwd.toLowerCase().includes(q)
+  );
+}
+
+function withinDateRange(
+  dateStr: string,
+  opts: { since?: string; until?: string; sinceDays?: number },
+): boolean {
+  const date = new Date(dateStr).getTime();
+  if (opts.since) {
+    const since = new Date(opts.since).getTime();
+    if (isNaN(since)) return true; // ignore invalid
+    if (date < since) return false;
+  }
+  if (opts.until) {
+    const until = new Date(opts.until).getTime();
+    if (isNaN(until)) return true;
+    if (date > until) return false;
+  }
+  if (opts.sinceDays) {
+    const cutoff = Date.now() - opts.sinceDays * 86400_000;
+    if (date < cutoff) return false;
+  }
+  return true;
+}
+
 export async function listLocalSessions(
   engine?: "claude" | "codex",
+): Promise<LocalSessionSummary[]>;
+
+export async function listLocalSessions(
+  options?: ListSessionsOptions,
+): Promise<LocalSessionSummary[]>;
+
+export async function listLocalSessions(
+  arg?: "claude" | "codex" | ListSessionsOptions,
 ): Promise<LocalSessionSummary[]> {
+  let opts: ListSessionsOptions;
+  if (typeof arg === "string" || arg === undefined) {
+    opts = arg ? { engine: arg } : {};
+  } else {
+    opts = arg ?? {};
+  }
+
   const lists = await Promise.all([
-    engine === "codex" ? [] : listClaudeSessions(),
-    engine === "claude" ? [] : listCodexSessions(),
+    opts.engine === "codex" ? [] : listClaudeSessions(),
+    opts.engine === "claude" ? [] : listCodexSessions(),
   ]);
-  return lists.flat().sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+
+  let sessions = lists
+    .flat()
+    .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+
+  if (opts.search) {
+    sessions = sessions.filter((s) => matchesSearch(s, opts.search!));
+  }
+
+  sessions = sessions.filter((s) =>
+    withinDateRange(s.updatedAt, {
+      since: opts.since,
+      until: opts.until,
+      sinceDays: opts.sinceDays,
+    }),
+  );
+
+  if (opts.limit && opts.limit > 0 && sessions.length > opts.limit) {
+    sessions = sessions.slice(0, opts.limit);
+  }
+
+  return sessions;
 }

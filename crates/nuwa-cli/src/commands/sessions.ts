@@ -1,10 +1,20 @@
 import pc from "picocolors";
 import type { Command } from "commander";
-import { listLocalSessions } from "../core/sessions/discovery.js";
+import {
+  listLocalSessions,
+  type LocalSessionSummary,
+} from "../core/sessions/discovery.js";
 import { parseTranscript } from "../core/sessions/transcript.js";
 
 export interface SessionsCommandOptions {
   engine?: string;
+  search?: string;
+  days?: string;
+  since?: string;
+  until?: string;
+  limit?: string;
+  verbose?: boolean;
+  json?: boolean;
 }
 
 export async function sessionsCommand(
@@ -14,20 +24,50 @@ export async function sessionsCommand(
     options.engine === "claude" || options.engine === "codex"
       ? options.engine
       : undefined;
-  const sessions = await listLocalSessions(engine);
+
+  const sessions = await listLocalSessions({
+    engine,
+    search: options.search,
+    sinceDays: options.days ? Number(options.days) : undefined,
+    since: options.since,
+    until: options.until,
+    limit: options.limit ? Number(options.limit) : undefined,
+  });
 
   if (sessions.length === 0) {
-    console.log(pc.dim("未找到本地会话历史。"));
+    if (options.search) {
+      console.log(pc.dim(`未找到匹配 "${options.search}" 的会话。`));
+    } else {
+      console.log(pc.dim("未找到本地会话历史。"));
+    }
     return;
   }
 
-  console.log(pc.dim("云端会话列表：暂不可用（后端接口待定）\n"));
-  for (const s of sessions) {
-    console.log(
-      `${pc.cyan(s.engine.padEnd(6))} ${pc.dim(s.updatedAt.slice(0, 16).replace("T", " "))}  ${s.title}`,
-    );
-    console.log(`       ${pc.dim(s.sessionId)}  ${pc.dim(s.cwd)}`);
+  // JSON output mode
+  if (options.json) {
+    console.log(JSON.stringify(sessions, null, 2));
+    return;
   }
+
+  if (options.verbose) {
+    // verbose: show more detail with message counts
+    for (const s of sessions) {
+      console.log(
+        `${pc.cyan(s.engine.padEnd(6))} ${pc.dim(s.updatedAt.slice(0, 16).replace("T", " "))}  ${s.title}`,
+      );
+      console.log(`       ${pc.dim(s.sessionId)}`);
+      console.log(`       ${pc.dim(s.cwd)}`);
+    }
+  } else {
+    // compact: first line only
+    for (const s of sessions) {
+      console.log(
+        `${pc.cyan(s.engine.padEnd(6))} ${pc.dim(s.updatedAt.slice(0, 16).replace("T", " "))}  ${s.title}`,
+      );
+      console.log(`       ${pc.dim(s.sessionId)}  ${pc.dim(s.cwd)}`);
+    }
+  }
+
   console.log(
     pc.dim(
       `\n共 ${sessions.length} 个本地会话。用 \`nuwa-cli chat --resume\` 续接。`,
@@ -39,6 +79,9 @@ export interface SessionsSummaryCommandOptions {
   engine?: string;
   sessionId?: string;
   limit?: string;
+  offset?: string;
+  format?: string;
+  reverse?: boolean;
 }
 
 /**
@@ -89,9 +132,21 @@ export async function sessionsSummaryCommand(
   }
 
   const limit = merged.limit ? Number(merged.limit) : undefined;
+  const offset = merged.offset ? Number(merged.offset) : undefined;
+
   const { messages, hasMore } = await parseTranscript(engine, match.filePath, {
-    limit: limit && limit > 0 ? limit : undefined,
+    limit,
+    offset,
+    order: merged.reverse ? "desc" : "asc",
   });
+
+  // Support jsonl output
+  if (merged.format === "jsonl") {
+    for (const msg of messages) {
+      console.log(JSON.stringify({ engine, sessionId, ...msg }));
+    }
+    return;
+  }
 
   console.log(
     JSON.stringify({

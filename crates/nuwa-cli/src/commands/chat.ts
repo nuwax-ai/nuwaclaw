@@ -13,6 +13,7 @@ import {
 import { resolveResumeTarget } from "./resolveResumeTarget.js";
 import type { PermissionMode } from "../core/permissions/policy.js";
 import {
+  buildContextDigest,
   buildContextHandoff,
   resolveContextRef,
   shellQuote,
@@ -30,24 +31,40 @@ export interface ChatCommandOptions {
   model?: string;
   refSession?: string;
   handoff?: string;
+  autoDigest?: boolean;
 }
 
 /**
- * Resolves `--ref-session <engine>:<sessionId>` into a one-time reminder
- * text prepended to the *first* prompt only. This is deliberately not a
- * true cross-engine resume (ACP session/load is engine-native and doesn't
- * accept another engine's history) — instead it points the model at
- * `nuwa-cli sessions summary`, which it can run with its own Bash tool to
- * pull the other session's content on demand, the same pattern tutti uses
- * for cross-provider context (mention -> skill -> agent-invoked CLI read),
- * rather than eagerly dumping the whole transcript into the prompt.
+ * Resolves `--ref-session <engine>:<sessionId>` into context prepended to
+ * the *first* prompt only.
+ *
+ * When `autoDigest` is true (via `--auto-digest`), eagerly injects the
+ * structured digest of the referenced session. This avoids the extra tool
+ * call latency of the agent having to invoke `nuwa-cli context digest`.
+ *
+ * When `autoDigest` is false (default), it emits a lightweight reminder
+ * telling the agent to pull context on demand — avoids bloating the first
+ * prompt with potentially large transcripts.
  */
 export async function resolveRefSessionReminder(
   refSession: string | undefined,
+  autoDigest?: boolean,
 ): Promise<string> {
   if (!refSession) return "";
   const refMatch = await resolveContextRef(refSession);
   const quotedRef = shellQuote(`${refMatch.engine}:${refMatch.sessionId}`);
+
+  if (autoDigest) {
+    const digest = await buildContextDigest(refSession);
+    return (
+      `<system-reminder>以下是关联历史会话 [${refMatch.engine}:${refMatch.sessionId}] 的自动摘要。` +
+      `cwd=${refMatch.cwd}，消息数=${digest.messageCount}。` +
+      `如需更多上下文，再运行 \`nuwa-cli context read --ref ${quotedRef} --limit 40 --json\`。\n` +
+      `${JSON.stringify(digest)}\n` +
+      `</system-reminder>\n\n`
+    );
+  }
+
   return (
     `<system-reminder>关联历史会话 [${refMatch.engine}:${refMatch.sessionId}] cwd=${refMatch.cwd}；` +
     `如需其中的上下文，先运行 \`nuwa-cli context digest --ref ${quotedRef} --json\` 查看摘要；` +
@@ -105,7 +122,10 @@ export async function chatCommand(options: ChatCommandOptions): Promise<void> {
 
   let refSessionReminder: string;
   try {
-    refSessionReminder = await resolveRefSessionReminder(options.refSession);
+    refSessionReminder = await resolveRefSessionReminder(
+      options.refSession,
+      options.autoDigest,
+    );
   } catch (err) {
     console.error(pc.red(`[nuwa-cli] ${(err as Error).message}`));
     process.exitCode = 1;

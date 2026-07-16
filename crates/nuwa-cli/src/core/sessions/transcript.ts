@@ -10,6 +10,8 @@ export interface NormalizedMessage {
 export interface TranscriptOptions {
   /** Keep only the most recent N normalized messages. */
   limit?: number;
+  /** Skip the first N normalized messages (for pagination). Applied before limit. */
+  offset?: number;
   /** Output order; default "asc" (chronological, oldest first). */
   order?: "asc" | "desc";
 }
@@ -18,13 +20,46 @@ function applyOptions(
   messages: NormalizedMessage[],
   options: TranscriptOptions,
 ): { messages: NormalizedMessage[]; hasMore: boolean } {
-  const limited =
-    options.limit && options.limit > 0 && messages.length > options.limit
-      ? messages.slice(-options.limit)
-      : messages;
-  const hasMore = limited.length < messages.length;
-  const ordered = options.order === "desc" ? [...limited].reverse() : limited;
-  return { messages: ordered, hasMore };
+  const total = messages.length;
+
+  if (options.order === "desc") {
+    // Reverse order: newest first; offset skips from the newest end
+    let slice = [...messages].reverse();
+    if (options.offset && options.offset > 0) {
+      slice = slice.slice(options.offset);
+    }
+    const hasMore =
+      slice.length < total &&
+      !(options.limit && options.limit > 0 && slice.length <= options.limit);
+    if (options.limit && options.limit > 0) {
+      slice = slice.slice(0, options.limit);
+    }
+    return { messages: slice, hasMore };
+  }
+
+  // Ascending (chronological, oldest first): limit keeps the *most recent N*,
+  // offset skips the oldest N (for pagination from the beginning).
+  // When both offset and limit are given, we take messages[offset..offset+limit).
+  // When only limit is given, we take the last N. When none given, all.
+  let slice: NormalizedMessage[];
+  if (options.offset && options.offset > 0) {
+    // Pagination mode: chronological with offset
+    slice = messages.slice(options.offset);
+    const hasMore =
+      options.limit && options.limit > 0 && slice.length > options.limit;
+    if (options.limit && options.limit > 0) {
+      slice = slice.slice(0, options.limit);
+    }
+    return { messages: slice, hasMore };
+  }
+
+  // No offset: limit keeps the most recent N (backward-compatible with old behavior)
+  if (options.limit && options.limit > 0 && messages.length > options.limit) {
+    slice = messages.slice(-options.limit);
+    return { messages: slice, hasMore: true };
+  }
+
+  return { messages: [...messages], hasMore: false };
 }
 
 async function forEachJsonlLine(

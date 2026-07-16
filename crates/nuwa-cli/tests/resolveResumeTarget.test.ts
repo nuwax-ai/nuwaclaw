@@ -11,9 +11,11 @@ vi.mock("node:os", async (importOriginal) => {
 });
 
 const selectMock = vi.fn();
+const autocompleteMock = vi.fn();
 const isCancelMock = vi.fn(() => false);
 vi.mock("@clack/prompts", () => ({
   select: (...args: unknown[]) => selectMock(...args),
+  autocomplete: (...args: unknown[]) => autocompleteMock(...args),
   isCancel: (...args: unknown[]) => isCancelMock(...args),
 }));
 
@@ -36,6 +38,7 @@ describe("resolveResumeTarget", () => {
     tmpHome = fs.mkdtempSync(path.join(os.tmpdir(), "nuwa-cli-resume-test-"));
     vi.resetModules();
     selectMock.mockReset();
+    autocompleteMock.mockReset();
     isCancelMock.mockReset().mockReturnValue(false);
   });
 
@@ -66,14 +69,42 @@ describe("resolveResumeTarget", () => {
     ).rejects.toThrow(/does-not-exist/);
   });
 
-  it("shows an interactive picker when --resume is bare (true) and returns the picked session", async () => {
+  it("shows an interactive autocomplete picker when --resume is bare (true) and returns the picked session", async () => {
     seedClaudeSession("abc", "/Users/apple/project-a", "first");
     seedClaudeSession("def", "/Users/apple/project-b", "second");
-    selectMock.mockResolvedValueOnce("def");
+    autocompleteMock.mockResolvedValueOnce("def");
     const { resolveResumeTarget } =
       await import("../src/commands/resolveResumeTarget.js");
     const target = await resolveResumeTarget(true, "claude");
     expect(target).toEqual({ sessionId: "def", cwd: "/Users/apple/project-b" });
+  });
+
+  it("throws a clear error for a prefix that doesn't match any session", async () => {
+    seedClaudeSession("abc", "/Users/apple/project-a", "hi");
+    const { resolveResumeTarget } =
+      await import("../src/commands/resolveResumeTarget.js");
+    await expect(resolveResumeTarget("nope", "claude")).rejects.toThrow(/nope/);
+  });
+
+  it("resolves a matching session by prefix when there is exactly one match", async () => {
+    seedClaudeSession("abc-123", "/Users/apple/project-a", "hi");
+    const { resolveResumeTarget } =
+      await import("../src/commands/resolveResumeTarget.js");
+    const target = await resolveResumeTarget("abc", "claude");
+    expect(target).toEqual({
+      sessionId: "abc-123",
+      cwd: "/Users/apple/project-a",
+    });
+  });
+
+  it("shows a picker when prefix matches multiple sessions", async () => {
+    seedClaudeSession("abc-1", "/Users/apple/p1", "first");
+    seedClaudeSession("abc-2", "/Users/apple/p2", "second");
+    selectMock.mockResolvedValueOnce("abc-2");
+    const { resolveResumeTarget } =
+      await import("../src/commands/resolveResumeTarget.js");
+    const target = await resolveResumeTarget("abc", "claude");
+    expect(target).toEqual({ sessionId: "abc-2", cwd: "/Users/apple/p2" });
   });
 
   it("throws when --resume is bare but there is no local history to pick from", async () => {
@@ -84,10 +115,10 @@ describe("resolveResumeTarget", () => {
     );
   });
 
-  it("exits cleanly (no error thrown) when the user cancels the picker", async () => {
+  it("exits cleanly (no error thrown) when the user cancels the autocomplete picker", async () => {
     seedClaudeSession("abc", "/Users/apple/project-a", "hi");
     const cancelSymbol = Symbol("cancel");
-    selectMock.mockResolvedValueOnce(cancelSymbol);
+    autocompleteMock.mockResolvedValueOnce(cancelSymbol);
     isCancelMock.mockReturnValueOnce(true);
     const exitSpy = vi
       .spyOn(process, "exit")

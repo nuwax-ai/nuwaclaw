@@ -37,6 +37,10 @@ export function registerAgentCommands(program: Command): void {
           "只在首轮提醒模型按需运行 `sessions summary` 查看",
       )
       .option(
+        "--auto-digest",
+        "与 --ref-session 连用时自动读取摘要并注入首轮（默认只提示模型自行查询）",
+      )
+      .option(
         "--handoff <engine:sessionId>",
         "从另一个本地会话生成结构化交接包，并在新 ACP 会话首轮注入",
       ),
@@ -46,6 +50,13 @@ export function registerAgentCommands(program: Command): void {
     .command("sessions")
     .description("列出本地 claude/codex 会话历史")
     .option("--engine <engine>", "只看某个引擎：claude 或 codex")
+    .option("--search <keyword>", "按标题、sessionId 或路径模糊搜索")
+    .option("--days <n>", "只看最近 N 天的会话")
+    .option("--since <iso>", "只看此日期之后的会话（ISO 格式，如 2026-07-01）")
+    .option("--until <iso>", "只看此日期之前的会话")
+    .option("--limit <n>", "最多返回 N 个会话")
+    .option("--verbose", "显示更详细的信息")
+    .option("--json", "以 JSON 数组格式输出")
     .action(sessionsCommand);
 
   sessions
@@ -62,6 +73,9 @@ export function registerAgentCommands(program: Command): void {
     .option("--engine <engine>", "会话所属引擎：claude 或 codex")
     .option("--session-id <id>", "会话 ID")
     .option("--limit <n>", "只返回最近 N 条消息")
+    .option("--offset <n>", "跳过前 N 条消息（与 --limit 配合分页）")
+    .option("--format <format>", "输出格式：json（默认）或 jsonl")
+    .option("--reverse", "按时间逆序输出（新消息在前）")
     .option("--json", "以 JSON 输出（当前是唯一输出格式）")
     .action(sessionsSummaryCommand);
 }
