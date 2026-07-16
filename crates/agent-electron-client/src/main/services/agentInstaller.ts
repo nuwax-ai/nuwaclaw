@@ -18,6 +18,7 @@ import { promisify } from "util";
 import AdmZip from "adm-zip";
 import log from "electron-log";
 import { getAppDataDir } from "./system/appPaths";
+import { getNodeBinPathWithFallback } from "./system/dependencies";
 import type {
   InstallFromUrlRequest,
   InstallAgentResponse,
@@ -1340,17 +1341,29 @@ function removeSymlink(command: string): void {
  * 解析自定义 Agent 的二进制路径
  *
  * 查找顺序：
- * 1. acp-agent/bin/{command}
- * 2. which {command}（PATH 中查找）
+ * 1. node / node.exe → 应用内 bundled Node（GUI 进程 PATH 通常无 nvm node）
+ * 2. acp-agent/bin/{command}
+ * 3. which {command}（PATH 中查找）
  */
 export function resolveCustomAgentBinary(command: string): string | null {
-  // 1. 从安装目录查找
+  // 1. Node 解释器：优先 bundled，避免 Electron GUI 找不到 shell PATH 中的 node
+  if (/^node(\.exe)?$/i.test(command.trim())) {
+    const nodePath = getNodeBinPathWithFallback();
+    if (nodePath) {
+      log.info(
+        `[AgentInstaller] resolveCustomAgentBinary: "${command}" → bundled node: ${nodePath}`,
+      );
+      return nodePath;
+    }
+  }
+
+  // 2. 从安装目录查找
   const binPath = path.join(getAgentBinDir(), command);
   if (fs.existsSync(binPath)) {
     return binPath;
   }
 
-  // 2. PATH 中查找（同步方式）
+  // 3. PATH 中查找（同步方式）
   try {
     const whichCmd = process.platform === "win32" ? "where" : "which";
     const result = execFileSync(whichCmd, [command], {

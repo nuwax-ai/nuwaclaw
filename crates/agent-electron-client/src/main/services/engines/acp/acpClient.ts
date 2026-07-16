@@ -649,6 +649,23 @@ export function resolveAcpBinary(
   log.info(
     `[AcpClient] Unknown engine "${engine}", attempting custom agent resolution`,
   );
+
+  // 服务端常下发 command:"node" + args:[bundle.mjs] 的自定义 ACP Agent。
+  // Electron GUI 进程 PATH 通常不含 shell/nvm 的 node，必须用应用内 bundled Node，
+  // 否则会回退成裸命令 "node"，再被 createAcpConnection 的 existsSync 误判为缺失。
+  if (isNodeInterpreterCommand(engine)) {
+    const nodePath = getNodeBinPathWithFallback();
+    if (nodePath) {
+      log.info(
+        `[AcpClient] custom agent: resolving "${engine}" → bundled node: ${nodePath}`,
+      );
+      return { binPath: nodePath, binArgs: [], isNative: true };
+    }
+    log.warn(
+      `[AcpClient] custom agent: "${engine}" requested but bundled/system node not found`,
+    );
+  }
+
   const customBinPath = resolveCustomAgentBinary(engine);
   const candidatePath =
     customBinPath ??
@@ -671,6 +688,11 @@ export function resolveAcpBinary(
     `[AcpClient] Custom agent "${engine}" not found, assuming it's in PATH`,
   );
   return { binPath: engine, binArgs: [], isNative: true };
+}
+
+/** 判断是否为 Node 解释器命令名（非文件系统路径） */
+export function isNodeInterpreterCommand(command: string): boolean {
+  return /^node(\.exe)?$/i.test(command.trim());
 }
 
 function looksLikeFilesystemPath(command: string): boolean {
@@ -723,7 +745,9 @@ export async function createAcpConnection(
   const { binPath, binArgs } = config;
   let effectiveBinArgs = [...binArgs];
 
-  if (!fs.existsSync(binPath)) {
+  // 仅对真实路径做存在性检查；裸命令名（如历史回退的 PATH 命令）交给 spawn 解析。
+  // node 自定义 agent 应已在 resolveAcpBinary 中解析为 absolute bundled 路径。
+  if (looksLikeFilesystemPath(binPath) && !fs.existsSync(binPath)) {
     throw new Error(
       `ACP binary not found at: ${binPath}. Please install it first.`,
     );

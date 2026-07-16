@@ -187,4 +187,24 @@ describe("buildEffectiveConfig — OPENCODE_PERMISSION", () => {
 
     expect(cfg.env?.OPENCODE_PERMISSION).toBeUndefined();
   });
+
+  it("自定义 agent（command=node）即使 requiredEngine fallback 为 nuwaxcode 也不注入 OPENCODE_PERMISSION", () => {
+    const cfg = buildEffectiveConfig({
+      base,
+      requiredEngine: "nuwaxcode",
+      mp: undefined,
+      model: "deepseek-v4-flash",
+      resolvedEnv: undefined,
+      freshMcpServers: undefined,
+      request: makeRequest(),
+      engineKey: "1556562",
+      customEngineCommand: "node",
+      customEngineArgs: [
+        "/Users/apple/.nuwaclaw/acp-agent/3916/1.0.0/dist/bundle.mjs",
+      ],
+    });
+
+    expect(cfg.customEngineCommand).toBe("node");
+    expect(cfg.env?.OPENCODE_PERMISSION).toBeUndefined();
+  });
 });

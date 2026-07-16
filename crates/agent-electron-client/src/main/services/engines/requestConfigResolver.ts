@@ -310,7 +310,12 @@ export function buildEffectiveConfig(args: {
   }
 
   // OpenCode 系引擎：固化 OPENCODE_PERMISSION（nuwaxcode 启动时 mergeDeep 进 permission）
-  if (requiredEngine && isOpencodeAcpEngine(requiredEngine)) {
+  // 自定义 agent（command 非内置引擎）即使 requiredEngine fallback 为 nuwaxcode 也不注入
+  if (
+    requiredEngine &&
+    isOpencodeAcpEngine(requiredEngine) &&
+    !customEngineCommand
+  ) {
     mergedEnv.OPENCODE_PERMISSION = resolveOpencodePermissionEnv(
       request.agent_config?.agent_server?.env?.OPENCODE_PERMISSION,
     );

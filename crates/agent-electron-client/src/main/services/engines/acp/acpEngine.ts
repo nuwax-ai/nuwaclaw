@@ -15,10 +15,7 @@ import log from "electron-log";
 import type { ChildProcess } from "child_process";
 import { ACP_SESSION_CANCELLED_ERROR_CODE } from "@shared/constants";
 import type { SandboxProcessConfig } from "@shared/types/sandbox";
-import {
-  getAcpEngineSandboxCapabilities,
-  isOpencodeAcpEngine,
-} from "./sandbox/acpEngineSandbox";
+import { getAcpEngineSandboxCapabilities } from "./sandbox/acpEngineSandbox";
 import { resolveAcpSandboxProcessConfig } from "./sandbox/acpSandboxPolicy";
 import { getBundledGitBashPath } from "@main/services/system/binaryLocator";
 import {
@@ -424,7 +421,8 @@ export class AcpEngine extends EventEmitter {
 
   private isMcpReconnectFailure(errorMsg: string): boolean {
     return isMcpReconnectFailureWith(errorMsg, {
-      isOpencodeEngine: isOpencodeAcpEngine(this.engineName),
+      // 与 sandboxCaps 一致：自定义 agent 即使 engineName fallback 为 nuwaxcode 也不走 OpenCode 重试语义
+      isOpencodeEngine: this.sandboxCaps.usesOpencodeSpawnConfig,
       acpProcess: this.acpProcess,
       reconnectWindowMs: MCP_RECONNECT_WINDOW_MS,
     });
@@ -438,7 +436,7 @@ export class AcpEngine extends EventEmitter {
       meta.requestId = opts.messageID;
       meta.request_id = opts.messageID;
     }
-    if (isOpencodeAcpEngine(this.engineName)) {
+    if (this.sandboxCaps.usesOpencodeSpawnConfig) {
       const policy = opts?.mcpInitPolicy ?? NUWAX_MCP_INIT_POLICY_DEFAULT;
       if (policy) {
         meta.mcpInitPolicy = policy;
@@ -526,6 +524,12 @@ export class AcpEngine extends EventEmitter {
   }
 
   private get sandboxCaps() {
+    // 自定义下发 agent（如 command=node + bundle.mjs）不是 OpenCode 引擎。
+    // mapAgentCommand 失败时 requiredEngine 会 fallback 到 nuwaxcode，
+    // 若仍按 engineName 取 caps，会错误注入 OPENCODE_CONFIG_CONTENT。
+    if (this.config?.customEngineCommand) {
+      return getAcpEngineSandboxCapabilities("__custom_agent__");
+    }
     return getAcpEngineSandboxCapabilities(this.engineName);
   }
 
