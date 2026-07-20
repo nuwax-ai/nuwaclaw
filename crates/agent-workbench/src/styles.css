@@ -2017,13 +2017,10 @@ body[data-theme="dark"] .nuwax-open-app,
 
 /* Model dropdown */
 .open-app-model-dropdown {
-  position: absolute;
-  bottom: 100%;
-  left: 0;
-  z-index: 100;
+  position: fixed;
+  z-index: 9999;
   min-width: 180px;
   max-height: 240px;
-  margin-bottom: 4px;
   padding: 4px;
   border: 1px solid var(--open-app-border);
   border-radius: 10px;

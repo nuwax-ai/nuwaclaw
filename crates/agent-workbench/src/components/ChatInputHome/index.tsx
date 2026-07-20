@@ -6,6 +6,7 @@ import {
   useRef,
   useState,
 } from 'react';
+import { createPortal } from 'react-dom';
 import type {
   WorkbenchApiAdapter,
   WorkbenchModelOption,
@@ -96,6 +97,8 @@ export function ChatInputHome({
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const [mentionOpen, setMentionOpen] = useState(false);
   const [uploadEntries, setUploadEntries] = useState<UploadEntry[]>([]);
+  const modelChipRef = useRef<HTMLButtonElement | null>(null);
+  const [dropdownPos, setDropdownPos] = useState<{ left: number; bottom: number } | null>(null);
 
   // Submit guard: don't allow send while any upload is still in flight or
   // queued. Errors are tolerated — the user can either remove them or send
@@ -222,8 +225,32 @@ export function ChatInputHome({
     if (streaming) setMentionOpen(false);
   }, [streaming]);
 
+  // Compute the model dropdown position from the chip button rect so it can
+  // be rendered in a portal (document.body) and escape the chat input's
+  // `overflow: hidden`.  Recompute on scroll/resize while open.
+  useEffect(() => {
+    if (!showModelDropdown) {
+      setDropdownPos(null);
+      return;
+    }
+    const compute = () => {
+      const el = modelChipRef.current;
+      if (!el) return;
+      const rect = el.getBoundingClientRect();
+      setDropdownPos({ left: rect.left, bottom: window.innerHeight - rect.top + 4 });
+    };
+    compute();
+    window.addEventListener('scroll', compute, true);
+    window.addEventListener('resize', compute);
+    return () => {
+      window.removeEventListener('scroll', compute, true);
+      window.removeEventListener('resize', compute);
+    };
+  }, [showModelDropdown]);
+
 
   return (
+    <>
     <form
       ref={formRef}
       className={isDragging ? 'open-app-chat-input-home drag-over' : 'open-app-chat-input-home'}
@@ -342,38 +369,18 @@ export function ChatInputHome({
             </button>
           </div>
        </div>
-        <div className="open-app-right-actions">
-          <div className="open-app-model-chip-wrapper">
-           <button
-             className="open-app-model-chip"
-             type="button"
-             disabled={disabled || streaming}
-             onClick={onToggleModelDropdown}
-           >
-             <span>{selectedModel?.name ?? labels.model}</span>
-           </button>
-           {showModelDropdown && (
-             <div className="open-app-model-dropdown">
-               {modelOptions.length > 0 ? (
-                 modelOptions.map((model) => (
-                   <button
-                     key={model.id}
-                     type="button"
-                     className={model.id === selectedModelId ? 'active' : ''}
-                     onClick={() => {
-                       onModelSelect(model.id);
-                       onToggleModelDropdown();
-                     }}
-                   >
-                     {model.name}
-                   </button>
-                 ))
-               ) : (
-                 <div className="open-app-model-empty">{labels.noModels}</div>
-               )}
-             </div>
-           )}
-          </div>
+         <div className="open-app-right-actions">
+         <div className="open-app-model-chip-wrapper">
+          <button
+            className="open-app-model-chip"
+            type="button"
+            disabled={disabled || streaming}
+            onClick={onToggleModelDropdown}
+            ref={modelChipRef}
+          >
+            <span>{selectedModel?.name ?? labels.model}</span>
+          </button>
+         </div>
           <button
             className={streaming ? 'open-app-send-button streaming' : 'open-app-send-button'}
             type="submit"
@@ -385,5 +392,31 @@ export function ChatInputHome({
        </div>
      </div>
     </form>
+    {showModelDropdown && dropdownPos && createPortal(
+      <div
+        className="open-app-model-dropdown"
+        style={{ left: dropdownPos.left, bottom: dropdownPos.bottom }}
+      >
+        {modelOptions.length > 0 ? (
+          modelOptions.map((model) => (
+            <button
+              key={model.id}
+              type="button"
+              className={model.id === selectedModelId ? 'active' : ''}
+              onClick={() => {
+                onModelSelect(model.id);
+                onToggleModelDropdown();
+              }}
+            >
+              {model.name}
+            </button>
+          ))
+        ) : (
+          <div className="open-app-model-empty">{labels.noModels}</div>
+        )}
+      </div>,
+      document.body,
+    )}
+    </>
   );
 }
