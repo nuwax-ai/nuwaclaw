@@ -78,14 +78,39 @@ export function resolveMcpEditorPayload(input: {
     }
     const parsed = parseServerFromJson(input.jsonText);
     if (!parsed.ok) return parsed;
-    const id =
-      input.isEdit && input.editingServerId
-        ? input.editingServerId
-        : parsed.serverId.trim();
+    // 编辑模式也使用 JSON 中的 key，以支持改名
+    const id = parsed.serverId.trim();
     if (!id) {
       return { ok: false, error: t("Claw.MCP.addServer.idRequired") };
     }
     return { ok: true, serverId: id, entry: parsed.entry };
   }
   return input.formPayload();
+}
+
+/**
+ * 将单条 MCP 草稿合并进完整配置（支持改名：删除 previousServerId）。
+ */
+export function applyMcpServerDraft(
+  config: { mcpServers?: Record<string, McpServerEntry> },
+  serverId: string,
+  entry: McpServerEntry,
+  previousServerId?: string,
+): { mcpServers: Record<string, McpServerEntry> } {
+  const nextServers = { ...(config.mcpServers ?? {}) };
+  if (previousServerId && previousServerId !== serverId) {
+    delete nextServers[previousServerId];
+  }
+  nextServers[serverId] = entry;
+  return { ...config, mcpServers: nextServers };
+}
+
+/** 检测 serverId 是否与已有条目冲突（可排除正在编辑/草稿中的 id）。 */
+export function isMcpServerIdDuplicate(
+  serverId: string,
+  existingServerIds: string[],
+  excludeServerIds: string[] = [],
+): boolean {
+  const exclude = new Set(excludeServerIds.filter(Boolean));
+  return existingServerIds.some((id) => id === serverId && !exclude.has(id));
 }

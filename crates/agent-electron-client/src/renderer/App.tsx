@@ -13,6 +13,7 @@ import {
   Badge,
   Spin,
   Button,
+  Segmented,
   notification,
   message,
   Alert,
@@ -26,10 +27,10 @@ import {
   SafetyOutlined,
   FileTextOutlined,
   TeamOutlined,
-  ArrowLeftOutlined,
   ReloadOutlined,
   ApiOutlined,
   RobotOutlined,
+  ArrowLeftOutlined,
 } from "@ant-design/icons";
 import {
   type AgentWorkbenchConfig,
@@ -59,6 +60,7 @@ import {
   syncConfigToServer,
   normalizeServerHost,
   loginAndRegister,
+  isLoggedIn,
 } from "./services/core/auth";
 import {
   APP_DISPLAY_NAME,
@@ -83,8 +85,11 @@ import AboutPage from "./components/pages/AboutPage";
 import LogViewer from "./components/pages/LogViewer";
 import PermissionsPage from "./components/pages/PermissionsPage";
 import SessionsPage from "./components/pages/SessionsPage";
+import BrowserHomePage, {
+  type BrowserTarget,
+} from "./components/pages/BrowserHomePage";
 import MCPSettings from "./components/settings/MCPSettings";
-import type { WebviewHeaderActions } from "./components/pages/SessionsPage";
+import { ModeNavIcon } from "./components/icons/ModeNavIcon";
 import { createLogger } from "./services/utils/rendererLog";
 import styles from "./styles/components/App.module.css";
 import { lightTheme, darkTheme } from "./styles/theme";
@@ -138,6 +143,9 @@ type TabKey =
   | "logs"
   | "about"
   | "model";
+
+/** 主视图模式：浏览器（默认 home）或配置（原侧边栏管理界面） */
+type MainViewMode = "browser" | "config";
 
 // 状态配置（对齐 Tauri 客户端）
 // 就绪、繁忙使用橙色（warning）、小点展示
@@ -483,9 +491,14 @@ function App() {
   const [workbenchConfigReloadKey, setWorkbenchConfigReloadKey] = useState(0);
   const [workbenchConfigState, setWorkbenchConfigState] =
     useState<WorkbenchConfigState>({ status: "idle" });
-  const [sessionsAutoOpen, setSessionsAutoOpen] = useState(false);
-  const [webviewActions, setWebviewActions] =
-    useState<WebviewHeaderActions | null>(null);
+  const [mainViewMode, setMainViewMode] = useState<MainViewMode>("config");
+  const [browserTarget, setBrowserTarget] = useState<BrowserTarget>({
+    type: "home",
+  });
+  const [browserOpenKey, setBrowserOpenKey] = useState(0);
+  const browserReloadRef = useRef<(() => void) | null>(null);
+  /** 是否已登录（有 config_key）；未登录时不展示平台切换 */
+  const [isAuthLoggedIn, setIsAuthLoggedIn] = useState(false);
   const [username, setUsername] = useState<string>("");
   const [onlineStatus, setOnlineStatus] = useState<boolean | null>(null);
   const [agentStatus, setAgentStatus] = useState<string>("idle");
@@ -701,19 +714,35 @@ function App() {
   }, []);
 
   // ============================================
+  // 登录态同步（控制平台 Tab 是否展示）
+  // ============================================
+  const refreshAuthState = useCallback(async () => {
+    const loggedIn = await isLoggedIn();
+    setIsAuthLoggedIn(loggedIn);
+
+    if (!loggedIn) {
+      setUsername("");
+      setMainViewMode("config");
+      setActiveTab("client");
+      return;
+    }
+
+    const user = await authService.getAuthUser();
+    if (user) {
+      setUsername(
+        user.displayName || user.username || t("Claw.App.defaultUsername"),
+      );
+    }
+  }, []);
+
+  // ============================================
   // 初始化主界面（setup 完成后执行）
   // ============================================
   useEffect(() => {
     if (isSetupComplete !== true) return;
 
     const init = async () => {
-      // 加载用户信息
-      const user = await authService.getAuthUser();
-      if (user) {
-        setUsername(
-          user.displayName || user.username || t("Claw.App.defaultUsername"),
-        );
-      }
+      await refreshAuthState();
 
       // 加载在线状态
       const online =
@@ -722,21 +751,48 @@ function App() {
     };
 
     init();
-  }, [isSetupComplete]);
+  }, [isSetupComplete, refreshAuthState]);
+
+  // reg / 登录后刷新登录态
+  useEffect(() => {
+    if (isSetupComplete !== true) return;
+    void refreshAuthState();
+  }, [isSetupComplete, authRefreshTrigger, refreshAuthState]);
 
   // ============================================
-  // 子组件登录/注销后刷新顶部栏用户名
+  // 浏览器模式导航
+  // ============================================
+  const openInBrowser = useCallback((target: BrowserTarget) => {
+    setBrowserTarget(target);
+    setBrowserOpenKey((k) => k + 1);
+    setMainViewMode("browser");
+  }, []);
+
+  const openBrowserHome = useCallback(() => {
+    openInBrowser({ type: "home" });
+  }, [openInBrowser]);
+
+  const openStartSession = useCallback(() => {
+    openInBrowser({ type: "startSession" });
+  }, [openInBrowser]);
+
+  const handleBrowserReloadReady = useCallback(
+    (reload: (() => void) | null) => {
+      browserReloadRef.current = reload;
+    },
+    [],
+  );
+
+  const handleBrowserRefresh = useCallback(() => {
+    browserReloadRef.current?.();
+  }, []);
+
+  // ============================================
+  // 子组件登录/注销后刷新顶部栏用户名与平台 Tab
   // ============================================
   const handleAuthChange = useCallback(async () => {
-    const user = await authService.getAuthUser();
-    if (user) {
-      setUsername(
-        user.displayName || user.username || t("Claw.App.defaultUsername"),
-      );
-    } else {
-      setUsername("");
-    }
-  }, []);
+    await refreshAuthState();
+  }, [refreshAuthState]);
 
   // 标记服务由登录流程启动（内存变量，不持久化）
   const handleLoginStarted = useCallback(() => {
@@ -1059,6 +1115,7 @@ function App() {
         setupJustCompleted.current = false;
         log.info("setup completed, starting services");
         await startServicesSequentially(await getStartupServiceKeys());
+        openBrowserHome();
         return;
       }
 
@@ -1090,6 +1147,7 @@ function App() {
             }
             setAuthRefreshTrigger((v) => v + 1);
             await startServicesSequentially(await getStartupServiceKeys());
+            openBrowserHome();
           } else {
             log.warn("reg failed, using local config");
             notification.info({
@@ -1099,6 +1157,7 @@ function App() {
               placement: "bottomRight",
             });
             await startServicesSequentially(await getStartupServiceKeys());
+            openBrowserHome();
           }
         } else {
           log.info("skipped (no savedKey)");
@@ -1115,6 +1174,7 @@ function App() {
     depsSyncInProgress,
     startServicesSequentially,
     getStartupServiceKeys,
+    openBrowserHome,
   ]);
 
   // ============================================
@@ -1245,6 +1305,7 @@ function App() {
     // 监听设置菜单
     const handleSettings = () => {
       console.log("[App] Received menu:settings event");
+      setMainViewMode("config");
       setActiveTab("settings");
     };
     window.electronAPI.on("menu:settings", handleSettings);
@@ -1255,6 +1316,7 @@ function App() {
     // 监听依赖管理菜单
     const handleDependencies = () => {
       console.log("[App] Received menu:dependencies event");
+      setMainViewMode("config");
       setActiveTab("dependencies");
     };
     window.electronAPI.on("menu:dependencies", handleDependencies);
@@ -1265,6 +1327,7 @@ function App() {
     // 监听 MCP 设置菜单
     const handleMcpSettings = () => {
       console.log("[App] Received menu:mcp-settings event");
+      setMainViewMode("config");
       setActiveTab("settings");
     };
     window.electronAPI.on("menu:mcp-settings", handleMcpSettings);
@@ -1275,8 +1338,7 @@ function App() {
     // 监听新建会话菜单
     const handleNewSession = () => {
       console.log("[App] Received menu:new-session event");
-      setSessionsAutoOpen(true);
-      setActiveTab("sessions");
+      openInBrowser({ type: "newSession" });
     };
     window.electronAPI.on("menu:new-session", handleNewSession);
     cleanupHandlers.push(() =>
@@ -1338,7 +1400,7 @@ function App() {
     return () => {
       cleanupHandlers.forEach((fn) => fn());
     };
-  }, []);
+  }, [openInBrowser]);
 
   // ============================================
   // 向导完成回调
@@ -1641,129 +1703,69 @@ function App() {
           value={{ themeMode, isDarkMode, setThemeMode: handleSetThemeMode }}
         >
           <div className="app-container">
-            {/* 顶部栏 */}
+            {/* 顶部栏：Logo + 模式切换 + 浏览器刷新 + 用户状态 + 升级提示 */}
             <div className="app-header">
-              {agentModeEnabled ? (
-                <div className="app-header-logo">
-                  <img
-                    src="./32x32.png"
-                    alt=""
-                    style={{ width: 16, height: 16 }}
-                  />
-                  <span className="app-header-title">{APP_DISPLAY_NAME}</span>
-                </div>
-              ) : webviewActions ? (
-                <div className={styles.headerWebviewActions}>
-                  <Button
-                    size="small"
-                    icon={<ArrowLeftOutlined />}
-                    onClick={webviewActions.onBack}
-                  >
-                    {t("Claw.App.back")}
-                  </Button>
-                  <Button
-                    size="small"
-                    icon={<ReloadOutlined />}
-                    onClick={webviewActions.onReload}
-                  >
-                    {t("Claw.App.refresh")}
-                  </Button>
-                </div>
-              ) : (
-                <div className="app-header-logo">
-                  <img
-                    src="./32x32.png"
-                    alt=""
-                    style={{ width: 16, height: 16 }}
-                  />
-                  <span className="app-header-title">{APP_DISPLAY_NAME}</span>
-                  {updateState.status === "available" && (
-                    <span
-                      className="app-header-update-tag app-header-update-tag--available"
-                      role="button"
-                      tabIndex={0}
-                      onClick={async () => {
-                        if (updateState.canAutoUpdate === false) {
-                          await window.electronAPI?.app?.openReleasesPage?.();
-                          return;
-                        }
-                        try {
-                          setUpdateState((prev) => ({
-                            ...prev,
-                            status: "downloading",
-                            progress: undefined,
-                          }));
-                          const res =
-                            await window.electronAPI?.app?.downloadUpdate?.();
-                          if (!res || !res.success) {
-                            message.error(
-                              res?.error || t("Claw.About.downloadFailed"),
-                            );
-                            setUpdateState((prev) => ({
-                              ...prev,
-                              status: "available",
-                            }));
-                          }
-                        } catch {
-                          message.error(t("Claw.About.downloadFailed"));
-                          setUpdateState((prev) => ({
-                            ...prev,
-                            status: "available",
-                          }));
-                        }
-                      }}
-                      onKeyDown={(e) =>
-                        (e.key === "Enter" || e.key === " ") &&
-                        (e.target as HTMLElement).click()
+              <div className={styles.headerLeft}>
+                {agentModeEnabled ? (
+                  <div className="app-header-logo">
+                    <img
+                      src="./32x32.png"
+                      alt=""
+                      style={{ width: 16, height: 16 }}
+                    />
+                    <span className="app-header-title">{APP_DISPLAY_NAME}</span>
+                  </div>
+                ) : !isAuthLoggedIn ? (
+                  <div className="app-header-logo">
+                    <img
+                      src="./32x32.png"
+                      alt=""
+                      style={{ width: 16, height: 16 }}
+                    />
+                    <span className="app-header-title">{APP_DISPLAY_NAME}</span>
+                  </div>
+                ) : (
+                  <div className={styles.headerModeTabs}>
+                    <Segmented
+                      className={styles.headerModeSegmented}
+                      value={mainViewMode}
+                      onChange={(value) =>
+                        setMainViewMode(value as MainViewMode)
                       }
-                    >
-                      {updateState.canAutoUpdate === false
-                        ? t("Claw.App.UpdateTag.newVersion", {
-                            version: updateState.version,
-                          })
-                        : t("Claw.App.UpdateTag.download", {
-                            version: updateState.version,
-                          })}
-                    </span>
-                  )}
-                  {updateState.status === "downloading" && (
-                    <span className="app-header-update-tag app-header-update-tag--downloading">
-                      {t("Claw.App.UpdateTag.downloading", {
-                        percent: Math.round(
-                          updateState.progress?.percent ??
-                            headerSimulatedPercent,
-                        ),
-                      })}
-                    </span>
-                  )}
-                  {updateState.status === "downloaded" && (
-                    <span
-                      className="app-header-update-tag app-header-update-tag--install"
-                      role="button"
-                      tabIndex={0}
-                      onClick={async () => {
-                        try {
-                          const res =
-                            await window.electronAPI?.app?.installUpdate?.();
-                          if (res && !res.success) {
-                            message.error(
-                              res.error || t("Claw.About.installFailed"),
-                            );
-                          }
-                        } catch {
-                          message.error(t("Claw.About.installFailed"));
-                        }
-                      }}
-                      onKeyDown={(e) =>
-                        (e.key === "Enter" || e.key === " ") &&
-                        (e.target as HTMLElement).click()
-                      }
-                    >
-                      {t("Claw.About.installUpdate")}
-                    </span>
-                  )}
-                </div>
-              )}
+                      options={[
+                        {
+                          value: "browser",
+                          label: (
+                            <span className={styles.headerModeSegmentedLabel}>
+                              <ModeNavIcon name="home" />
+                              {t("Claw.App.modeBrowser")}
+                            </span>
+                          ),
+                        },
+                        {
+                          value: "config",
+                          label: (
+                            <span className={styles.headerModeSegmentedLabel}>
+                              <ModeNavIcon name="settings" />
+                              {t("Claw.App.modeConfig")}
+                            </span>
+                          ),
+                        },
+                      ]}
+                    />
+                    {mainViewMode === "browser" && (
+                      <Button
+                        size="small"
+                        className={styles.headerRefreshBtn}
+                        icon={<ReloadOutlined />}
+                        onClick={handleBrowserRefresh}
+                      >
+                        {t("Claw.App.refresh")}
+                      </Button>
+                    )}
+                  </div>
+                )}
+              </div>
               <div className={styles.headerRight}>
                 <Button
                   size="small"
@@ -1795,95 +1797,191 @@ function App() {
                     <span className={styles.badgeText}>{t(badge.textKey)}</span>
                   }
                 />
+                {updateState.status === "available" && (
+                  <span
+                    className="app-header-update-tag app-header-update-tag--available"
+                    role="button"
+                    tabIndex={0}
+                    onClick={async () => {
+                      if (updateState.canAutoUpdate === false) {
+                        await window.electronAPI?.app?.openReleasesPage?.();
+                        return;
+                      }
+                      try {
+                        setUpdateState((prev) => ({
+                          ...prev,
+                          status: "downloading",
+                          progress: undefined,
+                        }));
+                        const res =
+                          await window.electronAPI?.app?.downloadUpdate?.();
+                        if (!res || !res.success) {
+                          message.error(
+                            res?.error || t("Claw.About.downloadFailed"),
+                          );
+                          setUpdateState((prev) => ({
+                            ...prev,
+                            status: "available",
+                          }));
+                        }
+                      } catch {
+                        message.error(t("Claw.About.downloadFailed"));
+                        setUpdateState((prev) => ({
+                          ...prev,
+                          status: "available",
+                        }));
+                      }
+                    }}
+                    onKeyDown={(e) =>
+                      (e.key === "Enter" || e.key === " ") &&
+                      (e.target as HTMLElement).click()
+                    }
+                  >
+                    {t("Claw.App.UpdateTag.update")}
+                  </span>
+                )}
+                {updateState.status === "downloading" && (
+                  <span className="app-header-update-tag app-header-update-tag--downloading">
+                    {t("Claw.App.UpdateTag.downloading", {
+                      percent: Math.round(
+                        updateState.progress?.percent ?? headerSimulatedPercent,
+                      ),
+                    })}
+                  </span>
+                )}
+                {updateState.status === "downloaded" && (
+                  <span
+                    className="app-header-update-tag app-header-update-tag--install"
+                    role="button"
+                    tabIndex={0}
+                    onClick={async () => {
+                      try {
+                        const res =
+                          await window.electronAPI?.app?.installUpdate?.();
+                        if (res && !res.success) {
+                          message.error(
+                            res.error || t("Claw.About.installFailed"),
+                          );
+                        }
+                      } catch {
+                        message.error(t("Claw.About.installFailed"));
+                      }
+                    }}
+                    onKeyDown={(e) =>
+                      (e.key === "Enter" || e.key === " ") &&
+                      (e.target as HTMLElement).click()
+                    }
+                  >
+                    {t("Claw.About.installUpdate")}
+                  </span>
+                )}
               </div>
             </div>
 
-            {/* 主体部分 */}
+            {/* 主体部分：平台 webview 常驻挂载，切换时仅隐藏不重载 */}
             <div className="app-body">
-              {/* 左侧边栏 (hidden when webview is active) */}
-              {!webviewActions && !agentModeEnabled && (
-                <div
-                  className={
-                    // 英文菜单文案通常更长，侧边栏适当加宽以减少截断；其他语言保持默认宽度
-                    i18nLang.toLowerCase().startsWith("en")
-                      ? "app-sider app-sider-en"
-                      : "app-sider"
-                  }
-                >
-                  <Menu
-                    mode="inline"
-                    inlineIndent={0}
-                    selectedKeys={[activeTab]}
-                    items={menuItems.map((item) => ({
-                      key: item.key,
-                      icon: item.icon,
-                      label: item.label,
-                      onClick: () => setActiveTab(item.key as TabKey),
-                    }))}
-                  />
+              {agentModeEnabled ? (
+                <div className="app-content app-content-fullwidth">
+                  {renderAgentModeContent()}
                 </div>
-              )}
+              ) : (
+                <>
+                  <div
+                    className={`app-content app-content-fullwidth ${styles.platformPane}`}
+                    style={{
+                      display:
+                        isAuthLoggedIn && mainViewMode === "browser"
+                          ? "flex"
+                          : "none",
+                    }}
+                  >
+                    <div
+                      style={{
+                        flex: 1,
+                        minHeight: 0,
+                        display: "flex",
+                        flexDirection: "column",
+                        background: "var(--color-bg-layout)",
+                      }}
+                    >
+                      <BrowserHomePage
+                        target={browserTarget}
+                        openKey={browserOpenKey}
+                        onReloadReady={handleBrowserReloadReady}
+                      />
+                    </div>
+                  </div>
 
-              {/* 主内容区：flex 子撑满，便于日志等页占满高度 */}
-              <div
-                className={
-                  webviewActions || agentModeEnabled
-                    ? "app-content app-content-fullwidth"
-                    : "app-content"
-                }
-              >
-                <div
-                  style={{
-                    flex: 1,
-                    minHeight: 0,
-                    display: "flex",
-                    flexDirection: "column",
-                    background: "var(--color-bg-layout)",
-                  }}
-                >
-                  {agentModeEnabled ? (
-                    renderAgentModeContent()
-                  ) : (
-                    <>
-                      {activeTab === "client" && (
-                        <ClientPage
-                          onNavigate={(tab) => {
-                            if (tab === "sessions") setSessionsAutoOpen(true);
-                            setActiveTab(tab);
-                          }}
-                          services={services}
-                          servicesLoading={servicesLoading}
-                          startingServices={startingServices}
-                          setStartingServices={setStartingServices}
-                          onRefreshServices={pollServicesStatus}
-                          authRefreshTrigger={authRefreshTrigger}
-                          onAuthChange={handleAuthChange}
-                          onLoginStarted={handleLoginStarted}
-                        />
-                      )}
-                      {activeTab === "sessions" && (
-                        <SessionsPage
-                          autoOpen={sessionsAutoOpen}
-                          onAutoOpenConsumed={() => setSessionsAutoOpen(false)}
-                          onWebviewChange={setWebviewActions}
-                        />
-                      )}
+                  <div
+                    className={styles.configPane}
+                    style={{
+                      display: mainViewMode === "config" ? "flex" : "none",
+                    }}
+                  >
+                    <div
+                      className={
+                        i18nLang.toLowerCase().startsWith("en")
+                          ? "app-sider app-sider-en"
+                          : "app-sider"
+                      }
+                    >
+                      <Menu
+                        mode="inline"
+                        inlineIndent={0}
+                        selectedKeys={[activeTab]}
+                        items={menuItems.map((item) => ({
+                          key: item.key,
+                          icon: item.icon,
+                          label: item.label,
+                          onClick: () => setActiveTab(item.key as TabKey),
+                        }))}
+                      />
+                    </div>
+                    <div className="app-content">
                       <div
                         style={{
-                          display: activeTab === "mcp" ? "contents" : "none",
+                          flex: 1,
+                          minHeight: 0,
+                          display: "flex",
+                          flexDirection: "column",
+                          background: "var(--color-bg-layout)",
                         }}
                       >
-                        <MCPSettings isOpen={activeTab === "mcp"} />
+                        {activeTab === "client" && (
+                          <ClientPage
+                            onNavigate={(tab) => setActiveTab(tab as TabKey)}
+                            services={services}
+                            servicesLoading={servicesLoading}
+                            startingServices={startingServices}
+                            setStartingServices={setStartingServices}
+                            onRefreshServices={pollServicesStatus}
+                            authRefreshTrigger={authRefreshTrigger}
+                            onAuthChange={handleAuthChange}
+                            onLoginStarted={handleLoginStarted}
+                            onLoginComplete={openBrowserHome}
+                            onStartSession={openStartSession}
+                          />
+                        )}
+                        {activeTab === "sessions" && (
+                          <SessionsPage onOpenInBrowser={openInBrowser} />
+                        )}
+                        <div
+                          style={{
+                            display: activeTab === "mcp" ? "contents" : "none",
+                          }}
+                        >
+                          <MCPSettings isOpen={activeTab === "mcp"} />
+                        </div>
+                        {activeTab === "settings" && <SettingsPage />}
+                        {activeTab === "dependencies" && <DependenciesPage />}
+                        {activeTab === "permissions" && <PermissionsPage />}
+                        {activeTab === "logs" && <LogViewer />}
+                        {activeTab === "about" && <AboutPage />}
                       </div>
-                      {activeTab === "settings" && <SettingsPage />}
-                      {activeTab === "dependencies" && <DependenciesPage />}
-                      {activeTab === "permissions" && <PermissionsPage />}
-                      {activeTab === "logs" && <LogViewer />}
-                      {activeTab === "about" && <AboutPage />}
-                    </>
-                  )}
-                </div>
-              </div>
+                    </div>
+                  </div>
+                </>
+              )}
             </div>
           </div>
         </ThemeContext.Provider>

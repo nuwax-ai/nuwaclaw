@@ -28,6 +28,24 @@ export interface OpenAICompatEnvResult {
   isOpenAICompatible: boolean;
 }
 
+/** Whether two model strings refer to the same provider model (ignores openai-compatible/ prefix). */
+export function modelsEquivalentForProvider(
+  a: string | undefined | null,
+  b: string | undefined | null,
+): boolean {
+  const left = (a || "").trim();
+  const right = (b || "").trim();
+  if (!left || !right) return false;
+  if (left === right) return true;
+  const resolvedA = resolveOpenAICompatModel({ model: left });
+  const resolvedB = resolveOpenAICompatModel({ model: right });
+  if (!resolvedA || !resolvedB) return false;
+  return (
+    resolvedA.providerModel === resolvedB.providerModel ||
+    resolvedA.rawModel === resolvedB.rawModel
+  );
+}
+
 export function resolveOpenAICompatModel(
   input: OpenAICompatModelInput,
 ): ResolvedOpenAICompatModel | null {

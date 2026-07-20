@@ -117,7 +117,13 @@ export function injectSandboxedMcpForSession(
       });
     } else {
       const appEnv = getAppEnv({ includeSystemPath: false });
+      const fullAppEnv = getAppEnv({ includeSystemPath: true });
       const gitBashPath = getBundledGitBashPath();
+      if (!gitBashPath) {
+        log.warn(
+          `${logTag} Bundled Git Bash not found (run npm run prepare:git); sandboxed-bash MCP may fall back to PowerShell. Script files (.sh/.ps1/.js/.py…) may fail or show Windows open-with dialog.`,
+        );
+      }
       mcpServers.push({
         name: "sandboxed-bash",
         command: nodePath,
@@ -149,6 +155,17 @@ export function injectSandboxedMcpForSession(
             : []),
           ...(gitBashPath
             ? [{ name: "NUWAX_SANDBOX_GIT_BASH_PATH", value: gitBashPath }]
+            : []),
+          ...(fullAppEnv.ORIGINAL_PATH
+            ? [{ name: "ORIGINAL_PATH", value: fullAppEnv.ORIGINAL_PATH }]
+            : []),
+          ...(fullAppEnv.MSYS2_PATH_TYPE
+            ? [
+                {
+                  name: "MSYS2_PATH_TYPE",
+                  value: fullAppEnv.MSYS2_PATH_TYPE,
+                },
+              ]
             : []),
         ]),
       });

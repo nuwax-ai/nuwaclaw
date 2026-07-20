@@ -100,7 +100,7 @@ export function getSetupRequiredDependencies(): LocalDependencyConfig[] {
       description: t(I18N_KEYS.Pages.Dependencies.DESC_NUWAXCODE),
       required: true,
       binName: "nuwaxcode",
-      installVersion: "1.2.1",
+      installVersion: "1.17.5",
     },
     {
       name: "claude-code-acp-ts",
@@ -109,7 +109,7 @@ export function getSetupRequiredDependencies(): LocalDependencyConfig[] {
       description: t(I18N_KEYS.Pages.Dependencies.DESC_CLAUDE_CODE_ACP),
       required: true,
       binName: "claude-code-acp-ts",
-      installVersion: "0.38.2",
+      installVersion: "0.44.0",
     },
     {
       name: "ripgrep",

@@ -15,16 +15,32 @@ import log from "electron-log";
 import type { ChildProcess } from "child_process";
 import { ACP_SESSION_CANCELLED_ERROR_CODE } from "@shared/constants";
 import type { SandboxProcessConfig } from "@shared/types/sandbox";
-import {
-  getAcpEngineSandboxCapabilities,
-  isOpencodeAcpEngine,
-} from "./sandbox/acpEngineSandbox";
+import { getAcpEngineSandboxCapabilities } from "./sandbox/acpEngineSandbox";
 import { resolveAcpSandboxProcessConfig } from "./sandbox/acpSandboxPolicy";
+import { getBundledGitBashPath } from "@main/services/system/binaryLocator";
 import {
   buildOpencodeSpawnConfig,
   describeOpencodeSandboxActive,
+  resolveOpencodePermissionEnv,
   stripGuiMcpFromOpencodeConfigContent,
 } from "./sandbox/opencodeAcpSpawnConfig";
+import {
+  modelsEquivalentForProvider,
+  resolveOpenAICompatModel,
+} from "./openAICompatRouting";
+import {
+  buildSessionModelSyncPlan,
+  isAcpSessionModelSyncMethodNotFound,
+  isSessionModelInSync,
+  parseAcpCurrentModelId,
+  resolveTargetModelForChat,
+  normalizeModelSyncErrorMessage,
+} from "./acpSessionModelSync";
+import { normalizePromptErrorForDisplay } from "./acpPromptErrorNormalizer";
+import {
+  isPersistentIsolatedHome,
+  type IsolatedHomeScope,
+} from "./isolatedHomePaths";
 import {
   createAcpConnection,
   getMcpTransportSnapshot,
@@ -46,6 +62,10 @@ import {
   type NewSessionOpts,
 } from "./acpNewSessionParams";
 import {
+  resolveSessionForChat,
+  type SessionRestoredVia,
+} from "./acpSessionSetup";
+import {
   toErrorMessage,
   isPromptCancellation,
   createSessionCancelledError,
@@ -56,6 +76,7 @@ import {
   recordUserMessageToMemory,
   buildMemoryEnhancedPrompt,
 } from "./acpChatMemory";
+import { resolveCustomEngineDisplayName } from "../agentHelpers";
 import { mapAcpUpdateToEvents } from "./acpUpdateMapper";
 import type {
   AgentConfig,
@@ -68,11 +89,12 @@ import type {
   TextPart,
 } from "../types";
 import type {
-  HttpResult,
+  AcpChatHttpResult,
   ComputerChatRequest,
   ComputerChatResponse,
   UnifiedSessionMessage,
   ModelProviderConfig,
+  ToolApprovalRuleInput,
 } from "@shared/types/computerTypes";
 import { redactForLog, redactStringForLog } from "../../utils/logRedact";
 import {
@@ -81,13 +103,16 @@ import {
 } from "../../utils/processTree";
 import { processRegistry } from "../../system/processRegistry";
 import { t } from "../../i18n";
-import { resolveComputerProjectWorkspaceDir } from "../../workspacePaths";
 import type { DetailedSession } from "@shared/types/sessions";
 import { ACP_ABORT_TIMEOUT } from "@shared/constants";
 import { APP_DATA_DIR_NAME } from "../../constants";
 import { perfEmitter } from "../perf/perfEmitter";
 import { firstTokenTrace } from "../perf/firstTokenTrace";
-import { resolveEffectiveMode, type AcpMode } from "@shared/types/acpMode";
+import {
+  parseAcpModeId,
+  resolveEffectiveMode,
+  type AcpMode,
+} from "@shared/types/acpMode";
 import {
   approvalInterventionService,
   isComputerPermissionResolveRequest,
@@ -103,6 +128,22 @@ import type {
   ComputerNotifyResolvedRequest,
 } from "@shared/types/intervention";
 import { safeStringify } from "../utils/safeStringify";
+import { restoreFlowagentsSessions } from "../../computer/flowagentsSessionPersistence";
+import {
+  chatDispatchCoordinator,
+  type ChatDispatchContext,
+} from "../../computer/chatDispatchCoordinator";
+import {
+  formatAcpLoadError,
+  snapshotOpencodePersistence,
+} from "./opencodeSessionDiagnostics";
+import { computeOpencodePermissionBridgeKey } from "./permission/opencodePermissionBridge";
+
+/** AcpEngine.init() 返回结果 */
+export interface EngineInitResult {
+  ok: boolean;
+  error?: string;
+}
 
 const MCP_RETRY_DELAY_MS = 1200;
 const MCP_RECONNECT_WINDOW_MS = 4000;
@@ -130,6 +171,14 @@ interface AcpSession {
   lastActivity?: number;
   openLongMemory?: boolean; // 记忆开关，用于事件处理器判断
   memoryModel?: string; // 记忆处理使用的模型名（来自 model_provider.default_model）
+  /** session/resume 返回的初始 mode，chat 同步后清除 */
+  resumedModeState?: { currentModeId?: string } | null;
+  /** session/load|resume 返回的当前模型，chat 同步后继续作为运行时 hint 使用 */
+  resumedModelId?: string | null;
+  /** 上次与 ACP Agent 对齐的 mode（仅运行时跟踪，不做持久化） */
+  acpCurrentModeId?: AcpMode;
+  /** 上次与 ACP Agent 对齐的 model（仅运行时跟踪，不做持久化） */
+  acpCurrentModelId?: string | null;
 }
 
 // Session counter removed — ACP protocol UUID is used as canonical session.id
@@ -140,6 +189,7 @@ export class AcpEngine extends EventEmitter {
   private acpConnection: AcpClientSideConnection | null = null;
   private acpProcess: ChildProcess | null = null;
   private isolatedHome: string | null = null;
+  private isolatedHomeScope: IsolatedHomeScope | null = null;
   /** 🔧 FIX: Store cleanup function to properly dispose of event listeners */
   private processCleanup: (() => void) | null = null;
   /** Sandbox resource cleanup (temp profiles, etc.) */
@@ -148,25 +198,170 @@ export class AcpEngine extends EventEmitter {
   private terminalManager: AcpTerminalManager | null = null;
   /** Stored sandbox config for use in createSession (MCP Bash injection) */
   private storedSandboxConfig: SandboxProcessConfig | null = null;
+  /** ACP initialize 返回的 agentCapabilities，用于 session/resume 决策 */
+  private agentCapabilities: Record<string, unknown> | null = null;
   private sessions = new Map<string, AcpSession>();
+  /** session/update 可能在 newSession 完成注册前到达，避免丢弃早期事件 */
+  private pendingNewSessionRegistration = false;
+  /** loadSession 历史 replay 期间不向 SSE 转发 */
+  private suppressSessionReplayFor = new Set<string>();
+  private pendingLoadSessionRegistration = false;
   private permissionGatedToolRawInputs = new Map<
     string,
     PermissionGatedToolInputCache
   >();
   /** 权限决策链与权限会话状态（决策逻辑见 permission/permissionCoordinator.ts） */
   private readonly permissions: AcpPermissionCoordinator;
+  /**
+   * 桥接到 OPENCODE_CONFIG_CONTENT.permission 的 tool_approval_rules（仅 ask 规则）。
+   * 在 init / chat 前 reinit 时写入 spawn 配置。
+   */
+  private opencodePermissionBridgeRules: ToolApprovalRuleInput[] | undefined;
+  private opencodePermissionBridgeKey = "";
 
   setEffectiveMode(acpSessionId: string, mode: AcpMode): void {
     this.permissions.setEffectiveMode(acpSessionId, mode);
   }
 
+  /**
+   * 每次 chat 按请求的 agent_mode 对齐 Agent 与客户端，不缓存跨轮次 mode。
+   * currentEngineModeHint：load/resume/newSession 返回的 currentModeId，或 session 上次同步记录。
+   */
+  private async syncSessionModeForChat(
+    acpSessionId: string,
+    targetMode: AcpMode,
+    currentEngineModeHint?: AcpMode | null,
+  ): Promise<void> {
+    const session = this.sessions.get(acpSessionId);
+    const currentEngineMode =
+      currentEngineModeHint ??
+      session?.acpCurrentModeId ??
+      this.permissions.getEffectiveMode(acpSessionId);
+
+    if (
+      currentEngineMode !== targetMode &&
+      this.acpConnection?.setSessionMode
+    ) {
+      try {
+        await this.acpConnection.setSessionMode({
+          sessionId: acpSessionId,
+          modeId: targetMode,
+        });
+        log.info(
+          `${this.logTag} setSessionMode: ${currentEngineMode} → ${targetMode}`,
+        );
+      } catch (err) {
+        log.warn(
+          `${this.logTag} setSessionMode failed (${currentEngineMode} → ${targetMode}):`,
+          err,
+        );
+      }
+    }
+
+    this.setEffectiveMode(acpSessionId, targetMode);
+    if (session) {
+      session.acpCurrentModeId = targetMode;
+    }
+  }
+
+  /**
+   * OpenCode 会在 loadSession 后继续沿用历史 session 绑定的模型。
+   * 当请求侧已切换 model_provider 时，需要在 prompt 前显式把 session model
+   * 对齐到当前请求模型，否则会出现 ProviderModelNotFound / service failure。
+   */
+  private async syncSessionModelForChat(
+    acpSessionId: string,
+    targetModelId: string | null,
+    currentEngineModelHint?: string | null,
+  ): Promise<void> {
+    const session = this.sessions.get(acpSessionId);
+    const plan = buildSessionModelSyncPlan({
+      targetModelId,
+      currentEngineModelHint,
+      session,
+      supportsDedicatedModelSync:
+        !!this.acpConnection?.unstable_setSessionModel,
+      supportsConfigOptionSync: !!this.acpConnection?.setSessionConfigOption,
+    });
+    if (!plan) return;
+
+    if (plan.kind === "noop") {
+      if (session) {
+        session.acpCurrentModelId = plan.currentModelId;
+      }
+      return;
+    }
+
+    if (plan.kind === "error") {
+      throw new Error(plan.message);
+    }
+
+    const connection = this.acpConnection;
+    if (!connection) {
+      throw new Error("AcpEngine not initialized");
+    }
+
+    try {
+      if (plan.method === "unstable_setSessionModel") {
+        await connection.unstable_setSessionModel?.({
+          sessionId: acpSessionId,
+          modelId: plan.targetModelId,
+        });
+        log.info(
+          `${this.logTag} setSessionModel: ${plan.currentModelId || "(unknown)"} → ${plan.targetModelId}`,
+        );
+      } else {
+        await connection.setSessionConfigOption?.({
+          sessionId: acpSessionId,
+          configId: "model",
+          value: plan.targetModelId,
+        });
+        log.info(
+          `${this.logTag} setSessionConfigOption(model): ${plan.currentModelId || "(unknown)"} → ${plan.targetModelId}`,
+        );
+      }
+    } catch (err) {
+      log.warn(
+        `${this.logTag} session model sync failed (${plan.currentModelId || "(unknown)"} → ${plan.targetModelId}):`,
+        err,
+      );
+      // Agent 未实现本次 model sync RPC 时继续 prompt（模型由 spawn env 注入）；勿虚标 acpCurrentModelId。
+      if (isAcpSessionModelSyncMethodNotFound(err, plan.method)) {
+        log.info(
+          `${this.logTag} Agent does not implement ${plan.method}; continuing with env-injected model (session model state unchanged)`,
+        );
+        return;
+      }
+      throw err;
+    }
+
+    if (session) {
+      session.acpCurrentModelId = plan.targetModelId;
+      session.resumedModelId = plan.targetModelId;
+    }
+  }
+
+  private applyAcpModeFromRpc(
+    session: AcpSession,
+    modes: { currentModeId?: string } | null | undefined,
+  ): void {
+    const modeId = parseAcpModeId(modes?.currentModeId);
+    if (modeId) {
+      session.acpCurrentModeId = modeId;
+    }
+  }
+
   private activePromptSessions = new Set<string>();
   private activePromptRejects = new Map<string, (reason: Error) => void>();
+  /** 递增世代号，防止被 abort/新 chat 顶替的旧 prompt finally 误清新轮次状态 */
+  private promptTurnBySession = new Map<string, number>();
   private logTag: string;
 
-  private readonly _engineName: AgentEngineType;
+  private readonly _engineName: string;
+  /** ACP initialize 返回的 agentInfo.name，用于自定义下发引擎的会话列表展示 */
+  private _acpAgentName: string | null = null;
 
-  constructor(engineName: AgentEngineType = "claude-code") {
+  constructor(engineName: string = "claude-code") {
     super();
     this._engineName = engineName;
     this.logTag = `[AcpEngine:${engineName}]`;
@@ -179,7 +374,20 @@ export class AcpEngine extends EventEmitter {
 
   /** Engine type (claude-code | nuwaxcode), used by UnifiedAgent for provider detection */
   get engineName(): AgentEngineType {
-    return this._engineName;
+    return this._engineName as AgentEngineType;
+  }
+
+  /**
+   * 会话列表展示名：内置引擎返回 undefined（由 UI 走 i18n）；
+   * 自定义下发引擎返回 ACP agentInfo.name / agent_id / command 文件名。
+   */
+  getEngineDisplayName(): string | undefined {
+    if (!this.config?.customEngineCommand) return undefined;
+    return resolveCustomEngineDisplayName({
+      acpAgentName: this._acpAgentName,
+      agentId: this.config.customAgentId,
+      customCommand: this.config.customEngineCommand,
+    });
   }
 
   /** Number of active sessions in this engine */
@@ -213,7 +421,8 @@ export class AcpEngine extends EventEmitter {
 
   private isMcpReconnectFailure(errorMsg: string): boolean {
     return isMcpReconnectFailureWith(errorMsg, {
-      isOpencodeEngine: isOpencodeAcpEngine(this.engineName),
+      // 与 sandboxCaps 一致：自定义 agent 即使 engineName fallback 为 nuwaxcode 也不走 OpenCode 重试语义
+      isOpencodeEngine: this.sandboxCaps.usesOpencodeSpawnConfig,
       acpProcess: this.acpProcess,
       reconnectWindowMs: MCP_RECONNECT_WINDOW_MS,
     });
@@ -227,7 +436,7 @@ export class AcpEngine extends EventEmitter {
       meta.requestId = opts.messageID;
       meta.request_id = opts.messageID;
     }
-    if (isOpencodeAcpEngine(this.engineName)) {
+    if (this.sandboxCaps.usesOpencodeSpawnConfig) {
       const policy = opts?.mcpInitPolicy ?? NUWAX_MCP_INIT_POLICY_DEFAULT;
       if (policy) {
         meta.mcpInitPolicy = policy;
@@ -315,6 +524,12 @@ export class AcpEngine extends EventEmitter {
   }
 
   private get sandboxCaps() {
+    // 自定义下发 agent（如 command=node + bundle.mjs）不是 OpenCode 引擎。
+    // mapAgentCommand 失败时 requiredEngine 会 fallback 到 nuwaxcode，
+    // 若仍按 engineName 取 caps，会错误注入 OPENCODE_CONFIG_CONTENT。
+    if (this.config?.customEngineCommand) {
+      return getAcpEngineSandboxCapabilities("__custom_agent__");
+    }
     return getAcpEngineSandboxCapabilities(this.engineName);
   }
 
@@ -369,7 +584,7 @@ export class AcpEngine extends EventEmitter {
 
   // === Lifecycle ===
 
-  async init(config: AgentConfig): Promise<boolean> {
+  async init(config: AgentConfig): Promise<EngineInitResult> {
     const timer = perfEmitter.start();
     firstTokenTrace.trace("acp.init.start", { engine: this.engineName });
     this.config = config;
@@ -388,10 +603,26 @@ export class AcpEngine extends EventEmitter {
       const configTimer = perfEmitter.start();
 
       // Resolve binary path and args for the engine type
-      const { binPath, binArgs, isNative } = resolveAcpBinary(this.engineName);
+      // For custom agents, use customEngineCommand; otherwise use engineName
+      const resolveEngine = config.customEngineCommand || this.engineName;
+      const {
+        binPath,
+        binArgs: resolvedBinArgs,
+        isNative,
+      } = resolveAcpBinary(resolveEngine);
+      // For custom agents, append agent_server.args as spawn arguments
+      const binArgs = config.customEngineArgs
+        ? [...resolvedBinArgs, ...config.customEngineArgs]
+        : resolvedBinArgs;
 
       // For nuwaxcode: inject config via OPENCODE_CONFIG_CONTENT env var
       const spawnEnv = { ...(config.env || {}) };
+
+      if (this.sandboxCaps.usesOpencodeSpawnConfig) {
+        spawnEnv.OPENCODE_PERMISSION = resolveOpencodePermissionEnv(
+          spawnEnv.OPENCODE_PERMISSION,
+        );
+      }
 
       // Resolve sandbox policy early (OpenCode spawn config + process wrap + createSession).
       const sandboxResolved = await resolveAcpSandboxProcessConfig(
@@ -404,16 +635,21 @@ export class AcpEngine extends EventEmitter {
       const sandboxConfig = sandboxResolved.config;
 
       if (this.sandboxCaps.usesOpencodeSpawnConfig) {
-        const isWarmupProcess = spawnEnv.NUWAX_AGENT_WARMUP === "1";
         const { configObj, sandboxApply: opencodeSandboxApply } =
           buildOpencodeSpawnConfig({
             mcpServers: config.mcpServers,
             model: config.model,
             sandboxConfig,
             workspaceDir: config.workspaceDir,
+            gitBashPath: getBundledGitBashPath() || undefined,
+            toolApprovalRules: this.opencodePermissionBridgeRules,
             applySandbox: (opts) =>
               this.sandboxCaps.applyOpencodeSpawnSandbox(opts),
           });
+
+        this.opencodePermissionBridgeKey = computeOpencodePermissionBridgeKey(
+          this.opencodePermissionBridgeRules,
+        );
 
         spawnEnv.OPENCODE_CONFIG_CONTENT = JSON.stringify(configObj);
         if (
@@ -425,20 +661,28 @@ export class AcpEngine extends EventEmitter {
           );
         }
         const effectivePerm = configObj.permission as Record<string, string>;
+        const injectedShell =
+          typeof configObj.shell === "string" ? configObj.shell : undefined;
         log.info(
           `${this.logTag} 🔌 OpenCode ACP config injected (OPENCODE_CONFIG_CONTENT)`,
           {
             engine: this.engineName,
-            mcp_injection: isWarmupProcess
-              ? "enabled (legacy dual-path for A/B, warmup process)"
-              : "enabled (legacy dual-path for A/B)",
+            mcp_injection: "enabled (legacy dual-path for A/B)",
             mcp_servers: configObj.mcp
               ? Object.keys(configObj.mcp as Record<string, unknown>)
               : [],
             permission: effectivePerm,
+            permission_bridge_key: this.opencodePermissionBridgeKey || "(none)",
             sandbox_active: describeOpencodeSandboxActive(opencodeSandboxApply),
+            opencode_shell: injectedShell ?? "(default)",
+            opencode_shell_injected: Boolean(injectedShell),
           },
         );
+        if (!injectedShell && process.platform === "win32") {
+          log.warn(
+            `${this.logTag} Bundled Git Bash not found; OPENCODE_CONFIG_CONTENT.shell not injected. Run npm run prepare:git to avoid Windows .sh open-with dialog in nuwaxcode bash tool.`,
+          );
+        }
         if (opencodeSandboxApply) {
           if (opencodeSandboxApply.opencodeSandboxConfigInjected) {
             log.info(
@@ -501,6 +745,7 @@ export class AcpEngine extends EventEmitter {
           engineType: this.engineName,
           purpose: config.purpose ?? "engine",
           sandbox: sandboxConfig,
+          isolatedHomeScope: config.__isolatedHomeScope,
         },
         clientHandler,
       );
@@ -510,6 +755,7 @@ export class AcpEngine extends EventEmitter {
       this.acpConnection = connection;
       this.acpProcess = proc;
       this.isolatedHome = isolatedHome;
+      this.isolatedHomeScope = config.__isolatedHomeScope ?? null;
       this.processCleanup = cleanup; // 🔧 FIX: Store cleanup function
       this.sandboxCleanup = acpSandboxCleanup ?? null;
 
@@ -557,29 +803,40 @@ export class AcpEngine extends EventEmitter {
 
       handshakeTimer.end("acp.init.handshake", { engine: this.engineName });
 
+      // 记录 ACP 侧自报的 agent 名称，供自定义引擎在会话列表展示
+      const acpAgentName = initResult.agentInfo?.name?.trim();
+      if (acpAgentName) {
+        this._acpAgentName = acpAgentName;
+        log.info(`${this.logTag} ACP agentInfo.name=${acpAgentName}`);
+      }
+
       log.info(`${this.logTag} ACP initialized`, {
         protocolVersion: initResult.protocolVersion,
         agentCapabilities: initResult.agentCapabilities,
+        agentInfoName: acpAgentName || undefined,
       });
+
+      this.agentCapabilities =
+        (initResult.agentCapabilities as Record<string, unknown> | undefined) ??
+        null;
 
       this._ready = true;
       this.emit("ready");
       timer.end("acp.init.total", { engine: this.engineName });
       firstTokenTrace.trace("acp.init.ready", { engine: this.engineName });
-      return true;
+      return { ok: true };
     } catch (error) {
+      const reason =
+        error instanceof Error
+          ? error.message
+          : typeof error === "object"
+            ? safeStringify(error)
+            : String(error);
       log.error(`${this.logTag} Init failed:`, error);
       firstTokenTrace.trace(
         "acp.init.failed",
         { engine: this.engineName },
-        {
-          error:
-            error instanceof Error
-              ? error.message
-              : typeof error === "object"
-                ? safeStringify(error)
-                : String(error),
-        },
+        { error: reason },
       );
       // Ensure spawned process is cleaned up on init failure
       await this.destroy().catch(() => {});
@@ -587,7 +844,7 @@ export class AcpEngine extends EventEmitter {
         "error",
         error instanceof Error ? error : new Error(String(error)),
       );
-      return false;
+      return { ok: false, error: reason };
     }
   }
 
@@ -651,18 +908,9 @@ export class AcpEngine extends EventEmitter {
       this.acpProcess = null;
     }
 
-    // Cleanup isolated HOME directory
-    if (this.isolatedHome) {
-      try {
-        fs.rmSync(this.isolatedHome, { recursive: true, force: true });
-        log.info(
-          `${this.logTag} 🧹 Cleaned isolated directory: ${this.isolatedHome}`,
-        );
-      } catch (e) {
-        log.warn(`${this.logTag} Isolated directory cleanup failed:`, e);
-      }
-      this.isolatedHome = null;
-    }
+    // Cleanup isolated HOME directory (preserve project-stable paths)
+    this.cleanupIsolatedHomeDirectory();
+    this.isolatedHomeScope = null;
 
     // Cleanup sandbox resources (temp seatbelt profiles, etc.)
     if (this.sandboxCleanup) {
@@ -685,18 +933,216 @@ export class AcpEngine extends EventEmitter {
     }
 
     this.acpConnection = null;
+    this.agentCapabilities = null;
+    this.suppressSessionReplayFor.clear();
+    this.pendingLoadSessionRegistration = false;
     this.sessions.clear();
     this.activePromptSessions.clear();
     this.activePromptRejects.clear();
+    this.promptTurnBySession.clear();
     this.permissions.destroy();
     approvalInterventionService.destroy();
     this.config = null;
+    this._acpAgentName = null;
     this._ready = false;
     log.info(`${this.logTag} Destroyed`);
     this.emit("destroyed");
   }
 
+  private cleanupIsolatedHomeDirectory(): void {
+    if (!this.isolatedHome) return;
+    const home = this.isolatedHome;
+
+    if (isPersistentIsolatedHome(home)) {
+      log.info(`${this.logTag} Preserved persistent isolated HOME: ${home}`);
+      this.isolatedHome = null;
+      return;
+    }
+
+    try {
+      fs.rmSync(home, { recursive: true, force: true });
+      log.info(
+        `${this.logTag} 🧹 Cleaned ephemeral isolated directory: ${home}`,
+      );
+    } catch (e) {
+      log.warn(`${this.logTag} Isolated directory cleanup failed:`, e);
+    }
+    this.isolatedHome = null;
+  }
+
+  getIsolatedHome(): string | null {
+    return this.isolatedHome;
+  }
+
+  getAgentCapabilities(): Record<string, unknown> | null {
+    return this.agentCapabilities;
+  }
+
   // === Session Management ===
+
+  async resumeAcpSession(
+    sessionId: string,
+    opts?: NewSessionOpts,
+  ): Promise<SdkSession> {
+    if (!this.acpConnection || !this.config) {
+      throw new Error("AcpEngine not initialized");
+    }
+    if (!this.acpConnection.resumeSession) {
+      throw new Error("ACP connection does not support resumeSession");
+    }
+
+    const { sessionCwd, mcpServers, _meta } = buildNewSessionParams(opts, {
+      config: this.config,
+      storedSandboxConfig: this.storedSandboxConfig,
+      engineName: this.engineName,
+      logTag: this.logTag,
+    });
+
+    log.info(
+      `${this.logTag} resumeSession: sessionId=${sessionId}, cwd=${sessionCwd}, mcpServers=${mcpServers.length}`,
+    );
+
+    restoreFlowagentsSessions(this.isolatedHome, sessionCwd);
+
+    const timer = perfEmitter.start();
+    const resumeResult = await this.acpConnection.resumeSession({
+      sessionId,
+      cwd: sessionCwd,
+      mcpServers,
+      _meta,
+    });
+    timer.end("acp.session.resume", { mcpCount: mcpServers.length });
+
+    const existing = this.sessions.get(sessionId);
+    const session: AcpSession = existing ?? {
+      id: sessionId,
+      acpSessionId: sessionId,
+      createdAt: Date.now(),
+      status: "idle",
+    };
+    session.title = opts?.title ?? session.title;
+    session.cwd = sessionCwd;
+    session.mcpServerCount = mcpServers.length;
+    session.lastActivity = Date.now();
+    session.resumedModeState = resumeResult.modes ?? null;
+    session.resumedModelId = parseAcpCurrentModelId(resumeResult.configOptions);
+    this.applyAcpModeFromRpc(session, resumeResult.modes ?? null);
+    if (session.resumedModelId) {
+      session.acpCurrentModelId = session.resumedModelId;
+    }
+    if (session.status === undefined) session.status = "idle";
+    this.sessions.set(sessionId, session);
+
+    log.info(`${this.logTag} Session resumed`, {
+      sessionId,
+      resumedModelId: session.resumedModelId || "(unknown)",
+    });
+
+    return {
+      id: sessionId,
+      title: session.title,
+      time: { created: session.createdAt },
+    };
+  }
+
+  async loadAcpSession(
+    sessionId: string,
+    opts?: NewSessionOpts,
+  ): Promise<SdkSession> {
+    if (!this.acpConnection || !this.config) {
+      throw new Error("AcpEngine not initialized");
+    }
+    if (!this.acpConnection.loadSession) {
+      throw new Error("ACP connection does not support loadSession");
+    }
+
+    const { sessionCwd, mcpServers, _meta } = buildNewSessionParams(opts, {
+      config: this.config,
+      storedSandboxConfig: this.storedSandboxConfig,
+      engineName: this.engineName,
+      logTag: this.logTag,
+    });
+
+    log.info(
+      `${this.logTag} loadSession (SSE replay suppressed): sessionId=${sessionId}, cwd=${sessionCwd}`,
+    );
+
+    const persistenceBefore = snapshotOpencodePersistence(
+      this.isolatedHome,
+      sessionCwd,
+    );
+    log.info(`${this.logTag} loadSession persistence snapshot (before RPC)`, {
+      sessionId,
+      ...persistenceBefore,
+    });
+
+    restoreFlowagentsSessions(this.isolatedHome, sessionCwd);
+
+    this.suppressSessionReplayFor.add(sessionId);
+    this.pendingLoadSessionRegistration = true;
+    const timer = perfEmitter.start();
+    let loadResult: { modes?: unknown; configOptions?: unknown };
+    try {
+      loadResult = await this.acpConnection.loadSession({
+        sessionId,
+        cwd: sessionCwd,
+        mcpServers,
+        _meta,
+      });
+    } catch (err) {
+      log.warn(`${this.logTag} loadSession RPC failed`, {
+        sessionId,
+        cwd: sessionCwd,
+        isolatedHome: this.isolatedHome,
+        error: formatAcpLoadError(err),
+        persistence: persistenceBefore,
+        hint:
+          "nuwaxcode load calls sdk.session.get; session data lives in isolatedHome/.local/share/opencode. " +
+          "If session is missing after restart, verify the engine uses a persistent project isolated HOME.",
+      });
+      throw err;
+    } finally {
+      this.pendingLoadSessionRegistration = false;
+      this.suppressSessionReplayFor.delete(sessionId);
+    }
+    timer.end("acp.session.load", { mcpCount: mcpServers.length });
+
+    const existing = this.sessions.get(sessionId);
+    const session: AcpSession = existing ?? {
+      id: sessionId,
+      acpSessionId: sessionId,
+      createdAt: Date.now(),
+      status: "idle",
+    };
+    session.title = opts?.title ?? session.title;
+    session.cwd = sessionCwd;
+    session.mcpServerCount = mcpServers.length;
+    session.lastActivity = Date.now();
+    session.resumedModeState =
+      (loadResult.modes as { currentModeId?: string } | null | undefined) ??
+      null;
+    session.resumedModelId = parseAcpCurrentModelId(loadResult.configOptions);
+    this.applyAcpModeFromRpc(
+      session,
+      loadResult.modes as { currentModeId?: string } | null | undefined,
+    );
+    if (session.resumedModelId) {
+      session.acpCurrentModelId = session.resumedModelId;
+    }
+    if (session.status === undefined) session.status = "idle";
+    this.sessions.set(sessionId, session);
+
+    log.info(`${this.logTag} Session loaded`, {
+      sessionId,
+      resumedModelId: session.resumedModelId || "(unknown)",
+    });
+
+    return {
+      id: sessionId,
+      title: session.title,
+      time: { created: session.createdAt },
+    };
+  }
 
   async createSession(opts?: NewSessionOpts): Promise<SdkSession> {
     if (!this.acpConnection || !this.config) {
@@ -738,12 +1184,18 @@ export class AcpEngine extends EventEmitter {
       mcpServersJson: JSON.stringify(mcpServers, null, 2),
     });
     const timer = perfEmitter.start();
-    let acpResult: { sessionId: string };
+    let acpResult: {
+      sessionId: string;
+      modes?: { currentModeId?: string } | null;
+    };
+    this.pendingNewSessionRegistration = true;
     try {
       acpResult = await this.acpConnection.newSession(newSessionParams);
     } catch (err) {
       log.error(`${this.logTag} ❌ ACP newSession failed:`, err);
       throw err;
+    } finally {
+      this.pendingNewSessionRegistration = false;
     }
     const createMs = timer.end("acp.session.create", {
       mcpCount: mcpServers.length,
@@ -764,16 +1216,19 @@ export class AcpEngine extends EventEmitter {
     );
 
     const sessionId = acpResult.sessionId;
-    const session: AcpSession = {
+    const existing = this.sessions.get(sessionId);
+    const session: AcpSession = existing ?? {
       id: sessionId,
-      title: opts?.title,
       acpSessionId: sessionId,
-      cwd: sessionCwd,
       createdAt: Date.now(),
       status: "idle",
-      mcpServerCount: mcpServers.length,
-      lastActivity: Date.now(),
     };
+    session.title = opts?.title;
+    session.cwd = sessionCwd;
+    session.mcpServerCount = mcpServers.length;
+    session.lastActivity = Date.now();
+    if (session.status === undefined) session.status = "idle";
+    this.applyAcpModeFromRpc(session, acpResult.modes ?? null);
     this.sessions.set(sessionId, session);
 
     log.info(`${this.logTag} Session created`, {
@@ -799,10 +1254,12 @@ export class AcpEngine extends EventEmitter {
    * List sessions with detailed status info (for Sessions tab).
    */
   listSessionsDetailed(): DetailedSession[] {
+    const engineDisplayName = this.getEngineDisplayName();
     return Array.from(this.sessions.values()).map((s) => ({
       id: s.id,
       title: s.title,
-      engineType: this._engineName,
+      engineType: this._engineName as AgentEngineType,
+      engineDisplayName,
       projectId: s.projectId,
       status: s.status,
       createdAt: s.createdAt,
@@ -848,19 +1305,8 @@ export class AcpEngine extends EventEmitter {
         }
       }
 
-      // 1. Reject local prompt immediately for fast UX feedback.
-      const reject = this.activePromptRejects.get(sessionId);
-      if (reject) {
-        reject(createSessionCancelledError());
-        this.activePromptRejects.delete(sessionId);
-      }
-
-      this.activePromptSessions.delete(sessionId);
-
-      approvalInterventionService.cancelByAcpSession(sessionId);
-      this.permissions.clearSession(sessionId);
-
-      // 2. Send cancel to ACP binary
+      // 1. Send cancel to ACP binary first, so the agent can stop processing
+      //    and return stopReason: "cancelled" before we reject the local prompt.
       let timer: ReturnType<typeof setTimeout> | undefined;
       try {
         await Promise.race([
@@ -877,6 +1323,20 @@ export class AcpEngine extends EventEmitter {
       } finally {
         if (timer !== undefined) clearTimeout(timer);
       }
+
+      // 2. Reject local prompt after ACP binary has received the cancel.
+      this.bumpPromptTurn(sessionId);
+      const reject = this.activePromptRejects.get(sessionId);
+      if (reject) {
+        reject(createSessionCancelledError());
+        this.activePromptRejects.delete(sessionId);
+      }
+
+      this.activePromptSessions.delete(sessionId);
+
+      const acpKey = session.acpSessionId ?? sessionId;
+      approvalInterventionService.cancelByAcpSession(acpKey);
+      this.permissions.clearSession(acpKey);
 
       session.status = "idle";
       session.lastActivity = Date.now();
@@ -938,6 +1398,7 @@ export class AcpEngine extends EventEmitter {
 
     if (promptContent.length === 0) throw new Error("Empty prompt");
 
+    const promptTurn = this.bumpPromptTurn(sessionId);
     this.activePromptSessions.add(sessionId);
     session.status = "active";
     session.lastActivity = Date.now();
@@ -1117,9 +1578,22 @@ export class AcpEngine extends EventEmitter {
       });
     } catch (error) {
       log.error(`${this.logTag} Prompt failed:`, error);
-      const errMsg = toErrorMessage(error);
+      const currentSession = this.sessions.get(sessionId);
+      const errMsg = normalizePromptErrorForDisplay({
+        error,
+        engineName: this.engineName,
+        currentModelId: currentSession?.acpCurrentModelId,
+        resumedModelId: currentSession?.resumedModelId,
+        targetModelId:
+          this.config?.model || this.config?.env?.OPENCODE_MODEL || null,
+      });
       const isMcpReconnect = this.isMcpReconnectFailure(errMsg);
-      const promptEndReason = isMcpReconnect ? "mcp_reconnecting" : "error";
+      const isCancelled = isPromptCancellation(error);
+      const promptEndReason = isMcpReconnect
+        ? "mcp_reconnecting"
+        : isCancelled
+          ? "cancelled"
+          : "error";
       const promptEndDescription = isMcpReconnect
         ? getMcpReconnectPromptMessage()
         : errMsg;
@@ -1153,11 +1627,13 @@ export class AcpEngine extends EventEmitter {
       });
     } finally {
       this.off("computer:progress", onProgress);
-      this.activePromptSessions.delete(sessionId);
-      this.activePromptRejects.delete(sessionId);
-      // Always set idle: normal completion or after cancel (cancelOne may have set terminating).
-      session.status = "idle";
-      session.lastActivity = Date.now();
+      if (this.isCurrentPromptTurn(sessionId, promptTurn)) {
+        this.activePromptSessions.delete(sessionId);
+        this.activePromptRejects.delete(sessionId);
+        // Always set idle: normal completion or after cancel (cancelOne may have set terminating).
+        session.status = "idle";
+        session.lastActivity = Date.now();
+      }
     }
 
     return {
@@ -1233,24 +1709,106 @@ export class AcpEngine extends EventEmitter {
 
     const apiKey = mp.api_key || "";
     const baseUrl = mp.base_url || "";
-    const model = mp.model || mp.default_model || "";
+    const requestModel = mp.model || mp.default_model || "";
 
-    if (!apiKey && !baseUrl && !model) return false;
+    if (!apiKey && !baseUrl && !requestModel) return false;
 
     const currentKey = this.config.apiKey || "";
     const currentUrl = this.config.baseUrl || "";
-    const currentModel = this.config.model || "";
+    const currentModel =
+      this.config.model ||
+      this.config.env?.OPENCODE_MODEL ||
+      this.config.env?.ANTHROPIC_MODEL ||
+      "";
+
+    const modelChanged =
+      !!requestModel &&
+      !modelsEquivalentForProvider(requestModel, currentModel);
 
     return (
       (!!apiKey && apiKey !== currentKey) ||
       (!!baseUrl && baseUrl !== currentUrl) ||
-      (!!model && model !== currentModel)
+      modelChanged
     );
+  }
+
+  private resolveModelForReinit(mp: ModelProviderConfig): string | undefined {
+    const envModel =
+      this.config?.env?.OPENCODE_MODEL || this.config?.env?.ANTHROPIC_MODEL;
+    const resolved = resolveOpenAICompatModel({
+      model: mp.model,
+      defaultModel: mp.default_model,
+      envModel,
+    });
+    return (
+      resolved?.rawModel || mp.model || mp.default_model || this.config?.model
+    );
+  }
+
+  /**
+   * tool_approval_rules 的 ask 规则需写入 OPENCODE_CONFIG_CONTENT.permission，
+   * nuwaxcode 仅在 spawn 时读取。规则变化且无活跃 prompt 时 reinit 子进程。
+   */
+  private async ensureOpencodePermissionBridge(
+    rules: ToolApprovalRuleInput[] | undefined,
+  ): Promise<{ ok: true } | { ok: false; error: string }> {
+    if (!this.sandboxCaps.usesOpencodeSpawnConfig || !this.config) {
+      return { ok: true };
+    }
+
+    const nextKey = computeOpencodePermissionBridgeKey(rules);
+    if (nextKey === this.opencodePermissionBridgeKey) {
+      return { ok: true };
+    }
+
+    if (this.activePromptSessions.size > 0) {
+      log.warn(
+        `${this.logTag} tool_approval_rules permission bridge skipped: ${this.activePromptSessions.size} active prompt(s); OPENCODE_CONFIG_CONTENT unchanged until idle`,
+        { bridgeKey: nextKey },
+      );
+      // 引擎层 permission 保持旧值直至空闲后 reinit；client 层仍通过 setSessionApprovalRules 生效。
+      return { ok: true };
+    }
+
+    log.info(
+      `${this.logTag} 🔄 tool_approval_rules ask patterns changed, reinitializing OpenCode engine for permission bridge`,
+      {
+        previousKey: this.opencodePermissionBridgeKey || "(none)",
+        nextKey: nextKey || "(none)",
+      },
+    );
+
+    this.opencodePermissionBridgeRules = rules;
+    const savedConfig = this.config;
+    await this.destroy();
+    const initResult = await this.init(savedConfig);
+    if (!initResult.ok) {
+      return {
+        ok: false,
+        error: initResult.error || "permission bridge reinit failed",
+      };
+    }
+    return { ok: true };
+  }
+
+  /** 将本请求的 OPENCODE_PERMISSION 同步进 config，避免 bridge reinit 使用陈旧 env。 */
+  private syncOpencodePermissionFromRequest(
+    request: ComputerChatRequest,
+  ): void {
+    if (!this.sandboxCaps.usesOpencodeSpawnConfig || !this.config) return;
+    const perm = resolveOpencodePermissionEnv(
+      request.agent_config?.agent_server?.env?.OPENCODE_PERMISSION,
+    );
+    this.config = {
+      ...this.config,
+      env: { ...this.config.env, OPENCODE_PERMISSION: perm },
+    };
   }
 
   async chat(
     request: ComputerChatRequest,
-  ): Promise<HttpResult<ComputerChatResponse>> {
+    dispatch?: ChatDispatchContext,
+  ): Promise<AcpChatHttpResult> {
     const timer = perfEmitter.start();
     firstTokenTrace.trace("acp.chat.enter", {
       requestId: request.request_id,
@@ -1317,19 +1875,16 @@ export class AcpEngine extends EventEmitter {
             ...this.config,
             apiKey: request.model_provider.api_key || this.config.apiKey,
             baseUrl: request.model_provider.base_url || this.config.baseUrl,
-            model:
-              request.model_provider.model ||
-              request.model_provider.default_model ||
-              this.config.model,
+            model: this.resolveModelForReinit(request.model_provider),
             apiProtocol:
               request.model_provider.api_protocol || this.config.apiProtocol,
           };
           await this.destroy();
-          const ok = await this.init(newConfig);
-          if (!ok) {
+          const initResult = await this.init(newConfig);
+          if (!initResult.ok) {
             return {
               code: "5000",
-              message: "Failed to reinit with new model_provider",
+              message: `Failed to reinit with new model_provider: ${initResult.error || "unknown reason"}`,
               data: null,
               tid: null,
               success: false,
@@ -1338,72 +1893,105 @@ export class AcpEngine extends EventEmitter {
         }
       }
 
-      // 1. Find existing session or create new
-      let session: AcpSession | undefined;
-      let isNewSession = false;
+      this.syncOpencodePermissionFromRequest(request);
 
-      if (request.session_id) {
-        session = this.sessions.get(request.session_id);
+      const bridgeResult = await this.ensureOpencodePermissionBridge(
+        request.agent_config?.agent_server?.tool_approval_rules,
+      );
+      if (!bridgeResult.ok) {
+        return {
+          code: "5000",
+          message: `Failed to apply tool_approval_rules permission bridge: ${bridgeResult.error}`,
+          data: null,
+          tid: null,
+          success: false,
+        };
       }
-      if (!session && request.project_id) {
-        session = this.findSessionByProjectId(request.project_id) ?? undefined;
-      }
 
-      if (!session) {
-        isNewSession = true;
-        const projectId = request.project_id || `proj-${Date.now()}`;
-        const projectDir = resolveComputerProjectWorkspaceDir(
-          this.config.workspaceDir,
-          request.user_id,
-          projectId,
-        );
-        log.info(`${this.logTag} 📁 Project workspace: ${projectDir}`);
-
-        // PERF: 会话创建阶段
-
-        // context_servers 已由 ensureEngineForRequest() 同步到 proxy 聚合代理
-        // (nuwax-mcp-stdio-proxy)，不再单独传给 createSession()，
-        // 避免 claude-code 重复 spawn 导致 Windows 弹窗和资源浪费
-        if (request.agent_config?.context_servers) {
-          const servers = request.agent_config.context_servers;
-          const serverNames = Object.keys(servers).filter(
-            (n) => servers[n]?.enabled !== false,
-          );
-          log.info(
-            `${this.logTag} 🔌 context_servers (aggregated by proxy): ${serverNames.join(", ") || "(none)"}`,
-          );
-        }
-
-        const newSession = await this.createSession({
-          title: projectId,
-          cwd: projectDir,
-          mcpServers: this.config.mcpServers,
+      // 1. Resolve session: memory → load → new
+      let restoredVia: SessionRestoredVia = "memory";
+      const setup = await resolveSessionForChat(
+        {
+          logTag: this.logTag,
+          workspaceDir: this.config.workspaceDir,
+          agentCapabilities: this.agentCapabilities,
+          getSession: (id) => this.sessions.get(id),
+          findSessionByProjectId: (pid) => this.findSessionByProjectId(pid),
+          loadSession: async (sessionId, opts) => {
+            const sdk = await this.loadAcpSession(sessionId, opts);
+            return this.sessions.get(sdk.id)!;
+          },
+          createSession: async (opts) => {
+            const sdk = await this.createSession(opts);
+            return { id: sdk.id };
+          },
+          getSessionRecord: (id) => this.sessions.get(id)!,
+        },
+        request,
+        {
           systemPrompt: request.system_prompt,
           requestId: request.request_id,
-        });
-        session = this.sessions.get(newSession.id)!;
-        session.projectId = request.project_id;
+        },
+      );
+
+      const session = setup.session as AcpSession;
+      const isNewSession = setup.isNewSession;
+      restoredVia = setup.restoredVia;
+
+      if (request.agent_config?.context_servers && restoredVia === "new") {
+        const servers = request.agent_config.context_servers;
+        const serverNames = Object.keys(servers).filter(
+          (n) => servers[n]?.enabled !== false,
+        );
+        log.info(
+          `${this.logTag} 🔌 context_servers (aggregated by proxy): ${serverNames.join(", ") || "(none)"}`,
+        );
+      }
+
+      if (restoredVia === "new") {
         firstTokenTrace.trace(
           "acp.chat.session_created",
           {
             requestId: request.request_id,
             sessionId: session.id,
             projectId: request.project_id,
+            agentWorkDir: request.agent_work_dir,
             engine: this.engineName,
           },
-          { projectDir },
+          { projectDir: session.cwd },
         );
       } else {
-        firstTokenTrace.trace("acp.chat.session_reused", {
-          requestId: request.request_id,
-          sessionId: session.id,
-          projectId: request.project_id,
-          engine: this.engineName,
-        });
+        firstTokenTrace.trace(
+          "acp.chat.session_reused",
+          {
+            requestId: request.request_id,
+            sessionId: session.id,
+            projectId: request.project_id,
+            agentWorkDir: request.agent_work_dir,
+            engine: this.engineName,
+          },
+          { restoredVia },
+        );
       }
 
       if (session.acpSessionId) {
-        this.setEffectiveMode(session.acpSessionId, effectiveMode);
+        const engineModeHint =
+          parseAcpModeId(session.resumedModeState?.currentModeId) ??
+          session.acpCurrentModeId ??
+          null;
+        const targetModelId = resolveTargetModelForChat(request, this.config);
+        await this.syncSessionModeForChat(
+          session.acpSessionId,
+          effectiveMode,
+          engineModeHint,
+        );
+        await this.syncSessionModelForChat(
+          session.acpSessionId,
+          targetModelId,
+          session.resumedModelId ?? session.acpCurrentModelId ?? null,
+        );
+        session.resumedModeState = null;
+        session.resumedModelId = null;
         // 每次 chat 请求刷新该会话的 tool_approval_rules（不传则清除，保持向后兼容）
         this.permissions.setSessionApprovalRules(
           session.acpSessionId,
@@ -1429,72 +2017,120 @@ export class AcpEngine extends EventEmitter {
         { isNewSession },
       );
 
-      // 2. Record user message to MemoryService（见 acpChatMemory.ts）
-      // 获取纯净用户输入（仅使用 original_user_prompt，不回退到 prompt）
-      const pureUserPrompt = request.original_user_prompt || "";
-      // 决定是否启用记忆（默认 false）
-      const enableMemory = request.open_long_memory === true;
-
-      // 存储记忆开关到 session，供事件处理器使用
-      session.openLongMemory = enableMemory;
-      // 存储记忆处理使用的模型名（优先使用 model_provider.default_model）
-      session.memoryModel =
-        request.model_provider?.default_model || this.config.model || "";
-
-      recordUserMessageToMemory({
-        sessionId: session.id,
-        requestId: request.request_id,
-        pureUserPrompt,
-        enableMemory,
-        modelProvider: request.model_provider,
-        engineName: this.engineName,
-        config: this.config,
-        logTag: this.logTag,
-      });
-
-      // 3. Inject memory context into prompt
-      const memoryTimer = perfEmitter.start();
-      const enhancedPrompt = await buildMemoryEnhancedPrompt({
-        prompt: request.prompt,
-        pureUserPrompt,
-        enableMemory,
-        logTag: this.logTag,
-      });
-      memoryTimer.end("acp.chat.memoryInject", {
-        stage: "memory_injection",
-        enabled: enableMemory,
-      });
+      if (
+        dispatch &&
+        !chatDispatchCoordinator.isLatest(
+          dispatch.dispatchKey,
+          dispatch.turnGeneration,
+        )
+      ) {
+        return this.finalizeSupersededChat(
+          session,
+          request,
+          dispatch,
+          isNewSession,
+          timer,
+        );
+      }
 
       const contextServerNames = this.getEnabledContextServerNames(
         request.agent_config?.context_servers as
           | Record<string, { enabled?: boolean } | undefined>
           | undefined,
       );
-      await this.waitForCompatMcpWarmupIfNeeded({
-        sessionId: session.id,
-        requestId: request.request_id,
-        isNewSession,
-        mcpServerCount: session.mcpServerCount ?? 0,
-        contextServerNames,
-      });
 
-      // 4. Async prompt
-      const promptOptions: PromptOptions = {
-        messageID: request.request_id,
+      const dispatchPrompt = async (
+        isLatest?: () => boolean,
+      ): Promise<"dispatched" | "superseded"> => {
+        if (isLatest && !isLatest()) {
+          return "superseded";
+        }
+        await this.abortActiveTurnBeforeNewChat(session);
+        if (isLatest && !isLatest()) {
+          return "superseded";
+        }
+
+        const pureUserPrompt = request.original_user_prompt || "";
+        const enableMemory = request.open_long_memory === true;
+
+        session.openLongMemory = enableMemory;
+        session.memoryModel =
+          request.model_provider?.default_model || this.config!.model || "";
+
+        recordUserMessageToMemory({
+          sessionId: session.id,
+          requestId: request.request_id,
+          pureUserPrompt,
+          enableMemory,
+          modelProvider: request.model_provider,
+          engineName: this.engineName,
+          config: this.config!,
+          logTag: this.logTag,
+        });
+
+        const memoryTimer = perfEmitter.start();
+        const enhancedPrompt = await buildMemoryEnhancedPrompt({
+          prompt: request.prompt,
+          pureUserPrompt,
+          enableMemory,
+          logTag: this.logTag,
+        });
+        memoryTimer.end("acp.chat.memoryInject", {
+          stage: "memory_injection",
+          enabled: enableMemory,
+        });
+
+        await this.waitForCompatMcpWarmupIfNeeded({
+          sessionId: session.id,
+          requestId: request.request_id,
+          isNewSession,
+          mcpServerCount: session.mcpServerCount ?? 0,
+          contextServerNames,
+        });
+
+        const promptOptions: PromptOptions = {
+          messageID: request.request_id,
+        };
+        if (this.sandboxCaps.usesOpencodePromptBehaviors) {
+          promptOptions.mcpInitPolicy = NUWAX_MCP_INIT_POLICY_DEFAULT;
+          promptOptions.mcpInitTimeoutMs = NUWAX_MCP_INIT_TIMEOUT_MS_DEFAULT;
+        }
+        this.promptAsync(session.id, [{ type: "text", text: enhancedPrompt }], {
+          ...promptOptions,
+        });
+        firstTokenTrace.trace("acp.prompt.dispatched", {
+          requestId: request.request_id,
+          sessionId: session.id,
+          projectId: request.project_id,
+          engine: this.engineName,
+        });
+        return "dispatched";
       };
-      if (this.sandboxCaps.usesOpencodePromptBehaviors) {
-        promptOptions.mcpInitPolicy = NUWAX_MCP_INIT_POLICY_DEFAULT;
-        promptOptions.mcpInitTimeoutMs = NUWAX_MCP_INIT_TIMEOUT_MS_DEFAULT;
+
+      let promptOutcome: "dispatched" | "superseded";
+      if (dispatch) {
+        const runResult = await chatDispatchCoordinator.runDispatch(
+          dispatch.dispatchKey,
+          dispatch.turnGeneration,
+          async (isLatest) => dispatchPrompt(isLatest),
+        );
+        promptOutcome =
+          runResult === undefined || runResult === "superseded"
+            ? "superseded"
+            : "dispatched";
+      } else {
+        promptOutcome = await dispatchPrompt();
       }
-      this.promptAsync(session.id, [{ type: "text", text: enhancedPrompt }], {
-        ...promptOptions,
-      });
-      firstTokenTrace.trace("acp.prompt.dispatched", {
-        requestId: request.request_id,
-        sessionId: session.id,
-        projectId: request.project_id,
-        engine: this.engineName,
-      });
+
+      if (promptOutcome === "superseded") {
+        return this.finalizeSupersededChat(
+          session,
+          request,
+          dispatch,
+          isNewSession,
+          timer,
+        );
+      }
 
       timer.end("acp.chat.total", {
         stage: "total",
@@ -1502,9 +2138,9 @@ export class AcpEngine extends EventEmitter {
         isNewSession,
         engine: this.engineName,
         model: this.config.model || "(not set)",
+        promptOutcome,
       });
 
-      // 5. Return HttpResult<ChatResponse>
       const chatResponse: ComputerChatResponse = {
         project_id: request.project_id || session.id,
         session_id: session.id,
@@ -1531,6 +2167,8 @@ export class AcpEngine extends EventEmitter {
         data: chatResponse,
         tid: null,
         success: true,
+        /** Electron-internal; stripped before HTTP JSON (see router handleComputerChat) */
+        promptDispatched: true,
       };
     } catch (error) {
       const rawErrorMsg = toErrorMessage(error);
@@ -1559,6 +2197,53 @@ export class AcpEngine extends EventEmitter {
   }
 
   // === Internal: Build ACP Client Handler ===
+
+  private finalizeSupersededChat(
+    session: AcpSession,
+    request: ComputerChatRequest,
+    dispatch: ChatDispatchContext | undefined,
+    isNewSession: boolean,
+    timer: ReturnType<typeof perfEmitter.start>,
+  ): AcpChatHttpResult {
+    timer.end("acp.chat.total", {
+      stage: "total",
+      sessionId: session.id,
+      isNewSession,
+      engine: this.engineName,
+      model: this.config?.model || "(not set)",
+      promptOutcome: "superseded",
+    });
+    log.info(
+      `${this.logTag} chat() superseded (no prompt dispatched): session_id=${session.id} request_id=${request.request_id}`,
+    );
+    firstTokenTrace.trace(
+      "chat.superseded",
+      {
+        requestId: request.request_id,
+        sessionId: session.id,
+        projectId: request.project_id,
+        engine: this.engineName,
+      },
+      {
+        dispatchKey: dispatch?.dispatchKey,
+        turnGeneration: dispatch?.turnGeneration,
+      },
+    );
+    return {
+      code: "0000",
+      message: "success",
+      data: {
+        project_id: request.project_id || session.id,
+        session_id: session.id,
+        error: null,
+        request_id: request.request_id,
+        is_new_session: isNewSession,
+      },
+      tid: null,
+      success: true,
+      promptDispatched: false,
+    };
+  }
 
   private buildClientHandler(): AcpClientHandler {
     if (!this.terminalManager) {
@@ -1593,11 +2278,35 @@ export class AcpEngine extends EventEmitter {
   ): void {
     const session = this.sessions.get(acpSessionId);
     if (!session) {
+      if (
+        this.pendingNewSessionRegistration ||
+        this.pendingLoadSessionRegistration
+      ) {
+        const early: AcpSession = {
+          id: acpSessionId,
+          acpSessionId,
+          createdAt: Date.now(),
+          status: "idle",
+          lastActivity: Date.now(),
+        };
+        this.sessions.set(acpSessionId, early);
+        log.info(
+          `${this.logTag} Pre-registered session for early sessionUpdate: ${acpSessionId}`,
+        );
+        return this.handleAcpSessionUpdate(acpSessionId, update);
+      }
       log.warn(`${this.logTag} Unknown ACP session:`, acpSessionId);
       return;
     }
 
     session.lastActivity = Date.now();
+
+    if (this.suppressSessionReplayFor.has(acpSessionId)) {
+      log.debug(
+        `${this.logTag} Suppress session/update during loadSession replay: ${update.sessionUpdate}`,
+      );
+      return;
+    }
 
     const shouldSuppressUpdates =
       session.status === "terminating" &&
@@ -1655,6 +2364,47 @@ export class AcpEngine extends EventEmitter {
     for (const { event, payload } of mapped.events) {
       this.emit(event, payload);
     }
+  }
+
+  /**
+   * 新 /computer/chat 到达时取消上一轮未完成的 prompt 与 pending 权限审批。
+   * 活跃 prompt 走完整 abortSession（ACP cancel + 本地 reject + pending 清理）；
+   * 仅残留 pending 时单独 cancel，避免旧审批在下一轮仍被 resolve。
+   */
+  private async abortActiveTurnBeforeNewChat(
+    session: AcpSession,
+  ): Promise<void> {
+    const sessionId = session.id;
+    const acpSessionId = session.acpSessionId ?? sessionId;
+    const hasActivePrompt = this.activePromptSessions.has(sessionId);
+    const hasPendingPermissions =
+      approvalInterventionService.hasPendingForAcpSession(acpSessionId);
+
+    if (!hasActivePrompt && !hasPendingPermissions) {
+      return;
+    }
+
+    log.info(
+      `${this.logTag} New chat supersedes in-flight turn: session=${sessionId} acpSession=${acpSessionId} activePrompt=${hasActivePrompt} pendingPermissions=${hasPendingPermissions}`,
+    );
+
+    if (hasActivePrompt) {
+      await this.abortSession(sessionId);
+      return;
+    }
+
+    approvalInterventionService.cancelByAcpSession(acpSessionId, "new_chat");
+    this.permissions.clearSession(acpSessionId);
+  }
+
+  private bumpPromptTurn(sessionId: string): number {
+    const next = (this.promptTurnBySession.get(sessionId) ?? 0) + 1;
+    this.promptTurnBySession.set(sessionId, next);
+    return next;
+  }
+
+  private isCurrentPromptTurn(sessionId: string, turn: number): boolean {
+    return this.promptTurnBySession.get(sessionId) === turn;
   }
 
   // === Internal: Permission Handling ===

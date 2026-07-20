@@ -1,15 +1,22 @@
 /**
  * 共享引擎类型定义
  *
- * 从 unifiedAgent.ts 提取，避免 acp/、engineWarmup.ts、agentHelpers.ts
- * 与 unifiedAgent.ts 之间的循环 import。
+ * 从 unifiedAgent.ts 提取，避免 acp/、agentHelpers.ts 之间的循环 import。
  * unifiedAgent.ts 会 re-export 本文件的全部类型，外部调用方 import 路径不变。
  */
 
 export type AgentEngineType = "nuwaxcode" | "claude-code" | "codex-cli";
 
+import type { IsolatedHomeScope } from "./acp/isolatedHomePaths";
+
 export interface AgentConfig {
   engine: AgentEngineType;
+  /** Custom agent command (when engine type is unknown, use this as the binary command) */
+  customEngineCommand?: string;
+  /** Custom agent args (from agent_server.args, appended to spawn args) */
+  customEngineArgs?: string[];
+  /** agent_server.agent_id，用于自定义引擎在 ACP 握手前展示 */
+  customAgentId?: string;
   apiKey?: string;
   baseUrl?: string;
   model?: string;
@@ -28,8 +35,8 @@ export interface AgentConfig {
   permissionMode?: "default" | "acceptEdits" | "bypassPermissions";
   systemPrompt?: string;
   purpose?: "engine";
-  /** @internal Sandbox strictness mode injected by UnifiedAgentService for warmup compatibility check. */
-  __sandboxMode?: string;
+  /** @internal ACP isolated HOME scope (Computer project paths). */
+  __isolatedHomeScope?: IsolatedHomeScope;
 }
 
 // ==================== Session Types ====================

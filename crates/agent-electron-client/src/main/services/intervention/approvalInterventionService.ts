@@ -228,16 +228,28 @@ export class ApprovalInterventionService extends EventEmitter {
     return { ok: true, hostStatus: "resolved" };
   }
 
+  hasPendingForAcpSession(acpSessionId: string): boolean {
+    for (const pending of this.pending.values()) {
+      if (
+        pending.acpSessionId === acpSessionId &&
+        pending.status === "pending"
+      ) {
+        return true;
+      }
+    }
+    return false;
+  }
+
   /**
-   * 按 acpSessionId 取消所有 pending（session cancel 时调用）
+   * 按 acpSessionId 取消所有 pending（session cancel / 新 chat 顶替时调用）
    */
-  cancelByAcpSession(acpSessionId: string): void {
+  cancelByAcpSession(acpSessionId: string, reason = "session_cancel"): void {
     for (const [id, pending] of this.pending) {
       if (pending.acpSessionId === acpSessionId) {
         this.resolvePendingInternal(
           id,
           { outcome: { outcome: "cancelled" } },
-          "session_cancel",
+          reason,
         );
       }
     }

@@ -38,6 +38,12 @@ describe("acpEngineSandbox", () => {
     expect(caps.usesCompatMcpLayer()).toBe(false);
   });
 
+  it("unknown custom agent id does not use OPENCODE spawn config", () => {
+    const caps = getAcpEngineSandboxCapabilities("__custom_agent__");
+    expect(caps.family).toBe("unknown");
+    expect(caps.usesOpencodeSpawnConfig).toBe(false);
+  });
+
   it("usesSandboxedMcpAtSession: claude-code on Windows uses session MCP", () => {
     expect(usesSandboxedMcpAtSession("claude-code", windowsSandbox)).toBe(true);
   });

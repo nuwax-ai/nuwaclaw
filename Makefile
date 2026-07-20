@@ -233,11 +233,10 @@ electron-bundle: electron-bundle-unsigned
 	echo ">>> Sign work dir: $$WORK_DIR"; \
 	mkdir -p "$$UNSIGNED_DIR" "$$SIGNED_DIR"; \
 	cp "$$RELEASE_DIR/NuwaClaw-Setup-$$VERSION-unsigned.exe" "$$UNSIGNED_DIR/"; \
-	cp "$$RELEASE_DIR/NuwaClaw-$$VERSION-unsigned.msi" "$$UNSIGNED_DIR/"; \
 	( cd crates/$(ELECTRON_CLIENT) && SIGN_WORK_DIR="$$WORK_DIR" bash ./scripts/build/sign-release-win.sh "$$VERSION" --skip-download --skip-upload ); \
 	mkdir -p "$$RELEASE_DIR"; \
 	cp "$$SIGNED_DIR/NuwaClaw.Setup.$$VERSION.exe" "$$RELEASE_DIR/"; \
-	cp "$$SIGNED_DIR/NuwaClaw.$$VERSION.msi" "$$RELEASE_DIR/"; \
+	# MSI（NuwaClaw.$$VERSION.msi）由构建直出最终名，不签名
 	echo ">>> Signed artifacts copied to $$RELEASE_DIR"
 else
 .PHONY: electron-bundle
@@ -256,10 +255,10 @@ electron-dev: electron-prepare
 	@echo ">>> Starting Electron dev mode..."
 	@echo ">>> 日志通过 .env.development 配置 (NUWAX_AGENT_LOG_FULL_SECRETS=true)"
 	@echo ">>> INJECT_GUI_MCP=true（通过 .env.development 配置，向 ACP 注入 gui-agent MCP）"
-	@echo ">>> Logs will be written to logs/electron-dev.log"
+	@echo ">>> Logs: logs/electron-dev.log (filtered) + ~/.nuwaclaw/logs/latest.log (full)"
 	mkdir -p logs
 	@echo "=== Electron Dev Started at $$(date) ===" > logs/electron-dev.log
-	cd crates/$(ELECTRON_CLIENT) && npm run dev 2>&1 | tee -a $(CURDIR)/logs/electron-dev.log
+	cd crates/$(ELECTRON_CLIENT) && npm run dev 2>&1 | node scripts/dev/electron-dev-log.mjs $(CURDIR)/logs/electron-dev.log
 
 # ============================================================================
 # 依赖管理

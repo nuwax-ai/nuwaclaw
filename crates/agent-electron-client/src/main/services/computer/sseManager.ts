@@ -10,13 +10,20 @@
 
 import * as http from "http";
 import log from "electron-log";
+import { FEATURES } from "@shared/featureFlags";
 import { getPerfLogger } from "../../bootstrap/logConfig";
 import { firstTokenTrace } from "../engines/perf/firstTokenTrace";
+import { resolveProjectSession } from "./projectSessionRegistry";
 
 // ==================== 常量 ====================
 
 export const SSE_EVENT_BUFFER_MAX = 50;
-const SSE_EVENT_BUFFER_TTL_MS = 30000;
+/** 默认缓冲 TTL；活跃 prompt 期间不 prune（见 activeSsePromptSessions） */
+const SSE_EVENT_BUFFER_TTL_MS = 30_000;
+/** 长 TTFT / SSE 重连窗口：活跃 prompt 或无客户端时的最大保留时间 */
+const SSE_EVENT_BUFFER_ACTIVE_TTL_MS = 10 * 60 * 1000;
+
+const activeSsePromptSessions = new Set<string>();
 
 // ==================== 状态 ====================
 
@@ -48,10 +55,10 @@ let _chunkStructureLogged = false;
 function pruneExpiredSseEventBuffers(): void {
   const now = Date.now();
   for (const [sessionId, buf] of sseEventBuffers.entries()) {
-    if (
-      now - buf.createdAt >= SSE_EVENT_BUFFER_TTL_MS &&
-      !sseClients.has(sessionId)
-    ) {
+    const ttlMs = activeSsePromptSessions.has(sessionId)
+      ? SSE_EVENT_BUFFER_ACTIVE_TTL_MS
+      : SSE_EVENT_BUFFER_TTL_MS;
+    if (now - buf.createdAt >= ttlMs && !sseClients.has(sessionId)) {
       sseEventBuffers.delete(sessionId);
       sessionFirstTokenContexts.delete(sessionId);
     }
@@ -61,10 +68,10 @@ function pruneExpiredSseEventBuffers(): void {
 function pruneExpiredSessionFirstTokenContexts(): void {
   const now = Date.now();
   for (const [sessionId, ctx] of sessionFirstTokenContexts.entries()) {
-    if (
-      now - ctx.createdAt >= SSE_EVENT_BUFFER_TTL_MS &&
-      !sseClients.has(sessionId)
-    ) {
+    const ttlMs = activeSsePromptSessions.has(sessionId)
+      ? SSE_EVENT_BUFFER_ACTIVE_TTL_MS
+      : SSE_EVENT_BUFFER_TTL_MS;
+    if (now - ctx.createdAt >= ttlMs && !sseClients.has(sessionId)) {
       sessionFirstTokenContexts.delete(sessionId);
     }
   }
@@ -82,6 +89,13 @@ function extractAgentChunkText(data: unknown): string {
   return typeof text === "string" ? text : "";
 }
 
+/** 开发排查：打印完整 SSE wire payload（event + data 行），受 LOG_SSE_PAYLOAD 控制 */
+export function logSseWirePayloadForDebug(payload: string): void {
+  if (FEATURES.LOG_SSE_PAYLOAD) {
+    log.debug(`[SSE] payload:\n${payload}`);
+  }
+}
+
 // ==================== 首字追踪上下文 API ====================
 
 export function bindSessionFirstTokenContext(
@@ -96,6 +110,17 @@ export function bindSessionFirstTokenContext(
 
 export function clearSessionFirstTokenContext(sessionId: string): void {
   sessionFirstTokenContexts.delete(sessionId);
+}
+
+/** 标记 session 正在执行 prompt，延长 SSE 事件缓冲 TTL 直至 end_turn */
+export function markSsePromptActive(sessionId: string): void {
+  if (!sessionId) return;
+  activeSsePromptSessions.add(sessionId);
+}
+
+export function clearSsePromptActive(sessionId: string): void {
+  if (!sessionId) return;
+  activeSsePromptSessions.delete(sessionId);
 }
 
 // ==================== 客户端注册 API ====================
@@ -126,7 +151,7 @@ export function unregisterSseClient(
 
 /**
  * 回放 session 的缓冲事件到新建立的 SSE 连接。
- * 回放后删除缓冲，返回实际回放条数。
+ * 保留缓冲供断线重连（lanproxy 抖动时 Java 可再次连接并收到完整流）。
  */
 export function replayBufferedEvents(
   sessionId: string,
@@ -134,7 +159,6 @@ export function replayBufferedEvents(
 ): number {
   const buffered = sseEventBuffers.get(sessionId);
   if (!buffered) return 0;
-  sseEventBuffers.delete(sessionId);
   let replayed = 0;
   for (const eventPayload of buffered.events) {
     try {
@@ -187,6 +211,7 @@ export function clearSseEventBuffer(sessionId: string): void {
   if (!sessionId) return;
   sseEventBuffers.delete(sessionId);
   clearSessionFirstTokenContext(sessionId);
+  clearSsePromptActive(sessionId);
 }
 
 /**
@@ -195,6 +220,7 @@ export function clearSseEventBuffer(sessionId: string): void {
 export function clearAllSseEventBuffers(): void {
   sseEventBuffers.clear();
   sessionFirstTokenContexts.clear();
+  activeSsePromptSessions.clear();
 }
 
 /**
@@ -215,6 +241,78 @@ export function closeAndClearAllSseClients(): void {
   sseFirstEventSent.clear();
   sseFirstTokenSent.clear();
   sessionFirstTokenContexts.clear();
+  activeSsePromptSessions.clear();
+}
+
+/**
+ * Whether progress SSE should close after sessionPromptEnd for the given reason.
+ * Keeps the connection open during transient MCP reconnect retries only.
+ */
+export function shouldCloseSseAfterPromptEnd(reason?: string): boolean {
+  return reason !== "mcp_reconnecting";
+}
+
+/**
+ * Open progress SSE session_ids tied to project keys (registry, TTFT context, live clients).
+ * Covers zombie connections whose session_id no longer matches registry after session rotation.
+ */
+export function collectOpenSseSessionIdsForProjectKeys(
+  keys: Iterable<string>,
+): string[] {
+  const keySet = new Set<string>();
+  for (const key of keys) {
+    if (key) keySet.add(key);
+  }
+  if (keySet.size === 0) return [];
+
+  const ids = new Set<string>();
+
+  for (const key of keySet) {
+    const remembered = resolveProjectSession(key);
+    if (remembered) ids.add(remembered);
+  }
+
+  for (const [sessionId, ctx] of sessionFirstTokenContexts) {
+    if (ctx.projectId && keySet.has(ctx.projectId)) {
+      ids.add(sessionId);
+    }
+  }
+
+  for (const [sessionId, clients] of sseClients) {
+    if (clients.length === 0) continue;
+    const ctx = sessionFirstTokenContexts.get(sessionId);
+    if (ctx?.projectId && keySet.has(ctx.projectId)) {
+      ids.add(sessionId);
+    }
+  }
+
+  return [...ids];
+}
+
+/**
+ * Close all active progress SSE connections for a session and clear related state.
+ * Stops the router heartbeat interval via `req.on("close")` when clients disconnect.
+ */
+export function closeSseClientsForSession(sessionId: string): void {
+  if (!sessionId) return;
+
+  const clients = sseClients.get(sessionId);
+  if (clients && clients.length > 0) {
+    log.info(
+      `[SSE] Closing ${clients.length} client(s): session_id=${sessionId}`,
+    );
+    for (const client of [...clients]) {
+      try {
+        client.end();
+      } catch {
+        /* ignore */
+      }
+    }
+  }
+
+  sseClients.delete(sessionId);
+  clearSseEventBuffer(sessionId);
+  clearSseTimers(sessionId);
 }
 
 // ==================== SSE 推送 ====================
@@ -308,6 +406,7 @@ export function pushSseEvent(
   log.debug(
     `[SSE] pushSseEvent: sessionId=${sessionId}, eventName=${eventName}, time=${now}, clients=${clients?.length || 0}`,
   );
+  logSseWirePayloadForDebug(payload);
 
   if (!clients || clients.length === 0) {
     pruneExpiredSseEventBuffers();

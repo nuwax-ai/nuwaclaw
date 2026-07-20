@@ -2,11 +2,13 @@
  * AcpPermissionCoordinator — ACP 工具权限决策协调器
  *
  * 持有权限相关的会话级状态（生效模式、tool_approval_rules、strict 快照日志去重），
- * 并按固定顺序执行决策链：
- * ① question 类型直接拒绝
- * ② strict write guard（沙箱 strict 模式写路径校验）
+ * 并按固定顺序执行决策链（对齐 rcoder tool-approval-rules-spec §7；危险命令不在此处理）：
+ * ① question 类型直接拒绝（客户端专有）
+ * ② strict write guard（沙箱 strict 模式写路径校验，客户端专有）
  * ③ tool_approval_rules 匹配（deny / allow / ask）
  * ④ agent_mode 默认行为（yolo 自动放行；其余返回 "ask"）
+ *
+ * 危险命令不单独拦截；如需对 rm 等强制审批，由 tool_approval_rules 配置（如 `rm -rf * → ask`）。
  *
  * 决策结果由调用方（AcpEngine）翻译成 ACP 响应；"ask" 结果走
  * approvalInterventionService 人工审批，该衔接保留在 AcpEngine。
@@ -18,13 +20,19 @@ import type {
   AcpPermissionResponse,
   AcpPermissionOption,
 } from "../acpClient";
-import type { ToolApprovalRule } from "@shared/types/computerTypes";
+import type {
+  ToolApprovalRule,
+  ToolApprovalRuleInput,
+} from "@shared/types/computerTypes";
 import type { AcpMode } from "@shared/types/acpMode";
 import {
   evaluateStrictWritePermission,
   type StrictPermissionContext,
 } from "./strictPermissionGuard";
-import { matchToolApprovalRules } from "./toolApprovalRules";
+import {
+  matchToolApprovalRules,
+  normalizeToolApprovalRules,
+} from "./toolApprovalRules";
 
 /** 决策链的产出，由 AcpEngine 翻译为 ACP 响应 */
 export type PermissionDecision =
@@ -76,10 +84,11 @@ export class AcpPermissionCoordinator {
   /** 每次 chat 请求刷新该会话的 tool_approval_rules（不传则清除，保持向后兼容） */
   setSessionApprovalRules(
     acpSessionId: string,
-    rules: ToolApprovalRule[] | undefined,
+    rules: ToolApprovalRuleInput[] | undefined,
   ): void {
-    if (rules && rules.length > 0) {
-      this.sessionToolApprovalRules.set(acpSessionId, [...rules]);
+    const normalized = normalizeToolApprovalRules(rules);
+    if (normalized && normalized.length > 0) {
+      this.sessionToolApprovalRules.set(acpSessionId, normalized);
     } else {
       this.sessionToolApprovalRules.delete(acpSessionId);
     }

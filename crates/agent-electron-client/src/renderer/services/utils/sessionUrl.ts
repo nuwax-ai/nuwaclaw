@@ -6,6 +6,8 @@
  *   /api/sandbox/config/redirect/{sandboxConfigId}       - enter sandbox (开始会话)
  *   /api/sandbox/config/redirect/new/{sandboxConfigId}   - create new session (新建会话)
  *   /api/sandbox/config/redirect/chat/{sessionId}        - enter history session (进入历史会话)
+ *
+ * Home URL: configured business domain (currentDomain / step1 serverHost), no redirect path.
  */
 
 import { getCurrentAuth } from "../core/auth";
@@ -35,6 +37,13 @@ function parseJwtExpDate(token: string): string | null {
     /* ignore */
   }
   return null;
+}
+
+/**
+ * Build home URL from configured business domain (首页，非开始会话 redirect).
+ */
+export function buildHomeUrl(domain: string): string {
+  return domain.replace(/\/+$/, "");
 }
 
 /**
@@ -208,6 +217,15 @@ async function syncCookieAndBuildUrl<T>(
   }
 
   return buildUrl(domain, configId);
+}
+
+/**
+ * Sync cookie and return configured business domain URL (首页).
+ */
+export async function syncCookieAndGetHomeUrl(): Promise<string | null> {
+  return syncCookieAndBuildUrl((domain) => buildHomeUrl(domain), {
+    requireConfigId: false,
+  });
 }
 
 /**

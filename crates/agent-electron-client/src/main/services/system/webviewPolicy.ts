@@ -3,17 +3,19 @@
  *
  * 集中处理：
  * 1. 权限请求（剪贴板、媒体、全屏等）
- * 2. window.open 拦截（统一由系统浏览器打开）
+ * 2. window.open 弹窗（应用内打开，尺寸在页面请求基础上 ×2）
  * 3. 文件下载（导出等场景，支持进度条）
  */
 
-import {
-  app,
-  session as electronSession,
-  shell,
-  BrowserWindow,
-} from "electron";
+import { app, session as electronSession, BrowserWindow } from "electron";
+import type { HandlerDetails, BrowserWindowConstructorOptions } from "electron";
 import log from "electron-log";
+import {
+  WEBVIEW_POPUP_BASE_WIDTH,
+  WEBVIEW_POPUP_BASE_HEIGHT,
+  WEBVIEW_POPUP_MIN_WIDTH,
+  WEBVIEW_POPUP_MIN_HEIGHT,
+} from "@shared/constants";
 
 // ---------- 权限白名单 ----------
 
@@ -55,16 +57,91 @@ function isHttpUrl(url: string): boolean {
   return url.startsWith("http:") || url.startsWith("https:");
 }
 
+/**
+ * 解析 window.open 的 features 字符串（如 "width=500,height=300"）。
+ */
+function parseWindowFeatures(features: string): {
+  width?: number;
+  height?: number;
+} {
+  const result: { width?: number; height?: number } = {};
+  if (!features) return result;
+
+  for (const part of features.split(",")) {
+    const trimmed = part.trim();
+    const eq = trimmed.indexOf("=");
+    if (eq === -1) continue;
+
+    const key = trimmed.slice(0, eq).trim().toLowerCase();
+    const value = parseInt(trimmed.slice(eq + 1).trim(), 10);
+    if (Number.isNaN(value) || value <= 0) continue;
+
+    if (key === "width") result.width = value;
+    if (key === "height") result.height = value;
+  }
+
+  return result;
+}
+
+/**
+ * 将页面请求的弹窗尺寸放大一倍；未指定时使用 Electron 常见默认 600×400 再 ×2。
+ */
+function resolveWebviewPopupSize(features: string): {
+  width: number;
+  height: number;
+} {
+  const parsed = parseWindowFeatures(features);
+  const baseWidth = parsed.width ?? WEBVIEW_POPUP_BASE_WIDTH;
+  const baseHeight = parsed.height ?? WEBVIEW_POPUP_BASE_HEIGHT;
+  return { width: baseWidth * 2, height: baseHeight * 2 };
+}
+
+/** 应用内 http(s) 弹窗的 BrowserWindow 配置 */
+function buildPopupWindowOptions(
+  features: string,
+): BrowserWindowConstructorOptions {
+  const { width, height } = resolveWebviewPopupSize(features);
+  return {
+    width,
+    height,
+    minWidth: WEBVIEW_POPUP_MIN_WIDTH,
+    minHeight: WEBVIEW_POPUP_MIN_HEIGHT,
+    webPreferences: {
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: true,
+      spellcheck: false,
+    },
+    show: true,
+    backgroundColor: "#ffffff",
+  };
+}
+
+function handleHttpPopupOpen(details: HandlerDetails):
+  | {
+      action: "allow";
+      overrideBrowserWindowOptions: BrowserWindowConstructorOptions;
+    }
+  | { action: "deny" } {
+  const { url, features } = details;
+  if (!url || !isHttpUrl(url)) {
+    return { action: "deny" };
+  }
+
+  const options = buildPopupWindowOptions(features ?? "");
+  log.debug(
+    `[WebviewPolicy] Opening in-app popup: ${url} (${options.width}x${options.height})`,
+  );
+  return { action: "allow", overrideBrowserWindowOptions: options };
+}
+
 function setupWindowOpen(): void {
   app.on("web-contents-created", (_event, contents) => {
     // <webview> tag 内部的 window.open
     contents.on("did-attach-webview", (_event, webContents) => {
-      webContents.setWindowOpenHandler(({ url }) => {
-        if (url && isHttpUrl(url)) {
-          shell.openExternal(url);
-        }
-        return { action: "deny" };
-      });
+      webContents.setWindowOpenHandler((details) =>
+        handleHttpPopupOpen(details),
+      );
 
       // Webview captures keyboard events — they don't bubble to the host page.
       // Intercept Ctrl/Cmd+Shift+I here to open webview DevTools.
@@ -83,12 +160,7 @@ function setupWindowOpen(): void {
 
     // BrowserWindow 内部的 window.open（独立 webview 窗口等）
     if (contents.getType() === "window") {
-      contents.setWindowOpenHandler(({ url }) => {
-        if (url && isHttpUrl(url)) {
-          shell.openExternal(url);
-        }
-        return { action: "deny" };
-      });
+      contents.setWindowOpenHandler((details) => handleHttpPopupOpen(details));
     }
   });
 }
@@ -129,7 +201,7 @@ function setupDownloads(getMainWindow: () => BrowserWindow | null): void {
 
 /**
  * 初始化 webview / iframe 浏览器策略。
- * 应在 app.whenReady() 且 createWindow() 之后调用。
+ * 须在 createWindow() 之前调用，确保主窗口 webContents 能注册 did-attach-webview 监听。
  */
 export function initWebviewPolicy(
   getMainWindow: () => BrowserWindow | null,

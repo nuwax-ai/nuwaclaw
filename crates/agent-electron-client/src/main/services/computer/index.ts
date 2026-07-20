@@ -15,7 +15,10 @@ import { getOrCreateInternalSecret } from "../intervention";
 import { serverState } from "./state";
 import { handleRequest } from "./router";
 import { handleAdminRequest } from "./adminServer";
+import { handleAgentMgmtRequest } from "./agentMgmtRouter";
+import { handleDevcomputerRequest } from "./devcomputerRouter";
 import { closeAndClearAllSseClients } from "./sseManager";
+import { ensureAcpAgentDir } from "../agentInstaller";
 
 // ==================== 请求分发器 ====================
 
@@ -23,18 +26,37 @@ async function requestDispatcher(
   req: http.IncomingMessage,
   res: http.ServerResponse,
 ) {
-  const pathname = new URL(
+  const url = new URL(
     req.url || "/",
     `http://${req.headers.host || LOCALHOST_HOSTNAME}`,
-  ).pathname;
+  );
+  const pathname = url.pathname;
+  const method = req.method?.toUpperCase() || "GET";
+
   // /admin/* 路由到 admin handler；但 OPTIONS 预检仍交给 handleRequest 统一返回 204
   // （对齐原 computerServer：OPTIONS 在 admin 分发之前处理，否则 admin 预检会落到 404）
-  if (
-    pathname.startsWith("/admin/") &&
-    req.method?.toUpperCase() !== "OPTIONS"
-  ) {
+  if (pathname.startsWith("/admin/") && method !== "OPTIONS") {
     return handleAdminRequest(req, res);
   }
+
+  // /agent-mgmt/* 路由到 agent management handler
+  if (pathname.startsWith("/agent-mgmt/") && method !== "OPTIONS") {
+    return handleAgentMgmtRequest(req, res);
+  }
+
+  // /devcomputer/chat 路由到 devcomputer handler（注入 auto_reload）
+  if (pathname === "/devcomputer/chat" && method === "POST") {
+    return handleDevcomputerRequest(req, res);
+  }
+
+  // /devcomputer/* 其他接口：rewrite URL 为 /computer/* 后交给 handleRequest
+  // 这样 /devcomputer/progress/{id} → /computer/progress/{id}
+  //     /devcomputer/agent/status → /computer/agent/status 等
+  if (pathname.startsWith("/devcomputer/")) {
+    req.url = url.pathname.replace("/devcomputer/", "/computer/") + url.search;
+    return handleRequest(req, res);
+  }
+
   return handleRequest(req, res);
 }
 
@@ -60,6 +82,9 @@ export async function startComputerServer(
     }
 
     serverState.server = http.createServer(requestDispatcher);
+
+    // 启动时创建 acp-agent 目录（确保自定义 Agent 安装目录存在）
+    ensureAcpAgentDir();
 
     (async () => {
       try {
@@ -150,6 +175,8 @@ export {
   pushSseEvent,
   clearSseEventBuffer,
   clearAllSseEventBuffers,
+  closeSseClientsForSession,
+  shouldCloseSseAfterPromptEnd,
   getSseEventBufferSize,
   hasSessionFirstTokenContext,
   setSessionFirstTokenContextForTest,

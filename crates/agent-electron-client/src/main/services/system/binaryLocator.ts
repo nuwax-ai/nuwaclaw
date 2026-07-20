@@ -215,48 +215,67 @@ export function getRipgrepBinPath(): string {
 
 // ==================== Git ====================
 
+/** 与 prepare-git findPortableGitBash 一致的 bash 候选路径 */
+function getBundledGitBashCandidates(resourcesPath: string): string[] {
+  return [
+    path.join(resourcesPath, "git", "bin", "bash.exe"),
+    path.join(resourcesPath, "git", "usr", "bin", "bash.exe"),
+    path.join(resourcesPath, "git", "mingw64", "bin", "bash.exe"),
+    path.join(resourcesPath, "git", "mingw64", "usr", "bin", "bash.exe"),
+  ];
+}
+
 /** 获取 bundled Git bin 目录（仅 Windows） */
 export function getBundledGitBinDir(): string {
   if (!isWindows()) return "";
   const resourcesPath = getResourcesPath();
-  const gitBinPath = path.join(resourcesPath, "git", "bin");
-  if (fs.existsSync(gitBinPath)) {
-    log.info(`[getBundledGitBinDir] Using bundled Git: ${gitBinPath}`);
-    return gitBinPath;
+  const gitBinCandidates = [
+    path.join(resourcesPath, "git", "bin"),
+    path.join(resourcesPath, "git", "mingw64", "bin"),
+  ];
+  for (const gitBinPath of gitBinCandidates) {
+    if (fs.existsSync(gitBinPath)) {
+      log.info(`[getBundledGitBinDir] Using bundled Git: ${gitBinPath}`);
+      return gitBinPath;
+    }
   }
-  const devPath = path.join(process.cwd(), "resources", "git", "bin");
-  if (fs.existsSync(devPath)) {
-    log.info(`[getBundledGitBinDir] Dev mode using bundled Git: ${devPath}`);
-    return devPath;
+  const devCandidates = [
+    path.join(process.cwd(), "resources", "git", "bin"),
+    path.join(process.cwd(), "resources", "git", "mingw64", "bin"),
+  ];
+  for (const devPath of devCandidates) {
+    if (fs.existsSync(devPath)) {
+      log.info(`[getBundledGitBinDir] Dev mode using bundled Git: ${devPath}`);
+      return devPath;
+    }
   }
   return "";
 }
 
-/** 获取 bundled git-bash 路径（仅 Windows） */
+/** 获取 bundled git-bash 路径（仅 Windows，不探测系统 Git for Windows） */
 export function getBundledGitBashPath(): string {
   if (!isWindows()) return "";
   const resourcesPath = getResourcesPath();
-  const bashPaths = [
-    path.join(resourcesPath, "git", "bin", "bash.exe"),
-    path.join(resourcesPath, "git", "usr", "bin", "bash.exe"),
-  ];
-  for (const p of bashPaths) {
+  for (const p of getBundledGitBashCandidates(resourcesPath)) {
     if (fs.existsSync(p)) {
       log.info(`[getBundledGitBashPath] Using bundled git-bash: ${p}`);
       return p;
     }
   }
-  const devPaths = [
-    path.join(process.cwd(), "resources", "git", "bin", "bash.exe"),
-    path.join(process.cwd(), "resources", "git", "usr", "bin", "bash.exe"),
-  ];
-  for (const p of devPaths) {
+  for (const p of getBundledGitBashCandidates(
+    path.join(process.cwd(), "resources"),
+  )) {
     if (fs.existsSync(p)) {
       log.info(`[getBundledGitBashPath] Dev mode using bundled git-bash: ${p}`);
       return p;
     }
   }
   return "";
+}
+
+/** @deprecated 使用 getBundledGitBashPath；仅返回应用包内 bundled Git Bash */
+export function resolveGitBashExecutable(): string {
+  return getBundledGitBashPath();
 }
 
 // ==================== lanproxy ====================

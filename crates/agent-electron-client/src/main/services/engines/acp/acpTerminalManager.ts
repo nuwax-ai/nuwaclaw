@@ -24,6 +24,7 @@ import log from "electron-log";
 import { SandboxInvoker } from "@main/services/sandbox/SandboxInvoker";
 import { killProcessTree } from "@main/services/utils/processTree";
 import { createPlatformAdapter } from "@main/services/system/platformAdapter";
+import { wrapWindowsCommandWithGitBash } from "@main/services/system/windowsGitBashCommand";
 import type {
   SandboxMode,
   SandboxProcessConfig,
@@ -85,6 +86,8 @@ export const TERMINAL_SANDBOX_SAFE_ENV_KEYS = [
   "PROCESSOR_ARCHITECTURE",
   "LANG",
   "TZ",
+  "ORIGINAL_PATH",
+  "MSYS2_PATH_TYPE",
 ] as const;
 
 function isPathWithinRoot(candidate: string, root: string): boolean {
@@ -372,14 +375,19 @@ export class AcpTerminalManager {
         throw spawnErr;
       }
     } else {
-      // macOS/Linux or no sandbox: execute directly
+      const directCommand = wrapWindowsCommandWithGitBash(
+        params.command,
+        params.args || [],
+      );
       log.info(
         "[AcpTerminalManager] ⚡ DIRECT terminal created (no sandbox):",
         {
           terminalId,
           sessionId: params.sessionId,
-          command: params.command,
-          args: params.args,
+          originalCommand: params.command,
+          originalArgs: params.args,
+          command: directCommand.command,
+          args: directCommand.args,
           sandboxed: false,
           platform: createPlatformAdapter().platform,
           cwd,
@@ -389,11 +397,12 @@ export class AcpTerminalManager {
       try {
         this.spawnProcess(
           session,
-          params.command,
-          params.args || [],
+          directCommand.command,
+          directCommand.args,
           env,
           cwd,
           false,
+          !directCommand.gitBashWrapped,
         );
       } catch (spawnErr) {
         this.cleanupFailedSpawn(session, terminalId);
@@ -587,24 +596,26 @@ export class AcpTerminalManager {
     env: Record<string, string> | undefined,
     cwd: string,
     parseJson: boolean,
+    /** bundled Git Bash 不可用时，Windows 直连终端回退 cmd shell */
+    useWindowsCmdShellFallback = false,
   ): void {
     const sandboxed = parseJson;
     const platformAdapter = createPlatformAdapter();
-    const useWindowsShell = !parseJson && platformAdapter.isWindows;
+    const useShell =
+      !parseJson && platformAdapter.isWindows && useWindowsCmdShellFallback;
     log.info("[AcpTerminalManager] 🚀 Spawning process:", {
       terminalId: session.id,
       command,
       args: args.length > 0 ? args : undefined,
       cwd,
       sandboxed,
-      shell: useWindowsShell,
+      shell: useShell,
     });
 
     const proc = spawn(command, args, {
       cwd,
       env,
-      // sandbox helper is an .exe, no shell needed; direct commands may need shell
-      shell: useWindowsShell,
+      shell: useShell,
       windowsHide: true,
       stdio: ["ignore", "pipe", "pipe"], // stdin not wired — non-interactive commands only
     });

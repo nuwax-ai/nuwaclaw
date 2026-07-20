@@ -9,21 +9,21 @@ import {
   Card,
   Select,
 } from "antd";
-import {
-  ArrowLeftOutlined,
-  SaveOutlined,
-  CheckCircleOutlined,
-} from "@ant-design/icons";
+import { ArrowLeftOutlined, CheckCircleOutlined } from "@ant-design/icons";
 import CodeEditor from "@uiw/react-textarea-code-editor";
 import type { McpServerEntry, McpServersConfig } from "@shared/types/electron";
 import { t } from "../../services/core/i18n";
 import {
+  isMcpServerIdDuplicate,
   parseServerFromJson,
   resolveMcpEditorPayload,
   serializeEntryToJson,
 } from "./mcpServerEditorUtils";
 
 const { Text } = Typography;
+
+/** 表单/JSON 变更后防抖写入父组件草稿的间隔（毫秒）。 */
+const DRAFT_AUTOSAVE_MS = 400;
 
 interface MCPServerEditorProps {
   mode: "create" | "edit";
@@ -32,7 +32,14 @@ interface MCPServerEditorProps {
   existingServerIds: string[];
   isDarkMode: boolean;
   fullConfig?: McpServersConfig;
-  onSave: (serverId: string, entry: McpServerEntry) => void;
+  /** 将有效草稿合并进主界面配置（不持久化，主界面统一保存后生效）。 */
+  onDraftChange: (
+    serverId: string,
+    entry: McpServerEntry,
+    previousServerId?: string,
+  ) => void;
+  /** 新建模式下用户放弃无效草稿时，从主界面配置移除已自动写入的条目。 */
+  onDraftRemove?: (serverId: string) => void;
   onBack: () => void;
 }
 
@@ -43,7 +50,8 @@ function MCPServerEditor({
   existingServerIds,
   isDarkMode,
   fullConfig,
-  onSave,
+  onDraftChange,
+  onDraftRemove,
   onBack,
 }: MCPServerEditorProps) {
   const [editorTab, setEditorTab] = useState<"form" | "json">("form");
@@ -61,13 +69,15 @@ function MCPServerEditor({
 
   // 用于序列化比较 initialEntry，防止因父组件重渲染产生的新引用而重置表单
   const lastInitialEntryRef = useRef<string>("");
+  // 记录本次会话已写入父组件草稿的 serverId（新建改名 / 放弃时清理）
+  const lastSyncedServerIdRef = useRef<string>("");
+  const onDraftChangeRef = useRef(onDraftChange);
+  onDraftChangeRef.current = onDraftChange;
 
   const isEdit = mode === "edit";
 
   useEffect(() => {
     if (isEdit && editingServerId) {
-      // 仅当 initialEntry 的实际内容变化时才重置表单字段，
-      // 避免因父组件重渲染产生的新对象引用而反复清空用户输入。
       const serialized = initialEntry ? JSON.stringify(initialEntry) : "";
       if (serialized !== lastInitialEntryRef.current) {
         lastInitialEntryRef.current = serialized;
@@ -83,11 +93,13 @@ function MCPServerEditor({
           }
           setServerId(editingServerId);
           setJsonText(serializeEntryToJson(editingServerId, initialEntry));
+          lastSyncedServerIdRef.current = editingServerId;
         }
       }
-    } else {
+    } else if (!isEdit) {
       setJsonText("");
       lastInitialEntryRef.current = "";
+      lastSyncedServerIdRef.current = "";
     }
   }, [isEdit, initialEntry, editingServerId]);
 
@@ -124,7 +136,7 @@ function MCPServerEditor({
     return { ok: true, args: tokens };
   };
 
-  const buildEntryFromForm = ():
+  const buildEntryFromForm = useCallback(():
     | { ok: true; serverId: string; entry: McpServerEntry }
     | { ok: false; error: string } => {
     const id = serverId.trim();
@@ -154,16 +166,35 @@ function MCPServerEditor({
       serverId: id,
       entry: { url: u, transport, enabled: initialEntry?.enabled ?? false },
     };
-  };
+  }, [
+    serverId,
+    serverType,
+    command,
+    argsText,
+    url,
+    transport,
+    initialEntry?.enabled,
+  ]);
 
-  const resolveEditorPayload = () =>
-    resolveMcpEditorPayload({
-      editorTab,
-      jsonText,
-      isEdit,
-      editingServerId,
-      formPayload: buildEntryFromForm,
-    });
+  const resolveEditorPayload = useCallback(
+    () =>
+      resolveMcpEditorPayload({
+        editorTab,
+        jsonText,
+        isEdit,
+        editingServerId,
+        formPayload: buildEntryFromForm,
+      }),
+    [editorTab, jsonText, isEdit, editingServerId, buildEntryFromForm],
+  );
+
+  const getDuplicateExcludeIds = useCallback((): string[] => {
+    const exclude = new Set<string>();
+    if (editingServerId) exclude.add(editingServerId);
+    if (lastSyncedServerIdRef.current)
+      exclude.add(lastSyncedServerIdRef.current);
+    return [...exclude];
+  }, [editingServerId]);
 
   const reportPayloadError = (error: string) => {
     message.error(error);
@@ -178,15 +209,62 @@ function MCPServerEditor({
       setJsonText(serializeEntryToJson(result.serverId, result.entry));
       setJsonError("");
     }
-    // buildEntryFromForm is stable; intentional exhaustive deps ok
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [serverType, serverId, command, argsText, url, transport]);
+  }, [buildEntryFromForm]);
+
+  /** 将当前有效表单/JSON 合并进主界面草稿（不弹成功提示、不离开编辑页）。 */
+  const pushDraftToParent = useCallback(() => {
+    const result = resolveEditorPayload();
+    if (!result.ok) return false;
+
+    if (
+      isMcpServerIdDuplicate(
+        result.serverId,
+        existingServerIds,
+        getDuplicateExcludeIds(),
+      )
+    ) {
+      return false;
+    }
+
+    const previousServerId =
+      lastSyncedServerIdRef.current || editingServerId || undefined;
+    onDraftChangeRef.current(
+      result.serverId,
+      result.entry,
+      previousServerId !== result.serverId ? previousServerId : undefined,
+    );
+    lastSyncedServerIdRef.current = result.serverId;
+    setJsonError("");
+    return true;
+  }, [
+    resolveEditorPayload,
+    existingServerIds,
+    getDuplicateExcludeIds,
+    editingServerId,
+  ]);
+
+  // 单条编辑详情：防抖自动保存到主界面草稿，主界面「保存」才持久化
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      pushDraftToParent();
+    }, DRAFT_AUTOSAVE_MS);
+    return () => window.clearTimeout(timer);
+  }, [
+    editorTab,
+    serverType,
+    serverId,
+    command,
+    argsText,
+    url,
+    transport,
+    jsonText,
+    pushDraftToParent,
+  ]);
 
   const handleTabChange = (val: string) => {
     if (val === "json") {
       syncFormToJson();
     } else {
-      // JSON → Form: 尝试解析 JSON 并填充表单字段
       if (!jsonText.trim()) {
         setEditorTab("form");
         return;
@@ -206,26 +284,18 @@ function MCPServerEditor({
         setUrl(entry.url);
         setTransport(entry.transport ?? "streamable-http");
       }
-      if (!isEdit) {
-        setServerId(parsedId);
-      }
+      setServerId(parsedId);
       setJsonError("");
     }
     setEditorTab(val as "form" | "json");
   };
 
-  const handleSave = () => {
-    const result = resolveEditorPayload();
-    if (!result.ok) {
-      reportPayloadError(result.error);
-      return;
+  const handleBack = () => {
+    const synced = pushDraftToParent();
+    if (!synced && !isEdit && lastSyncedServerIdRef.current && onDraftRemove) {
+      onDraftRemove(lastSyncedServerIdRef.current);
     }
-    if (!isEdit && existingServerIds.includes(result.serverId)) {
-      message.error(t("Claw.MCP.addServer.idDuplicate"));
-      return;
-    }
-    setJsonError("");
-    onSave(result.serverId, result.entry);
+    onBack();
   };
 
   const handleTest = async () => {
@@ -234,27 +304,35 @@ function MCPServerEditor({
       reportPayloadError(result.error);
       return;
     }
-    if (!isEdit && existingServerIds.includes(result.serverId)) {
+    if (
+      isMcpServerIdDuplicate(
+        result.serverId,
+        existingServerIds,
+        getDuplicateExcludeIds(),
+      )
+    ) {
       message.error(t("Claw.MCP.addServer.idDuplicate"));
       return;
     }
 
+    // 测试前先把草稿写入内存配置，但不持久化到 DB
+    pushDraftToParent();
+
     setTestLoading(true);
     try {
-      // 优先用父组件内存中的配置（含其他未持久化的修改），回退到 DB 中的配置
       const baseConfig = fullConfig ??
         (await window.electronAPI?.mcp.getConfig()) ?? { mcpServers: {} };
-      const mergedServers = {
-        ...(baseConfig.mcpServers ?? {}),
-        [result.serverId]: result.entry,
-      };
-      await window.electronAPI?.mcp.setConfig({
+      const draftConfig: McpServersConfig = {
         ...baseConfig,
-        mcpServers: mergedServers,
-      });
+        mcpServers: {
+          ...(baseConfig.mcpServers ?? {}),
+          [result.serverId]: result.entry,
+        },
+      };
 
       const discoverResult = await window.electronAPI?.mcp.discoverTools(
         result.serverId,
+        draftConfig,
       );
       if (discoverResult?.success) {
         const toolCount = discoverResult.tools?.length ?? 0;
@@ -281,34 +359,30 @@ function MCPServerEditor({
     <Card
       title={
         <Space>
-          <Button icon={<ArrowLeftOutlined />} size="small" onClick={onBack}>
+          <Button
+            icon={<ArrowLeftOutlined />}
+            size="small"
+            onClick={handleBack}
+          >
             {t("Claw.MCP.editor.back")}
           </Button>
           <span>{titleText}</span>
         </Space>
       }
       extra={
-        <Space>
-          <Button
-            icon={<CheckCircleOutlined />}
-            onClick={handleTest}
-            loading={testLoading}
-            size="small"
-          >
-            {t("Claw.MCP.list.test")}
-          </Button>
-          <Button
-            icon={<SaveOutlined />}
-            type="primary"
-            onClick={handleSave}
-            size="small"
-          >
-            {t("Claw.Common.save")}
-          </Button>
-        </Space>
+        <Button
+          icon={<CheckCircleOutlined />}
+          onClick={handleTest}
+          loading={testLoading}
+          size="small"
+        >
+          {t("Claw.MCP.list.test")}
+        </Button>
       }
     >
       <Space direction="vertical" style={{ width: "100%" }} size="large">
+        <Text type="secondary">{t("Claw.MCP.editor.draftHint")}</Text>
+
         <Segmented
           value={editorTab}
           onChange={handleTabChange}
@@ -342,7 +416,6 @@ function MCPServerEditor({
                 value={serverId}
                 onChange={(e) => setServerId(e.target.value)}
                 placeholder={t("Claw.MCP.addServer.idPlaceholder")}
-                disabled={isEdit}
               />
             </div>
 

@@ -202,6 +202,42 @@ describe("AcpPermissionCoordinator.evaluate", () => {
       });
     });
 
+    it("无 tool_kind 规则命中 other/MCP 工具", () => {
+      const c = new AcpPermissionCoordinator("[test]");
+      c.setEffectiveMode(SESSION, "yolo");
+      c.setSessionApprovalRules(SESSION, [
+        { patterns: ["Bash*"], action: "ask" },
+      ]);
+      const decision = c.evaluate(
+        makeRequest({
+          kind: "other",
+          title: "Bash",
+          rawInput: { tool_name: "Bash" },
+        }),
+        makeCtx(),
+      );
+      expect(decision).toEqual({ kind: "ask" });
+    });
+
+    it("setSessionApprovalRules 支持 kind 别名规范化", () => {
+      const c = new AcpPermissionCoordinator("[test]");
+      c.setSessionApprovalRules(SESSION, [
+        { patterns: ["*"], action: "deny", kind: "Other" },
+      ]);
+      const decision = c.evaluate(
+        makeRequest({
+          kind: "other",
+          title: "any_tool",
+          rawInput: { tool_name: "any_tool" },
+        }),
+        makeCtx(),
+      );
+      expect(decision).toEqual({
+        kind: "cancel",
+        reason: "tool_approval_rules_deny",
+      });
+    });
+
     it("clearSession 后规则失效", () => {
       const c = new AcpPermissionCoordinator("[test]");
       c.setSessionApprovalRules(SESSION, [{ patterns: ["*"], action: "deny" }]);

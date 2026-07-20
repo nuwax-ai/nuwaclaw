@@ -31,7 +31,8 @@ export interface Step1Config {
   guiMcpPort: number;
   guiMcpEnabled: boolean;
   adminServerPort?: number;
-  ttydPort?: number;
+  /** ttyd Web 终端端口（仅回环监听） */
+  ttydPort: number;
   workspaceDir: string;
 }
 

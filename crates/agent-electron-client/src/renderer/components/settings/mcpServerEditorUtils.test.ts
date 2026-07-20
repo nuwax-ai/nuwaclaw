@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import {
+  applyMcpServerDraft,
   parseServerFromJson,
   resolveMcpEditorPayload,
 } from "./mcpServerEditorUtils";
@@ -65,10 +66,15 @@ describe("resolveMcpEditorPayload", () => {
     expect(result.serverId).toBe("context7");
   });
 
-  it("keeps editingServerId in edit mode", () => {
+  it("uses JSON key as serverId in edit mode (rename support)", () => {
     const result = resolveMcpEditorPayload({
       editorTab: "json",
-      jsonText: context7Json,
+      jsonText: JSON.stringify({
+        "new-id": {
+          command: "npx",
+          args: ["-y", "@upstash/context7-mcp"],
+        },
+      }),
       isEdit: true,
       editingServerId: "original-id",
       formPayload: () => ({
@@ -78,7 +84,7 @@ describe("resolveMcpEditorPayload", () => {
     });
     expect(result.ok).toBe(true);
     if (!result.ok) return;
-    expect(result.serverId).toBe("original-id");
+    expect(result.serverId).toBe("new-id");
   });
 
   it("uses form payload on form tab", () => {
@@ -95,5 +101,26 @@ describe("resolveMcpEditorPayload", () => {
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     expect(result.serverId).toBe("form-id");
+  });
+});
+
+describe("applyMcpServerDraft", () => {
+  it("renames server by removing previous key", () => {
+    const next = applyMcpServerDraft(
+      {
+        mcpServers: {
+          old: { command: "cmd", args: [] },
+          other: { command: "x", args: [] },
+        },
+      },
+      "new",
+      { command: "cmd", args: ["updated"] },
+      "old",
+    );
+    expect(next.mcpServers).toEqual({
+      new: { command: "cmd", args: ["updated"] },
+      other: { command: "x", args: [] },
+    });
+    expect(next.mcpServers.old).toBeUndefined();
   });
 });

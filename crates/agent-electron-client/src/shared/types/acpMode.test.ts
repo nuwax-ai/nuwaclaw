@@ -1,6 +1,15 @@
 import { describe, expect, it } from "vitest";
 
-import { resolveEffectiveMode } from "./acpMode";
+import { parseAcpModeId, resolveEffectiveMode } from "./acpMode";
+
+describe("parseAcpModeId", () => {
+  it("parses ask/yolo and rejects unknown values", () => {
+    expect(parseAcpModeId("ask")).toBe("ask");
+    expect(parseAcpModeId("yolo")).toBe("yolo");
+    expect(parseAcpModeId("auto")).toBeNull();
+    expect(parseAcpModeId(undefined)).toBeNull();
+  });
+});
 
 describe("resolveEffectiveMode", () => {
   it("defaults missing agent_mode to yolo", () => {

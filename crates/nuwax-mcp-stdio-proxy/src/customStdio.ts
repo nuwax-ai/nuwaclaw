@@ -22,6 +22,65 @@ function logDebug(msg: string): void {
   process.stderr.write(`[customStdio] ${msg}\n`);
 }
 
+/** Quote a single argv token for cmd.exe /c (avoids DEP0190 shell+args). */
+export function quoteWindowsCmdArg(arg: string): string {
+  if (!/[\s"]/.test(arg)) {
+    return arg;
+  }
+  return `"${arg.replace(/"/g, '""')}"`;
+}
+
+/**
+ * On Windows, bypass npx.cmd/npm.cmd shims and spawn node.exe + cli.js directly.
+ * cmd.exe /c quoting for .cmd files is fragile (especially with /s); node+cli is reliable.
+ */
+export function resolveWindowsNpmShim(
+  command: string,
+  args: string[],
+): { command: string; args: string[] } | null {
+  if (process.platform !== 'win32') return null;
+
+  const base = path.basename(command).replace(/\.(cmd|bat|exe)$/i, '');
+  if (base !== 'npx' && base !== 'npm') return null;
+
+  const binDir = path.dirname(command);
+  const nodeExe = path.join(binDir, 'node.exe');
+  const cliJs = path.join(
+    binDir,
+    'node_modules',
+    'npm',
+    'bin',
+    base === 'npx' ? 'npx-cli.js' : 'npm-cli.js',
+  );
+
+  if (fs.existsSync(nodeExe) && fs.existsSync(cliJs)) {
+    return { command: nodeExe, args: [cliJs, ...args] };
+  }
+  return null;
+}
+
+/** Build cmdline for `cmd.exe /d /s /c` when spawning .cmd/.bat on Windows. */
+export function buildWindowsBatchSpawn(
+  command: string,
+  args: string[],
+): { command: string; args: string[] } {
+  // Robust quoting pattern for batch files:
+  //   cmd.exe /d /s /c ""C:\path with spaces\tool.cmd" arg1 "arg 2""
+  //
+  // IMPORTANT:
+  // - The outer double-quotes wrap the whole command line for /c
+  // - The *first* token (the .cmd/.bat path) must be quoted separately
+  // - DO NOT quote the entire "<cmd> <args>" as a single token, or cmd.exe will
+  //   treat it as a command name and fail with "is not recognized..."
+  const cmdToken = quoteWindowsCmdArg(command);
+  const rest = args.map(quoteWindowsCmdArg).join(' ');
+  const cmdline = `""${cmdToken}"${rest ? ` ${rest}` : ''}"`;
+  return {
+    command: process.env.ComSpec || 'cmd.exe',
+    args: ['/d', '/s', '/c', cmdline],
+  };
+}
+
 export interface CustomStdioServerParameters {
   command: string;
   args?: string[];
@@ -62,7 +121,6 @@ export class CustomStdioClientTransport implements Transport {
 
       // On Windows, resolve .cmd/.bat files if command not found directly
       let command = this._serverParams.command;
-      let useShell = false;
       const isWindows = process.platform === 'win32';
       const cmdExtensions = ['.cmd', '.bat', '.exe'];
 
@@ -82,21 +140,34 @@ export class CustomStdioClientTransport implements Transport {
         }
       }
 
-      // For .cmd/.bat files on Windows, we need shell: true
-      if (isWindows && (command.toLowerCase().endsWith('.cmd') || command.toLowerCase().endsWith('.bat'))) {
-        useShell = true;
-        // Quote the command if it contains spaces, otherwise cmd.exe
-        // misparses paths like "D:\Program Files\...\npx.cmd"
-        if (command.includes(' ')) {
-          command = `"${command}"`;
+      const spawnArgs = this._serverParams.args ?? [];
+      let spawnCommand = command;
+      let spawnArgv = spawnArgs;
+
+      // Prefer node.exe + npx-cli.js / npm-cli.js over npx.cmd/npm.cmd on Windows.
+      const npmShim = isWindows ? resolveWindowsNpmShim(command, spawnArgs) : null;
+      if (npmShim) {
+        spawnCommand = npmShim.command;
+        spawnArgv = npmShim.args;
+        logDebug(`Resolved npm shim ${command} -> ${spawnCommand}`);
+      } else {
+        // Node DEP0190: do not use shell:true with a separate args array for .cmd/.bat.
+        // Invoke via cmd.exe /c with a single command line instead.
+        const isBatch =
+          isWindows &&
+          (command.toLowerCase().endsWith('.cmd') || command.toLowerCase().endsWith('.bat'));
+        if (isBatch) {
+          const batchSpawn = buildWindowsBatchSpawn(command, spawnArgs);
+          spawnCommand = batchSpawn.command;
+          spawnArgv = batchSpawn.args;
+          logDebug(`Using cmd.exe for ${command}`);
         }
-        logDebug(`Using shell: true for ${command}`);
       }
 
-      this._process = spawn(command, this._serverParams.args ?? [], {
+      this._process = spawn(spawnCommand, spawnArgv, {
         env: mergedEnv,
         stdio: ['pipe', 'pipe', this._serverParams.stderr ?? 'inherit'],
-        shell: useShell,
+        shell: false,
         windowsHide: true,
         cwd: this._serverParams.cwd,
       });

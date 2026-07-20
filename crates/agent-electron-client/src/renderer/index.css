@@ -168,9 +168,9 @@ body {
 }
 
 .app-header-update-tag--available {
-  background: rgba(82, 196, 26, 0.12);
-  color: #52c41a;
-  border: 1px solid rgba(82, 196, 26, 0.25);
+  background: rgba(22, 119, 255, 0.1);
+  color: #1677ff;
+  border: 1px solid rgba(22, 119, 255, 0.2);
 }
 
 .app-header-update-tag--downloading {

@@ -52,6 +52,22 @@ export const STARTUP_PORT_LABELS: Record<keyof StartupPorts, string> = {
   vite: "Vite",
 };
 
+/** 初始化向导端口输入范围（与 SetupWizard InputNumber 一致） */
+export const SETUP_WIZARD_PORT_MIN = 1024;
+export const SETUP_WIZARD_PORT_MAX = 65535;
+
+/** 校验初始化向导中的端口是否在合法范围内 */
+export function isValidSetupWizardPort(
+  port: number | null | undefined,
+): port is number {
+  return (
+    typeof port === "number" &&
+    Number.isInteger(port) &&
+    port >= SETUP_WIZARD_PORT_MIN &&
+    port <= SETUP_WIZARD_PORT_MAX
+  );
+}
+
 // ==================== 从配置解析端口（聚合逻辑） ====================
 
 export type GetSettingFn = (key: string) => unknown;

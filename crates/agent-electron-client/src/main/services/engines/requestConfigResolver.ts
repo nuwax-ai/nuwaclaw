@@ -26,6 +26,8 @@ import { resolveComputerProjectWorkspaceDir } from "../workspacePaths";
 import { perfEmitter } from "./perf/perfEmitter";
 import { mapAgentCommand, resolveAgentEnv } from "./agentHelpers";
 import { resolveOpenAICompatModel } from "./acp/openAICompatRouting";
+import { isOpencodeAcpEngine } from "./acp/sandbox/acpEngineSandbox";
+import { resolveOpencodePermissionEnv } from "./acp/sandbox/opencodeAcpSpawnConfig";
 import type { AgentConfig, AgentEngineType } from "./types";
 
 export function resolveRequiredAgentEngine(args: {
@@ -269,6 +271,10 @@ export function buildEffectiveConfig(args: {
   freshMcpServers: AgentConfig["mcpServers"] | undefined;
   request: ComputerChatRequest;
   engineKey: string;
+  /** Custom agent command (when agent_server.command is not a known engine) */
+  customEngineCommand?: string;
+  /** Custom agent args (from agent_server.args) */
+  customEngineArgs?: string[];
 }): AgentConfig {
   const {
     base,
@@ -279,6 +285,8 @@ export function buildEffectiveConfig(args: {
     freshMcpServers,
     request,
     engineKey,
+    customEngineCommand,
+    customEngineArgs,
   } = args;
 
   if (!model) {
@@ -301,9 +309,25 @@ export function buildEffectiveConfig(args: {
     Object.assign(mergedEnv, localizedEnv);
   }
 
+  // OpenCode 系引擎：固化 OPENCODE_PERMISSION（nuwaxcode 启动时 mergeDeep 进 permission）
+  // 自定义 agent（command 非内置引擎）即使 requiredEngine fallback 为 nuwaxcode 也不注入
+  if (
+    requiredEngine &&
+    isOpencodeAcpEngine(requiredEngine) &&
+    !customEngineCommand
+  ) {
+    mergedEnv.OPENCODE_PERMISSION = resolveOpencodePermissionEnv(
+      request.agent_config?.agent_server?.env?.OPENCODE_PERMISSION,
+    );
+  }
+
   const effectiveConfig: AgentConfig = {
     ...base,
     engine: requiredEngine || base.engine,
+    customEngineCommand: customEngineCommand || base.customEngineCommand,
+    customEngineArgs: customEngineArgs || base.customEngineArgs,
+    customAgentId:
+      request.agent_config?.agent_server?.agent_id || base.customAgentId,
     apiKey: mp?.api_key || base.apiKey,
     baseUrl: mp?.base_url || base.baseUrl,
     model,
@@ -314,11 +338,12 @@ export function buildEffectiveConfig(args: {
 
   // nuwax-codex-acp ignores ACP session cwd, so we must spawn the process
   // directly in the project workspace to ensure correct working directory
-  if (requiredEngine === "codex-cli" && request.project_id && request.user_id) {
+  const workDirId = request.agent_work_dir || request.project_id;
+  if (requiredEngine === "codex-cli" && workDirId && request.user_id) {
     effectiveConfig.workspaceDir = resolveComputerProjectWorkspaceDir(
       effectiveConfig.workspaceDir,
       request.user_id,
-      request.project_id,
+      workDirId,
     );
     if (!ensuredDirs.has(effectiveConfig.workspaceDir)) {
       fs.mkdirSync(effectiveConfig.workspaceDir, { recursive: true });
@@ -339,6 +364,15 @@ export function buildEffectiveConfig(args: {
       `├─ apiKeySet: ${!!effectiveConfig.apiKey}\n` +
       `└─ mcpServers: ${effectiveConfig.mcpServers ? Object.keys(effectiveConfig.mcpServers).join(", ") : "(none)"}`,
   );
+
+  if (workDirId && request.user_id) {
+    effectiveConfig.__isolatedHomeScope = {
+      kind: "project",
+      userId: request.user_id,
+      workDirId,
+      engine: effectiveConfig.engine,
+    };
+  }
 
   return effectiveConfig;
 }

@@ -120,6 +120,62 @@ export function resolveNpmPackageEntry(
   return null;
 }
 
+function isUnderNodeModulesBin(filePath: string): boolean {
+  const segments = path.normalize(filePath).split(path.sep);
+  const binIdx = segments.lastIndexOf(".bin");
+  return binIdx >= 1 && segments[binIdx - 1] === "node_modules";
+}
+
+function isJsSpawnableEntry(entryPath: string): boolean {
+  return /\.(?:mjs|cjs|js|ts)$/i.test(entryPath);
+}
+
+/**
+ * Resolve an npm `node_modules/.bin` shim to a spawnable target.
+ *
+ * On Windows, `.bin/tsx` is a Unix shell script and cannot be spawned directly
+ * (ENOENT). Prefer the package JS entry (spawn via node); fall back to `.CMD`.
+ * On macOS/Linux, JS entry via node is equally valid; native bin entries keep
+ * the original shim path with isNative spawn.
+ */
+export function resolveNpmBinShimSpawnTarget(binPath: string): {
+  binPath: string;
+  isNative: boolean;
+} | null {
+  const normalized = path.normalize(binPath);
+  if (!fs.existsSync(normalized) || !isUnderNodeModulesBin(normalized)) {
+    return null;
+  }
+
+  const binDir = path.dirname(normalized);
+  const baseName = path.basename(normalized);
+  if (/\.(exe|cmd|bat|ps1)$/i.test(baseName)) {
+    return { binPath: normalized, isNative: true };
+  }
+
+  const packageName = baseName;
+  const packageDir = path.join(path.dirname(binDir), packageName);
+  const entryPath = resolveNpmPackageEntry(packageDir, packageName);
+  if (entryPath && isJsSpawnableEntry(entryPath)) {
+    log.info(
+      `[spawnNoWindow] Resolved npm bin shim "${normalized}" → JS entry "${entryPath}"`,
+    );
+    return { binPath: entryPath, isNative: false };
+  }
+
+  if (isWindows()) {
+    const cmdPath = path.join(binDir, `${baseName}.CMD`);
+    if (fs.existsSync(cmdPath)) {
+      log.info(
+        `[spawnNoWindow] Resolved npm bin shim "${normalized}" → Windows CMD "${cmdPath}"`,
+      );
+      return { binPath: cmdPath, isNative: true };
+    }
+  }
+
+  return null;
+}
+
 /**
  * Spawn a JS file using Node.js without console window on Windows
  * or without creating a new Dock icon on macOS.

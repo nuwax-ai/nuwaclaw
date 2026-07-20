@@ -23,21 +23,32 @@ import { app } from "electron";
 import log from "electron-log";
 import {
   getAppEnv,
+  applySharedPackageManagerCacheEnv,
   getNuwaxcodeBundledBinPath,
   getCodexAcpBundledBinPath,
   getNodeBinPathWithFallback,
   getClaudeCodeAcpBundledDir,
 } from "../../system/dependencies";
 import { APP_DATA_DIR_NAME, LOGS_DIR_NAME } from "../../constants";
-import { APP_NAME_IDENTIFIER } from "../../../../shared/constants";
+import { getAppDataDir } from "../../system/appPaths";
+import {
+  resolveIsolatedHomePath,
+  type IsolatedHomeScope,
+} from "./isolatedHomePaths";
+import { prepareOpencodePluginShareForHome } from "./opencodePluginShare";
 import { isWindows } from "../../system/shellEnv";
 import { createPlatformAdapter } from "../../system/platformAdapter";
-import { spawnJsFile, resolveNpmPackageEntry } from "../../utils/spawnNoWindow";
+import {
+  spawnJsFile,
+  resolveNpmPackageEntry,
+  resolveNpmBinShimSpawnTarget,
+} from "../../utils/spawnNoWindow";
 import { processRegistry } from "../../system/processRegistry";
 import { killProcessTreeGraceful } from "../../utils/processTree";
-import { writeShellProfiles } from "../../utils/shellProfile";
+import { writeBundledDevShellProfiles } from "../../utils/shellProfile";
 import { perfEmitter } from "../perf/perfEmitter";
 import { firstTokenTrace } from "../perf/firstTokenTrace";
+import { resolveCustomAgentBinary } from "../../agentInstaller";
 import { buildSandboxedSpawnArgs } from "../../sandbox/sandboxProcessWrapper";
 import type { SandboxProcessConfig } from "@shared/types/sandbox";
 import {
@@ -210,6 +221,7 @@ export interface AcpClientSideConnection {
     clientCapabilities?: Record<string, unknown>;
   }): Promise<{
     protocolVersion: number;
+    agentInfo?: { name?: string; version?: string };
     agentCapabilities?: Record<string, unknown>;
   }>;
 
@@ -222,6 +234,28 @@ export interface AcpClientSideConnection {
     mcpServers: Array<AcpMcpServer>;
     _meta?: { [key: string]: unknown } | null;
   }): Promise<{ sessionId: string }>;
+
+  /** Restores session context without replaying history (chat fallback when loadSession is unavailable). */
+  resumeSession?(params: {
+    sessionId: string;
+    cwd: string;
+    mcpServers: Array<AcpMcpServer>;
+    _meta?: { [key: string]: unknown } | null;
+  }): Promise<{
+    modes?: unknown;
+    configOptions?: unknown;
+  }>;
+
+  /** Loads session and replays history via session/update — chat path uses this with SSE suppression when resume is unavailable. */
+  loadSession?(params: {
+    sessionId: string;
+    cwd: string;
+    mcpServers: Array<AcpMcpServer>;
+    _meta?: { [key: string]: unknown } | null;
+  }): Promise<{
+    modes?: unknown;
+    configOptions?: unknown;
+  }>;
 
   prompt(params: {
     sessionId: string;
@@ -239,6 +273,26 @@ export interface AcpClientSideConnection {
   setSessionMode?(params: {
     sessionId: string;
     modeId: string;
+  }): Promise<{ _meta?: Record<string, unknown> } | void>;
+
+  /**
+   * OpenCode/nuwaxcode currently exposes session model mutation as an unstable ACP
+   * extension. Keep it optional so other engines remain unaffected.
+   */
+  unstable_setSessionModel?(params: {
+    sessionId: string;
+    modelId: string;
+  }): Promise<{ _meta?: Record<string, unknown> } | void>;
+
+  /**
+   * Some ACP agents expose model switching through a generic config option API.
+   * Keep this optional as a fallback for engines that don't implement the
+   * unstable dedicated session model method.
+   */
+  setSessionConfigOption?(params: {
+    sessionId: string;
+    configId: string;
+    value: string;
   }): Promise<{ _meta?: Record<string, unknown> } | void>;
 
   closed: Promise<void>;
@@ -407,6 +461,8 @@ export interface AcpConnectionConfig {
   purpose?: "engine";
   /** Sandbox wrapping configuration (omit to disable) */
   sandbox?: SandboxProcessConfig;
+  /** Isolated HOME scope (project / ephemeral) */
+  isolatedHomeScope?: IsolatedHomeScope;
 }
 
 /** Result of creating an ACP connection */
@@ -509,7 +565,7 @@ function getNuwaxcodePersistentLogDir(): string {
  * (not via `node`).
  */
 export function resolveAcpBinary(
-  engine: "claude-code" | "nuwaxcode" | "codex" | "codex-cli",
+  engine: "claude-code" | "nuwaxcode" | "codex" | "codex-cli" | (string & {}),
 ): {
   binPath: string;
   binArgs: string[];
@@ -589,8 +645,64 @@ export function resolveAcpBinary(
     return { binPath: "nuwax-codex-acp", binArgs: [], isNative: true };
   }
 
-  // Should not reach here — all engine types handled above
-  throw new Error(`Unknown engine type: ${engine}`);
+  // Unknown engine type → try to resolve as custom agent
+  log.info(
+    `[AcpClient] Unknown engine "${engine}", attempting custom agent resolution`,
+  );
+
+  // 服务端常下发 command:"node" + args:[bundle.mjs] 的自定义 ACP Agent。
+  // Electron GUI 进程 PATH 通常不含 shell/nvm 的 node，必须用应用内 bundled Node，
+  // 否则会回退成裸命令 "node"，再被 createAcpConnection 的 existsSync 误判为缺失。
+  if (isNodeInterpreterCommand(engine)) {
+    const nodePath = getNodeBinPathWithFallback();
+    if (nodePath) {
+      log.info(
+        `[AcpClient] custom agent: resolving "${engine}" → bundled node: ${nodePath}`,
+      );
+      return { binPath: nodePath, binArgs: [], isNative: true };
+    }
+    log.warn(
+      `[AcpClient] custom agent: "${engine}" requested but bundled/system node not found`,
+    );
+  }
+
+  const customBinPath = resolveCustomAgentBinary(engine);
+  const candidatePath =
+    customBinPath ??
+    (looksLikeFilesystemPath(engine) && fs.existsSync(engine) ? engine : null);
+
+  if (candidatePath) {
+    const shimResolved = resolveNpmBinShimSpawnTarget(candidatePath);
+    if (shimResolved) {
+      return {
+        binPath: shimResolved.binPath,
+        binArgs: [],
+        isNative: shimResolved.isNative,
+      };
+    }
+    return { binPath: candidatePath, binArgs: [], isNative: true };
+  }
+
+  // Final fallback: assume the command is in PATH
+  log.warn(
+    `[AcpClient] Custom agent "${engine}" not found, assuming it's in PATH`,
+  );
+  return { binPath: engine, binArgs: [], isNative: true };
+}
+
+/** 判断是否为 Node 解释器命令名（非文件系统路径） */
+export function isNodeInterpreterCommand(command: string): boolean {
+  return /^node(\.exe)?$/i.test(command.trim());
+}
+
+function looksLikeFilesystemPath(command: string): boolean {
+  return (
+    path.isAbsolute(command) ||
+    /^[a-zA-Z]:[\\/]/.test(command) ||
+    command.startsWith("\\\\") ||
+    command.includes("/") ||
+    command.includes("\\")
+  );
 }
 
 /**
@@ -633,7 +745,9 @@ export async function createAcpConnection(
   const { binPath, binArgs } = config;
   let effectiveBinArgs = [...binArgs];
 
-  if (!fs.existsSync(binPath)) {
+  // 仅对真实路径做存在性检查；裸命令名（如历史回退的 PATH 命令）交给 spawn 解析。
+  // node 自定义 agent 应已在 resolveAcpBinary 中解析为 absolute bundled 路径。
+  if (looksLikeFilesystemPath(binPath) && !fs.existsSync(binPath)) {
     throw new Error(
       `ACP binary not found at: ${binPath}. Please install it first.`,
     );
@@ -672,23 +786,23 @@ export async function createAcpConnection(
 
   // Create isolated HOME directory with empty .claude/ config
   // This prevents Claude Code from reading user's global ~/.claude/settings.json
-  const runId = `acp-${Date.now()}-${Math.random().toString(36).substring(2, 8)}`;
-  const isolatedHome = path.join(
-    os.tmpdir(),
-    `${APP_NAME_IDENTIFIER}-${runId}`,
-  );
+  // 使用 ~/.nuwaclaw/run/ 而非 os.tmpdir()，避免 Unix socket 路径过长（macOS 限制 104 字符）
+  const scope = config.isolatedHomeScope ?? { kind: "ephemeral" as const };
+  const { homeDir: isolatedHome, runId } = resolveIsolatedHomePath(scope);
   fs.mkdirSync(path.join(isolatedHome, ".claude"), { recursive: true });
+  log.info("[AcpClient] Isolated HOME resolved", {
+    isolatedHome,
+    runId,
+    scopeKind: scope.kind,
+    persistent: scope.kind === "project",
+  });
 
   // 获取应用隔离环境变量（包含隔离的 PATH、npm、uv 配置等）
   const appEnv = getAppEnv();
 
-  // Prepend bundled ripgrep to isolated HOME profiles so Bash tool can run `rg`.
-  // getAppEnv() already puts ripgrep on PATH, but Windows env probe may corrupt PATH;
-  // ~/.bash_profile / ~/.bashrc (sourced by claude.exe) sanitize + prepend ripgrep bin.
-  writeShellProfiles(
-    isolatedHome,
-    [appEnv.CLAUDE_CODE_RIPGREP_DIR].filter(Boolean),
-  );
+  // Isolated Git Bash login shells on Windows rebuild PATH; inject full bundled dev env
+  // (node/pnpm/uv/rg + PNPM_/UV_ exports) — same coverage as ttyd pickTtydBundledEnv.
+  writeBundledDevShellProfiles(isolatedHome, appEnv);
 
   // 构建最终环境变量：以 appEnv 为基础，添加 ACP 特定配置
   const env: Record<string, string> = {
@@ -699,6 +813,7 @@ export async function createAcpConnection(
     USERPROFILE: isolatedHome, // Windows
 
     // XDG 目录（Unix/Linux 标准，Windows 上也设置以兼容可能的工具）
+    // 配置/数据仍隔离到 project home；包管理器缓存见下方二次覆盖
     XDG_CONFIG_HOME: path.join(isolatedHome, ".config"),
     XDG_DATA_HOME: path.join(isolatedHome, ".local", "share"),
     XDG_CACHE_HOME: path.join(isolatedHome, ".cache"),
@@ -711,6 +826,9 @@ export async function createAcpConnection(
     CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "1",
   };
 
+  // HOME/XDG 重定向后必须再写回共享缓存路径，避免每项目一份 .cache/pnpm、.npm
+  applySharedPackageManagerCacheEnv(env, appEnv);
+
   // Set TMPDIR to isolatedHome/tmp so that sandboxed engines (e.g. claude-code
   // under macOS seatbelt strict mode) create temp files inside a writable path.
   // Without this, os.tmpdir() resolves to /private/tmp which is NOT in the
@@ -722,6 +840,28 @@ export async function createAcpConnection(
   env.TMP = isolatedTmp;
 
   const isNuwaxcodeEngine = config.engineType === "nuwaxcode";
+
+  // nuwaxcode：共享 @opencode-ai/plugin，避免每个 project home 复制 ~60MB node_modules
+  // Windows=junction / Unix=symlink；失败不阻断启动
+  if (isNuwaxcodeEngine) {
+    try {
+      const pluginLink = await prepareOpencodePluginShareForHome(isolatedHome);
+      if (pluginLink.ok) {
+        log.info("[AcpClient] Opencode plugin share ready", {
+          version: pluginLink.version,
+          linkType: pluginLink.linkType,
+          skipped: pluginLink.skipped,
+          linkPath: pluginLink.linkPath,
+        });
+      } else if (!pluginLink.skipped) {
+        log.warn("[AcpClient] Opencode plugin share unavailable", {
+          reason: pluginLink.reason,
+        });
+      }
+    } catch (err) {
+      log.warn("[AcpClient] Opencode plugin share prepare error:", err);
+    }
+  }
 
   // Set model/api vars from ACP config only (never from user's global env)
   if (config.apiKey) {

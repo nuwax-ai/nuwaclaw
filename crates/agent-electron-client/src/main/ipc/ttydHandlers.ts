@@ -5,7 +5,7 @@
  *   ttyd:start       - 启动终端服务（先停再启，含端口清理）
  *   ttyd:stop        - 停止终端服务
  *   ttyd:status      - 查询运行状态
- *   ttyd:getWsUrl    - 返回带 --cwd 参数的 WebSocket URL
+ *   ttyd:getWsUrl    - 返回 OpenAPI path 风格的 WebSocket URL
  *   ttyd:updateCwd   - 刷新 ttyd-cwd 文件（工作区切换后调用）
  *   ttyd:isAvailable - 检测当前平台是否内置 ttyd 二进制并返回版本号
  */
@@ -22,6 +22,10 @@ import {
   getTtydInitialCwd,
   writeTtydCwdFile,
 } from "../services/packages/ttydHelper";
+import {
+  getTtydGatewayStatus,
+  stopTtydGateway,
+} from "../services/packages/ttydGateway";
 import { getServiceManager } from "./processHandlers";
 
 export function registerTtydHandlers(ctx: HandlerContext): void {
@@ -36,25 +40,54 @@ export function registerTtydHandlers(ctx: HandlerContext): void {
   // 即使用户在 UI 改了端口，clearServicePort 扫新端口找不到也无所谓——
   // 旧进程已被 kill，旧端口的孤儿监听会在 OS 层面自然释放。
   ipcMain.handle("ttyd:stop", async () => {
+    const gatewayStatus = getTtydGatewayStatus();
+    await stopTtydGateway();
     const result = await ctx.ttyd.stopAsync(3000);
     await killProcessTreesListeningOnTcpPort(getConfiguredPorts().ttyd).catch(
       () => {},
     );
+    if (gatewayStatus.targetPort) {
+      await killProcessTreesListeningOnTcpPort(gatewayStatus.targetPort).catch(
+        () => {},
+      );
+    }
     return result;
   });
 
   ipcMain.handle("ttyd:status", () => {
-    return ctx.ttyd.status();
+    const status = ctx.ttyd.status();
+    const gateway = getTtydGatewayStatus();
+    const gatewayError =
+      status.running && !gateway.running
+        ? gateway.error || "ttyd gateway is not running"
+        : gateway.error;
+    return {
+      ...status,
+      running: status.running && gateway.running,
+      port: gateway.port,
+      targetPort: gateway.targetPort,
+      error: status.error || gatewayError,
+    };
   });
 
   /**
-   * 返回带当前工作区 --cwd 参数的 WebSocket URL，供前端建立终端连接时使用。
-   * 格式：ws://127.0.0.1:<port>/ws?arg=--cwd&arg=<encoded_workspace>
-   * ttyd 的 -a flag 将 URL query 参数透传给 wrapper 脚本 argv，wrapper 解析后 cd 到目标目录。
+   * 返回 OpenAPI path 风格的 WebSocket URL，供前端建立终端连接时使用。
+   * 格式：ws://127.0.0.1:<port>/computer/ttyd/<user_id>/<project_id>/ws
+   * gateway 会把该路径转发到内部 ttyd /ws，并按 path 中的项目参数注入 cwd。
    */
-  ipcMain.handle("ttyd:getWsUrl", () => {
-    return getTtydWsUrl();
-  });
+  ipcMain.handle(
+    "ttyd:getWsUrl",
+    (
+      _event,
+      options?: {
+        userId?: string;
+        projectId?: string;
+        cwd?: string;
+      },
+    ) => {
+      return getTtydWsUrl(options);
+    },
+  );
 
   /**
    * 刷新 ttyd-cwd 文件（工作区切换后调用）。

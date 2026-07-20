@@ -55,11 +55,21 @@ function getProcessFlag(envKey: string, defaultValue = false): boolean {
   }
 }
 
+function isDevEnv(): boolean {
+  try {
+    return process.env.NODE_ENV === "development";
+  } catch {
+    return false;
+  }
+}
+
 export const FEATURES = {
   INJECT_GUI_MCP: getViteFlagInjectGuiMcp() || getProcessFlag("INJECT_GUI_MCP"),
   LOG_FULL_SECRETS:
     getViteFlagLogFullSecrets() ||
     getProcessFlag("NUWAX_AGENT_LOG_FULL_SECRETS"),
+  /** 开发排查：在 pushSseEvent 打印完整 SSE wire payload（event + data） */
+  LOG_SSE_PAYLOAD: getProcessFlag("NUWAX_AGENT_LOG_SSE_PAYLOAD", isDevEnv()),
   ENABLE_GUI_AGENT_SERVER: hasViteFlagEnableGuiAgentServer()
     ? getViteFlagEnableGuiAgentServer()
     : getProcessFlag("ENABLE_GUI_AGENT_SERVER", true),

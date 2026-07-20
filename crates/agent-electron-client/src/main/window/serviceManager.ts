@@ -6,6 +6,7 @@
 
 import * as path from "path";
 import * as fs from "fs";
+import { execSync } from "child_process";
 import { app } from "electron";
 import log from "electron-log";
 import { createFileServerPerfHandler } from "../ipc/perfHandlers";
@@ -26,7 +27,9 @@ import {
   getLanproxyBinPath,
   getTtydBinPath,
   getNuwaxFileServerBundledDir,
+  getBundledGitBashPath,
 } from "../services/system/dependencies";
+import { getBundledGitBinDir } from "../services/system/binaryLocator";
 import * as ttydHelper from "../services/packages/ttydHelper";
 import { agentService } from "../services/engines/unifiedAgent";
 import type { AgentConfig } from "../services/engines/unifiedAgent";
@@ -36,6 +39,13 @@ import {
   startGuiAgentServer,
   stopGuiAgentServer,
 } from "../services/packages/guiAgentServer";
+import {
+  allocateInternalTtydPort,
+  checkTtydGatewayHealth,
+  getTtydGatewayStatus,
+  startTtydGateway,
+  stopTtydGateway,
+} from "../services/packages/ttydGateway";
 import {
   startWindowsMcp,
   stopWindowsMcp,
@@ -61,6 +71,24 @@ export interface ServiceResult {
     healthy: boolean;
     error?: string;
   };
+}
+
+async function waitForTtydGatewayHealth(
+  port: number,
+): Promise<{ healthy: boolean; error?: string }> {
+  let lastError: string | undefined;
+  for (let attempt = 1; attempt <= 10; attempt++) {
+    const health = await checkTtydGatewayHealth({ port, timeoutMs: 1000 });
+    if (health.healthy) return health;
+    lastError = health.error;
+    log.warn(
+      `[ServiceManager] ttyd WebSocket health check failed (attempt ${attempt}/10): ${health.error}`,
+    );
+    if (attempt < 10) {
+      await new Promise((resolve) => setTimeout(resolve, 200));
+    }
+  }
+  return { healthy: false, error: lastError };
 }
 
 /**
@@ -127,6 +155,37 @@ export function createServiceManager(ctx: ServiceManagerContext) {
       }
     }
 
+    // 获取 Git 和 Git Bash 路径
+    const gitBinDir = getBundledGitBinDir();
+    const gitBashPath = getBundledGitBashPath();
+    let gitPath = gitBinDir
+      ? path.join(gitBinDir, isWindows() ? "git.exe" : "git")
+      : "";
+
+    // 如果没有 bundled git，尝试查找系统 git
+    if (!gitPath) {
+      try {
+        const whichGit = isWindows() ? "where git" : "which git";
+        const result = execSync(whichGit, {
+          encoding: "utf-8",
+          timeout: 5000,
+        }).trim();
+        const firstLine = result.split("\n")[0].trim();
+        if (firstLine) {
+          gitPath = firstLine;
+          log.info(`[ServiceManager] Using system git: ${gitPath}`);
+        }
+      } catch {
+        // git not found in system PATH
+      }
+    }
+
+    log.info("[ServiceManager] Git environment for file server:", {
+      GIT_PATH: gitPath,
+      BASH_PATH: gitBashPath,
+      gitBinDir,
+    });
+
     log.info("[ServiceManager] Starting file server on port", port);
     const startResult = await ctx.fileServer.start({
       command: process.execPath,
@@ -137,6 +196,9 @@ export function createServiceManager(ctx: ServiceManagerContext) {
         PORT: String(port),
         NODE_ENV: "production",
         ELECTRON_RUN_AS_NODE: "1",
+        // Git 环境变量，供 nuwax-file-server 使用
+        GIT_PATH: gitPath,
+        BASH_PATH: gitBashPath,
       },
       startupDelayMs: DEFAULT_STARTUP_DELAY,
       onStdoutLine: createFileServerPerfHandler(),
@@ -202,15 +264,32 @@ export function createServiceManager(ctx: ServiceManagerContext) {
    * 启动 ttyd Web 终端服务
    *
    * - 仅监听回环 127.0.0.1（终端等同 shell，切勿绑定 0.0.0.0 暴露到网络）
-   * - 端口来自聚合配置（DEFAULT_TTYD_PORT=60009）
+   * - 用户配置端口用于 ttyd gateway，对外提供 /computer/ttyd/{user_id}/{project_id}/{*path}
+   * - 真实 ttyd 进程仅监听自动分配的内部回环端口
    * - 使用 process.env（用户原始环境），不注入 getAppEnv()，避免 NPM_CONFIG_PREFIX 等
    *   app 内部隔离变量污染用户 shell（nvm / rvm / pyenv 等工具依赖干净的环境）
    * - 幂等：已运行直接返回成功，供启动/重启流程重复调用而不打断已有终端会话
    * - cwd / wrapper 逻辑见 services/packages/ttydHelper.ts
    */
   const startTtyd = async (): Promise<ServiceResult> => {
+    const { ttyd: publicPort } = getConfiguredPorts();
+
     if (ctx.ttyd.running) {
-      return { success: true, message: "Already running" };
+      const gatewayStatus = getTtydGatewayStatus();
+      if (gatewayStatus.running && gatewayStatus.port === publicPort) {
+        return { success: true, message: "Already running" };
+      }
+
+      log.warn(
+        `[ServiceManager] ttyd process is running but gateway is not ready for port ${publicPort}; restarting ttyd service`,
+      );
+      await stopTtydGateway();
+      await ctx.ttyd.stopAsync(3000);
+      if (gatewayStatus.targetPort) {
+        await killProcessTreesListeningOnTcpPort(
+          gatewayStatus.targetPort,
+        ).catch(() => {});
+      }
     }
 
     const binPath = getTtydBinPath();
@@ -224,35 +303,62 @@ export function createServiceManager(ctx: ServiceManagerContext) {
       };
     }
 
-    const { ttyd: port } = getConfiguredPorts();
+    await stopTtydGateway();
     try {
-      log.info(`[ServiceManager] Pre-start ttyd port sweep for ${port}`);
-      await killProcessTreesListeningOnTcpPort(port);
+      log.info(
+        `[ServiceManager] Pre-start ttyd gateway port sweep for ${publicPort}`,
+      );
+      await killProcessTreesListeningOnTcpPort(publicPort);
     } catch (e) {
-      log.warn("[ServiceManager] ttyd pre-start port sweep failed:", e);
+      log.warn("[ServiceManager] ttyd gateway pre-start port sweep failed:", e);
     }
+
+    const internalPort = await allocateInternalTtydPort(publicPort);
 
     const win = isWindows();
 
     // cwd / wrapper 逻辑委托给 ttydHelper（见 services/packages/ttydHelper.ts）
     const initialCwd = ttydHelper.getTtydInitialCwd();
     ttydHelper.writeTtydCwdFile(initialCwd);
+    // 生成 ttyd 终端内置环境脚本（供 wrapper 加载）；写失败时不阻塞 ttyd 启动（降级为系统环境）
+    if (win) {
+      ttydHelper.ensureTtydWindowsEnvScript();
+    } else {
+      ttydHelper.ensureTtydEnvScript();
+    }
 
     // Unix：用 wrapper 脚本作为 ttyd 的子进程命令
     //   wrapper 解析 --cwd 参数（由 ttyd -a flag 从 URL query 传入），动态 cd 到目标目录
-    // Windows：暂用 cmd.exe（待补 Windows ttyd 二进制），不启用 wrapper
+    // Windows：用 PowerShell wrapper 解析 --cwd 后再进入 cmd.exe，实现 per-connection cwd
     let shellCmd: string;
     let shellArgs: string[];
+    let useArgPassThrough = false;
 
     if (win) {
-      // 必须绝对路径：裸 "cmd.exe" 在部分环境会触发 CreateProcessW 失败（ttyd#1292）
-      shellCmd = process.env.ComSpec || "C:\\Windows\\System32\\cmd.exe";
-      shellArgs = [];
+      const wrapper = ttydHelper.ensureTtydWindowsShellWrapper();
+      if (wrapper) {
+        shellCmd = ttydHelper.getWindowsPowerShellPath();
+        shellArgs = [
+          "-NoLogo",
+          "-NoProfile",
+          "-ExecutionPolicy",
+          "Bypass",
+          "-File",
+          wrapper,
+        ];
+        useArgPassThrough = true;
+      } else {
+        // wrapper 写出失败，降级为固定初始目录的 cmd.exe。
+        // 必须绝对路径：裸 "cmd.exe" 在部分环境会触发 CreateProcessW 失败（ttyd#1292）
+        shellCmd = process.env.ComSpec || "C:\\Windows\\System32\\cmd.exe";
+        shellArgs = [];
+      }
     } else {
       const wrapper = ttydHelper.ensureTtydShellWrapper();
       if (wrapper) {
         shellCmd = wrapper;
         shellArgs = [];
+        useArgPassThrough = true;
       } else {
         // wrapper 写出失败，降级为直接使用 login shell。
         // 注意：ttyd -a flag 会把 URL query 的 --cwd <path> 作为 argv 透传给子命令，
@@ -263,10 +369,6 @@ export function createServiceManager(ctx: ServiceManagerContext) {
       }
     }
 
-    // 降级路径：去掉 -a flag，防止 URL 透传的 --cwd 进入裸 login shell 导致 bash 报错
-    const useArgPassThrough =
-      !win && shellCmd !== (process.env.SHELL || "/bin/bash");
-
     // ttyd 选项：
     //   -p  端口
     //   -i  127.0.0.1  仅回环绑定（安全约束：绝不绑定 0.0.0.0）
@@ -276,7 +378,7 @@ export function createServiceManager(ctx: ServiceManagerContext) {
     //      降级到裸 login shell 时跳过 -a，避免 --cwd 进入 bash 触发"invalid option"
     const args = [
       "-p",
-      String(port),
+      String(internalPort),
       "-i",
       "127.0.0.1",
       "-W",
@@ -287,15 +389,41 @@ export function createServiceManager(ctx: ServiceManagerContext) {
     ];
 
     log.info(
-      `[ServiceManager] Starting ttyd on 127.0.0.1:${port} (shell=${shellCmd}, cwd=${initialCwd})`,
+      `[ServiceManager] Starting ttyd on 127.0.0.1:${internalPort} behind gateway 127.0.0.1:${publicPort} (shell=${shellCmd}, cwd=${initialCwd})`,
     );
-    return ctx.ttyd.start({
+    const startResult = await ctx.ttyd.start({
       command: binPath,
       args,
       env: { ...process.env } as Record<string, string>,
       cwd: initialCwd,
       startupDelayMs: 1000,
     });
+    if (!startResult.success) return startResult;
+
+    const gatewayResult = await startTtydGateway({
+      listenPort: publicPort,
+      targetPort: internalPort,
+    });
+    if (!gatewayResult.success) {
+      await ctx.ttyd.stopAsync(3000);
+      await killProcessTreesListeningOnTcpPort(internalPort).catch(() => {});
+      return gatewayResult;
+    }
+
+    const health = await waitForTtydGatewayHealth(publicPort);
+    if (!health.healthy) {
+      await stopTtydGateway();
+      await ctx.ttyd.stopAsync(3000);
+      await killProcessTreesListeningOnTcpPort(internalPort).catch(() => {});
+      return {
+        success: false,
+        error: `ttyd WebSocket health check failed: ${health.error || "unknown error"}`,
+      };
+    }
+
+    log.info("[ServiceManager] ttyd WebSocket health check passed");
+
+    return startResult;
   };
 
   /**
@@ -661,8 +789,13 @@ export function createServiceManager(ctx: ServiceManagerContext) {
 
     // 停止 ttyd Web 终端
     try {
+      const gatewayStatus = getTtydGatewayStatus();
+      await stopTtydGateway();
       await ctx.ttyd.stopAsync();
       await killProcessTreesListeningOnTcpPort(getConfiguredPorts().ttyd);
+      if (gatewayStatus.targetPort) {
+        await killProcessTreesListeningOnTcpPort(gatewayStatus.targetPort);
+      }
       results.ttyd = { success: true };
       log.info("[ServiceManager] ttyd stopped");
     } catch (e) {

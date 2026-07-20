@@ -21,6 +21,7 @@ import { getConfiguredPorts } from "../startupPorts";
 import type {
   ComputerChatRequest,
   HttpResult,
+  AcpChatHttpResult,
   UnifiedSessionMessage,
 } from "../engines/unifiedAgent";
 import type {
@@ -50,11 +51,49 @@ import {
   clearSseEventBuffer,
   bindSessionFirstTokenContext,
   clearSessionFirstTokenContext,
+  closeSseClientsForSession,
+  logSseWirePayloadForDebug,
 } from "./sseManager";
+import {
+  resolveAgentServerPaths,
+  resolveAgentEnvPaths,
+  resolveComputerProjectWorkspaceDir,
+} from "../workspacePaths";
+import { getAppDataDir } from "../system/appPaths";
+import { parseHttpJsonBody } from "./parseHttpJsonBody";
+import {
+  shouldAutoReload,
+  reloadEngineForRequest,
+  attachReloadedToChatResult,
+  buildChatErrorWithReload,
+} from "./devcomputerAutoReload";
+import { ensureSessionIdFromRegistry } from "./ensureChatSessionId";
+import { resolveChatProjectRegistryKey } from "./chatEngineKey";
+import { rememberProjectSession } from "./projectSessionRegistry";
+import { closeStaleSseBeforeChat } from "./closeStaleSseForChat";
+import {
+  chatDispatchCoordinator,
+  resolveChatDispatchKey,
+  type ChatDispatchContext,
+} from "./chatDispatchCoordinator";
 
 // ==================== Helpers ====================
 
 const MAX_BODY_SIZE = 10 * 1024 * 1024;
+
+/**
+ * 校验 agent_work_dir 格式：仅允许 [a-zA-Z0-9_-]，长度 1-64。
+ * 返回 null 表示合法，返回 string 表示错误信息。
+ */
+function validateAgentWorkDir(value: string): string | null {
+  if (value.length === 0 || value.length > 64) {
+    return "agent_work_dir must be 1-64 characters";
+  }
+  if (!/^[a-zA-Z0-9_-]+$/.test(value)) {
+    return "agent_work_dir may only contain [a-zA-Z0-9_-]";
+  }
+  return null;
+}
 
 /**
  * 检测项目工作空间目录是否存在，不存在则通过 file-server 创建空目录结构。
@@ -66,7 +105,7 @@ const MAX_BODY_SIZE = 10 * 1024 * 1024;
  */
 async function ensureProjectWorkspace(
   userId: string,
-  projectId: string,
+  agentWorkDir: string,
   fileServerPort: number,
 ): Promise<void> {
   const agentConfig = agentService.getAgentConfig();
@@ -81,7 +120,7 @@ async function ensureProjectWorkspace(
     agentConfig.workspaceDir,
     "computer-project-workspace",
     userId,
-    projectId,
+    agentWorkDir,
   );
   if (fs.existsSync(projectDir)) {
     log.debug(
@@ -125,7 +164,7 @@ async function ensureProjectWorkspace(
     `--${boundary}`,
     `Content-Disposition: form-data; name="cId"`,
     "",
-    projectId,
+    agentWorkDir,
     `--${boundary}--`,
   ].join("\r\n");
 
@@ -155,10 +194,11 @@ async function ensureProjectWorkspace(
     },
   );
 
-  let body = "";
+  const responseChunks: Buffer[] = [];
   for await (const chunk of response) {
-    body += chunk;
+    responseChunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
   }
+  const body = Buffer.concat(responseChunks).toString("utf-8");
 
   const result = JSON.parse(body);
   if (result.success || result.workspaceRoot) {
@@ -174,27 +214,7 @@ async function ensureProjectWorkspace(
 }
 
 export function parseBody(req: http.IncomingMessage): Promise<any> {
-  return new Promise((resolve, reject) => {
-    let body = "";
-    let size = 0;
-    req.on("data", (chunk) => {
-      size += chunk.length;
-      if (size > MAX_BODY_SIZE) {
-        req.destroy();
-        reject(new Error("Request body too large"));
-        return;
-      }
-      body += chunk;
-    });
-    req.on("end", () => {
-      try {
-        resolve(body ? JSON.parse(body) : {});
-      } catch (e) {
-        reject(e);
-      }
-    });
-    req.on("error", reject);
-  });
+  return parseHttpJsonBody(req, { maxBodySize: MAX_BODY_SIZE }) as Promise<any>;
 }
 
 function parseQuery(url: URL): Record<string, string> {
@@ -222,6 +242,371 @@ function sendJson(res: http.ServerResponse, statusCode: number, data: unknown) {
     "Access-Control-Allow-Headers": "Content-Type, X-Nuwax-Internal-Secret",
   });
   res.end(json);
+}
+
+// ==================== Chat Handler (reusable) ====================
+
+/**
+ * 处理 Computer Chat 请求的核心逻辑
+ *
+ * 提取自 handleRequest，供 /computer/chat 和 /devcomputer/chat 共用。
+ * @param req - HTTP 请求（用于日志，不读取 body）
+ * @param res - HTTP 响应
+ * @param preParsedBody - 预解析的请求体（devcomputer 注入 auto_reload 后传入）
+ * @param source - 请求来源，用于 {PREFIX_WORKSPACE_DIR} 替换逻辑
+ */
+export async function handleComputerChat(
+  req: http.IncomingMessage,
+  res: http.ServerResponse,
+  preParsedBody?: ComputerChatRequest,
+  source?: "computer" | "devcomputer",
+): Promise<void> {
+  const t0 = Date.now();
+  let t1: number, t2: number, t3: number, t4: number;
+
+  const body = preParsedBody || ((await parseBody(req)) as ComputerChatRequest);
+  t1 = Date.now();
+  firstTokenTrace.trace(
+    "chat.received",
+    {
+      requestId: body.request_id,
+      projectId: body.project_id,
+      sessionId: body.session_id,
+    },
+    { parseBodyMs: t1 - t0, userId: body.user_id },
+  );
+  getPerfLogger().info(
+    `[PERF] /chat received: parseBody=${t1 - t0}ms  rid=${body.request_id?.slice(0, 8)}  project=${body.project_id}`,
+  );
+
+  log.debug(
+    "📨 [HTTP][DEBUG] Computer Chat request body =",
+    redactStringForLog(JSON.stringify(redactForLog(body), null, 2)),
+  );
+
+  log.info("📨 [HTTP] Computer Chat request received", {
+    user_id: body.user_id,
+    project_id: body.project_id,
+    session_id: body.session_id,
+    request_id: body.request_id,
+    model_provider: redactForLog(body.model_provider),
+    agent_config: redactForLog(body.agent_config),
+    context_servers_json: body.agent_config?.context_servers
+      ? redactStringForLog(
+          JSON.stringify(redactForLog(body.agent_config.context_servers)),
+        )
+      : undefined,
+    system_prompt_length: body.system_prompt ? body.system_prompt.length : 0,
+    prompt_length: body.prompt ? body.prompt.length : 0,
+  });
+
+  if (!body.user_id) {
+    log.error("❌ [HTTP] user_id is required for ComputerAgentRunner");
+    firstTokenTrace.trace(
+      "chat.failed",
+      {
+        requestId: body.request_id,
+        projectId: body.project_id,
+        sessionId: body.session_id,
+      },
+      { reason: "missing_user_id" },
+    );
+    sendJson(
+      res,
+      400,
+      httpError(
+        "VALIDATION_ERROR",
+        "user_id is required for ComputerAgentRunner",
+      ),
+    );
+    return;
+  }
+
+  // 校验 agent_work_dir 格式（如果提供）
+  if (body.agent_work_dir) {
+    const validationError = validateAgentWorkDir(body.agent_work_dir);
+    if (validationError) {
+      sendJson(res, 400, httpError("VALIDATION_ERROR", validationError));
+      return;
+    }
+  }
+
+  // 兼容处理：未传 agent_work_dir 时，用 project_id 赋值
+  if (!body.agent_work_dir && body.project_id) {
+    body.agent_work_dir = body.project_id;
+  }
+
+  const dispatchKey = resolveChatDispatchKey(body);
+  const chatDispatch: ChatDispatchContext = {
+    dispatchKey,
+    turnGeneration: chatDispatchCoordinator.bumpArrival(
+      dispatchKey,
+      body.request_id,
+    ),
+  };
+
+  t2 = Date.now();
+  firstTokenTrace.trace(
+    "chat.validated",
+    {
+      requestId: body.request_id,
+      projectId: body.project_id,
+      agentWorkDir: body.agent_work_dir,
+      sessionId: body.session_id,
+    },
+    { validateMs: t2 - t1 },
+  );
+  getPerfLogger().info(`[PERF] /chat.validate: ${t2 - t1}ms`);
+
+  if (body.agent_work_dir) {
+    try {
+      const { fileServer: fileServerPort } = getConfiguredPorts();
+      await ensureProjectWorkspace(
+        body.user_id,
+        body.agent_work_dir,
+        fileServerPort,
+      );
+    } catch (wsErr: any) {
+      log.warn(
+        "[HTTP] ensureProjectWorkspace failed (non-blocking):",
+        wsErr.message,
+      );
+    }
+  }
+  const t2_5 = Date.now();
+  firstTokenTrace.trace(
+    "chat.workspace.ready",
+    {
+      requestId: body.request_id,
+      projectId: body.project_id,
+      agentWorkDir: body.agent_work_dir,
+      sessionId: body.session_id,
+    },
+    { workspaceMs: t2_5 - t2 },
+  );
+  getPerfLogger().info(`[PERF] /chat.ensureWorkspace: ${t2_5 - t2}ms`);
+
+  // 路径变量替换：{PREFIX_WORKSPACE_DIR} → 实际路径
+  // command/args 和 env 的替换路径不同：
+  //   /devcomputer/chat: 两者都用 baseWorkspaceDir/computer-project-workspace/{user_id}
+  //   /computer/chat:    command/args 用 acp-agent/，env 用 logs/agent_logs/
+  if (body.agent_config?.agent_server) {
+    const server = body.agent_config.agent_server;
+    const hasCmdPlaceholder =
+      server.command?.includes("{PREFIX_WORKSPACE_DIR}") ||
+      server.args?.some((a) => a.includes("{PREFIX_WORKSPACE_DIR}"));
+    const hasEnvPlaceholder = server.env
+      ? Object.values(server.env).some((v) =>
+          v.includes("{PREFIX_WORKSPACE_DIR}"),
+        )
+      : false;
+
+    if (hasCmdPlaceholder || hasEnvPlaceholder) {
+      // command/args 的替换路径
+      let cmdPrefix: string;
+      // env 的替换路径（与 command/args 可能不同）
+      let envPrefix: string;
+
+      if (source === "devcomputer") {
+        // 调试场景：替换为项目工作目录
+        const baseConfig = agentService.getAgentConfig();
+        const baseWorkspaceDir =
+          baseConfig?.workspaceDir || path.join(getAppDataDir(), "workspace");
+        cmdPrefix = resolveComputerProjectWorkspaceDir(
+          baseWorkspaceDir,
+          body.user_id,
+          "",
+        );
+        envPrefix = cmdPrefix; // devcomputer: env 和 command/args 一致
+      } else {
+        // 正式使用：command/args 用应用数据目录（args 中已包含 acp-agent/），env 用 logs 目录
+        cmdPrefix = getAppDataDir();
+        envPrefix = path.join(getAppDataDir(), "logs", "agent_logs");
+      }
+
+      // 替换 command/args
+      if (hasCmdPlaceholder) {
+        const resolved = resolveAgentServerPaths(
+          server.command,
+          server.args,
+          cmdPrefix,
+        );
+        if (resolved.command !== undefined) server.command = resolved.command;
+        if (resolved.args !== undefined) server.args = resolved.args;
+      }
+
+      // 替换 env
+      if (hasEnvPlaceholder) {
+        server.env = resolveAgentEnvPaths(server.env, envPrefix);
+      }
+
+      log.info(
+        `[HTTP] Resolved {PREFIX_WORKSPACE_DIR} → cmd=${cmdPrefix}, env=${envPrefix} (source=${source || "computer"})`,
+      );
+    }
+  }
+
+  // 自动安装检查：如果 agent_server.platforms 存在
+  if (body.agent_config?.agent_server?.platforms) {
+    const { agent_id, command, version, platforms } =
+      body.agent_config.agent_server;
+    if (agent_id && command && version) {
+      const { installFromUrl, isBuiltinAgent, resolvePlatformDownloadUrl } =
+        await import("../agentInstaller");
+      const installUrl = resolvePlatformDownloadUrl(platforms);
+      try {
+        if (!isBuiltinAgent(agent_id)) {
+          log.info(`[HTTP] Auto-installing agent: ${agent_id}@${version}`);
+          await installFromUrl({
+            agent: {
+              agent_id,
+              command,
+              args: body.agent_config.agent_server.args,
+              version,
+            },
+            platforms,
+          });
+        }
+      } catch (installErr) {
+        const message =
+          installErr instanceof Error ? installErr.message : String(installErr);
+        log.error(
+          `[HTTP] Auto-install failed: agent_id=${agent_id}, version=${version}, install_url=${installUrl ?? "unknown"}, platform_keys=${Object.keys(platforms).join(",")}, error=${message}`,
+        );
+        sendJson(
+          res,
+          200,
+          httpError(
+            "ERR_AGENT_AUTO_INSTALL_FAILED",
+            `Agent auto-install failed: ${message}`,
+          ),
+        );
+        return;
+      }
+    }
+  }
+
+  // reload 前补全 session_id，便于按 session 定位引擎并走 session/load
+  ensureSessionIdFromRegistry(body);
+
+  const engineReloaded = shouldAutoReload(body, source)
+    ? await reloadEngineForRequest(body)
+    : false;
+
+  let acpEngine;
+  try {
+    acpEngine = await agentService.ensureEngineForRequest(body);
+  } catch (err: any) {
+    log.error(
+      `❌ [HTTP] Engine switch failed (reloaded=${engineReloaded}):`,
+      err,
+    );
+    firstTokenTrace.trace(
+      "chat.failed",
+      {
+        requestId: body.request_id,
+        projectId: body.project_id,
+        sessionId: body.session_id,
+      },
+      {
+        reason: "ensure_engine_failed",
+        error: err?.message || String(err),
+      },
+    );
+    sendJson(
+      res,
+      200,
+      buildChatErrorWithReload(
+        body,
+        "5000",
+        err.message || "Engine switch failed",
+        engineReloaded,
+      ),
+    );
+    return;
+  }
+  t3 = Date.now();
+  firstTokenTrace.trace(
+    "chat.engine.ready",
+    {
+      requestId: body.request_id,
+      projectId: body.project_id,
+      sessionId: body.session_id,
+      engine: acpEngine?.engineName,
+    },
+    { ensureEngineMs: t3 - t2_5 },
+  );
+  getPerfLogger().info(`[PERF] /chat.ensureEngine: ${t3 - t2_5}ms`);
+
+  if (!acpEngine) {
+    log.error(`❌ [HTTP] Agent not initialized, reloaded=${engineReloaded}`);
+    sendJson(
+      res,
+      200,
+      buildChatErrorWithReload(
+        body,
+        "5000",
+        "Agent not initialized",
+        engineReloaded,
+      ),
+    );
+    return;
+  }
+
+  closeStaleSseBeforeChat(body, acpEngine);
+
+  const rawResult: AcpChatHttpResult = await acpEngine.chat(body, chatDispatch);
+  const promptDispatched = rawResult.promptDispatched !== false;
+  const { promptDispatched: _pd, ...result } = rawResult;
+  attachReloadedToChatResult(result, body, engineReloaded);
+  if (result.success && promptDispatched && result.data?.session_id) {
+    const projectKey = resolveChatProjectRegistryKey(body);
+    if (projectKey) {
+      rememberProjectSession(projectKey, result.data.session_id);
+    }
+  }
+  t4 = Date.now();
+  firstTokenTrace.trace(
+    result.success ? "chat.response.sent" : "chat.failed",
+    {
+      requestId: body.request_id,
+      projectId: body.project_id,
+      sessionId: result.data?.session_id || body.session_id,
+      engine: acpEngine.engineName,
+    },
+    {
+      acpChatMs: t4 - t3,
+      totalMs: t4 - t0,
+      success: result.success,
+      code: result.code,
+      message: result.success ? "ok" : result.message,
+    },
+  );
+  getPerfLogger().info(`[PERF] /chat.acpChat: ${t4 - t3}ms`);
+
+  if (result.success) {
+    log.info(
+      `✅ [HTTP] Computer Chat response: session_id=${result.data?.session_id}, reloaded=${result.data?.reloaded === true}`,
+    );
+    if (promptDispatched && result.data?.session_id) {
+      bindSessionFirstTokenContext(result.data.session_id, {
+        requestId: body.request_id || result.data.request_id,
+        projectId: body.project_id || result.data.project_id,
+        engine: acpEngine.engineName,
+        chatReceivedAt: t0,
+        isNewSession: result.data.is_new_session === true,
+      });
+    }
+  } else {
+    log.error(
+      `❌ [HTTP] Computer Chat failed: ${result.message}, reloaded=${result.data?.reloaded === true}`,
+    );
+  }
+
+  getPerfLogger().info(
+    `[PERF] /chat: ${t4 - t0}ms  rid=${body.request_id?.slice(0, 8)}  (parseBody=${t1 - t0}ms validate=${t2 - t1}ms workspace=${t2_5 - t2}ms engine=${t3 - t2_5}ms chat=${t4 - t3}ms)`,
+  );
+  sendJson(res, 200, result);
 }
 
 // ==================== Request Router ====================
@@ -275,191 +660,7 @@ export async function handleRequest(
 
     // POST /computer/chat
     if (pathname === "/computer/chat" && method === "POST") {
-      const t0 = Date.now();
-      let t1: number, t2: number, t3: number, t4: number;
-
-      const body = (await parseBody(req)) as ComputerChatRequest;
-      t1 = Date.now();
-      firstTokenTrace.trace(
-        "chat.received",
-        {
-          requestId: body.request_id,
-          projectId: body.project_id,
-          sessionId: body.session_id,
-        },
-        { parseBodyMs: t1 - t0, userId: body.user_id },
-      );
-      getPerfLogger().info(
-        `[PERF] /chat received: parseBody=${t1 - t0}ms  rid=${body.request_id?.slice(0, 8)}  project=${body.project_id}`,
-      );
-
-      log.debug(
-        "📨 [HTTP][DEBUG] Computer Chat request body =",
-        redactStringForLog(JSON.stringify(redactForLog(body), null, 2)),
-      );
-
-      log.info("📨 [HTTP] Computer Chat request received", {
-        user_id: body.user_id,
-        project_id: body.project_id,
-        session_id: body.session_id,
-        request_id: body.request_id,
-        model_provider: redactForLog(body.model_provider),
-        agent_config: redactForLog(body.agent_config),
-        context_servers_json: body.agent_config?.context_servers
-          ? redactStringForLog(
-              JSON.stringify(redactForLog(body.agent_config.context_servers)),
-            )
-          : undefined,
-        system_prompt_length: body.system_prompt
-          ? body.system_prompt.length
-          : 0,
-        prompt_length: body.prompt ? body.prompt.length : 0,
-      });
-
-      if (!body.user_id) {
-        log.error("❌ [HTTP] user_id is required for ComputerAgentRunner");
-        firstTokenTrace.trace(
-          "chat.failed",
-          {
-            requestId: body.request_id,
-            projectId: body.project_id,
-            sessionId: body.session_id,
-          },
-          { reason: "missing_user_id" },
-        );
-        sendJson(
-          res,
-          400,
-          httpError(
-            "VALIDATION_ERROR",
-            "user_id is required for ComputerAgentRunner",
-          ),
-        );
-        return;
-      }
-      t2 = Date.now();
-      firstTokenTrace.trace(
-        "chat.validated",
-        {
-          requestId: body.request_id,
-          projectId: body.project_id,
-          sessionId: body.session_id,
-        },
-        { validateMs: t2 - t1 },
-      );
-      getPerfLogger().info(`[PERF] /chat.validate: ${t2 - t1}ms`);
-
-      if (body.project_id) {
-        try {
-          const { fileServer: fileServerPort } = getConfiguredPorts();
-          await ensureProjectWorkspace(
-            body.user_id,
-            body.project_id,
-            fileServerPort,
-          );
-        } catch (wsErr: any) {
-          log.warn(
-            "[HTTP] ensureProjectWorkspace failed (non-blocking):",
-            wsErr.message,
-          );
-        }
-      }
-      const t2_5 = Date.now();
-      firstTokenTrace.trace(
-        "chat.workspace.ready",
-        {
-          requestId: body.request_id,
-          projectId: body.project_id,
-          sessionId: body.session_id,
-        },
-        { workspaceMs: t2_5 - t2 },
-      );
-      getPerfLogger().info(`[PERF] /chat.ensureWorkspace: ${t2_5 - t2}ms`);
-
-      let acpEngine;
-      try {
-        acpEngine = await agentService.ensureEngineForRequest(body);
-      } catch (err: any) {
-        log.error("❌ [HTTP] Engine switch failed:", err);
-        firstTokenTrace.trace(
-          "chat.failed",
-          {
-            requestId: body.request_id,
-            projectId: body.project_id,
-            sessionId: body.session_id,
-          },
-          {
-            reason: "ensure_engine_failed",
-            error: err?.message || String(err),
-          },
-        );
-        sendJson(
-          res,
-          200,
-          httpError("5000", err.message || "Engine switch failed"),
-        );
-        return;
-      }
-      t3 = Date.now();
-      firstTokenTrace.trace(
-        "chat.engine.ready",
-        {
-          requestId: body.request_id,
-          projectId: body.project_id,
-          sessionId: body.session_id,
-          engine: acpEngine?.engineName,
-        },
-        { ensureEngineMs: t3 - t2_5 },
-      );
-      getPerfLogger().info(`[PERF] /chat.ensureEngine: ${t3 - t2_5}ms`);
-
-      if (!acpEngine) {
-        log.error("❌ [HTTP] Agent not initialized");
-        sendJson(res, 200, httpError("5000", "Agent not initialized"));
-        return;
-      }
-
-      const result = await acpEngine.chat(body);
-      t4 = Date.now();
-      firstTokenTrace.trace(
-        result.success ? "chat.response.sent" : "chat.failed",
-        {
-          requestId: body.request_id,
-          projectId: body.project_id,
-          sessionId: result.data?.session_id || body.session_id,
-          engine: acpEngine.engineName,
-        },
-        {
-          acpChatMs: t4 - t3,
-          totalMs: t4 - t0,
-          success: result.success,
-          code: result.code,
-          message: result.success ? "ok" : result.message,
-        },
-      );
-      getPerfLogger().info(`[PERF] /chat.acpChat: ${t4 - t3}ms`);
-
-      if (result.success) {
-        log.info(
-          `✅ [HTTP] Computer Chat response: session_id=${result.data?.session_id}`,
-        );
-        if (result.data?.session_id) {
-          bindSessionFirstTokenContext(result.data.session_id, {
-            requestId: body.request_id || result.data.request_id,
-            projectId: body.project_id || result.data.project_id,
-            engine: acpEngine.engineName,
-            chatReceivedAt: t0,
-            isNewSession: result.data.is_new_session === true,
-          });
-        }
-      } else {
-        log.error(`❌ [HTTP] Computer Chat failed: ${result.message}`);
-      }
-
-      getPerfLogger().info(
-        `[PERF] /chat: ${t4 - t0}ms  rid=${body.request_id?.slice(0, 8)}  (parseBody=${t1 - t0}ms validate=${t2 - t1}ms workspace=${t2_5 - t2}ms engine=${t3 - t2_5}ms chat=${t4 - t3}ms)`,
-      );
-      sendJson(res, 200, result);
+      await handleComputerChat(req, res, undefined, "computer");
       return;
     }
 
@@ -496,7 +697,9 @@ export async function handleRequest(
           },
           timestamp: new Date().toISOString(),
         };
-        res.write(`event: end_turn\ndata: ${JSON.stringify(endEvent)}\n\n`);
+        const idleEndPayload = `event: end_turn\ndata: ${JSON.stringify(endEvent)}\n\n`;
+        logSseWirePayloadForDebug(idleEndPayload);
+        res.write(idleEndPayload);
         clearSessionFirstTokenContext(sessionId);
         res.end();
         return;
@@ -527,6 +730,9 @@ export async function handleRequest(
             },
             timestamp: new Date().toISOString(),
           };
+          log.debug(
+            `[SSE] Sending heartbeat: session_id=${sessionId}, time=${new Date().toISOString()}`,
+          );
           res.write(`event: ping\ndata: ${JSON.stringify(hb)}\n\n`);
         } catch {
           /* client disconnected */
@@ -729,8 +935,19 @@ export async function handleRequest(
           }
         }
       }
-      if (cancelledSessionId) {
+      if (acpEngine && projectId) {
+        closeStaleSseBeforeChat(
+          {
+            user_id: userId,
+            project_id: projectId,
+            session_id: cancelledSessionId || sessionId || undefined,
+            prompt: "",
+          },
+          acpEngine,
+        );
+      } else if (cancelledSessionId) {
         clearSseEventBuffer(cancelledSessionId);
+        closeSseClientsForSession(cancelledSessionId);
       }
 
       sendJson(

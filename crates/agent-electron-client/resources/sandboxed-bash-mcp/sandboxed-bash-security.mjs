@@ -25,6 +25,9 @@ export const SANDBOX_SAFE_ENV_KEYS = [
   "PROCESSOR_ARCHITECTURE",
   "LANG",
   "TZ",
+  // Git Bash / dev-engineer-toolkit：沙箱剥离系统 PATH 后靠 ORIGINAL_PATH 恢复 python/uv
+  "ORIGINAL_PATH",
+  "MSYS2_PATH_TYPE",
 ];
 
 export function isWithinRoot(candidate, root) {

@@ -2,8 +2,8 @@
 #
 # Windows Release Signing Script (Bash/Git Bash)
 #
-# Downloads, signs, verifies, and uploads Windows installers for a release.
-# Handles file naming: unsigned files have "-unsigned" suffix, signed files use original names.
+# Downloads, signs, verifies, and uploads Windows NSIS installer (EXE) for a release.
+# MSI（NuwaClaw.<ver>.msi）由 CI 直出最终文件名，不再签名。
 #
 # Usage:
 #   ./sign-release-win.sh <version> [--skip-download] [--skip-upload] [--upload-only]
@@ -12,7 +12,7 @@
 #   ./sign-release-win.sh 0.9.2
 #   ./sign-release-win.sh 0.9.2 --skip-download
 #   ./sign-release-win.sh 0.9.2 --skip-upload
-#   ./sign-release-win.sh 0.9.2 --upload-only   # 仅上传（$SIGNED_DIR 下已有 NuwaClaw.Setup.x.exe / NuwaClaw.x.msi）
+#   ./sign-release-win.sh 0.9.2 --upload-only   # 仅上传（$SIGNED_DIR 下已有 NuwaClaw.Setup.x.exe）
 #
 # Required Environment Variables:
 #   WINDOWS_CERTIFICATE_SHA1  - Certificate thumbprint
@@ -223,7 +223,7 @@ gh_release() {
 print_release_download_hint() {
     local tag="electron-v$VERSION"
     echo ""
-    echo "诊断: Release $tag（$REPO）当前资源名如下；若列表为空或没有下面两个文件名，说明 tag 不存在、Windows 构建未跑完或未上传。"
+    echo "诊断: Release $tag（$REPO）当前资源名如下；若列表为空或没有下面文件名，说明 tag 不存在、Windows 构建未跑完或未上传。"
     if [[ "$GH_BIN" == __POWERSHELL_GH__:* ]]; then
         local ps_bin="${GH_BIN#__POWERSHELL_GH__:}"
         "$ps_bin" -NoProfile -Command "gh release view \"$tag\" --repo \"$REPO\" --json assets --jq '.assets[].name'" 2>/dev/null || echo "  (无法列出，请检查 tag / gh 权限)"
@@ -231,9 +231,8 @@ print_release_download_hint() {
         "$GH_BIN" release view "$tag" --repo "$REPO" --json assets --jq '.assets[].name' 2>/dev/null || echo "  (无法列出，请检查 tag / gh 权限)"
     fi
     echo ""
-    echo "本脚本期望的未签名安装包文件名:"
+    echo "本脚本期望的未签名 EXE 文件名:"
     echo "  $UNSIGNED_EXE"
-    echo "  $UNSIGNED_MSI"
 }
 
 # Calculate SHA256 hash of a local file
@@ -356,12 +355,12 @@ check_cache_valid() {
 }
 
 # File names
-# CI builds: NuwaClaw-Setup-{version}-unsigned.exe, NuwaClaw-{version}-unsigned.msi
-# Signed:    NuwaClaw.Setup.{version}.exe,         NuwaClaw.{version}.msi
+# CI builds: NuwaClaw-Setup-{version}-unsigned.exe（待签名）
+#            NuwaClaw.{version}.msi（最终名，CI 直出，不签名）
+# Signed:    NuwaClaw.Setup.{version}.exe
 UNSIGNED_EXE="NuwaClaw-Setup-$VERSION-unsigned.exe"
-UNSIGNED_MSI="NuwaClaw-$VERSION-unsigned.msi"
 SIGNED_EXE="NuwaClaw.Setup.$VERSION.exe"
-SIGNED_MSI="NuwaClaw.$VERSION.msi"
+LEGACY_UNSIGNED_MSI="NuwaClaw-$VERSION-unsigned.msi"
 UNSIGNED_BLOCKMAP="${UNSIGNED_EXE}.blockmap"
 SIGNED_BLOCKMAP="${SIGNED_EXE}.blockmap"
 BLOCKMAP_SCRIPT="$SCRIPT_DIR/generate-blockmap.js"
@@ -372,16 +371,14 @@ mkdir -p "$UNSIGNED_DIR" "$SIGNED_DIR"
 echo "  Unsigned: $UNSIGNED_DIR"
 echo "  Signed:   $SIGNED_DIR"
 
-# Download unsigned files
+# Download unsigned EXE
 UNSIGNED_EXE_PATH="$UNSIGNED_DIR/$UNSIGNED_EXE"
-UNSIGNED_MSI_PATH="$UNSIGNED_DIR/$UNSIGNED_MSI"
 
 if [[ "$SKIP_DOWNLOAD" == "false" ]]; then
     echo ""
     echo "==> Checking unsigned files cache"
 
     NEED_DOWNLOAD_EXE=true
-    NEED_DOWNLOAD_MSI=true
     CACHE_HIT=false
 
     # Check cache for EXE
@@ -407,40 +404,14 @@ if [[ "$SKIP_DOWNLOAD" == "false" ]]; then
         fi
     fi
 
-    # Check cache for MSI
-    if [[ "$SKIP_CACHE_CHECK" == "false" ]] && [[ -f "$UNSIGNED_MSI_PATH" ]]; then
-        CACHE_LOCAL_HASH=""
-        CACHE_REMOTE_HASH=""
-        CACHE_LOCAL_HASH=$(calculate_local_sha256 "$UNSIGNED_MSI_PATH")
-        echo "  Local MSI SHA256:  $CACHE_LOCAL_HASH"
-
-        # Try to get checksum from release
-        CACHE_REMOTE_HASH=$(get_remote_sha256 "electron-v$VERSION" "$UNSIGNED_MSI")
-
-        if [[ -n "$CACHE_REMOTE_HASH" ]]; then
-            echo "  Remote MSI SHA256: $CACHE_REMOTE_HASH"
-            if [[ "${CACHE_LOCAL_HASH,,}" == "${CACHE_REMOTE_HASH,,}" ]]; then
-                echo "  ✓ MSI cache hit - SHA256 matches, skipping download"
-                NEED_DOWNLOAD_MSI=false
-            else
-                echo "  ✗ MSI cache miss - SHA256 mismatch"
-            fi
-        else
-            echo "  ? Remote hash not available, will re-download"
-        fi
-    fi
-
     # Download if needed
-    if [[ "$NEED_DOWNLOAD_EXE" == "true" ]] || [[ "$NEED_DOWNLOAD_MSI" == "true" ]]; then
+    if [[ "$NEED_DOWNLOAD_EXE" == "true" ]]; then
         echo ""
-        echo "==> Downloading unsigned files from release electron-v$VERSION"
+        echo "==> Downloading unsigned EXE from release electron-v$VERSION"
 
-        # Remove only files that need to be re-downloaded
-        [[ "$NEED_DOWNLOAD_EXE" == "true" ]] && rm -f "$UNSIGNED_EXE_PATH"
-        [[ "$NEED_DOWNLOAD_MSI" == "true" ]] && rm -f "$UNSIGNED_MSI_PATH"
+        rm -f "$UNSIGNED_EXE_PATH"
 
-        # 使用精确文件名（与 package.json nsis/msi artifactName 一致），避免 glob 在部分环境下不匹配；
-        # 分两次 download，便于判断缺 EXE 还是缺 MSI。
+        # 使用精确文件名（与 package.json nsis artifactName 一致）
         TAG_R="electron-v$VERSION"
         DOWNLOAD_OK=true
         UNSIGNED_DIR_WIN=""
@@ -448,27 +419,14 @@ if [[ "$SKIP_DOWNLOAD" == "false" ]]; then
             UNSIGNED_DIR_WIN="$(cygpath -w "$UNSIGNED_DIR")"
         fi
 
-        if [[ "$NEED_DOWNLOAD_EXE" == "true" ]]; then
-            echo "  Fetching: $UNSIGNED_EXE"
-            if [[ "$GH_BIN" == __POWERSHELL_GH__:* ]]; then
-                gh_release "gh release download \"$TAG_R\" --repo \"$REPO\" --dir \"$UNSIGNED_DIR_WIN\" --pattern \"$UNSIGNED_EXE\"" || DOWNLOAD_OK=false
-            else
-                gh_release "" release download "$TAG_R" \
-                    --repo "$REPO" \
-                    --dir "$UNSIGNED_DIR" \
-                    --pattern "$UNSIGNED_EXE" || DOWNLOAD_OK=false
-            fi
-        fi
-        if [[ "$NEED_DOWNLOAD_MSI" == "true" ]]; then
-            echo "  Fetching: $UNSIGNED_MSI"
-            if [[ "$GH_BIN" == __POWERSHELL_GH__:* ]]; then
-                gh_release "gh release download \"$TAG_R\" --repo \"$REPO\" --dir \"$UNSIGNED_DIR_WIN\" --pattern \"$UNSIGNED_MSI\"" || DOWNLOAD_OK=false
-            else
-                gh_release "" release download "$TAG_R" \
-                    --repo "$REPO" \
-                    --dir "$UNSIGNED_DIR" \
-                    --pattern "$UNSIGNED_MSI" || DOWNLOAD_OK=false
-            fi
+        echo "  Fetching: $UNSIGNED_EXE"
+        if [[ "$GH_BIN" == __POWERSHELL_GH__:* ]]; then
+            gh_release "gh release download \"$TAG_R\" --repo \"$REPO\" --dir \"$UNSIGNED_DIR_WIN\" --pattern \"$UNSIGNED_EXE\"" || DOWNLOAD_OK=false
+        else
+            gh_release "" release download "$TAG_R" \
+                --repo "$REPO" \
+                --dir "$UNSIGNED_DIR" \
+                --pattern "$UNSIGNED_EXE" || DOWNLOAD_OK=false
         fi
 
         if [[ "$DOWNLOAD_OK" != "true" ]]; then
@@ -478,10 +436,10 @@ if [[ "$SKIP_DOWNLOAD" == "false" ]]; then
             exit 1
         fi
 
-        echo "  Downloaded files"
+        echo "  Downloaded: $UNSIGNED_EXE"
     else
         echo ""
-        echo "==> All files cached - skipping download"
+        echo "==> EXE cached - skipping download"
         CACHE_HIT=true
     fi
 else
@@ -522,10 +480,9 @@ generate_signed_blockmap() {
 if [[ "$UPLOAD_ONLY" == "true" ]]; then
     echo ""
     echo "==> Upload-only：跳过未签名包校验与签名，仅上传 Release"
-    if [[ ! -f "$SIGNED_DIR/$SIGNED_EXE" ]] || [[ ! -f "$SIGNED_DIR/$SIGNED_MSI" ]]; then
-        echo "错误: 请在 signed 目录放置已签名的两个文件（与完整流程输出命名一致）:"
+    if [[ ! -f "$SIGNED_DIR/$SIGNED_EXE" ]]; then
+        echo "错误: 请在 signed 目录放置已签名的 EXE（与完整流程输出命名一致）:"
         echo "  $SIGNED_DIR/$SIGNED_EXE"
-        echo "  $SIGNED_DIR/$SIGNED_MSI"
         echo "（可用环境变量 SIGN_WORK_DIR 覆盖工作目录，默认 $WORK_DIR）"
         exit 1
     fi
@@ -533,7 +490,6 @@ if [[ "$UPLOAD_ONLY" == "true" ]]; then
         generate_signed_blockmap
     fi
     echo "  将上传: $SIGNED_DIR/$SIGNED_EXE"
-    echo "  将上传: $SIGNED_DIR/$SIGNED_MSI"
     if [[ -f "$SIGNED_DIR/$SIGNED_BLOCKMAP" ]]; then
         echo "  将上传: $SIGNED_DIR/$SIGNED_BLOCKMAP"
     else
@@ -543,10 +499,6 @@ else
     # Verify files exist
     if [[ ! -f "$UNSIGNED_EXE_PATH" ]]; then
         echo "Error: Unsigned EXE file not found: $UNSIGNED_EXE_PATH"
-        exit 1
-    fi
-    if [[ ! -f "$UNSIGNED_MSI_PATH" ]]; then
-        echo "Error: Unsigned MSI file not found: $UNSIGNED_MSI_PATH"
         exit 1
     fi
 
@@ -590,9 +542,6 @@ else
     echo "  Signing: $UNSIGNED_EXE"
     node "$SIGN_SCRIPT" "$UNSIGNED_EXE_PATH"
 
-    echo "  Signing: $UNSIGNED_MSI"
-    node "$SIGN_SCRIPT" "$UNSIGNED_MSI_PATH"
-
     # Verify signatures
     echo ""
     echo "==> Verifying signatures"
@@ -600,16 +549,11 @@ else
     signtool verify //pa //all "$UNSIGNED_EXE_PATH"
     echo "  Verified: $UNSIGNED_EXE ✓"
 
-    signtool verify //pa //all "$UNSIGNED_MSI_PATH"
-    echo "  Verified: $UNSIGNED_MSI ✓"
-
     # Rename to signed names and copy to signed directory
     echo ""
     echo "==> Renaming and copying signed files"
     cp "$UNSIGNED_EXE_PATH" "$SIGNED_DIR/$SIGNED_EXE"
-    cp "$UNSIGNED_MSI_PATH" "$SIGNED_DIR/$SIGNED_MSI"
     echo "  $UNSIGNED_EXE -> $SIGNED_EXE"
-    echo "  $UNSIGNED_MSI -> $SIGNED_MSI"
     echo "  Copied to: $SIGNED_DIR"
     generate_signed_blockmap
 fi
@@ -619,39 +563,36 @@ if [[ "$SKIP_UPLOAD" == "false" ]]; then
     echo ""
     echo "==> Uploading signed files to release electron-v$VERSION"
 
-    # Delete unsigned files from release
+    # Delete unsigned EXE from release（MSI 由 CI 直出最终名，保留在 Release 上）
     if [[ "$GH_BIN" == __POWERSHELL_GH__:* ]]; then
         gh_release "gh release delete-asset \"electron-v$VERSION\" \"$UNSIGNED_EXE\" --yes --repo \"$REPO\"" 2>/dev/null || true
-        gh_release "gh release delete-asset \"electron-v$VERSION\" \"$UNSIGNED_MSI\" --yes --repo \"$REPO\"" 2>/dev/null || true
         gh_release "gh release delete-asset \"electron-v$VERSION\" \"$UNSIGNED_BLOCKMAP\" --yes --repo \"$REPO\"" 2>/dev/null || true
+        gh_release "gh release delete-asset \"electron-v$VERSION\" \"$LEGACY_UNSIGNED_MSI\" --yes --repo \"$REPO\"" 2>/dev/null || true
     else
         gh_release "" release delete-asset "electron-v$VERSION" "$UNSIGNED_EXE" --yes --repo "$REPO" 2>/dev/null || true
-        gh_release "" release delete-asset "electron-v$VERSION" "$UNSIGNED_MSI" --yes --repo "$REPO" 2>/dev/null || true
         gh_release "" release delete-asset "electron-v$VERSION" "$UNSIGNED_BLOCKMAP" --yes --repo "$REPO" 2>/dev/null || true
+        gh_release "" release delete-asset "electron-v$VERSION" "$LEGACY_UNSIGNED_MSI" --yes --repo "$REPO" 2>/dev/null || true
     fi
 
-    # Upload signed files with original names
+    # Upload signed EXE with original names
     if [[ "$GH_BIN" == __POWERSHELL_GH__:* ]]; then
         SIGNED_EXE_WIN="$(cygpath -w "$SIGNED_DIR/$SIGNED_EXE")"
-        SIGNED_MSI_WIN="$(cygpath -w "$SIGNED_DIR/$SIGNED_MSI")"
         if [[ -f "$SIGNED_DIR/$SIGNED_BLOCKMAP" ]]; then
             SIGNED_BLOCKMAP_WIN="$(cygpath -w "$SIGNED_DIR/$SIGNED_BLOCKMAP")"
-            gh_release "gh release upload \"electron-v$VERSION\" \"$SIGNED_EXE_WIN\" \"$SIGNED_MSI_WIN\" \"$SIGNED_BLOCKMAP_WIN\" --clobber --repo \"$REPO\""
+            gh_release "gh release upload \"electron-v$VERSION\" \"$SIGNED_EXE_WIN\" \"$SIGNED_BLOCKMAP_WIN\" --clobber --repo \"$REPO\""
         else
-            gh_release "gh release upload \"electron-v$VERSION\" \"$SIGNED_EXE_WIN\" \"$SIGNED_MSI_WIN\" --clobber --repo \"$REPO\""
+            gh_release "gh release upload \"electron-v$VERSION\" \"$SIGNED_EXE_WIN\" --clobber --repo \"$REPO\""
         fi
     else
         if [[ -f "$SIGNED_DIR/$SIGNED_BLOCKMAP" ]]; then
             gh_release "" release upload "electron-v$VERSION" \
                 "$SIGNED_DIR/$SIGNED_EXE" \
-                "$SIGNED_DIR/$SIGNED_MSI" \
                 "$SIGNED_DIR/$SIGNED_BLOCKMAP" \
                 --clobber \
                 --repo "$REPO"
         else
             gh_release "" release upload "electron-v$VERSION" \
                 "$SIGNED_DIR/$SIGNED_EXE" \
-                "$SIGNED_DIR/$SIGNED_MSI" \
                 --clobber \
                 --repo "$REPO"
         fi
@@ -679,8 +620,8 @@ echo "Signed:      $SIGNED_DIR"
 echo ""
 echo "Files:"
 echo "  - $SIGNED_EXE"
-echo "  - $SIGNED_MSI"
 echo "  - $SIGNED_BLOCKMAP"
+echo "（MSI 不签名，由 CI 产出 NuwaClaw.$VERSION.msi 并保留在 Release 上）"
 
 if [[ "$SKIP_UPLOAD" == "false" ]]; then
     echo ""

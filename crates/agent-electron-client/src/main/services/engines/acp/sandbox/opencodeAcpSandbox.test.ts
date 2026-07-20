@@ -13,6 +13,7 @@ import {
   canInjectSandboxedBashMcp,
   canInjectSandboxedFsMcp,
   applyOpencodeSandboxToOpenCodeConfig,
+  isOpencodeNativeSandboxBlockedVersion,
   OPENCODE_NATIVE_SANDBOX_CONFIG_MIN_VERSION,
 } from "./opencodeAcpSandbox";
 import type { SandboxProcessConfig } from "@shared/types/sandbox";
@@ -89,6 +90,12 @@ describe("opencodeAcpSandbox", () => {
 
     it("returns true above min version", () => {
       expect(supportsOpencodeConfigSandbox("2.0.0")).toBe(true);
+    });
+
+    it("returns false for 1.3.0-beta line (schema rejects sandbox key)", () => {
+      expect(isOpencodeNativeSandboxBlockedVersion("1.3.0-beta.8")).toBe(true);
+      expect(supportsOpencodeConfigSandbox("1.3.0-beta.8")).toBe(false);
+      expect(usesNativeOpencodeSandbox("1.3.0-beta.8")).toBe(false);
     });
 
     it("returns false for null/empty/whitespace", () => {

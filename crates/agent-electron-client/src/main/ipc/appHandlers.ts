@@ -20,6 +20,10 @@ import {
   openReleasesPage,
 } from "../services/autoUpdater";
 import { getDeviceId } from "../services/system/deviceId";
+import {
+  openMacPrivacySettings,
+  isMacPrivacyPane,
+} from "../services/system/macPermissions";
 import { getTrayManager } from "../window/trayManager";
 import { getAutoLaunchManager } from "../window/autoLaunchManager";
 import { t } from "../services/i18n";
@@ -311,23 +315,13 @@ export function registerAppHandlers(ctx: HandlerContext): void {
     "permissions:openSettings",
     async (_, permissionKey: string) => {
       try {
-        if (process.platform !== "darwin") {
-          return { success: false, error: "Not macOS" };
+        if (!isMacPrivacyPane(permissionKey)) {
+          return { success: false, error: "Unknown permission" };
         }
-        const urlMap: Record<string, string> = {
-          accessibility:
-            "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility",
-          screen_recording:
-            "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture",
-          file_access:
-            "x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles",
-        };
-        const url = urlMap[permissionKey];
-        if (url) {
-          await shell.openExternal(url);
-          return { success: true };
-        }
-        return { success: false, error: "Unknown permission" };
+        const ok = await openMacPrivacySettings(permissionKey);
+        return ok
+          ? { success: true }
+          : { success: false, error: "Not macOS or failed to open" };
       } catch (error) {
         log.error("[IPC] permissions:openSettings failed:", error);
         return { success: false, error: String(error) };

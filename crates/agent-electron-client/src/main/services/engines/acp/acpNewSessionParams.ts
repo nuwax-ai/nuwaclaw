@@ -25,7 +25,10 @@ import {
 import type { SandboxProcessConfig } from "@shared/types/sandbox";
 import type { AgentConfig, AgentEngineType } from "../types";
 import type { AcpMcpServer, AcpEnvVariable } from "./acpClient";
+import type { McpServerEntry } from "../../packages/mcp";
 import { injectSandboxedMcpForSession } from "./sandbox/acpSandboxedMcpSession";
+import { allocateAcpMcpServerName } from "@main/services/utils/mcpServerName";
+import { mergeMcpServerConfigs } from "@main/services/utils/mcpServerMerge";
 
 export interface NewSessionMcpServerInput {
   command?: string;
@@ -60,7 +63,6 @@ function toAcpMcpServer(
   name: string,
   srv: NewSessionMcpServerInput,
 ): AcpMcpServer {
-  // HTTP/SSE URL 类型（来自 PersistentMcpBridge）
   if ("url" in srv && srv.url) {
     return {
       name,
@@ -89,6 +91,27 @@ function toAcpMcpServer(
   };
 }
 
+/**
+ * 将 MCP server 加入 ACP 列表：规范 server 名（中文 → `_`）并去重。
+ * 本地配置保留原始名；仅 ACP 下发侧替换，与 deepagents-flow-ts 消费侧规则一致。
+ */
+function pushAcpMcpServer(
+  mcpServers: AcpMcpServer[],
+  usedNames: Set<string>,
+  rawName: string,
+  srv: NewSessionMcpServerInput,
+  logTag: string,
+): void {
+  const { name, sanitized } = allocateAcpMcpServerName(rawName, usedNames);
+  if (sanitized) {
+    log.warn(
+      `${logTag} MCP server name sanitized for ACP (LLM tool name compatibility)`,
+      { rawName, name },
+    );
+  }
+  mcpServers.push(toAcpMcpServer(name, srv));
+}
+
 export function buildNewSessionParams(
   opts: NewSessionOpts | undefined,
   ctx: NewSessionParamsContext,
@@ -97,20 +120,16 @@ export function buildNewSessionParams(
 
   // Build mcpServers array for ACP (McpServerStdio format)
   const mcpServers: AcpMcpServer[] = [];
+  const usedMcpNames = new Set<string>();
 
-  // 1. Global MCP servers from config
-  if (config.mcpServers) {
-    for (const [name, srv] of Object.entries(config.mcpServers)) {
-      mcpServers.push(toAcpMcpServer(name, srv));
-    }
-  }
+  // 在配置层合并去重：opts 仅补充 config 中不存在的 key；同 key 以 config（含本地优先结果）为准
+  const mergedMcpServerRecords = mergeMcpServerConfigs(
+    opts?.mcpServers as Record<string, McpServerEntry> | undefined,
+    config.mcpServers,
+  );
 
-  // 2. Per-request MCP servers
-  if (opts?.mcpServers) {
-    for (const [name, srv] of Object.entries(opts.mcpServers)) {
-      if (mcpServers.some((m) => m.name === name)) continue;
-      mcpServers.push(toAcpMcpServer(name, srv));
-    }
+  for (const [name, srv] of Object.entries(mergedMcpServerRecords)) {
+    pushAcpMcpServer(mcpServers, usedMcpNames, name, srv, logTag);
   }
 
   const sandboxEnabled = storedSandboxConfig?.enabled === true;

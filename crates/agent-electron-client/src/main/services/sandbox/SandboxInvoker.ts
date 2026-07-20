@@ -21,6 +21,7 @@ import * as path from "path";
 import log from "electron-log";
 import { checkCommand } from "../system/shellEnv";
 import { createPlatformAdapter } from "../system/platformAdapter";
+import { wrapWindowsCommandWithGitBash } from "../system/windowsGitBashCommand";
 import type {
   SandboxMode,
   SandboxType,
@@ -403,7 +404,11 @@ export class SandboxInvoker {
       );
     }
 
-    helperArgs.push("--", params.command, ...params.args);
+    const innerCommand =
+      subcommand === "run"
+        ? wrapWindowsCommandWithGitBash(params.command, params.args)
+        : { command: params.command, args: params.args };
+    helperArgs.push("--", innerCommand.command, ...innerCommand.args);
 
     log.info("[SandboxInvoker] windows-sandbox invocation:", {
       helper,
