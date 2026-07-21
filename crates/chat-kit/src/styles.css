@@ -1,0 +1,101 @@
+:root {
+  --nuwax-chat-bg: #ffffff;
+  --nuwax-chat-surface: #f7f8fa;
+  --nuwax-chat-border: #e5e7eb;
+  --nuwax-chat-text: #111827;
+  --nuwax-chat-muted: #6b7280;
+  --nuwax-chat-accent: #6d5dfc;
+  --nuwax-chat-danger: #dc2626;
+  --nuwax-chat-radius: 12px;
+}
+
+.nuwax-chat-composer {
+  border: 1px solid var(--nuwax-chat-border);
+  border-radius: var(--nuwax-chat-radius);
+  background: var(--nuwax-chat-bg);
+  padding: 12px;
+  color: var(--nuwax-chat-text);
+}
+
+.nuwax-chat-composer__input-row textarea {
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 72px;
+  resize: vertical;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+}
+
+.nuwax-chat-composer__actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.nuwax-chat-composer__toolbar,
+.nuwax-chat-composer__controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.nuwax-chat-message-list,
+.nuwax-chat-conversation-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.nuwax-chat-message {
+  max-width: min(760px, 92%);
+  color: var(--nuwax-chat-text);
+}
+
+.nuwax-chat-message--user {
+  align-self: flex-end;
+  border-radius: var(--nuwax-chat-radius);
+  background: var(--nuwax-chat-surface);
+  padding: 10px 12px;
+}
+
+.nuwax-chat-message__thinking,
+.nuwax-chat-message__tool {
+  color: var(--nuwax-chat-muted);
+}
+
+.nuwax-chat-message__error {
+  color: var(--nuwax-chat-danger);
+}
+
+.nuwax-chat-conversation {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border-radius: 8px;
+}
+
+.nuwax-chat-conversation > button {
+  min-width: 0;
+  flex: 1;
+  border: 0;
+  background: transparent;
+  padding: 8px 10px;
+  text-align: left;
+}
+
+.nuwax-chat-conversation > button span {
+  display: block;
+  overflow: hidden;
+  color: var(--nuwax-chat-muted);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.nuwax-chat-conversation--active {
+  background: var(--nuwax-chat-surface);
+  box-shadow: inset 3px 0 var(--nuwax-chat-accent);
+}

@@ -1,9 +1,11 @@
 import type { RefObject } from 'react';
-import type { PreviewState, WorkbenchHostBridge } from '../../../types';
+import type { PreviewState, WorkbenchApiAdapter, WorkbenchHostBridge } from '../../../types';
 import { FilePreview } from '../../business-component/FilePreview';
 import { PagePreviewIframe } from '../../business-component/PagePreviewIframe';
 import { zh as nuwaxOpenAppLabelsZh, type Labels } from '../labels';
 import { usePreviewSplit } from './usePreviewSplit';
+import { ConversationFilesPanel } from './ConversationFilesPanel';
+import { TerminalPanel } from './TerminalPanel';
 
 export type PreviewPaneLabels = Labels;
 
@@ -20,6 +22,7 @@ export interface PreviewPaneProps {
   hostBridge?: WorkbenchHostBridge;
   previewContainer?: string;
   labels?: PreviewPaneLabels;
+  adapter: WorkbenchApiAdapter;
 }
 
 export function PreviewPane(props: PreviewPaneProps): JSX.Element | null {
@@ -31,6 +34,7 @@ export function PreviewPane(props: PreviewPaneProps): JSX.Element | null {
     hostBridge,
     previewContainer,
     labels,
+    adapter,
   } = props;
 
   const { onSplitDragStart } = usePreviewSplit({
@@ -60,13 +64,27 @@ export function PreviewPane(props: PreviewPaneProps): JSX.Element | null {
             hostBridge={hostBridge}
             onClose={onClose}
           />
-        ) : (
+        ) : previewState.kind === 'file' ? (
           <FilePreview
             src={previewState.descriptor.src}
             fileName={previewState.descriptor.fileName}
             fileType={previewState.descriptor.fileType}
             content={previewState.descriptor.content}
             staticFileBasePath={previewState.descriptor.staticFileBasePath}
+            onClose={onClose}
+          />
+        ) : previewState.kind === 'files' ? (
+          <ConversationFilesPanel
+            adapter={adapter}
+            hostBridge={hostBridge}
+            conversationId={previewState.conversationId}
+            selectedFileId={previewState.selectedFileId}
+            onClose={onClose}
+          />
+        ) : (
+          <TerminalPanel
+            conversationId={previewState.conversationId}
+            hostBridge={hostBridge}
             onClose={onClose}
           />
         )}

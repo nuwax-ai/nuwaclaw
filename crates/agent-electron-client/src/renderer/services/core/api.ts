@@ -224,7 +224,9 @@ export interface ClientRegisterResponse {
   access_token?: string;
   bearerToken?: string;
   bearer_token?: string;
-  /** Nuwax /app/{agentId} 使用的真实应用 Agent ID */
+  /** reg 返回的 Agent ID，作为 Agent Mode 的 appAgentId */
+  agentId?: number | string;
+  /** 旧版兼容字段：Nuwax /app/{agentId} 使用的应用 Agent ID */
   appAgentId?: number | string;
   app_agent_id?: number | string;
   appAgentID?: number | string;

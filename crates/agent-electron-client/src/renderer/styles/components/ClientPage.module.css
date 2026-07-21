@@ -177,6 +177,10 @@
   color: var(--color-text-tertiary);
 }
 
+.loginPopoverForm {
+  padding-top: 8px;
+}
+
 /* 二维码弹窗 */
 .qrCodeContainer {
   display: flex;

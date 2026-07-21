@@ -1,5 +1,7 @@
 import { useMemo } from 'react';
+import { ChatConversationList } from '@nuwax-ai/chat-kit/react';
 import type { WorkbenchConversation } from '../../../types';
+import { toChatConversation } from '../../../adapters/chatKitAdapter';
 import { formatTime } from '../utils';
 
 export interface HistoryConversationLabels {
@@ -57,19 +59,25 @@ export function HistoryConversation(props: HistoryConversationProps): JSX.Elemen
         onChange={(event) => onKeywordChange(event.target.value)}
         placeholder={labels.searchPlaceholder}
       />
-      <div className="open-app-history-page-list">
-        {items.map((item) => (
-          <div
-            className="open-app-history-page-item"
-            key={item.id}
-            onClick={() => void onLoadConversation(item)}
-          >
-            <div>
-              <strong>{item.title}</strong>
-              <p>{item.metadata && typeof item.metadata.summary === 'string' ? item.metadata.summary : ''}</p>
-            </div>
+      <ChatConversationList
+        className="open-app-history-page-list"
+        rowClassName="open-app-history-page-item"
+        conversations={items.map(toChatConversation)}
+        onSelect={(conversation) => {
+          const source = items.find((item) => item.id === conversation.id);
+          if (source) void onLoadConversation(source);
+        }}
+        renderSubtitle={(conversation) => (
+          <>
+            {conversation.summary && <span>{conversation.summary}</span>}
+            <span>{formatTime(conversation.updatedAt)}</span>
+          </>
+        )}
+        renderActions={(conversation) => {
+          const item = items.find((candidate) => candidate.id === conversation.id);
+          if (!item) return null;
+          return (
             <div className="open-app-history-page-actions">
-              <span>{formatTime(item.updatedAt)}</span>
               <button
                 type="button"
                 onClick={(event) => {
@@ -100,9 +108,9 @@ export function HistoryConversation(props: HistoryConversationProps): JSX.Elemen
                 </button>
               )}
             </div>
-          </div>
-        ))}
-      </div>
+          );
+        }}
+      />
     </section>
   );
 }

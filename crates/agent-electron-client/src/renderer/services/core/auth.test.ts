@@ -341,6 +341,26 @@ describe("auth - savedKey 认证 (快捷登录)", () => {
       );
     });
 
+    it("优先使用 reg 返回的 agentId 作为 Agent Mode appAgentId", async () => {
+      mockRegisterClient.mockResolvedValueOnce(
+        makeRegisterResponse({
+          agentId: 2809,
+          appAgentId: "legacy-app-agent",
+        }),
+      );
+
+      const { loginAndRegister } = await loadAuth();
+      await loginAndRegister("zhangsan", "abc123", {
+        suppressToast: true,
+        domain: DOMAIN,
+      });
+
+      expect(
+        (store["auth.user_info"] as { appAgentId?: string }).appAgentId,
+      ).toBe("2809");
+      expect(store["workbench.app_agent_id"]).toBe("2809");
+    });
+
     it("兼容 access_token 并写入 workbench token cache", async () => {
       mockRegisterClient.mockResolvedValueOnce(
         makeRegisterResponse({

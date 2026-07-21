@@ -24,7 +24,8 @@ export type BrowserTarget =
   | { type: "home" }
   | { type: "startSession" }
   | { type: "session"; sessionId: string }
-  | { type: "newSession" };
+  | { type: "newSession" }
+  | { type: "url"; url: string };
 
 interface BrowserHomePageProps {
   target: BrowserTarget;
@@ -44,6 +45,8 @@ async function resolveTargetUrl(target: BrowserTarget): Promise<string | null> {
       return syncCookieAndGetNewSessionUrl();
     case "session":
       return syncCookieAndGetChatUrl(target.sessionId);
+    case "url":
+      return target.url;
     default:
       return null;
   }

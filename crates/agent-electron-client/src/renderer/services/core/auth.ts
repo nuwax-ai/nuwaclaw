@@ -161,7 +161,7 @@ async function clearAuthInfo(): Promise<void> {
 }
 
 /**
- * reg 返回 appAgentId 时写入设置兜底（不覆盖用户手动配置）。
+ * reg 返回 agentId 时写入 Agent Mode 的 appAgentId 设置兜底（不覆盖用户手动配置）。
  * 调用方负责将 number/string 归一为 string，传入此处的必须是已归一值。
  */
 async function persistAppAgentIdFallback(
@@ -178,7 +178,8 @@ async function persistAppAgentIdFallback(
 }
 
 /**
- * 从 reg 响应解析 appAgentId。
+ * 从 reg 响应解析 Agent Mode 使用的 appAgentId。
+ * 新协议以 reg.agentId 为准，其余字段仅用于兼容旧服务端。
  * 内部接受 number | string | undefined 的入参（后端 schema 不稳定），
  * 但**始终返回 string | undefined**，保证 workbench 侧只看到 string。
  */
@@ -192,6 +193,7 @@ function pickAppAgentIdFromResponse(
     app_agent?: { id?: unknown };
   };
   const raw =
+    response.agentId ??
     aliases.appAgentId ??
     aliases.app_agent_id ??
     aliases.appAgentID ??

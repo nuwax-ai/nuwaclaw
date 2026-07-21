@@ -9,28 +9,20 @@ import React, {
 } from "react";
 import {
   ConfigProvider,
-  Menu,
   Badge,
   Spin,
   Button,
-  Segmented,
   notification,
   message,
   Alert,
 } from "antd";
 import type { PresetStatusColorType } from "antd/es/_util/colors";
 import {
-  SettingOutlined,
-  DashboardOutlined,
-  FolderOutlined,
-  InfoCircleOutlined,
-  SafetyOutlined,
-  FileTextOutlined,
-  TeamOutlined,
   ReloadOutlined,
-  ApiOutlined,
   RobotOutlined,
   ArrowLeftOutlined,
+  DesktopOutlined,
+  MessageOutlined,
 } from "@ant-design/icons";
 import {
   type AgentWorkbenchConfig,
@@ -61,6 +53,7 @@ import {
   normalizeServerHost,
   loginAndRegister,
   isLoggedIn,
+  logout,
 } from "./services/core/auth";
 import {
   APP_DISPLAY_NAME,
@@ -89,7 +82,6 @@ import BrowserHomePage, {
   type BrowserTarget,
 } from "./components/pages/BrowserHomePage";
 import MCPSettings from "./components/settings/MCPSettings";
-import { ModeNavIcon } from "./components/icons/ModeNavIcon";
 import { createLogger } from "./services/utils/rendererLog";
 import styles from "./styles/components/App.module.css";
 import { lightTheme, darkTheme } from "./styles/theme";
@@ -199,7 +191,13 @@ type WorkbenchConfigState =
 
 function createWorkbenchHostBridge(
   resolved: ResolvedWorkbenchConfig,
-  onExit: () => void,
+  callbacks: {
+    onExit: () => void;
+    onNavigateRemote: (url: string) => void;
+    onOpenSettings: () => void;
+    onOpenConfigPage: (page: TabKey) => void;
+    onLogout: () => Promise<void>;
+  },
 ): WorkbenchHostBridge {
   const { workspaceDir, baseUrl, accessToken } = resolved;
   return {
@@ -259,7 +257,17 @@ function createWorkbenchHostBridge(
         throw new Error(result?.error || "shell.openPath is unavailable");
       }
     },
-    onExit,
+    onExit: callbacks.onExit,
+    onNavigateRemote: async (path) => {
+      const target = /^https?:\/\//i.test(path)
+        ? path
+        : `${baseUrl.replace(/\/+$/, "")}/${path.replace(/^\/+/, "")}`;
+      await syncSessionCookie(new URL(target).origin, accessToken);
+      callbacks.onNavigateRemote(target);
+    },
+    onOpenSettings: callbacks.onOpenSettings,
+    onOpenConfigPage: (page) => callbacks.onOpenConfigPage(page),
+    onLogout: callbacks.onLogout,
     onFilePreview: async (fileId, context) => {
       const conversationId = context?.conversationId ?? "";
       const staticBase = `${baseUrl}/api/computer/static/${conversationId}`;
@@ -271,6 +279,19 @@ function createWorkbenchHostBridge(
         src,
         fileName: fileId.split("/").pop() ?? fileId,
         staticFileBasePath: staticBase,
+      };
+    },
+    getTerminalConnection: async ({ conversationId }) => {
+      await syncSessionCookie(new URL(baseUrl).origin, accessToken);
+      const terminalUrl = new URL(
+        `/computer/terminal/${encodeURIComponent(conversationId)}/ws`,
+        baseUrl,
+      );
+      terminalUrl.protocol = terminalUrl.protocol === "https:" ? "wss:" : "ws:";
+      return {
+        url: terminalUrl.toString(),
+        protocols: ["tty"],
+        wireProtocol: "ttyd",
       };
     },
     onError: (error) => {
@@ -486,12 +507,19 @@ function App() {
   // ============================================
   const [activeTab, setActiveTab] = useState<TabKey>("client");
   const [agentModeEnabled, setAgentModeEnabled] = useState(false);
+  const [agentWorkspaceMode, setAgentWorkspaceMode] = useState<"work" | "chat">(
+    "work",
+  );
+  const [configOverlayPage, setConfigOverlayPage] = useState<TabKey | null>(
+    null,
+  );
+  const defaultAgentModeEnteredRef = useRef(false);
   const [workbenchUseMockAppAgentId, setWorkbenchUseMockAppAgentId] =
     useState(false);
   const [workbenchConfigReloadKey, setWorkbenchConfigReloadKey] = useState(0);
   const [workbenchConfigState, setWorkbenchConfigState] =
     useState<WorkbenchConfigState>({ status: "idle" });
-  const [mainViewMode, setMainViewMode] = useState<MainViewMode>("config");
+  const [mainViewMode, setMainViewMode] = useState<MainViewMode>("browser");
   const [browserTarget, setBrowserTarget] = useState<BrowserTarget>({
     type: "home",
   });
@@ -620,12 +648,36 @@ function App() {
           : hasRealRemoteCredentials
             ? false
             : WORKBENCH_MOCK_ENABLED && result.useMock;
-        const hostBridge = createWorkbenchHostBridge(resolvedConfig, () => {
-          setAgentModeEnabled(false);
-          setWorkbenchUseMockAppAgentId(false);
+        const hostBridge = createWorkbenchHostBridge(resolvedConfig, {
+          onExit: () => {
+            setAgentModeEnabled(false);
+            setWorkbenchUseMockAppAgentId(false);
+          },
+          onNavigateRemote: (url) => {
+            setBrowserTarget({ type: "url", url });
+            setBrowserOpenKey((value) => value + 1);
+            setMainViewMode("browser");
+            setAgentModeEnabled(false);
+          },
+          onOpenSettings: () => {
+            setConfigOverlayPage("settings");
+          },
+          onOpenConfigPage: (page) => {
+            setConfigOverlayPage(page);
+          },
+          onLogout: async () => {
+            await logout();
+            setIsAuthLoggedIn(false);
+            setUsername("");
+            setConfigOverlayPage(null);
+            setAgentModeEnabled(false);
+            setMainViewMode("config");
+            setActiveTab("client");
+          },
         });
         const config: AgentWorkbenchConfig = {
           agentId: appAgentId,
+          appAgentId,
           baseUrl: resolvedConfig.baseUrl,
           accessToken: resolvedConfig.accessToken,
           workspaceDir: resolvedConfig.workspaceDir,
@@ -759,6 +811,21 @@ function App() {
     void refreshAuthState();
   }, [isSetupComplete, authRefreshTrigger, refreshAuthState]);
 
+  // 已登录后的首次主界面默认进入 Agent Mode。用户主动退出后，本次运行不再强制跳回。
+  useEffect(() => {
+    if (
+      isSetupComplete !== true ||
+      !isAuthLoggedIn ||
+      defaultAgentModeEnteredRef.current
+    ) {
+      return;
+    }
+    defaultAgentModeEnteredRef.current = true;
+    setConfigOverlayPage(null);
+    setWorkbenchUseMockAppAgentId(false);
+    setAgentModeEnabled(true);
+  }, [isAuthLoggedIn, isSetupComplete]);
+
   // ============================================
   // 浏览器模式导航
   // ============================================
@@ -786,6 +853,17 @@ function App() {
   const handleBrowserRefresh = useCallback(() => {
     browserReloadRef.current?.();
   }, []);
+
+  const handleAgentWorkspaceModeChange = useCallback(
+    (mode: "work" | "chat") => {
+      setAgentWorkspaceMode(mode);
+      if (mode === "chat" && browserTarget.type !== "home") {
+        setBrowserTarget({ type: "home" });
+        setBrowserOpenKey((key) => key + 1);
+      }
+    },
+    [browserTarget.type],
+  );
 
   // ============================================
   // 子组件登录/注销后刷新顶部栏用户名与平台 Tab
@@ -1416,60 +1494,6 @@ function App() {
   const badge = STATUS_CONFIG[agentStatus] || STATUS_CONFIG.idle;
 
   // ============================================
-  // 平台检测
-  // ============================================
-  const isMacOS = navigator.platform.toUpperCase().includes("MAC");
-
-  // ============================================
-  // 菜单配置（对齐 Tauri 客户端）
-  // ============================================
-  const menuItems = useMemo(() => {
-    const items = [
-      {
-        key: "client",
-        icon: <DashboardOutlined />,
-        label: t("Claw.Menu.client"),
-      },
-      {
-        key: "sessions",
-        icon: <TeamOutlined />,
-        label: t("Claw.Menu.session"),
-      },
-      {
-        key: "mcp",
-        icon: <ApiOutlined />,
-        label: t("Claw.Menu.mcp"),
-      },
-      {
-        key: "settings",
-        icon: <SettingOutlined />,
-        label: t("Claw.Menu.settings"),
-      },
-      {
-        key: "dependencies",
-        icon: <FolderOutlined />,
-        label: t("Claw.Menu.dependencies"),
-      },
-    ];
-    if (isMacOS) {
-      items.push({
-        key: "permissions",
-        icon: <SafetyOutlined />,
-        label: t("Claw.Menu.authorization"),
-      });
-    }
-    items.push(
-      { key: "logs", icon: <FileTextOutlined />, label: t("Claw.Menu.logs") },
-      {
-        key: "about",
-        icon: <InfoCircleOutlined />,
-        label: t("Claw.Menu.about"),
-      },
-    );
-    return items;
-  }, [isMacOS, i18nLang]);
-
-  // ============================================
   // i18n Context value
   // ============================================
   const i18nContextValue = useMemo(
@@ -1486,6 +1510,38 @@ function App() {
     setAgentModeEnabled(false);
     setWorkbenchUseMockAppAgentId(false);
   }, []);
+
+  const renderConfigPageContent = (tab: TabKey) => (
+    <>
+      {tab === "client" && (
+        <ClientPage
+          onNavigate={(nextTab) => {
+            if (configOverlayPage) setConfigOverlayPage(nextTab as TabKey);
+            else setActiveTab(nextTab as TabKey);
+          }}
+          services={services}
+          servicesLoading={servicesLoading}
+          startingServices={startingServices}
+          setStartingServices={setStartingServices}
+          onRefreshServices={pollServicesStatus}
+          authRefreshTrigger={authRefreshTrigger}
+          onAuthChange={handleAuthChange}
+          onLoginStarted={handleLoginStarted}
+          onLoginComplete={openBrowserHome}
+          onStartSession={openStartSession}
+        />
+      )}
+      {tab === "sessions" && <SessionsPage onOpenInBrowser={openInBrowser} />}
+      <div style={{ display: tab === "mcp" ? "contents" : "none" }}>
+        <MCPSettings isOpen={tab === "mcp"} />
+      </div>
+      {tab === "settings" && <SettingsPage />}
+      {tab === "dependencies" && <DependenciesPage />}
+      {tab === "permissions" && <PermissionsPage />}
+      {tab === "logs" && <LogViewer />}
+      {tab === "about" && <AboutPage />}
+    </>
+  );
 
   const renderAgentModeContent = () => {
     if (workbenchConfigState.status === "loading") {
@@ -1626,9 +1682,50 @@ function App() {
             }
           >
             <LazyAgentWorkbenchProvider config={workbenchConfigState.config}>
-              <LazyAgentWorkbench />
+              <LazyAgentWorkbench workspaceMode="work" />
             </LazyAgentWorkbenchProvider>
           </React.Suspense>
+          {configOverlayPage && (
+            <div className={styles.configOverlayBackdrop} role="presentation">
+              <section
+                className={styles.configOverlay}
+                role="dialog"
+                aria-modal="true"
+                aria-label={
+                  i18nLang.toLowerCase().startsWith("en")
+                    ? "Client configuration"
+                    : "客户端配置"
+                }
+              >
+                <header className={styles.configOverlayHeader}>
+                  <Button
+                    type="text"
+                    icon={<ArrowLeftOutlined />}
+                    onClick={() => setConfigOverlayPage(null)}
+                  >
+                    {i18nLang.toLowerCase().startsWith("en")
+                      ? "Back to Workbench"
+                      : "返回工作台"}
+                  </Button>
+                  <strong>
+                    {i18nLang.toLowerCase().startsWith("en")
+                      ? "Client configuration"
+                      : "客户端配置"}
+                  </strong>
+                  <Button
+                    type="text"
+                    onClick={() => setConfigOverlayPage(null)}
+                    aria-label="Close"
+                  >
+                    ×
+                  </Button>
+                </header>
+                <div className={styles.configOverlayBody}>
+                  {renderConfigPageContent(configOverlayPage)}
+                </div>
+              </section>
+            </div>
+          )}
         </div>
       );
     }
@@ -1668,7 +1765,9 @@ function App() {
     return (
       <I18nContext.Provider value={i18nContextValue}>
         <ConfigProvider theme={currentTheme}>
-          <SetupWizard onComplete={handleSetupComplete} />
+          <div className={styles.setupBackdrop}>
+            <SetupWizard onComplete={handleSetupComplete} />
+          </div>
         </ConfigProvider>
       </I18nContext.Provider>
     );
@@ -1707,13 +1806,61 @@ function App() {
             <div className="app-header">
               <div className={styles.headerLeft}>
                 {agentModeEnabled ? (
-                  <div className="app-header-logo">
-                    <img
-                      src="./32x32.png"
-                      alt=""
-                      style={{ width: 16, height: 16 }}
-                    />
-                    <span className="app-header-title">{APP_DISPLAY_NAME}</span>
+                  <div className={styles.agentModeHeaderCluster}>
+                    <div className="app-header-logo">
+                      <img
+                        src="./32x32.png"
+                        alt=""
+                        style={{ width: 16, height: 16 }}
+                      />
+                      <span className="app-header-title">
+                        {APP_DISPLAY_NAME}
+                      </span>
+                    </div>
+                    <div
+                      className={styles.agentWorkspaceSwitch}
+                      role="tablist"
+                      aria-label="Workspace mode"
+                    >
+                      <button
+                        type="button"
+                        role="tab"
+                        aria-selected={agentWorkspaceMode === "work"}
+                        className={
+                          agentWorkspaceMode === "work"
+                            ? styles.agentWorkspaceSwitchActive
+                            : undefined
+                        }
+                        onClick={() => handleAgentWorkspaceModeChange("work")}
+                      >
+                        <DesktopOutlined />
+                        <span>Work</span>
+                      </button>
+                      <button
+                        type="button"
+                        role="tab"
+                        aria-selected={agentWorkspaceMode === "chat"}
+                        className={
+                          agentWorkspaceMode === "chat"
+                            ? styles.agentWorkspaceSwitchActive
+                            : undefined
+                        }
+                        onClick={() => handleAgentWorkspaceModeChange("chat")}
+                      >
+                        <MessageOutlined />
+                        <span>Chat</span>
+                      </button>
+                    </div>
+                    {agentWorkspaceMode === "chat" && (
+                      <Button
+                        size="small"
+                        className={styles.headerRefreshBtn}
+                        icon={<ReloadOutlined />}
+                        onClick={handleBrowserRefresh}
+                      >
+                        {t("Claw.App.refresh")}
+                      </Button>
+                    )}
                   </div>
                 ) : !isAuthLoggedIn ? (
                   <div className="app-header-logo">
@@ -1726,33 +1873,16 @@ function App() {
                   </div>
                 ) : (
                   <div className={styles.headerModeTabs}>
-                    <Segmented
-                      className={styles.headerModeSegmented}
-                      value={mainViewMode}
-                      onChange={(value) =>
-                        setMainViewMode(value as MainViewMode)
-                      }
-                      options={[
-                        {
-                          value: "browser",
-                          label: (
-                            <span className={styles.headerModeSegmentedLabel}>
-                              <ModeNavIcon name="home" />
-                              {t("Claw.App.modeBrowser")}
-                            </span>
-                          ),
-                        },
-                        {
-                          value: "config",
-                          label: (
-                            <span className={styles.headerModeSegmentedLabel}>
-                              <ModeNavIcon name="settings" />
-                              {t("Claw.App.modeConfig")}
-                            </span>
-                          ),
-                        },
-                      ]}
-                    />
+                    <div className="app-header-logo">
+                      <img
+                        src="./32x32.png"
+                        alt=""
+                        style={{ width: 16, height: 16 }}
+                      />
+                      <span className="app-header-title">
+                        {APP_DISPLAY_NAME}
+                      </span>
+                    </div>
                     {mainViewMode === "browser" && (
                       <Button
                         size="small"
@@ -1766,8 +1896,11 @@ function App() {
                   </div>
                 )}
               </div>
-              <div className={styles.headerRight}>
+              <div
+                className={`${styles.headerRight} ${agentModeEnabled ? styles.agentModeHeaderRight : ""}`}
+              >
                 <Button
+                  className={styles.agentModeToggle}
                   size="small"
                   type={agentModeEnabled ? "primary" : "default"}
                   icon={
@@ -1880,21 +2013,54 @@ function App() {
 
             {/* 主体部分：平台 webview 常驻挂载，切换时仅隐藏不重载 */}
             <div className="app-body">
-              {agentModeEnabled ? (
-                <div className="app-content app-content-fullwidth">
-                  {renderAgentModeContent()}
+              <div
+                className="app-content app-content-fullwidth"
+                style={{
+                  display:
+                    agentModeEnabled && agentWorkspaceMode === "work"
+                      ? "flex"
+                      : "none",
+                }}
+              >
+                {agentModeEnabled && renderAgentModeContent()}
+              </div>
+
+              <div
+                className={`app-content app-content-fullwidth ${styles.platformPane}`}
+                style={{
+                  display:
+                    isAuthLoggedIn &&
+                    ((agentModeEnabled && agentWorkspaceMode === "chat") ||
+                      (!agentModeEnabled && mainViewMode === "browser"))
+                      ? "flex"
+                      : "none",
+                }}
+              >
+                <div
+                  style={{
+                    flex: 1,
+                    minHeight: 0,
+                    display: "flex",
+                    flexDirection: "column",
+                    background: "var(--color-bg-layout)",
+                  }}
+                >
+                  <BrowserHomePage
+                    target={browserTarget}
+                    openKey={browserOpenKey}
+                    onReloadReady={handleBrowserReloadReady}
+                  />
                 </div>
-              ) : (
-                <>
-                  <div
-                    className={`app-content app-content-fullwidth ${styles.platformPane}`}
-                    style={{
-                      display:
-                        isAuthLoggedIn && mainViewMode === "browser"
-                          ? "flex"
-                          : "none",
-                    }}
-                  >
+              </div>
+
+              {!agentModeEnabled && (
+                <div
+                  className={styles.configPane}
+                  style={{
+                    display: mainViewMode === "config" ? "flex" : "none",
+                  }}
+                >
+                  <div className="app-content">
                     <div
                       style={{
                         flex: 1,
@@ -1904,83 +2070,10 @@ function App() {
                         background: "var(--color-bg-layout)",
                       }}
                     >
-                      <BrowserHomePage
-                        target={browserTarget}
-                        openKey={browserOpenKey}
-                        onReloadReady={handleBrowserReloadReady}
-                      />
+                      {renderConfigPageContent(activeTab)}
                     </div>
                   </div>
-
-                  <div
-                    className={styles.configPane}
-                    style={{
-                      display: mainViewMode === "config" ? "flex" : "none",
-                    }}
-                  >
-                    <div
-                      className={
-                        i18nLang.toLowerCase().startsWith("en")
-                          ? "app-sider app-sider-en"
-                          : "app-sider"
-                      }
-                    >
-                      <Menu
-                        mode="inline"
-                        inlineIndent={0}
-                        selectedKeys={[activeTab]}
-                        items={menuItems.map((item) => ({
-                          key: item.key,
-                          icon: item.icon,
-                          label: item.label,
-                          onClick: () => setActiveTab(item.key as TabKey),
-                        }))}
-                      />
-                    </div>
-                    <div className="app-content">
-                      <div
-                        style={{
-                          flex: 1,
-                          minHeight: 0,
-                          display: "flex",
-                          flexDirection: "column",
-                          background: "var(--color-bg-layout)",
-                        }}
-                      >
-                        {activeTab === "client" && (
-                          <ClientPage
-                            onNavigate={(tab) => setActiveTab(tab as TabKey)}
-                            services={services}
-                            servicesLoading={servicesLoading}
-                            startingServices={startingServices}
-                            setStartingServices={setStartingServices}
-                            onRefreshServices={pollServicesStatus}
-                            authRefreshTrigger={authRefreshTrigger}
-                            onAuthChange={handleAuthChange}
-                            onLoginStarted={handleLoginStarted}
-                            onLoginComplete={openBrowserHome}
-                            onStartSession={openStartSession}
-                          />
-                        )}
-                        {activeTab === "sessions" && (
-                          <SessionsPage onOpenInBrowser={openInBrowser} />
-                        )}
-                        <div
-                          style={{
-                            display: activeTab === "mcp" ? "contents" : "none",
-                          }}
-                        >
-                          <MCPSettings isOpen={activeTab === "mcp"} />
-                        </div>
-                        {activeTab === "settings" && <SettingsPage />}
-                        {activeTab === "dependencies" && <DependenciesPage />}
-                        {activeTab === "permissions" && <PermissionsPage />}
-                        {activeTab === "logs" && <LogViewer />}
-                        {activeTab === "about" && <AboutPage />}
-                      </div>
-                    </div>
-                  </div>
-                </>
+                </div>
               )}
             </div>
           </div>

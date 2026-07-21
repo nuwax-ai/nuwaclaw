@@ -7,11 +7,15 @@ import type {
   WorkbenchCustomPageNavItem,
   WorkbenchConversation,
   WorkbenchConversationMessages,
+  WorkbenchConversationFile,
+  WorkbenchCreditSummary,
   WorkbenchGetConversationOptions,
   WorkbenchListConversationsOptions,
   WorkbenchMessage,
   WorkbenchMessageRole,
   WorkbenchModelOption,
+  WorkbenchNotification,
+  WorkbenchRemoteUser,
   WorkbenchSendMessageRequest,
   WorkbenchSkillListParams,
   WorkbenchSkillListResult,
@@ -166,7 +170,8 @@ function normalizeConversation(raw: unknown, agentId: string): WorkbenchConversa
       fromApiId((item.agentId ?? item.agent_id) as number | string | null | undefined) ||
       agentId,
     title: String(
-      item.title ??
+      item.topic ??
+        item.title ??
         item.name ??
         item.agentName ??
         item.agent_name ??
@@ -186,6 +191,59 @@ function normalizeConversation(raw: unknown, agentId: string): WorkbenchConversa
     ),
     status: item.status === 'active' || item.status === 'error' ? item.status : 'idle',
     metadata: item,
+  };
+}
+
+function normalizeRemoteUser(raw: unknown): WorkbenchRemoteUser {
+  const item = isRecord(raw) ? raw : {};
+  return {
+    id: readString(item, ['id', 'userId', 'user_id']),
+    userName: readString(item, ['userName', 'username', 'user_name', 'mobile']),
+    nickName: readString(item, ['nickName', 'nickname', 'nick_name', 'displayName']),
+    avatar: readString(item, ['avatar', 'avatarUrl', 'avatar_url']),
+    email: readString(item, ['email']),
+    raw: item,
+  };
+}
+
+function normalizeCreditSummary(raw: unknown): WorkbenchCreditSummary {
+  const item = isRecord(raw) ? raw : {};
+  return {
+    available:
+      readNumber(item, ['totalCredit', 'available', 'availableAmount', 'balance', 'credit', 'amount', 'totalAmount']) ?? 0,
+    total: readNumber(item, ['totalCredit', 'total', 'totalAmount', 'allAmount']),
+    frozen: readNumber(item, ['frozen', 'frozenAmount']),
+    raw: item,
+  };
+}
+
+function normalizeNotification(raw: unknown): WorkbenchNotification {
+  const item = isRecord(raw) ? raw : {};
+  const sender = isRecord(item.sender) ? item.sender : {};
+  const readStatus = String(item.readStatus ?? item.read_status ?? '').toLowerCase();
+  return {
+    id: fromApiId((item.id ?? item.messageId) as string | number | undefined) || createFallbackId('notice'),
+    content: readString(item, ['content', 'message', 'title']) ?? '',
+    read: readStatus === 'read' || item.read === true,
+    createdAt: readString(item, ['created', 'createdAt', 'created_at']),
+    senderName: readString(sender, ['nickName', 'userName', 'name']),
+    senderAvatar: readString(sender, ['avatar', 'icon']),
+    raw: item,
+  };
+}
+
+function normalizeConversationFile(raw: unknown): WorkbenchConversationFile {
+  const item = isRecord(raw) ? raw : {};
+  const name = readString(item, ['name', 'fileId', 'file_id', 'path']) ?? '';
+  return {
+    id: readString(item, ['fileId', 'file_id', 'id', 'name', 'path']) ?? name,
+    name,
+    isDirectory: readBool(item, ['isDir', 'isDirectory', 'directory']) === true,
+    binary: readBool(item, ['binary', 'isBinary']),
+    sizeExceeded: readBool(item, ['sizeExceeded', 'size_exceeded']),
+    content: readString(item, ['contents', 'content']),
+    previewUrl: readString(item, ['fileProxyUrl', 'previewUrl', 'url']),
+    raw: item,
   };
 }
 
@@ -850,6 +908,56 @@ export function createWebApiAdapter(options: WebApiAdapterOptions): WorkbenchApi
       );
       const items = Array.isArray(data) ? data : readCollection(data);
       return items.map(normalizeModelOption);
+    },
+
+    async getCurrentUser() {
+      const data = await requestJson<unknown>(apiPath('/user/getLoginInfo'), {
+        method: 'GET',
+      });
+      return normalizeRemoteUser(data);
+    },
+
+    async getCreditSummary() {
+      const data = await requestJson<unknown>(apiPath('/credit/summary'), {
+        method: 'GET',
+      });
+      return normalizeCreditSummary(data);
+    },
+
+    async getUnreadNotificationCount() {
+      const data = await requestJson<unknown>(apiPath('/notify/message/unread/count'), {
+        method: 'GET',
+      });
+      if (typeof data === 'number') return data;
+      if (typeof data === 'string') return Number(data) || 0;
+      return readNumber(data, ['count', 'unreadCount', 'unread_count', 'total']) ?? 0;
+    },
+
+    async listNotifications(listOptions) {
+      const data = await requestJson<unknown>(apiPath('/notify/message/list'), {
+        method: 'POST',
+        body: { size: listOptions?.size ?? 100 },
+      });
+      return readCollection(data).map(normalizeNotification);
+    },
+
+    async clearUnreadNotifications() {
+      await requestJson<unknown>(apiPath('/notify/message/unread/clear'), {
+        method: 'GET',
+      });
+    },
+
+    async listConversationFiles(conversationId) {
+      const data = await requestJson<unknown>(
+        apiPath(`/computer/static/file-list?cId=${encodeURIComponent(conversationId)}`),
+        { method: 'GET' },
+      );
+      const files = isRecord(data) && Array.isArray(data.files) ? data.files : readCollection(data);
+      return files.map(normalizeConversationFile).filter((file) => file.name.length > 0);
+    },
+
+    async logout() {
+      await requestJson<unknown>(apiPath('/user/logout'), { method: 'GET' });
     },
 
     async uploadFile(

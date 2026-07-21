@@ -338,15 +338,17 @@ export function MarkdownRenderer({
 
   return (
     <MarkdownRendererContext.Provider value={ctxValue}>
-      {propThinkingProvided && (
-        <ThinkingBlock content={thinking as string} streaming={!!thinkingStreaming} />
-      )}
-      {showRunOverFromProps && (
-        <RunOver steps={runOverSteps ?? []} status={runOverStatus ?? 'done'} />
-      )}
-      {items.map((it) => (
-        <Fragment key={it.key}>{it.node}</Fragment>
-      ))}
+      <div className="ds-markdown open-app-markdown">
+        {propThinkingProvided && (
+          <ThinkingBlock content={thinking as string} streaming={!!thinkingStreaming} />
+        )}
+        {showRunOverFromProps && (
+          <RunOver steps={runOverSteps ?? []} status={runOverStatus ?? 'done'} />
+        )}
+        {items.map((it) => (
+          <Fragment key={it.key}>{it.node}</Fragment>
+        ))}
+      </div>
     </MarkdownRendererContext.Provider>
   );
 }

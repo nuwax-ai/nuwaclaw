@@ -132,6 +132,7 @@ function ClientPage({
   const [loginUsername, setLoginUsername] = useState("");
   const [loginPassword, setLoginPassword] = useState("");
   const [loginLoading, setLoginLoading] = useState(false);
+  const [loginPopoverOpen, setLoginPopoverOpen] = useState(false);
 
   // ---------- Services ----------
   const [stoppingServices, setStoppingServices] = useState<Set<string>>(
@@ -167,6 +168,7 @@ function ClientPage({
         userId: auth.userInfo?.id,
       });
       if (!auth.isLoggedIn) {
+        setLoginPopoverOpen(true);
         // Pre-fill domain from step1 config
         const step1 = (await window.electronAPI?.settings.get(
           "step1_config",
@@ -177,6 +179,7 @@ function ClientPage({
           setDisplayDomainFallback(step1.serverHost);
         }
       } else {
+        setLoginPopoverOpen(false);
         // 已登录时，优先使用认证状态中的业务域名作为展示兜底。
         // 这样在服务状态刷新或局部重载期间，域名显示更稳定，不会闪回到代理配置地址。
         setDisplayDomainFallback(auth.userInfo?.currentDomain || "");
@@ -211,6 +214,7 @@ function ClientPage({
         domain: loginDomain,
       });
       setLoginPassword("");
+      setLoginPopoverOpen(false);
       await loadAuth();
       // 通知父组件：服务由登录流程启动（内存变量，不持久化)
       onLoginStarted?.();
@@ -706,53 +710,77 @@ function ClientPage({
       );
     }
 
-    // Not logged in — show login form
+    // 未登录时只保留轻量入口，登录表单使用悬浮弹层，避免撑开客户端首页。
     return (
       <div className={styles.sectionBody}>
-        <Form layout="vertical" size="small" onFinish={handleLogin}>
-          <Form.Item style={{ marginBottom: 10 }}>
-            <Input
-              prefix={<GlobalOutlined />}
-              value={loginDomain}
-              onChange={(e) => setLoginDomain(e.target.value)}
-              placeholder={t("Claw.Client.domainPlaceholder")}
-              allowClear
-              autoComplete="off"
-              spellCheck={false}
-            />
-          </Form.Item>
-
-          <Form.Item style={{ marginBottom: 10 }}>
-            <Input
-              prefix={<UserOutlined />}
-              value={loginUsername}
-              onChange={(e) => setLoginUsername(e.target.value)}
-              placeholder={t("Claw.Client.usernamePlaceholder")}
-              autoComplete="username"
-              allowClear
-            />
-          </Form.Item>
-
-          <Form.Item style={{ marginBottom: 12 }}>
-            <Input.Password
-              prefix={<LockOutlined />}
-              value={loginPassword}
-              onChange={(e) => setLoginPassword(e.target.value)}
-              placeholder={t("Claw.Client.passwordPlaceholder")}
-              autoComplete="current-password"
-            />
-          </Form.Item>
-
-          <Button type="primary" htmlType="submit" loading={loginLoading} block>
-            {t("Claw.Client.login")}
-          </Button>
-        </Form>
-
-        <div className={styles.loginHint}>
-          <span className={styles.loginHintText}>
-            {t("Claw.Client.loginHint")}
-          </span>
-        </div>
+        <Button
+          type="primary"
+          icon={<UserOutlined />}
+          onClick={() => setLoginPopoverOpen(true)}
+        >
+          {t("Claw.Client.login")}
+        </Button>
+        <Modal
+          open={loginPopoverOpen}
+          title={t("Claw.Client.login")}
+          footer={null}
+          centered
+          width={420}
+          destroyOnClose={false}
+          onCancel={() => setLoginPopoverOpen(false)}
+        >
+          <Form
+            layout="vertical"
+            size="middle"
+            onFinish={handleLogin}
+            className={styles.loginPopoverForm}
+          >
+            <Form.Item style={{ marginBottom: 14 }}>
+              <Input
+                prefix={<GlobalOutlined />}
+                value={loginDomain}
+                onChange={(e) => setLoginDomain(e.target.value)}
+                placeholder={t("Claw.Client.domainPlaceholder")}
+                allowClear
+                autoComplete="off"
+                spellCheck={false}
+              />
+            </Form.Item>
+            <Form.Item style={{ marginBottom: 14 }}>
+              <Input
+                prefix={<UserOutlined />}
+                value={loginUsername}
+                onChange={(e) => setLoginUsername(e.target.value)}
+                placeholder={t("Claw.Client.usernamePlaceholder")}
+                autoComplete="username"
+                allowClear
+                autoFocus
+              />
+            </Form.Item>
+            <Form.Item style={{ marginBottom: 16 }}>
+              <Input.Password
+                prefix={<LockOutlined />}
+                value={loginPassword}
+                onChange={(e) => setLoginPassword(e.target.value)}
+                placeholder={t("Claw.Client.passwordPlaceholder")}
+                autoComplete="current-password"
+              />
+            </Form.Item>
+            <Button
+              type="primary"
+              htmlType="submit"
+              loading={loginLoading}
+              block
+            >
+              {t("Claw.Client.login")}
+            </Button>
+            <div className={styles.loginHint}>
+              <span className={styles.loginHintText}>
+                {t("Claw.Client.loginHint")}
+              </span>
+            </div>
+          </Form>
+        </Modal>
       </div>
     );
   };

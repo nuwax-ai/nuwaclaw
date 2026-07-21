@@ -1,4 +1,5 @@
 import type { RefObject } from 'react';
+import { ChatMessageList } from '@nuwax-ai/chat-kit/react';
 import type {
   WorkbenchAgentComponent,
   WorkbenchAgentDetail,
@@ -19,6 +20,7 @@ import { DebugBar } from '../DebugBar';
 import { VariableForm } from './VariableFormWrapper';
 import type { Labels } from '../labels';
 import { questionText } from '../utils';
+import { toChatMessage } from '../../../adapters/chatKitAdapter';
 
 export type ChatAreaLabels = Labels;
 
@@ -133,51 +135,56 @@ export function ChatArea(props: ChatAreaProps): JSX.Element {
     labels,
   } = props;
 
+  const lastCompleteAssistant = [...messages]
+    .reverse()
+    .find((message) => message.role === 'assistant' && message.status === 'complete');
+
   return (
     <div className="open-app-chat-left">
       <div className="open-app-chat-body" ref={transcriptRef}>
         <div className="open-app-chat-wrapper">
         <div ref={loadMoreSentinelRef} />
-        {hasMoreMessages && (
-          <button
-            type="button"
-            className="open-app-load-more-messages"
-            disabled={loadingMoreMessages}
-            onClick={() => void onLoadMoreMessages()}
-          >
-            {loadingMoreMessages ? labels.loadingMoreMessages : labels.loadMoreMessages}
-          </button>
-        )}
-        {messages.length > 0 ? (
-          <>
-            {messages.map((message) => (
-              <ChatMessage key={message.id} message={message} agent={agent} onFilePreview={onFilePreview} conversationId={conversationId} />
-            ))}
-            {!streaming && (() => {
-              const lastAssistant = [...messages].reverse().find((m) => m.role === 'assistant' && m.status === 'complete');
-              if (!lastAssistant) return null;
-              return (
+        <ChatMessageList
+          messages={messages.map(toChatMessage)}
+          hasOlder={hasMoreMessages}
+          loadingOlder={loadingMoreMessages}
+          onLoadOlder={onLoadMoreMessages}
+          loadOlderLabel={labels.loadMoreMessages}
+          empty={activeConversation && !streaming ? (
+            <div className="open-app-loading-indicator">
+              <div className="open-app-loading-dots">
+                <span />
+                <span />
+                <span />
+              </div>
+            </div>
+          ) : !activeConversation ? (
+            <AgentChatEmpty agent={agent} labels={labels} agentId={agentId} />
+          ) : null}
+          renderMessage={(chatMessage) => {
+            const message = messages.find((candidate) => candidate.id === chatMessage.id);
+            if (!message) return null;
+            return (
+              <>
+                <ChatMessage
+                  message={message}
+                  agent={agent}
+                  onFilePreview={onFilePreview}
+                  conversationId={conversationId}
+                />
+                {!streaming && lastCompleteAssistant?.id === message.id && (
                 <DebugBar
-                  message={lastAssistant}
+                  message={message}
                   labels={{
                     debugTokens: 'tokens',
                     debugTime: 'time',
                   }}
                 />
-              );
-            })()}
-          </>
-        ) : activeConversation && !streaming ? (
-          <div className="open-app-loading-indicator">
-            <div className="open-app-loading-dots">
-              <span />
-              <span />
-              <span />
-            </div>
-          </div>
-        ) : !activeConversation ? (
-          <AgentChatEmpty agent={agent} labels={labels} agentId={agentId} />
-        ) : null}
+                )}
+              </>
+            );
+          }}
+        />
         {agent?.guidQuestionDtos && agent.guidQuestionDtos.length > 0 && messages.length === 0 && (
           <div className="open-app-recommend-list">
             {agent.guidQuestionDtos.map((item, index) => {

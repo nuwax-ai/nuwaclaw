@@ -1,11 +1,5 @@
-import {
-  FormEvent,
-  KeyboardEvent,
-  useCallback,
-  useEffect,
-  useRef,
-  useState,
-} from 'react';
+import { ChatComposer } from '@nuwax-ai/chat-kit/react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import type {
   WorkbenchApiAdapter,
@@ -130,15 +124,6 @@ export function ChatInputHome({
     setUploadEntries([]);
   }, [canSend, collectUploaded, onSubmit]);
 
-  const onKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
-    if (event.nativeEvent.isComposing) return;
-    if (event.key === 'Enter' && !event.shiftKey) {
-      event.preventDefault();
-      if (streaming) return;
-      handleSubmit();
-    }
-  };
-
   const selectedModel = modelOptions.find((m) => m.id === selectedModelId);
 
   // Hook up clipboard paste — pasted images become pending UploadEntry rows
@@ -161,7 +146,7 @@ export function ChatInputHome({
     disabled: streaming,
   });
 
-  const formRef = useRef<HTMLFormElement>(null);
+  const formRef = useRef<HTMLDivElement>(null);
 
   // Drag-and-drop file upload (mirrors nuwax commit 9341a145)
   const { isDragging } = useDragUpload({
@@ -251,31 +236,45 @@ export function ChatInputHome({
 
   return (
     <>
-    <form
-      ref={formRef}
-      className={isDragging ? 'open-app-chat-input-home drag-over' : 'open-app-chat-input-home'}
-      onSubmit={(event: FormEvent) => {
-        event.preventDefault();
-        if (streaming) onStop();
-        else handleSubmit();
+    <div ref={formRef}>
+    <ChatComposer
+      draft={{
+        text: value,
+        attachments: [],
+        skillIds: selectedSkillIds,
+        modelId: selectedModelId,
+        agentMode,
       }}
-    >
-      {isDragging && (
+      onDraftChange={(draft) => onChange(draft.text)}
+      onSend={handleSubmit}
+      onStop={onStop}
+      disabled={disabled || streaming}
+      streaming={streaming}
+      canSend={canSend}
+      textareaRef={textareaRef}
+      className={isDragging ? 'open-app-chat-input-home drag-over' : 'open-app-chat-input-home'}
+      actionsClassName="open-app-input-footer"
+      toolbarClassName="open-app-input-tools"
+      controlsClassName="open-app-right-actions"
+      sendButtonClassName="open-app-send-button"
+      stopButtonClassName="open-app-send-button streaming"
+      sendButtonTitle={labels.send}
+      stopButtonTitle={labels.stop}
+      labels={{
+        placeholder: labels.inputPlaceholder,
+        send: labels.send,
+        stop: labels.stop,
+      }}
+      sendContent={<Icon name="send" />}
+      stopContent={<Icon name="stop" />}
+      beforeInput={isDragging && (
         <div className="open-app-drag-overlay">
           <div className="open-app-drag-overlay-text">
             {labels.dropFilesHere}
           </div>
         </div>
       )}
-      <textarea
-        ref={textareaRef}
-        value={value}
-        onChange={(event) => onChange(event.target.value)}
-        onKeyDown={onKeyDown}
-        disabled={streaming}
-        placeholder={labels.inputPlaceholder}
-      />
-      {selectedSkillIds.length > 0 && (
+      afterInput={selectedSkillIds.length > 0 && (
         <div className="open-app-skill-chips">
           {selectedSkillIds.map((id) => (
             <span key={id} className="open-app-skill-chip">
@@ -291,8 +290,8 @@ export function ChatInputHome({
           ))}
         </div>
       )}
-     <div className="open-app-input-footer">
-       <div className="open-app-input-tools">
+      toolbar={(
+        <>
          {allowAtSkill && (
            <div style={{ position: 'relative' }}>
              <button
@@ -368,8 +367,9 @@ export function ChatInputHome({
               {labels.yoloMode}
             </button>
           </div>
-       </div>
-         <div className="open-app-right-actions">
+        </>
+      )}
+      beforeAction={(
          <div className="open-app-model-chip-wrapper">
           <button
             className="open-app-model-chip"
@@ -381,17 +381,9 @@ export function ChatInputHome({
             <span>{selectedModel?.name ?? labels.model}</span>
           </button>
          </div>
-          <button
-            className={streaming ? 'open-app-send-button streaming' : 'open-app-send-button'}
-            type="submit"
-            title={streaming ? labels.stop : labels.send}
-            disabled={!streaming && !canSend}
-          >
-            <Icon name={streaming ? 'stop' : 'send'} />
-          </button>
-       </div>
-     </div>
-    </form>
+      )}
+    />
+    </div>
     {showModelDropdown && dropdownPos && createPortal(
       <div
         className="open-app-model-dropdown"

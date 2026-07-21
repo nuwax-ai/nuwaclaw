@@ -23,6 +23,49 @@ export interface WorkbenchConversation {
   metadata?: Record<string, unknown>;
 }
 
+export interface WorkbenchRemoteUser {
+  id?: string;
+  userName?: string;
+  nickName?: string;
+  avatar?: string;
+  email?: string;
+  raw?: unknown;
+}
+
+export interface WorkbenchCreditSummary {
+  available: number;
+  total?: number;
+  frozen?: number;
+  raw?: unknown;
+}
+
+export interface WorkbenchNotification {
+  id: string;
+  content: string;
+  read: boolean;
+  createdAt?: string;
+  senderName?: string;
+  senderAvatar?: string;
+  raw?: unknown;
+}
+
+export interface WorkbenchConversationFile {
+  id: string;
+  name: string;
+  isDirectory: boolean;
+  binary?: boolean;
+  sizeExceeded?: boolean;
+  content?: string;
+  previewUrl?: string;
+  raw?: unknown;
+}
+
+export interface WorkbenchTerminalConnection {
+  url: string;
+  protocols?: string[];
+  wireProtocol?: 'ttyd' | 'plain';
+}
+
 export interface WorkbenchMessage {
   id: string;
   conversationId: string;
@@ -460,6 +503,13 @@ export interface WorkbenchApiAdapter {
    * (no pagination), filtered locally by the caller.
    */
   listCollectedSkills?: (agentId: string) => Promise<WorkbenchSkillOption[]>;
+  getCurrentUser?: () => Promise<WorkbenchRemoteUser>;
+  getCreditSummary?: () => Promise<WorkbenchCreditSummary>;
+  getUnreadNotificationCount?: () => Promise<number>;
+  listNotifications?: (options?: { size?: number }) => Promise<WorkbenchNotification[]>;
+  clearUnreadNotifications?: () => Promise<void>;
+  listConversationFiles?: (conversationId: string) => Promise<WorkbenchConversationFile[]>;
+  logout?: () => Promise<void>;
 }
 
 export interface WorkbenchHostBridge {
@@ -469,6 +519,12 @@ export interface WorkbenchHostBridge {
   }) => void | Promise<void>;
   onExit?: () => void | Promise<void>;
   onNavigate?: (path: string) => void | Promise<void>;
+  onNavigateRemote?: (path: string) => void | Promise<void>;
+  onOpenSettings?: () => void | Promise<void>;
+  onOpenConfigPage?: (
+    page: 'client' | 'sessions' | 'mcp' | 'settings' | 'dependencies' | 'permissions' | 'logs' | 'about',
+  ) => void | Promise<void>;
+  onLogout?: () => void | Promise<void>;
   onError?: (error: Error, context?: Record<string, unknown>) => void;
   /** Electron 宿主在加载页面预览前同步 ticket cookie（与 defaultSession 共享） */
   onBeforePreviewLoad?: (url: string) => void | Promise<void>;
@@ -489,6 +545,9 @@ export interface WorkbenchHostBridge {
     fileId: string,
     context?: { conversationId?: string },
   ) => FilePreviewDescriptor | Promise<FilePreviewDescriptor | void> | void;
+  getTerminalConnection?: (
+    context: { conversationId: string },
+  ) => WorkbenchTerminalConnection | Promise<WorkbenchTerminalConnection>;
 }
 
 /**
@@ -515,7 +574,9 @@ export interface FilePreviewDescriptor {
 export type PreviewState =
   | { kind: 'none' }
   | { kind: 'page'; url: string }
-  | { kind: 'file'; descriptor: FilePreviewDescriptor };
+  | { kind: 'file'; descriptor: FilePreviewDescriptor }
+  | { kind: 'files'; conversationId: string; selectedFileId?: string }
+  | { kind: 'terminal'; conversationId: string };
 
 export interface AgentWorkbenchConfig {
   agentId?: string;
@@ -546,6 +607,9 @@ export interface AgentWorkbenchProps {
   config?: AgentWorkbenchConfig;
   className?: string;
   style?: CSSProperties;
+  /** Controlled workspace surface. Hosts can place the Work / Chat switch in their own chrome. */
+  workspaceMode?: 'work' | 'chat';
+  onWorkspaceModeChange?: (mode: 'work' | 'chat') => void;
 }
 
 /**

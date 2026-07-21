@@ -10,6 +10,7 @@
  */
 
 import { useMemo } from 'react';
+import { ChatMessageItem } from '@nuwax-ai/chat-kit/react';
 import { MarkdownRenderer, type RunOverStep } from '../MarkdownRenderer';
 import type {
   WorkbenchAgentDetail,
@@ -21,6 +22,7 @@ import type {
 import { AgentAvatar } from './icons';
 import type { Labels } from './labels';
 import { applyTemplate, questionText } from './utils';
+import { toChatMessage } from '../../adapters/chatKitAdapter';
 
 /**
  * Renders a single transcript row.
@@ -69,12 +71,12 @@ export function ChatMessage({
   const thinkingStreaming =
     message.status === 'streaming' && !message.content && !!thinking;
   return (
-    <article
+    <ChatMessageItem
+      message={toChatMessage(message)}
       className={
         isUser ? 'open-app-message user' : `open-app-message ${message.kind ?? 'assistant'}`
       }
-    >
-      {!isUser && (
+      header={!isUser && (
         <div className="open-app-message-meta">
           <div className="open-app-message-avatar">
             <AgentAvatar agent={agent} />
@@ -82,7 +84,8 @@ export function ChatMessage({
           <span>{agent?.name || 'Agent'}</span>
         </div>
       )}
-      <div className="open-app-message-content">
+      contentClassName="open-app-message-content"
+      renderContent={() => (
         <div className="open-app-message-text">
           {!message.content &&
             !thinking &&
@@ -110,8 +113,8 @@ export function ChatMessage({
             />
           )}
         </div>
-      </div>
-    </article>
+      )}
+    />
   );
 }
 

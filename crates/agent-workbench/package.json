@@ -45,6 +45,9 @@
   },
   "license": "MIT",
   "dependencies": {
+    "@xterm/addon-fit": "^0.10.0",
+    "@xterm/xterm": "^5.5.0",
+    "@nuwax-ai/chat-kit": "workspace:*",
     "katex": "^0.16.47",
     "mermaid": "^11.15.0",
     "prism-react-renderer": "^2.4.1",

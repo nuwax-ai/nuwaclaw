@@ -16,6 +16,7 @@
  */
 
 import { useCallback, useEffect, useMemo, useReducer, useRef } from 'react';
+import { useChatSession } from '@nuwax-ai/chat-kit/react';
 
 import type {
   WorkbenchApiAdapter,
@@ -28,6 +29,12 @@ import type {
   WorkbenchStreamEvent,
 } from '../../../types';
 import type { RunOverStep } from '../../MarkdownRenderer';
+import {
+  createWorkbenchChatAdapter,
+  fromChatConversation,
+  fromChatMessage,
+  toChatConversation,
+} from '../../../adapters/chatKitAdapter';
 
 // ---------------------------------------------------------------------------
 // Public API
@@ -460,12 +467,14 @@ export interface ActionDeps {
   now?: () => string;
 }
 
-type GetState = () => ConversationState;
-type Dispatch = (action: ConversationAction) => void;
+/** Headless state reader used by host adapters outside React. */
+export type ConversationGetState = () => ConversationState;
+/** Headless dispatcher used by host adapters outside React. */
+export type ConversationDispatch = (action: ConversationAction) => void;
 
 export async function loadConversationAction(
-  _getState: GetState,
-  dispatch: Dispatch,
+  _getState: ConversationGetState,
+  dispatch: ConversationDispatch,
   deps: ActionDeps,
   conversation: WorkbenchConversation,
 ): Promise<void> {
@@ -487,8 +496,8 @@ export async function loadConversationAction(
 }
 
 export async function createConversationAction(
-  _getState: GetState,
-  dispatch: Dispatch,
+  _getState: ConversationGetState,
+  dispatch: ConversationDispatch,
   deps: ActionDeps,
   title?: string,
 ): Promise<WorkbenchConversation> {
@@ -498,8 +507,8 @@ export async function createConversationAction(
 }
 
 export async function loadMoreMessagesAction(
-  getState: GetState,
-  dispatch: Dispatch,
+  getState: ConversationGetState,
+  dispatch: ConversationDispatch,
   deps: ActionDeps,
 ): Promise<void> {
   const current = getState();
@@ -539,8 +548,8 @@ export async function loadMoreMessagesAction(
 }
 
 export async function sendPromptAction(
-  getState: GetState,
-  dispatch: Dispatch,
+  getState: ConversationGetState,
+  dispatch: ConversationDispatch,
   deps: ActionDeps,
   params: SendPromptParams,
 ): Promise<void> {
@@ -654,8 +663,8 @@ export async function sendPromptAction(
 }
 
 export async function stopStreamAction(
-  getState: GetState,
-  dispatch: Dispatch,
+  getState: ConversationGetState,
+  dispatch: ConversationDispatch,
   deps: ActionDeps,
 ): Promise<void> {
   const current = getState();
@@ -684,8 +693,8 @@ export async function stopStreamAction(
 }
 
 export async function answerPermissionAction(
-  getState: GetState,
-  dispatch: Dispatch,
+  getState: ConversationGetState,
+  dispatch: ConversationDispatch,
   deps: ActionDeps,
   choiceId: string,
 ): Promise<void> {
@@ -712,8 +721,8 @@ export async function answerPermissionAction(
 }
 
 export async function answerMcpAskAction(
-  getState: GetState,
-  dispatch: Dispatch,
+  getState: ConversationGetState,
+  dispatch: ConversationDispatch,
   deps: ActionDeps,
   payload: WorkbenchMcpAskRespondPayload,
 ): Promise<void> {
@@ -749,120 +758,85 @@ export function useConversation(opts: UseConversationOptions): UseConversationAp
     messagePageSize = 10,
     onError,
   } = opts;
-
-  const [state, dispatch] = useReducer(messagesReducer, initialConversationState);
-
-  // Keep a live ref so async loops can read up-to-date state without
-  // re-binding every iteration.
-  const stateRef = useRef(state);
-  useEffect(() => {
-    stateRef.current = state;
-  }, [state]);
-
-  const reportError = useCallback(
-    (err: unknown, context?: Record<string, unknown>) => {
-      if (onError) onError(err, context);
-      else console.error('[useConversation]', err, context);
-    },
-    [onError],
+  const chatAdapter = useMemo(() => createWorkbenchChatAdapter(adapter), [adapter]);
+  const initialConversation = useMemo(
+    () =>
+      initialConversationId
+        ? {
+            id: initialConversationId,
+            agentId,
+            title: '',
+            updatedAt: nowIso(),
+            status: 'idle' as const,
+          }
+        : undefined,
+    [agentId, initialConversationId],
   );
+  const session = useChatSession({
+    adapter: chatAdapter,
+    agentId,
+    initialConversation,
+    messagePageSize,
+    onError,
+  });
 
-  const deps = useMemo<ActionDeps>(
-    () => ({ adapter, agentId, messagePageSize, reportError }),
-    [adapter, agentId, messagePageSize, reportError],
+  const activeConversation = useMemo(
+    () => (session.conversation ? fromChatConversation(session.conversation) : null),
+    [session.conversation],
   );
-
-  const getState: GetState = useCallback(() => stateRef.current, []);
-
-  const loadConversation = useCallback(
-    (conversation: WorkbenchConversation) =>
-      loadConversationAction(getState, dispatch, deps, conversation),
-    [deps, getState],
+  const messages = useMemo(
+    () => session.messages.map(fromChatMessage),
+    [session.messages],
   );
+  const permissionRequest =
+    session.pendingInteraction?.kind === 'permission'
+      ? (session.pendingInteraction.payload as WorkbenchPermissionRequest)
+      : null;
+  const mcpAskInteraction =
+    session.pendingInteraction?.kind === 'question'
+      ? (session.pendingInteraction.payload as WorkbenchMcpAskInteraction)
+      : null;
 
-  const createConversation = useCallback(
-    (title?: string) => createConversationAction(getState, dispatch, deps, title),
-    [deps, getState],
-  );
-
-  const sendPrompt = useCallback(
-    (params: SendPromptParams) => sendPromptAction(getState, dispatch, deps, params),
-    [deps, getState],
-  );
-
-  const stopStream = useCallback(
-    () => stopStreamAction(getState, dispatch, deps),
-    [deps, getState],
-  );
-
- const answerPermission = useCallback(
-   (choiceId: string) =>
-     answerPermissionAction(getState, dispatch, deps, choiceId),
-   [deps, getState],
- );
-
-  const answerMcpAsk = useCallback(
-    (payload: WorkbenchMcpAskRespondPayload) =>
-      answerMcpAskAction(getState, dispatch, deps, payload),
-    [deps, getState],
-  );
-
- const loadMoreMessages = useCallback(
-    () => loadMoreMessagesAction(getState, dispatch, deps),
-    [deps, getState],
-  );
-
-  const reset = useCallback(() => {
-    dispatch({ type: 'reset' });
-  }, []);
-
-  // Auto-load the initial conversation, if provided.
-  const initialLoadRef = useRef<string | null>(null);
-  useEffect(() => {
-    if (!initialConversationId || initialLoadRef.current === initialConversationId) {
-      return;
-    }
-    initialLoadRef.current = initialConversationId;
-    // Synthesize a stub conversation; loadConversation will refetch full detail.
-    void loadConversation({
-      id: initialConversationId,
-      agentId,
-      title: '',
-      createdAt: nowIso(),
-      updatedAt: nowIso(),
-      status: 'idle',
-    });
-  }, [agentId, initialConversationId, loadConversation]);
-
-  return useMemo<UseConversationApi>(
-    () => ({
-      activeConversation: state.activeConversation,
-      messages: state.messages,
-      streaming: state.streaming,
-      activeRequestId: state.activeRequestId,
-      permissionRequest: state.permissionRequest,
-    mcpAskInteraction: state.mcpAskInteraction,
-      hasMoreMessages: state.hasMoreMessages,
-      loadingMoreMessages: state.loadingMoreMessages,
-      loadConversation,
-      createConversation,
-      sendPrompt,
-      stopStream,
-     answerPermission,
-     answerMcpAsk,
-     loadMoreMessages,
-     reset,
-   }),
-   [
-     state,
-     loadConversation,
-     createConversation,
-     sendPrompt,
-     stopStream,
-     answerPermission,
-     answerMcpAsk,
-     loadMoreMessages,
-     reset,
-   ],
-  );
+  return useMemo<UseConversationApi>(() => ({
+    activeConversation,
+    messages,
+    streaming: session.streaming,
+    activeRequestId: session.requestId,
+    permissionRequest,
+    mcpAskInteraction,
+    hasMoreMessages: Boolean(session.olderCursor),
+    loadingMoreMessages: session.loadingOlder,
+    loadConversation: (conversation) => session.loadConversation(toChatConversation(conversation)),
+    createConversation: async (title) =>
+      fromChatConversation(await session.createConversation(title)),
+    sendPrompt: (params) => session.send({
+      conversationId: params.conversationId,
+      text: params.content,
+      attachments: (params.attachments ?? []).map((attachment) => ({
+        key: attachment.key,
+        url: attachment.url,
+        name: attachment.fileName ?? attachment.url,
+        mimeType: attachment.mimeType,
+        size: attachment.size,
+      })),
+      skillIds: params.skillIds ?? [],
+      modelId: params.modelId,
+      agentMode: params.agentMode,
+      selectedComponentIds: params.selectedComponents?.map((component) => component.id),
+      variableParams: params.variableParams,
+      sandboxId: params.sandboxId,
+      metadata: params.metadata,
+    }),
+    stopStream: session.stop,
+    answerPermission: (choiceId) => session.respondInteraction({ choiceId }),
+    answerMcpAsk: session.respondInteraction,
+    loadMoreMessages: session.loadOlder,
+    reset: session.reset,
+  }), [
+    activeConversation,
+    messages,
+    session,
+    permissionRequest,
+    mcpAskInteraction,
+  ]);
 }

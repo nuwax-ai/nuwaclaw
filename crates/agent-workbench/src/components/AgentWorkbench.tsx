@@ -12,7 +12,10 @@ export function AgentWorkbench(props: AgentWorkbenchProps) {
     return (
       <AgentWorkbenchProvider config={props.config}>
         <div className={props.className} style={props.style}>
-          <NuwaxOpenApp />
+          <NuwaxOpenApp
+            workspaceMode={props.workspaceMode}
+            onWorkspaceModeChange={props.onWorkspaceModeChange}
+          />
         </div>
       </AgentWorkbenchProvider>
     );
@@ -22,7 +25,10 @@ export function AgentWorkbench(props: AgentWorkbenchProps) {
     return (
       <AgentWorkbenchProvider config={{ agentId: '', useMock: true }}>
         <div className={props.className} style={props.style}>
-          <NuwaxOpenApp />
+          <NuwaxOpenApp
+            workspaceMode={props.workspaceMode}
+            onWorkspaceModeChange={props.onWorkspaceModeChange}
+          />
         </div>
       </AgentWorkbenchProvider>
     );
@@ -33,7 +39,10 @@ export function AgentWorkbench(props: AgentWorkbenchProps) {
       className={props.className}
       style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', ...props.style }}
     >
-      <NuwaxOpenApp />
+      <NuwaxOpenApp
+        workspaceMode={props.workspaceMode}
+        onWorkspaceModeChange={props.onWorkspaceModeChange}
+      />
     </div>
   );
 }

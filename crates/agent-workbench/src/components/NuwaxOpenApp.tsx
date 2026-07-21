@@ -59,6 +59,7 @@ export function PagePreviewIframe({
   previewContainer,
   hostBridge,
   onClose,
+  chromeless = false,
 }: {
   url: string;
   title: string;
@@ -66,6 +67,7 @@ export function PagePreviewIframe({
   previewContainer?: string;
   hostBridge?: import('../types').WorkbenchHostBridge;
   onClose: () => void;
+  chromeless?: boolean;
 }) {
   const [frameKey, setFrameKey] = useState(0);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -145,8 +147,8 @@ export function PagePreviewIframe({
     window.open(url, '_blank', 'noopener,noreferrer');
   }, [url]);
   return (
-    <div className="open-app-page-preview">
-      <header className="open-app-page-preview-header">
+    <div className={chromeless ? 'open-app-page-preview chromeless' : 'open-app-page-preview'}>
+      {!chromeless && <header className="open-app-page-preview-header">
         <span className="open-app-page-preview-title">
           <Icon name="page" />
           {title}
@@ -171,7 +173,7 @@ export function PagePreviewIframe({
             <Icon name="close" />
           </button>
         </div>
-      </header>
+      </header>}
       {loadError ? (
         <div className="open-app-page-preview-error" role="alert">
           {loadError}
@@ -201,7 +203,15 @@ export function PagePreviewIframe({
   );
 }
 
-export function NuwaxOpenApp() {
+export interface NuwaxOpenAppProps {
+  workspaceMode?: 'work' | 'chat';
+  onWorkspaceModeChange?: (mode: 'work' | 'chat') => void;
+}
+
+export function NuwaxOpenApp({
+  workspaceMode: controlledWorkspaceMode,
+  onWorkspaceModeChange,
+}: NuwaxOpenAppProps = {}) {
   const { adapter, config, mode, missingConfig } = useAgentWorkbenchContext();
   const agentId = (config.appAgentId ?? config.agentId ?? '').trim();
   const labels = config.locale?.toLowerCase().startsWith('en') ? en : zh;
@@ -245,6 +255,12 @@ export function NuwaxOpenApp() {
   const [error, setError] = useState<string | null>(null);
   const [historyKeyword, setHistoryKeyword] = useState('');
   const [sidebarVisible, setSidebarVisible] = useState(true);
+  const [internalWorkspaceMode, setInternalWorkspaceMode] = useState<'work' | 'chat'>('work');
+  const workspaceMode = controlledWorkspaceMode ?? internalWorkspaceMode;
+  const setWorkspaceMode = useCallback((nextMode: 'work' | 'chat') => {
+    if (controlledWorkspaceMode === undefined) setInternalWorkspaceMode(nextMode);
+    onWorkspaceModeChange?.(nextMode);
+  }, [controlledWorkspaceMode, onWorkspaceModeChange]);
   const [previewState, setPreviewState] = useState<PreviewState>({ kind: 'none' });
   const [agentMode, setAgentMode] = useState<'ask' | 'yolo'>('ask');
   const [selectedModelId, setSelectedModelId] = useState<string | undefined>(undefined);
@@ -258,6 +274,11 @@ export function NuwaxOpenApp() {
   const [selectedComponentIds, setSelectedComponentIds] = useState<string[]>([]);
   const [splitRatio, setSplitRatio] = useState(0.42);
   const splitContainerRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (workspaceMode !== 'chat' || !config.baseUrl) return;
+    void config.hostBridge?.onBeforePreviewLoad?.(config.baseUrl);
+  }, [config.baseUrl, config.hostBridge, workspaceMode]);
 
   // ---------------------------------------------------------------------
   // Conversation state hub — owns messages / streaming / permission /
@@ -613,6 +634,9 @@ export function NuwaxOpenApp() {
           ),
         );
 
+        // 服务端会在流结束后生成 topic；立即重拉，替换本地临时标题。
+        await refreshHistory();
+
         // Fetch suggest questions after stream completes. Failures here are
         // non-fatal — the empty-state remains rendered.
         if (adapter.getSuggestQuestions) {
@@ -649,6 +673,7 @@ export function NuwaxOpenApp() {
       messages.length,
       prompt,
       reportError,
+      refreshHistory,
       selectedModelId,
       selectedSkillIds,
       showVariableForm,
@@ -713,12 +738,11 @@ export function NuwaxOpenApp() {
 
   const handleFilePreview = useCallback(
     async (fileId: string, context?: { conversationId?: string }) => {
-      const result = await config.hostBridge?.onFilePreview?.(fileId, context);
-      if (result) {
-        setPreviewState({ kind: 'file', descriptor: result });
-      }
+      const conversationId = context?.conversationId ?? activeConversation?.id;
+      if (!conversationId) return;
+      setPreviewState({ kind: 'files', conversationId, selectedFileId: fileId });
     },
-    [config.hostBridge],
+    [activeConversation?.id],
   );
 
   const renameConversation = useCallback(
@@ -798,8 +822,8 @@ export function NuwaxOpenApp() {
           {missingConfig.length > 0 ? labels.missingToken : labels.mockMode}
         </div>
       )}
-      <div className="open-app-base-template">
-        <Sidebar
+      <div className={workspaceMode === 'chat' ? 'open-app-base-template chat-mode' : 'open-app-base-template'}>
+        {workspaceMode === 'work' && <Sidebar
           visible={sidebarVisible}
           onToggle={setSidebarVisible}
           agent={agent}
@@ -824,10 +848,26 @@ export function NuwaxOpenApp() {
             viewAll: labels.viewAll,
             firstConversationTip: labels.firstConversationTip,
           }}
-        />
+          workspaceMode={workspaceMode}
+          adapter={adapter}
+          hostBridge={config.hostBridge}
+          locale={config.locale}
+        />}
 
-        <main className="open-app-main">
-          {view.name === 'history' ? (
+        <main className={workspaceMode === 'chat' ? 'open-app-main chat-mode' : 'open-app-main'}>
+          {workspaceMode === 'chat' ? (
+            config.baseUrl ? (
+              <PagePreviewIframe
+                url={config.baseUrl}
+                title="Chat"
+                labels={labels}
+                previewContainer={config.previewContainer}
+                hostBridge={config.hostBridge}
+                onClose={() => setWorkspaceMode('work')}
+                chromeless
+              />
+            ) : <div className="open-app-panel-empty">平台地址未配置</div>
+          ) : view.name === 'history' ? (
             <HistoryConversation
               conversations={conversations}
               historyKeyword={historyKeyword}
@@ -860,16 +900,23 @@ export function NuwaxOpenApp() {
                 </span>
                 <button
                   type="button"
-                  className={previewState.kind !== 'none' ? 'open-app-preview-toggle active' : 'open-app-preview-toggle'}
-                  onClick={() => setPreviewState((prev) => prev.kind === 'none' ? prev : { kind: 'none' })}
-                  disabled={previewState.kind === 'none'}
+                  className={previewState.kind === 'files' ? 'open-app-preview-toggle active' : 'open-app-preview-toggle'}
+                  title="文件查看"
+                  onClick={() => activeConversation && setPreviewState((prev) => prev.kind === 'files' ? { kind: 'none' } : { kind: 'files', conversationId: activeConversation.id })}
+                  disabled={!activeConversation}
                 >
-                  <Icon name="page" />
-                  {labels.togglePreview}
+                  <Icon name="folder" />
                 </button>
-                <button type="button" onClick={() => void openEditor()} disabled={!config.hostBridge?.onOpenEditor}>
-                  {labels.openEditor}
+                <button
+                  type="button"
+                  className={previewState.kind === 'terminal' ? 'open-app-preview-toggle active' : 'open-app-preview-toggle'}
+                  title="终端"
+                  onClick={() => activeConversation && setPreviewState((prev) => prev.kind === 'terminal' ? { kind: 'none' } : { kind: 'terminal', conversationId: activeConversation.id })}
+                  disabled={!activeConversation || !config.hostBridge?.getTerminalConnection}
+                >
+                  <Icon name="terminal" />
                 </button>
+                <button type="button" onClick={() => void openEditor()} disabled={!config.hostBridge?.onOpenEditor}>{labels.openEditor}</button>
                 {activeConversation && (
                   <button
                     type="button"
@@ -954,6 +1001,7 @@ export function NuwaxOpenApp() {
                   hostBridge={config.hostBridge}
                   previewContainer={config.previewContainer}
                   labels={labels}
+                  adapter={adapter}
                 />
               </div>
             </section>

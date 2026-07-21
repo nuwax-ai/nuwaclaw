@@ -24,6 +24,7 @@ import { MentionPopup } from '../../src/components/MentionPopup';
 import { fetchSkillsForTab } from '../../src/components/MentionPopup/useMentionSearch';
 import { VariableForm } from '../../src/components/VariableForm';
 import { ChatUploadFile } from '../../src/components/ChatUploadFile';
+import { Sidebar, WorkspaceModeSwitch } from '../../src/components/OpenApp/BaseTemplate/Sidebar';
 import type { UploadEntry } from '../../src/components/ChatUploadFile';
 import {
   MarkdownRenderer,
@@ -81,6 +82,43 @@ async function drainStream(
 // ---------------------------------------------------------------------------
 
 describe('component matrix integration', () => {
+  it('keeps the Work / Chat switch in the workbench shell and hides work history in Chat mode', () => {
+    const adapter = createMockApiAdapter({ latencyMs: 0 });
+    const common = {
+      visible: true,
+      onToggle: () => {},
+      agent: null,
+      agentId: '2336',
+      recentConversations: [],
+      totalConversationCount: 0,
+      activeConversation: null,
+      previewUrl: null,
+      loadingHistory: false,
+      baseUrl: 'https://app.example.com',
+      userId: 'user-1',
+      onNewConversation: () => {},
+      onLoadConversation: () => {},
+      onOpenPreview: () => {},
+      onNavigateHistory: () => {},
+      adapter,
+      labels: {
+        collapseNav: 'Collapse', expandNav: 'Expand', newConversation: 'New',
+        historyConversation: 'History', viewAll: 'All', firstConversationTip: 'Empty',
+      },
+    };
+    const workHtml = renderToStaticMarkup(createElement(Sidebar, { ...common, workspaceMode: 'work' }));
+    const chatHtml = renderToStaticMarkup(createElement(Sidebar, { ...common, workspaceMode: 'chat' }));
+
+    expect(workHtml).toContain('History');
+    expect(workHtml).toContain('MCP 配置');
+    expect(chatHtml).not.toContain('History');
+    expect(chatHtml).not.toContain('MCP 配置');
+
+    const switchHtml = renderToStaticMarkup(createElement(WorkspaceModeSwitch, { value: 'work', onChange: () => {} }));
+    expect(switchHtml).toContain(' Work</button>');
+    expect(switchHtml).toContain(' Chat</button>');
+  });
+
   it('MentionPopup mounts against the mock adapter and routes tabs to the right list endpoints', async () => {
     // The popup mounts in a `loading` state on first render (effects don't
     // flush under renderToStaticMarkup). The structural contract — search

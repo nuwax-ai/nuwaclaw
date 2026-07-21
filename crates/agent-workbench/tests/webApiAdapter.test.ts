@@ -1020,7 +1020,7 @@ describe('createWebApiAdapter', () => {
     // object[] → question text is hoisted from question/content/title/info.
     expect(objAgent?.guidQuestionDtos).toEqual([
       expect.objectContaining({ id: 'q1', question: 'Q via question' }),
-      expect.objectContaining({ id: 2, question: 'Q via content' }),
+      expect.objectContaining({ id: '2', question: 'Q via content' }),
       expect.objectContaining({ question: 'Q via title' }),
       expect.objectContaining({ question: 'Q via info' }),
     ]);
@@ -1059,5 +1059,37 @@ describe('createWebApiAdapter', () => {
     // Numeric ids in payload should be coerced to strings at the boundary.
     expect(items?.[0].id).toBe('101');
     expect(items?.[1].id).toBe('102');
+  });
+
+  it('prefers backend topic over title/name for conversation titles', async () => {
+    const fetcher = vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify({ data: { id: 'agent-1' } }), { status: 200, headers: { 'content-type': 'application/json' } }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ data: { records: [{ id: 7, topic: '服务端主题', title: '旧标题', name: '旧名称' }] } }), { status: 200, headers: { 'content-type': 'application/json' } }));
+    const adapter = createWebApiAdapter({ baseUrl: 'https://api.example.com', accessToken: 'token', fetcher });
+
+    const conversations = await adapter.listConversations('agent-1');
+
+    expect(conversations[0]).toEqual(expect.objectContaining({ id: '7', title: '服务端主题' }));
+  });
+
+  it('normalizes account, credits, notifications and conversation files', async () => {
+    const json = (data: unknown) => new Response(JSON.stringify({ code: '0000', data }), { status: 200, headers: { 'content-type': 'application/json' } });
+    const fetcher = vi.fn()
+      .mockResolvedValueOnce(json({ userId: 9, nickName: 'Moonshot', avatarUrl: 'avatar.png' }))
+      .mockResolvedValueOnce(json({ totalCredit: '128.5' }))
+      .mockResolvedValueOnce(json({ unreadCount: 3 }))
+      .mockResolvedValueOnce(json({ records: [{ id: 4, content: '任务完成', readStatus: 'unread' }] }))
+      .mockResolvedValueOnce(json({ files: [{ fileId: 'src/app.ts', name: 'src/app.ts', isDir: false, contents: 'export {}' }] }));
+    const adapter = createWebApiAdapter({ baseUrl: 'https://api.example.com', accessToken: 'token', fetcher });
+
+    await expect(adapter.getCurrentUser?.()).resolves.toEqual(expect.objectContaining({ id: '9', nickName: 'Moonshot', avatar: 'avatar.png' }));
+    await expect(adapter.getCreditSummary?.()).resolves.toEqual(expect.objectContaining({ available: 128.5, total: 128.5 }));
+    await expect(adapter.getUnreadNotificationCount?.()).resolves.toBe(3);
+    await expect(adapter.listNotifications?.()).resolves.toEqual([expect.objectContaining({ id: '4', content: '任务完成', read: false })]);
+    await expect(adapter.listConversationFiles?.('conv-1')).resolves.toEqual([expect.objectContaining({ id: 'src/app.ts', name: 'src/app.ts', content: 'export {}' })]);
+    expect(fetcher).toHaveBeenLastCalledWith(
+      'https://api.example.com/api/computer/static/file-list?cId=conv-1',
+      expect.objectContaining({ method: 'GET' }),
+    );
   });
 });

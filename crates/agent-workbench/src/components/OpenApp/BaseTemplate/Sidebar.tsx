@@ -1,8 +1,11 @@
 import { useState } from 'react';
+import { ChatConversationList } from '@nuwax-ai/chat-kit/react';
 import type { WorkbenchAgentDetail, WorkbenchConversation, WorkbenchCustomPageNavItem } from '../../../types';
 import { AgentAvatar, Icon, IconButton } from '../icons';
-import { ConversationItem } from './ConversationItem';
+import { toChatConversation } from '../../../adapters/chatKitAdapter';
 import { buildPreviewUrl } from '../utils';
+import { AccountDock } from './AccountDock';
+import type { WorkbenchApiAdapter, WorkbenchHostBridge } from '../../../types';
 
 export interface SidebarLabels {
   collapseNav: string;
@@ -33,10 +36,33 @@ export interface SidebarProps {
   onOpenPreview: (path: string) => void;
   onNavigateHistory: () => void;
   labels: SidebarLabels;
+  workspaceMode: 'work' | 'chat';
+  adapter: WorkbenchApiAdapter;
+  hostBridge?: WorkbenchHostBridge;
+  locale?: string;
 }
 
 const isMac = (): boolean =>
   typeof navigator !== 'undefined' && /Mac|iPhone|iPad|iPod/i.test(navigator.userAgent);
+
+export function WorkspaceModeSwitch({
+  value,
+  onChange,
+}: {
+  value: 'work' | 'chat';
+  onChange: (mode: 'work' | 'chat') => void;
+}): JSX.Element {
+  return (
+    <div className="open-app-workspace-switch" role="tablist" aria-label="Workspace mode">
+      <button type="button" className={value === 'work' ? 'active' : ''} onClick={() => onChange('work')}>
+        <span aria-hidden="true">▣</span> Work
+      </button>
+      <button type="button" className={value === 'chat' ? 'active' : ''} onClick={() => onChange('chat')}>
+        <span aria-hidden="true">◌</span> Chat
+      </button>
+    </div>
+  );
+}
 
 export function Sidebar(props: SidebarProps): JSX.Element {
   const {
@@ -57,6 +83,10 @@ export function Sidebar(props: SidebarProps): JSX.Element {
     onOpenPreview,
     onNavigateHistory,
     labels,
+    workspaceMode,
+    adapter,
+    hostBridge,
+    locale,
   } = props;
 
   const [detailOpen, setDetailOpen] = useState(false);
@@ -88,13 +118,22 @@ export function Sidebar(props: SidebarProps): JSX.Element {
         </div>
       )}
 
-      {visible ? (
+      {visible && workspaceMode === 'work' ? (
         <>
           <button className="open-app-new-session" type="button" onClick={() => void onNewConversation()}>
             <Icon name="plus" />
             <span>{labels.newConversation}</span>
             <span className="open-app-shortcut">{isMac() ? '⌘' : 'Ctrl'}</span>
             <span className="open-app-shortcut">J</span>
+          </button>
+
+          <button
+            className="open-app-mcp-config-entry"
+            type="button"
+            onClick={() => void hostBridge?.onOpenConfigPage?.('mcp')}
+          >
+            <Icon name="tools" />
+            <span>{locale?.toLowerCase().startsWith('en') ? 'MCP configuration' : 'MCP 配置'}</span>
           </button>
 
           {customPages && customPages.length > 0 && (
@@ -132,22 +171,29 @@ export function Sidebar(props: SidebarProps): JSX.Element {
               </button>
             )}
           </div>
-          <div className="open-app-history-list">
-            {loadingHistory && <div className="open-app-history-empty">Loading...</div>}
-            {!loadingHistory && totalConversationCount === 0 && (
-              <div className="open-app-history-empty">{labels.firstConversationTip}</div>
-            )}
-            {recentConversations.map((item) => (
-              <ConversationItem
-                key={item.id}
-                item={item}
-                active={activeConversation?.id === item.id}
-                onClick={() => void onLoadConversation(item)}
-              />
-            ))}
-          </div>
+          {loadingHistory ? (
+            <div className="open-app-history-list">
+              <div className="open-app-history-empty">Loading...</div>
+            </div>
+          ) : (
+            <ChatConversationList
+              className="open-app-history-list"
+              conversations={recentConversations.map(toChatConversation)}
+              activeConversationId={activeConversation?.id}
+              empty={<div className="open-app-history-empty">{labels.firstConversationTip}</div>}
+              buttonClassName={(conversation) =>
+                conversation.id === activeConversation?.id
+                  ? 'open-app-conversation-item active'
+                  : 'open-app-conversation-item'
+              }
+              onSelect={(conversation) => {
+                const source = recentConversations.find((item) => item.id === conversation.id);
+                if (source) void onLoadConversation(source);
+              }}
+            />
+          )}
         </>
-      ) : (
+      ) : !visible ? (
         <button
           className="open-app-sidebar-expand"
           type="button"
@@ -156,12 +202,17 @@ export function Sidebar(props: SidebarProps): JSX.Element {
         >
           <Icon name="sidebar" />
         </button>
-      )}
+      ) : <div className="open-app-sidebar-chat-spacer" />}
 
-      <footer className="open-app-user-area">
-        <div className="open-app-user-avatar">U</div>
-        <span>{userId ?? 'User'}</span>
-      </footer>
+      {visible && (
+        <AccountDock
+          adapter={adapter}
+          hostBridge={hostBridge}
+          fallbackUserId={userId}
+          locale={locale}
+          agentId={agentId}
+        />
+      )}
     </aside>
   );
 }

@@ -16,6 +16,8 @@ export type IconName =
   | 'sidebar'
   | 'plus'
   | 'history'
+  | 'folder'
+  | 'terminal'
   | 'page'
   | 'close'
   | 'back'
@@ -32,6 +34,8 @@ const ICON_PATHS = {
   sidebar: 'M4 5.5h16M4 12h16M4 18.5h16M8 5.5v13',
   plus: 'M12 5v14M5 12h14',
   history: 'M4 12a8 8 0 1 0 2.35-5.65M4 5v5h5M12 8v5l3 2',
+  folder: 'M3 6h7l2 2h9v10H3z',
+  terminal: 'M5 7l5 5-5 5M12 17h7',
   page: 'M7 4h7l4 4v12H7zM14 4v5h5',
   close: 'M6 6l12 12M18 6L6 18',
   back: 'M15 6l-6 6 6 6',
