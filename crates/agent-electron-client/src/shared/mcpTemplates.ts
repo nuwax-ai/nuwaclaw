@@ -78,8 +78,7 @@ export const MCP_TEMPLATES: McpTemplate[] = [
     icon: "🧩",
     config: {
       command: "npx",
-      // 双 bin 包须显式指定可执行名，否则 npx 报 could not determine executable
-      args: ["-y", "-p", "@nuwax-ai/openui-mcp@0.1.1", "nuwax-openui-mcp"],
+      args: ["-y", "@nuwax-ai/openui-mcp@0.1.2"],
       env: {
         NUWAX_OPENUI_HOST: "127.0.0.1",
         NUWAX_OPENUI_PORT: "8787",
