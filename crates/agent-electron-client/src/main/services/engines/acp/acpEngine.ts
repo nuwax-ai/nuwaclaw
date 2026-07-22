@@ -147,7 +147,11 @@ export interface EngineInitResult {
 
 const MCP_RETRY_DELAY_MS = 1200;
 const MCP_RECONNECT_WINDOW_MS = 4000;
-const COMPAT_MCP_WARMUP_DELAY_MS = 1200;
+// Claude Code 的 session/new 会在 MCP 子进程完成 tools/list 前返回。
+// 首条 prompt 若立即发出，模型会在工具快照尚未包含慢启动的 npx MCP 时开始运行。
+// 实测 OpenUI MCP 在已命中 npx 缓存时仍需约 2.2 秒完成工具发现，因此为
+// Claude Code 新会话统一保留 3 秒预热窗口；后续复用会话不重复等待。
+const CLAUDE_MCP_FIRST_PROMPT_WARMUP_DELAY_MS = 3000;
 // 该文案会透传到上层调用方/界面，必须走 i18n，避免在非英文语言下出现硬编码英文提示。
 // 使用函数延迟求值，避免模块加载时 t() 在 initI18n() 之前执行
 function getMcpReconnectPromptMessage(): string {
@@ -469,34 +473,29 @@ export class AcpEngine extends EventEmitter {
     );
   }
 
-  private shouldDelayCompatMcpWarmup(params: {
+  private shouldDelayMcpFirstPrompt(params: {
     isNewSession: boolean;
     mcpServerCount: number;
-    contextServerCount: number;
   }): boolean {
     if (!params.isNewSession) return false;
     if (this.engineName !== "claude-code") return false;
-    if (this.storedSandboxConfig?.enabled !== true) return false;
-    if (this.storedSandboxConfig.mode !== "compat") return false;
     if (params.mcpServerCount <= 0) return false;
-    if (params.contextServerCount <= 0) return false;
     return true;
   }
 
-  private async waitForCompatMcpWarmupIfNeeded(params: {
+  private async waitForMcpFirstPromptWarmupIfNeeded(params: {
     sessionId: string;
     requestId?: string;
     isNewSession: boolean;
     mcpServerCount: number;
     contextServerNames: string[];
   }): Promise<void> {
-    const shouldWait = this.shouldDelayCompatMcpWarmup({
+    const shouldWait = this.shouldDelayMcpFirstPrompt({
       isNewSession: params.isNewSession,
       mcpServerCount: params.mcpServerCount,
-      contextServerCount: params.contextServerNames.length,
     });
 
-    log.debug(`${this.logTag} [DEBUG] Compat MCP warmup decision`, {
+    log.debug(`${this.logTag} [DEBUG] MCP first prompt warmup decision`, {
       sessionId: params.sessionId,
       requestId: params.requestId,
       shouldWait,
@@ -504,19 +503,19 @@ export class AcpEngine extends EventEmitter {
       sandboxMode: this.storedSandboxConfig?.mode ?? "(none)",
       mcpServerCount: params.mcpServerCount,
       contextServerNames: params.contextServerNames,
-      waitMs: shouldWait ? COMPAT_MCP_WARMUP_DELAY_MS : 0,
+      waitMs: shouldWait ? CLAUDE_MCP_FIRST_PROMPT_WARMUP_DELAY_MS : 0,
     });
 
     if (!shouldWait) return;
 
     const startedAt = Date.now();
-    log.debug(`${this.logTag} [DEBUG] Compat MCP warmup wait start`, {
+    log.debug(`${this.logTag} [DEBUG] MCP first prompt warmup wait start`, {
       sessionId: params.sessionId,
       requestId: params.requestId,
-      waitMs: COMPAT_MCP_WARMUP_DELAY_MS,
+      waitMs: CLAUDE_MCP_FIRST_PROMPT_WARMUP_DELAY_MS,
     });
-    await this.sleep(COMPAT_MCP_WARMUP_DELAY_MS);
-    log.debug(`${this.logTag} [DEBUG] Compat MCP warmup wait done`, {
+    await this.sleep(CLAUDE_MCP_FIRST_PROMPT_WARMUP_DELAY_MS);
+    log.debug(`${this.logTag} [DEBUG] MCP first prompt warmup wait done`, {
       sessionId: params.sessionId,
       requestId: params.requestId,
       waitMs: Date.now() - startedAt,
@@ -2080,7 +2079,7 @@ export class AcpEngine extends EventEmitter {
           enabled: enableMemory,
         });
 
-        await this.waitForCompatMcpWarmupIfNeeded({
+        await this.waitForMcpFirstPromptWarmupIfNeeded({
           sessionId: session.id,
           requestId: request.request_id,
           isNewSession,
