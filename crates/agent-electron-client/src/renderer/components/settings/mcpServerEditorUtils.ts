@@ -1,6 +1,57 @@
 import type { McpServerEntry } from "@shared/types/electron";
 import { t } from "../../services/core/i18n";
 
+/**
+ * 将 stdio MCP 的 env 序列化为表单文本（空对象则返回空串，避免多余字段）。
+ */
+export function serializeEnvToText(env?: Record<string, string>): string {
+  if (!env || Object.keys(env).length === 0) return "";
+  return JSON.stringify(env, null, 2);
+}
+
+/**
+ * 解析表单中的 env JSON 对象文本。
+ * - 空字符串 → 无 env（ok，env 为 undefined）
+ * - 合法 `Record<string, string>` → 写入 entry.env
+ * - 非法 JSON / 非对象 / value 非 string → 报错
+ */
+export function parseEnvText(
+  input: string,
+): { ok: true; env?: Record<string, string> } | { ok: false; error: string } {
+  const raw = input.trim();
+  if (!raw) return { ok: true, env: undefined };
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    return { ok: false, error: t("Claw.MCP.addServer.envInvalid") };
+  }
+
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    return { ok: false, error: t("Claw.MCP.addServer.envInvalid") };
+  }
+
+  const env: Record<string, string> = {};
+  for (const [key, value] of Object.entries(
+    parsed as Record<string, unknown>,
+  )) {
+    if (typeof value !== "string") {
+      return { ok: false, error: t("Claw.MCP.addServer.envInvalid") };
+    }
+    // 忽略空 key，避免写入无效环境变量名
+    if (!key.trim()) {
+      return { ok: false, error: t("Claw.MCP.addServer.envInvalid") };
+    }
+    env[key] = value;
+  }
+
+  if (Object.keys(env).length === 0) {
+    return { ok: true, env: undefined };
+  }
+  return { ok: true, env };
+}
+
 export function serializeEntryToJson(
   serverId: string,
   entry: McpServerEntry,

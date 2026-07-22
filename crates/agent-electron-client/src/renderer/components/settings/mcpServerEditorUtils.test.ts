@@ -1,8 +1,10 @@
 import { describe, expect, it, vi } from "vitest";
 import {
   applyMcpServerDraft,
+  parseEnvText,
   parseServerFromJson,
   resolveMcpEditorPayload,
+  serializeEnvToText,
 } from "./mcpServerEditorUtils";
 
 vi.mock("../../services/core/i18n", () => ({
@@ -18,6 +20,37 @@ const context7Json = JSON.stringify({
   },
 });
 
+describe("parseEnvText", () => {
+  it("treats empty text as no env", () => {
+    expect(parseEnvText("")).toEqual({ ok: true, env: undefined });
+    expect(parseEnvText("   ")).toEqual({ ok: true, env: undefined });
+  });
+
+  it("parses Record<string, string> like openui config", () => {
+    const result = parseEnvText(
+      JSON.stringify({
+        NUWAX_OPENUI_BASE_URL: "http://127.0.0.1:8787",
+      }),
+    );
+    expect(result).toEqual({
+      ok: true,
+      env: { NUWAX_OPENUI_BASE_URL: "http://127.0.0.1:8787" },
+    });
+  });
+
+  it("rejects non-object or non-string values", () => {
+    expect(parseEnvText("[]").ok).toBe(false);
+    expect(parseEnvText('{"A":1}').ok).toBe(false);
+    expect(parseEnvText("{ not json").ok).toBe(false);
+  });
+
+  it("serializeEnvToText omits empty env", () => {
+    expect(serializeEnvToText(undefined)).toBe("");
+    expect(serializeEnvToText({})).toBe("");
+    expect(serializeEnvToText({ A: "1" })).toContain("A");
+  });
+});
+
 describe("parseServerFromJson", () => {
   it("parses format A with server key as serverId", () => {
     const result = parseServerFromJson(context7Json);
@@ -27,6 +60,7 @@ describe("parseServerFromJson", () => {
     expect(result.entry).toMatchObject({
       command: "npx",
       args: ["-y", "@upstash/context7-mcp"],
+      env: { CONTEXT7_API_KEY: "YOUR_API_KEY" },
       enabled: true,
     });
   });

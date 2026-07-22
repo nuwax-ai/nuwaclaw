@@ -15,9 +15,11 @@ import type { McpServerEntry, McpServersConfig } from "@shared/types/electron";
 import { t } from "../../services/core/i18n";
 import {
   isMcpServerIdDuplicate,
+  parseEnvText,
   parseServerFromJson,
   resolveMcpEditorPayload,
   serializeEntryToJson,
+  serializeEnvToText,
 } from "./mcpServerEditorUtils";
 
 const { Text } = Typography;
@@ -59,6 +61,8 @@ function MCPServerEditor({
   const [serverId, setServerId] = useState("");
   const [command, setCommand] = useState("");
   const [argsText, setArgsText] = useState("");
+  // stdio 专用：JSON 对象文本，对应 entry.env（如 NUWAX_OPENUI_BASE_URL）
+  const [envText, setEnvText] = useState("");
   const [url, setUrl] = useState("");
   const [transport, setTransport] = useState<"streamable-http" | "sse">(
     "streamable-http",
@@ -86,10 +90,12 @@ function MCPServerEditor({
             setServerType("stdio");
             setCommand(initialEntry.command);
             setArgsText(JSON.stringify(initialEntry.args ?? []));
+            setEnvText(serializeEnvToText(initialEntry.env));
           } else {
             setServerType("remote");
             setUrl(initialEntry.url);
             setTransport(initialEntry.transport ?? "streamable-http");
+            setEnvText("");
           }
           setServerId(editingServerId);
           setJsonText(serializeEntryToJson(editingServerId, initialEntry));
@@ -98,6 +104,7 @@ function MCPServerEditor({
       }
     } else if (!isEdit) {
       setJsonText("");
+      setEnvText("");
       lastInitialEntryRef.current = "";
       lastSyncedServerIdRef.current = "";
     }
@@ -148,6 +155,8 @@ function MCPServerEditor({
         return { ok: false, error: t("Claw.MCP.addServer.commandRequired") };
       const argsParsed = parseArgsText(argsText);
       if (!argsParsed.ok) return argsParsed;
+      const envParsed = parseEnvText(envText);
+      if (!envParsed.ok) return envParsed;
       return {
         ok: true,
         serverId: id,
@@ -155,6 +164,8 @@ function MCPServerEditor({
           command: cmd,
           args: argsParsed.args,
           enabled: initialEntry?.enabled ?? false,
+          // 仅在有有效键值时写入，对应如 NUWAX_OPENUI_BASE_URL
+          ...(envParsed.env ? { env: envParsed.env } : {}),
         },
       };
     }
@@ -171,6 +182,7 @@ function MCPServerEditor({
     serverType,
     command,
     argsText,
+    envText,
     url,
     transport,
     initialEntry?.enabled,
@@ -255,6 +267,7 @@ function MCPServerEditor({
     serverId,
     command,
     argsText,
+    envText,
     url,
     transport,
     jsonText,
@@ -279,10 +292,12 @@ function MCPServerEditor({
         setServerType("stdio");
         setCommand(entry.command);
         setArgsText(JSON.stringify(entry.args ?? []));
+        setEnvText(serializeEnvToText(entry.env));
       } else {
         setServerType("remote");
         setUrl(entry.url);
         setTransport(entry.transport ?? "streamable-http");
+        setEnvText("");
       }
       setServerId(parsedId);
       setJsonError("");
@@ -442,6 +457,17 @@ function MCPServerEditor({
                     placeholder={t(
                       "Claw.MCP.addServer.argsPlaceholderAdvanced",
                     )}
+                  />
+                </div>
+                <div>
+                  <Text style={{ display: "block", marginBottom: 6 }}>
+                    {t("Claw.MCP.addServer.env")}
+                  </Text>
+                  <Input.TextArea
+                    value={envText}
+                    onChange={(e) => setEnvText(e.target.value)}
+                    autoSize={{ minRows: 2, maxRows: 8 }}
+                    placeholder={t("Claw.MCP.addServer.envPlaceholder")}
                   />
                 </div>
               </>
