@@ -486,8 +486,7 @@ export function resolveServersConfig(
 /**
  * 默认 mcpServers 配置（系统级内置服务，始终保留）
  * - chrome-devtools：persistent，由 PersistentMcpBridge 长连接托管
- * - nuwax-openui：persistent；stdio 进程内起 sidecar HTTP（默认 8787）+ 内存 artifact store，
- *   必须跨 Agent 会话共用一个进程/端口，否则会抢端口或 URL 失效（见 @nuwax-ai/openui-mcp）
+ * - nuwax-openui：非 persistent；随会话继承项目 cwd，将 Artifact 写入 data/*.openui.json
  * - ask-question：非 persistent，随 agent 会话由 mcp-proxy 按需 stdio spawn
  */
 export const DEFAULT_MCP_PROXY_CONFIG: McpServersConfig = {
@@ -503,6 +502,11 @@ export const DEFAULT_MCP_PROXY_CONFIG: McpServersConfig = {
     "ask-question": {
       command: "npx",
       args: ["-y", "nuwax-ask-question-mcp@latest"],
+    },
+    // OpenUI Artifact 持久化到当前项目 data/，必须随会话继承项目 cwd。
+    "nuwax-openui": {
+      command: "npx",
+      args: ["-y", "@nuwax-ai/openui-mcp@0.2.0"],
     },
   },
 };

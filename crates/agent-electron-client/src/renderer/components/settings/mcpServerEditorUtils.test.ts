@@ -29,12 +29,12 @@ describe("parseEnvText", () => {
   it("parses Record<string, string> like openui config", () => {
     const result = parseEnvText(
       JSON.stringify({
-        NUWAX_OPENUI_BASE_URL: "http://127.0.0.1:8787",
+        API_KEY: "your-api-key",
       }),
     );
     expect(result).toEqual({
       ok: true,
-      env: { NUWAX_OPENUI_BASE_URL: "http://127.0.0.1:8787" },
+      env: { API_KEY: "your-api-key" },
     });
   });
 

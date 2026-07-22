@@ -13,7 +13,7 @@ export interface McpTemplate {
     command: string;
     args: string[];
     env?: Record<string, string>;
-    /** 是否走 PersistentMcpBridge（与 chrome-devtools / nuwax-openui 同路径） */
+    /** 是否走 PersistentMcpBridge（例如 chrome-devtools） */
     persistent?: boolean;
   };
   // 需要用户填写的参数（如路径、token 等）
@@ -72,20 +72,12 @@ export const MCP_TEMPLATES: McpTemplate[] = [
   {
     id: "nuwax-openui",
     name: "Nuwax OpenUI",
-    description:
-      "渲染 OpenUI 产物（inline / sidecar）；需 persistent 共用 sidecar 端口",
+    description: "在当前项目 data/ 目录生成可持久化的 OpenUI 产物",
     category: "ai",
     icon: "🧩",
     config: {
       command: "npx",
-      args: ["-y", "@nuwax-ai/openui-mcp@0.1.10"],
-      env: {
-        NUWAX_OPENUI_HOST: "127.0.0.1",
-        NUWAX_OPENUI_PORT: "8787",
-        NUWAX_OPENUI_BASE_URL: "http://127.0.0.1:8787",
-        NUWAX_OPENUI_ALLOWED_HOSTS: "127.0.0.1,localhost",
-      },
-      persistent: true,
+      args: ["-y", "@nuwax-ai/openui-mcp@0.2.0"],
     },
   },
   {

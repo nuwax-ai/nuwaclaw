@@ -62,7 +62,7 @@ function MCPServerEditor({
   const [serverId, setServerId] = useState("");
   const [command, setCommand] = useState("");
   const [argsText, setArgsText] = useState("");
-  // stdio 专用：JSON 对象文本，对应 entry.env（如 NUWAX_OPENUI_BASE_URL）
+  // stdio 专用：JSON 对象文本，对应 entry.env（如 API_KEY）
   const [envText, setEnvText] = useState("");
   // stdio 专用：是否走 PersistentMcpBridge（与 chrome-devtools / nuwax-openui 同路径）
   const [persistent, setPersistent] = useState(false);
@@ -170,7 +170,7 @@ function MCPServerEditor({
           command: cmd,
           args: argsParsed.args,
           enabled: initialEntry?.enabled ?? false,
-          // 仅在有有效键值时写入，对应如 NUWAX_OPENUI_BASE_URL
+          // 仅在有有效键值时写入，对应如 API_KEY
           ...(envParsed.env ? { env: envParsed.env } : {}),
           // persistent: 进 PersistentMcpBridge，再由 mcp-proxy 以 {url} 接入（同 chrome-devtools）
           ...(persistent ? { persistent: true } : {}),
