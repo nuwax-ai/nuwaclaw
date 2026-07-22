@@ -498,9 +498,10 @@ export const DEFAULT_MCP_PROXY_CONFIG: McpServersConfig = {
       persistent: true,
     },
     // OpenUI 渲染 MCP：与 chrome-devtools 同走 PersistentMcpBridge → mcp-proxy {url}
+    // 包有两个 bin（stdio / http），必须用 -p <pkg> <bin>，否则 npx 报 could not determine executable
     "nuwax-openui": {
       command: "npx",
-      args: ["-y", "@nuwax-ai/openui-mcp@0.1.1"],
+      args: ["-y", "-p", "@nuwax-ai/openui-mcp@0.1.1", "nuwax-openui-mcp"],
       env: {
         NUWAX_OPENUI_HOST: "127.0.0.1",
         NUWAX_OPENUI_PORT: "8787",
