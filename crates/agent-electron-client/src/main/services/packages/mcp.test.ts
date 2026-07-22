@@ -1140,14 +1140,16 @@ describe("syncMcpConfigToProxyAndReload - bridge 重启", () => {
     expect(persistentMcpBridge.start).toHaveBeenCalled();
     const startArg = (persistentMcpBridge.start as ReturnType<typeof vi.fn>)
       .mock.calls[0][0] as Record<string, unknown>;
-    // bridge 仅含 persistent 默认 server（chrome-devtools）；ask-question 非 persistent，不进 bridge
+    // bridge 含 persistent 默认 server（chrome-devtools + nuwax-openui）；ask-question 非 persistent，不进 bridge
     expect(Object.keys(startArg)).toContain("chrome-devtools");
+    expect(Object.keys(startArg)).toContain("nuwax-openui");
     expect(Object.keys(startArg)).not.toContain("ask-question");
-    expect(Object.keys(startArg).length).toBe(1);
+    expect(Object.keys(startArg).length).toBe(2);
 
     // ask-question 作为非 persistent 默认服务，仍保留在 merged 配置中（每会话 stdio spawn）
     const mergedServers = mcpProxyManager.getConfig().mcpServers;
     expect(mergedServers["chrome-devtools"]).toBeDefined();
+    expect(mergedServers["nuwax-openui"]).toBeDefined();
     expect(mergedServers["ask-question"]).toBeDefined();
   });
 

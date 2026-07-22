@@ -890,6 +890,8 @@
   "Claw.MCP.addServer.env": "Environment (env)",
   "Claw.MCP.addServer.envPlaceholder": "Optional JSON object, e.g. {\"NUWAX_OPENUI_BASE_URL\":\"http://127.0.0.1:8787\"}",
   "Claw.MCP.addServer.envInvalid": "Env format is invalid. Use a JSON object with string values, e.g. {\"KEY\":\"value\"}",
+  "Claw.MCP.addServer.persistent": "Persistent",
+  "Claw.MCP.addServer.persistentHint": "When on, runs in PersistentMcpBridge then mcp-proxy (for openui / chrome-devtools)",
   "Claw.MCP.message.invalidJson": "Invalid JSON format, please check and retry",
   "Claw.MCP.message.formatted": "Formatted successfully",
   "Claw.MCP.message.formatFailed": "Format failed",

@@ -8,6 +8,7 @@ import {
   message,
   Card,
   Select,
+  Switch,
 } from "antd";
 import { ArrowLeftOutlined, CheckCircleOutlined } from "@ant-design/icons";
 import CodeEditor from "@uiw/react-textarea-code-editor";
@@ -63,6 +64,8 @@ function MCPServerEditor({
   const [argsText, setArgsText] = useState("");
   // stdio 专用：JSON 对象文本，对应 entry.env（如 NUWAX_OPENUI_BASE_URL）
   const [envText, setEnvText] = useState("");
+  // stdio 专用：是否走 PersistentMcpBridge（与 chrome-devtools / nuwax-openui 同路径）
+  const [persistent, setPersistent] = useState(false);
   const [url, setUrl] = useState("");
   const [transport, setTransport] = useState<"streamable-http" | "sse">(
     "streamable-http",
@@ -91,11 +94,13 @@ function MCPServerEditor({
             setCommand(initialEntry.command);
             setArgsText(JSON.stringify(initialEntry.args ?? []));
             setEnvText(serializeEnvToText(initialEntry.env));
+            setPersistent(!!initialEntry.persistent);
           } else {
             setServerType("remote");
             setUrl(initialEntry.url);
             setTransport(initialEntry.transport ?? "streamable-http");
             setEnvText("");
+            setPersistent(false);
           }
           setServerId(editingServerId);
           setJsonText(serializeEntryToJson(editingServerId, initialEntry));
@@ -105,6 +110,7 @@ function MCPServerEditor({
     } else if (!isEdit) {
       setJsonText("");
       setEnvText("");
+      setPersistent(false);
       lastInitialEntryRef.current = "";
       lastSyncedServerIdRef.current = "";
     }
@@ -166,6 +172,8 @@ function MCPServerEditor({
           enabled: initialEntry?.enabled ?? false,
           // 仅在有有效键值时写入，对应如 NUWAX_OPENUI_BASE_URL
           ...(envParsed.env ? { env: envParsed.env } : {}),
+          // persistent: 进 PersistentMcpBridge，再由 mcp-proxy 以 {url} 接入（同 chrome-devtools）
+          ...(persistent ? { persistent: true } : {}),
         },
       };
     }
@@ -183,6 +191,7 @@ function MCPServerEditor({
     command,
     argsText,
     envText,
+    persistent,
     url,
     transport,
     initialEntry?.enabled,
@@ -268,6 +277,7 @@ function MCPServerEditor({
     command,
     argsText,
     envText,
+    persistent,
     url,
     transport,
     jsonText,
@@ -293,11 +303,13 @@ function MCPServerEditor({
         setCommand(entry.command);
         setArgsText(JSON.stringify(entry.args ?? []));
         setEnvText(serializeEnvToText(entry.env));
+        setPersistent(!!entry.persistent);
       } else {
         setServerType("remote");
         setUrl(entry.url);
         setTransport(entry.transport ?? "streamable-http");
         setEnvText("");
+        setPersistent(false);
       }
       setServerId(parsedId);
       setJsonError("");
@@ -469,6 +481,22 @@ function MCPServerEditor({
                     autoSize={{ minRows: 2, maxRows: 8 }}
                     placeholder={t("Claw.MCP.addServer.envPlaceholder")}
                   />
+                </div>
+                <div>
+                  <Space align="center">
+                    <Switch
+                      checked={persistent}
+                      onChange={setPersistent}
+                      size="small"
+                    />
+                    <Text>{t("Claw.MCP.addServer.persistent")}</Text>
+                  </Space>
+                  <Text
+                    type="secondary"
+                    style={{ display: "block", marginTop: 4, fontSize: 12 }}
+                  >
+                    {t("Claw.MCP.addServer.persistentHint")}
+                  </Text>
                 </div>
               </>
             ) : (

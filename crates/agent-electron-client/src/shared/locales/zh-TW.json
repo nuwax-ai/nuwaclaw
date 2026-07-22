@@ -890,6 +890,8 @@
   "Claw.MCP.addServer.env": "環境變數 (env)",
   "Claw.MCP.addServer.envPlaceholder": "選填，JSON 物件，例如 {\"NUWAX_OPENUI_BASE_URL\":\"http://127.0.0.1:8787\"}",
   "Claw.MCP.addServer.envInvalid": "Env 格式無效。請使用 JSON 物件，且所有值為字串，例如 {\"KEY\":\"value\"}",
+  "Claw.MCP.addServer.persistent": "持久化 (persistent)",
+  "Claw.MCP.addServer.persistentHint": "開啟後由 PersistentMcpBridge 長駐，再經 mcp-proxy 接入（適合 openui / chrome-devtools）",
   "Claw.MCP.message.invalidJson": "JSON 格式無效，請檢查後重試",
   "Claw.MCP.message.formatted": "格式化成功",
   "Claw.MCP.message.formatFailed": "格式化失敗",

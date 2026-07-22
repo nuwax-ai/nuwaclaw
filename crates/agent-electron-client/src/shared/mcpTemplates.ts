@@ -13,6 +13,8 @@ export interface McpTemplate {
     command: string;
     args: string[];
     env?: Record<string, string>;
+    /** 是否走 PersistentMcpBridge（与 chrome-devtools / nuwax-openui 同路径） */
+    persistent?: boolean;
   };
   // 需要用户填写的参数（如路径、token 等）
   requiredParams?: {
@@ -66,6 +68,25 @@ export const MCP_TEMPLATES: McpTemplate[] = [
         type: "password",
       },
     ],
+  },
+  {
+    id: "nuwax-openui",
+    name: "Nuwax OpenUI",
+    description:
+      "渲染 OpenUI 产物（inline / sidecar）；需 persistent 共用 sidecar 端口",
+    category: "ai",
+    icon: "🧩",
+    config: {
+      command: "npx",
+      args: ["-y", "@nuwax-ai/openui-mcp@0.1.1"],
+      env: {
+        NUWAX_OPENUI_HOST: "127.0.0.1",
+        NUWAX_OPENUI_PORT: "8787",
+        NUWAX_OPENUI_BASE_URL: "http://127.0.0.1:8787",
+        NUWAX_OPENUI_ALLOWED_HOSTS: "127.0.0.1,localhost",
+      },
+      persistent: true,
+    },
   },
   {
     id: "slack",
@@ -230,7 +251,12 @@ export function getTemplateById(id: string): McpTemplate | undefined {
 export function applyTemplateParams(
   template: McpTemplate,
   params: Record<string, string>,
-): { command: string; args: string[]; env?: Record<string, string> } {
+): {
+  command: string;
+  args: string[];
+  env?: Record<string, string>;
+  persistent?: boolean;
+} {
   const config = { ...template.config };
 
   // 替换 args 中的占位符
