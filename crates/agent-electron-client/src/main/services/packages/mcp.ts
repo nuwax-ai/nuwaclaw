@@ -501,7 +501,7 @@ export const DEFAULT_MCP_PROXY_CONFIG: McpServersConfig = {
     // @0.1.2+ 包内提供与包名匹配的默认 bin `openui-mcp`，可直接 npx 包名启动
     "nuwax-openui": {
       command: "npx",
-      args: ["-y", "@nuwax-ai/openui-mcp@0.1.2"],
+      args: ["-y", "@nuwax-ai/openui-mcp@latest"],
       env: {
         NUWAX_OPENUI_HOST: "127.0.0.1",
         NUWAX_OPENUI_PORT: "8787",
