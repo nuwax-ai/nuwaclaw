@@ -497,19 +497,6 @@ export const DEFAULT_MCP_PROXY_CONFIG: McpServersConfig = {
       args: ["-y", "chrome-devtools-mcp@latest"],
       persistent: true,
     },
-    // OpenUI 渲染 MCP：与 chrome-devtools 同走 PersistentMcpBridge → mcp-proxy {url}
-    // @0.1.2+ 包内提供与包名匹配的默认 bin `openui-mcp`，可直接 npx 包名启动
-    "nuwax-openui": {
-      command: "npx",
-      args: ["-y", "@nuwax-ai/openui-mcp@latest"],
-      env: {
-        NUWAX_OPENUI_HOST: "127.0.0.1",
-        NUWAX_OPENUI_PORT: "8787",
-        NUWAX_OPENUI_BASE_URL: "http://127.0.0.1:8787",
-        NUWAX_OPENUI_ALLOWED_HOSTS: "127.0.0.1,localhost",
-      },
-      persistent: true,
-    },
     // ask-question：交互式提问 MCP（nuwax_ask_question 工具，rawInput 带 ui 表单），
     // 需始终对 agent 可用以便向用户发起澄清提问。作为内置默认服务但不 persistent，
     // 每会话独立 stdio spawn（避免跨会话共享状态）。
