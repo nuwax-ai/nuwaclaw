@@ -5,7 +5,7 @@ import { z } from "zod";
 import type { HandlerContext } from "@shared/types/ipc";
 import { createServiceManager } from "../window/serviceManager";
 import { getTrayManager } from "../window/trayManager";
-import { checkLanproxyHealth } from "../services/packages/lanproxyHealth";
+import { probeLanproxyAfterStart } from "../services/packages/lanproxyHealth";
 import { getConfiguredPorts } from "../services/startupPorts";
 import { killProcessTreesListeningOnTcpPort } from "../services/utils/processTree";
 
@@ -110,22 +110,24 @@ export function registerProcessHandlers(ctx: HandlerContext): void {
         server: config.serverIp,
         port: config.serverPort,
       });
-      // 远端 health 接口可选（私有化部署可能未提供）；异步探测仅打日志，不阻塞 IPC、不影响启动结果
-      void checkLanproxyHealth(config.clientKey)
-        .then((health) => {
-          result.healthCheck = health;
-          if (!health.healthy) {
-            log.warn(
-              "[Lanproxy] Post-start health probe failed (non-fatal; private backends may omit /api/sandbox/config/health):",
-              health.error,
-            );
-          } else {
-            log.info("[Lanproxy] Post-start health probe OK");
-          }
-        })
-        .catch((e) => {
-          log.warn("[Lanproxy] Post-start health probe error (non-fatal):", e);
-        });
+      // 三层健康检查（进程稳定 + 业务域云端回探）；await 写入 healthCheck，失败不改 success
+      try {
+        const health = await probeLanproxyAfterStart(
+          ctx.lanproxy.pid,
+          config.clientKey,
+        );
+        result.healthCheck = health;
+        if (!health.healthy) {
+          log.warn(
+            "[Lanproxy] Post-start health probe failed (non-fatal):",
+            health.error,
+          );
+        } else {
+          log.info("[Lanproxy] Post-start health probe OK");
+        }
+      } catch (e) {
+        log.warn("[Lanproxy] Post-start health probe error (non-fatal):", e);
+      }
     } else {
       log.error("[Lanproxy] Start failed", {
         error: result.error,

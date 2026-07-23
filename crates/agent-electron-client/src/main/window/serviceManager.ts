@@ -13,8 +13,8 @@ import { createFileServerPerfHandler } from "../ipc/perfHandlers";
 import type { ManagedProcess } from "../processManager";
 import { readSetting } from "../db";
 import { t } from "../services/i18n";
-import { checkLanproxyHealth } from "../services/packages/lanproxyHealth";
-import { checkFileServerHealth } from "../services/packages/fileServerHealth";
+import { probeLanproxyAfterStart } from "../services/packages/lanproxyHealth";
+import { waitForFileServerHealth } from "../services/packages/fileServerHealth";
 import {
   APP_DATA_DIR_NAME,
   DEFAULT_STARTUP_DELAY,
@@ -204,14 +204,23 @@ export function createServiceManager(ctx: ServiceManagerContext) {
       onStdoutLine: createFileServerPerfHandler(),
     });
 
-    // 启动后进行健康检查验证
+    // 启动后轮询 GET /health，确认 Express 真正就绪（非仅 spawn 成功）
     if (startResult.success) {
-      const health = await checkFileServerHealth(port);
+      const health = await waitForFileServerHealth(port);
       if (!health.healthy) {
         log.error(
           "[ServiceManager] FileServer health check failed:",
           health.error,
         );
+        // 健康失败必须停掉已 spawn 的进程，否则下次会命中「Already running」假成功
+        try {
+          await ctx.fileServer.stopAsync(3000);
+        } catch (e) {
+          log.warn(
+            "[ServiceManager] FileServer stop after failed health check:",
+            e,
+          );
+        }
         return {
           success: false,
           error: `FileServer started but health check failed: ${health.error}`,
@@ -590,26 +599,27 @@ export function createServiceManager(ctx: ServiceManagerContext) {
           ssl: lpConfig.ssl as boolean,
         });
         if (results.lanproxy.success) {
-          // 远端 health 接口可选；异步探测仅打日志，不阻塞批量重启
-          const lanproxyResult = results.lanproxy;
-          void checkLanproxyHealth(clientKey)
-            .then((health) => {
-              lanproxyResult.healthCheck = health;
-              if (!health.healthy) {
-                log.warn(
-                  "[Lanproxy] Post-start health probe failed (non-fatal; private backends may omit /api/sandbox/config/health):",
-                  health.error,
-                );
-              } else {
-                log.info("[Lanproxy] Post-start health probe OK");
-              }
-            })
-            .catch((e) => {
+          // 三层健康检查（进程稳定 + 业务域云端回探）；未通过仅 warn，不改 success
+          try {
+            const health = await probeLanproxyAfterStart(
+              ctx.lanproxy.pid,
+              clientKey,
+            );
+            results.lanproxy.healthCheck = health;
+            if (!health.healthy) {
               log.warn(
-                "[Lanproxy] Post-start health probe error (non-fatal):",
-                e,
+                "[Lanproxy] Post-start health probe failed (non-fatal):",
+                health.error,
               );
-            });
+            } else {
+              log.info("[Lanproxy] Post-start health probe OK");
+            }
+          } catch (e) {
+            log.warn(
+              "[Lanproxy] Post-start health probe error (non-fatal):",
+              e,
+            );
+          }
         } else {
           log.error("[Lanproxy] Batch start failed", {
             error: results.lanproxy.error,
