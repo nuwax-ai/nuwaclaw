@@ -77,7 +77,7 @@ export const MCP_TEMPLATES: McpTemplate[] = [
     icon: "🧩",
     config: {
       command: "npx",
-      args: ["-y", "@nuwax-ai/openui-mcp@0.2.1"],
+      args: ["-y", "@nuwax-ai/openui-mcp@0.2.3"],
     },
   },
   {

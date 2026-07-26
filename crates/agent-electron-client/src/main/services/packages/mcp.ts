@@ -506,7 +506,7 @@ export const DEFAULT_MCP_PROXY_CONFIG: McpServersConfig = {
     // OpenUI Artifact 持久化到当前项目 data/，必须随会话继承项目 cwd。
     "nuwax-openui": {
       command: "npx",
-      args: ["-y", "@nuwax-ai/openui-mcp@0.2.1"],
+      args: ["-y", "@nuwax-ai/openui-mcp@0.2.3"],
     },
   },
 };
