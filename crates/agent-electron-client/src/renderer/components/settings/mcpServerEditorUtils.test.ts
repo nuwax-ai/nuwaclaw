@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import {
   applyMcpServerDraft,
+  looseJsonParse,
   parseEnvText,
   parseServerFromJson,
   resolveMcpEditorPayload,
@@ -156,5 +157,38 @@ describe("applyMcpServerDraft", () => {
       other: { command: "x", args: [] },
     });
     expect(next.mcpServers.old).toBeUndefined();
+  });
+});
+
+describe("looseJsonParse", () => {
+  it("parses standard JSON as-is (zero interference)", () => {
+    expect(looseJsonParse('{"a":1}')).toEqual({ a: 1 });
+  });
+
+  it("tolerates unquoted keys (JS object syntax)", () => {
+    const input = `{ mcpServers: { "nuwax-openui": { command: "npx", args: ["-y", "x"] } } }`;
+    expect(looseJsonParse(input)).toEqual({
+      mcpServers: { "nuwax-openui": { command: "npx", args: ["-y", "x"] } },
+    });
+  });
+
+  it("tolerates single-quoted strings", () => {
+    expect(looseJsonParse("{ 'a': 'b' }")).toEqual({ a: "b" });
+  });
+
+  it("tolerates trailing commas", () => {
+    expect(looseJsonParse('{"a":1, "b":2,}')).toEqual({ a: 1, b: 2 });
+  });
+
+  it("strips // line and /* block */ comments", () => {
+    const input = `{
+      // line comment
+      "a": 1, /* block */ "b": 2
+    }`;
+    expect(looseJsonParse(input)).toEqual({ a: 1, b: 2 });
+  });
+
+  it("throws on genuinely invalid input", () => {
+    expect(() => looseJsonParse("{ not json at all")).toThrow();
   });
 });

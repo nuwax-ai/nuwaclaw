@@ -2,6 +2,25 @@ import type { McpServerEntry } from "@shared/types/electron";
 import { t } from "../../services/core/i18n";
 
 /**
+ * 宽松 JSON 解析：容忍无引号 key、单引号字符串、尾逗号、注释。
+ * 先按标准 JSON.parse（零误伤）；失败再做轻量预处理后重试。
+ * 仅面向 MCP 配置的人工输入场景，非通用 JSON5；字符串值内若含 `{key:` 这类片段可能被误判。
+ */
+export function looseJsonParse(text: string): unknown {
+  try {
+    return JSON.parse(text);
+  } catch {
+    const normalized = text
+      .replace(/\/\/.*$/gm, "")
+      .replace(/\/\*[\s\S]*?\*\//g, "")
+      .replace(/,\s*([}\]])/g, "$1")
+      .replace(/'([^'\\]*(?:\\.[^'\\]*)*)'/g, '"$1"')
+      .replace(/([{,]\s*)([A-Za-z_$][\w$-]*)(\s*:)/g, '$1"$2"$3');
+    return JSON.parse(normalized);
+  }
+}
+
+/**
  * 将 stdio MCP 的 env 序列化为表单文本（空对象则返回空串，避免多余字段）。
  */
 export function serializeEnvToText(env?: Record<string, string>): string {
@@ -23,7 +42,7 @@ export function parseEnvText(
 
   let parsed: unknown;
   try {
-    parsed = JSON.parse(raw);
+    parsed = looseJsonParse(raw);
   } catch {
     return { ok: false, error: t("Claw.MCP.addServer.envInvalid") };
   }
@@ -68,7 +87,7 @@ export function parseServerFromJson(
   | { ok: false; error: string } {
   let parsed: unknown;
   try {
-    parsed = JSON.parse(text);
+    parsed = looseJsonParse(text);
   } catch (e) {
     return { ok: false, error: e instanceof Error ? e.message : String(e) };
   }

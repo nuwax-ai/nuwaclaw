@@ -44,7 +44,7 @@ import type {
 import { isGuiMcpManagedServerId } from "@shared/guiMcp";
 import { t } from "../../services/core/i18n";
 import MCPServerEditor from "./MCPServerEditor";
-import { applyMcpServerDraft } from "./mcpServerEditorUtils";
+import { applyMcpServerDraft, looseJsonParse } from "./mcpServerEditorUtils";
 
 const { Text } = Typography;
 
@@ -147,7 +147,7 @@ function MCPSettings({ isOpen = true }: MCPSettingsProps) {
     text: string,
   ): { ok: true; value: McpServersConfig } | { ok: false; error: string } => {
     try {
-      const parsed = JSON.parse(text) as McpServersConfig;
+      const parsed = looseJsonParse(text) as McpServersConfig;
       if (!parsed || typeof parsed !== "object") {
         return { ok: false, error: t("Claw.MCP.message.invalidJson") };
       }
@@ -369,7 +369,7 @@ function MCPSettings({ isOpen = true }: MCPSettingsProps) {
         reader.onload = async (event) => {
           try {
             const text = event.target?.result as string;
-            const imported = JSON.parse(text);
+            const imported = looseJsonParse(text);
             applyConfigToEditor(imported, false);
             setHasUnsavedEdits(true);
             message.success(t("Claw.MCP.importExport.importSuccess"));
