@@ -1146,11 +1146,33 @@ describe("syncMcpConfigToProxyAndReload - bridge 重启", () => {
     expect(Object.keys(startArg)).not.toContain("ask-question");
     expect(Object.keys(startArg).length).toBe(1);
 
-    // 会话级默认服务仍保留在 merged 配置中（每会话 stdio spawn）
+    // ask-question/nuwax-openui 已移出默认配置，空配置（后端未下发）时 merged 仅含 chrome-devtools
     const mergedServers = mcpProxyManager.getConfig().mcpServers;
     expect(mergedServers["chrome-devtools"]).toBeDefined();
-    expect(mergedServers["nuwax-openui"]).toBeDefined();
+    expect(mergedServers["nuwax-openui"]).toBeUndefined();
+    expect(mergedServers["ask-question"]).toBeUndefined();
+  });
+
+  it("后端下发 ask-question/nuwax-openui 后应进入 merged 启用", async () => {
+    const { syncMcpConfigToProxyAndReload, mcpProxyManager } =
+      await import("./mcp");
+
+    await syncMcpConfigToProxyAndReload({
+      "ask-question": {
+        command: "npx",
+        args: ["-y", "nuwax-ask-question-mcp@latest"],
+      },
+      "nuwax-openui": {
+        command: "npx",
+        args: ["-y", "@nuwax-ai/openui-mcp@latest"],
+      },
+    });
+
+    // DEFAULT 的 chrome-devtools + 后端下发的两个，均进入 merged
+    const mergedServers = mcpProxyManager.getConfig().mcpServers;
+    expect(mergedServers["chrome-devtools"]).toBeDefined();
     expect(mergedServers["ask-question"]).toBeDefined();
+    expect(mergedServers["nuwax-openui"]).toBeDefined();
   });
 
   it("bridge 重启失败不应阻断同步流程", async () => {

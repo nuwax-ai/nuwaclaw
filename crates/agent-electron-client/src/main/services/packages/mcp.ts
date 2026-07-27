@@ -484,10 +484,11 @@ export function resolveServersConfig(
 // ========== Types ==========
 
 /**
- * 默认 mcpServers 配置（系统级内置服务，始终保留）
+ * 默认 mcpServers 配置（系统级内置服务，始终保留）。
  * - chrome-devtools：persistent，由 PersistentMcpBridge 长连接托管
- * - nuwax-openui：非 persistent；随会话继承项目 cwd，将 Artifact 写入 data/*.openui.json
- * - ask-question：非 persistent，随 agent 会话由 mcp-proxy 按需 stdio spawn
+ *
+ * 注：ask-question 与 nuwax-openui 不再内置为默认服务，改由后端通过 ACP
+ * agent_config.context_servers 动态下发（command/args/enabled），启停由后端控制。
  */
 export const DEFAULT_MCP_PROXY_CONFIG: McpServersConfig = {
   mcpServers: {
@@ -495,18 +496,6 @@ export const DEFAULT_MCP_PROXY_CONFIG: McpServersConfig = {
       command: "npx",
       args: ["-y", "chrome-devtools-mcp@latest"],
       persistent: true,
-    },
-    // ask-question：交互式提问 MCP（nuwax_ask_question 工具，rawInput 带 ui 表单），
-    // 需始终对 agent 可用以便向用户发起澄清提问。作为内置默认服务但不 persistent，
-    // 每会话独立 stdio spawn（避免跨会话共享状态）。
-    "ask-question": {
-      command: "npx",
-      args: ["-y", "nuwax-ask-question-mcp@latest"],
-    },
-    // OpenUI Artifact 持久化到当前项目 data/，必须随会话继承项目 cwd。
-    "nuwax-openui": {
-      command: "npx",
-      args: ["-y", "@nuwax-ai/openui-mcp@latest"],
     },
   },
 };
@@ -1333,7 +1322,7 @@ function configsEqual(
  * 将 mcpServers 配置同步到 MCP Proxy 配置并持久化，同时动态重启 PersistentMcpBridge。
  *
  * 设计原则：
- * - chrome-devtools 等默认服务（DEFAULT_MCP_PROXY_CONFIG）始终保留，必须运行
+ * - chrome-devtools 默认服务（DEFAULT_MCP_PROXY_CONFIG）始终保留，必须运行
  * - 动态 MCP server 根据传入的 mcpServers 增删：传入为空时仅保留默认服务
  * - 配置未变化时（configsEqual）跳过 bridge 重启，避免无谓抖动
  *
@@ -1373,7 +1362,7 @@ export async function syncMcpConfigToProxyAndReload(
     // 继续执行以确保 bridge 仅运行 persistent 默认服务（chrome-devtools）
 
     // 始终以默认服务为基础，再叠加动态 MCP：
-    //   - 用户删除所有动态 MCP → merged 仅含默认服务（chrome-devtools、ask-question）
+    //   - 用户删除所有动态 MCP → merged 仅含默认服务（chrome-devtools）
     //   - 用户删除部分动态 MCP → merged 含默认服务 + 剩余动态 MCP
     //   - 用户新增动态 MCP    → merged 含默认服务 + 所有动态 MCP
     const merged = mergeMcpServerConfigs(
