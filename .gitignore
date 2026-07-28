@@ -42,7 +42,9 @@ crates/agent-electron-client/resources/ttyd/bin/
 # ttyd macOS 源码编译缓存（vcpkg + ttyd 源码 + 构建产物，体积大，勿提交）
 crates/agent-electron-client/.ttyd-build/
 
-# Bundled MCP proxy: 构建时 prepare-mcp-proxy 从源码 build 并集成
+# Bundled MCP proxy: 构建时 prepare-mcp-proxy 从 npm 包复制并集成
+crates/agent-electron-client/resources/mcp-stdio-proxy/
+# 旧目录名残留（迁移前产物，勿提交）
 crates/agent-electron-client/resources/nuwax-mcp-stdio-proxy/
 
 # Bundled GUI Agent Server: 构建时 prepare-gui-server 从源码 build 并集成
@@ -91,7 +93,6 @@ crates/agent-electron-client/scripts/resources/
 
 # Vitest coverage reports
 crates/agent-electron-client/coverage/
-crates/nuwax-mcp-stdio-proxy/coverage/
 
 # Vite build artifact (generated at Electron client root)
 crates/agent-electron-client/index.html

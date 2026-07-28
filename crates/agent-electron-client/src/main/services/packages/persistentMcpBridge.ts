@@ -1,16 +1,16 @@
 /**
  * PersistentMcpBridge — thin wrapper
  *
- * The implementation lives in nuwax-mcp-stdio-proxy, installed to ~/.nuwaclaw/node_modules.
+ * The implementation lives in @nuwax-ai/mcp-stdio-proxy.
  * This module creates a singleton with electron-log injected as the logger.
- * Uses dynamic require from ~/.nuwaclaw so the app does not bundle the package.
+ * Prefer bundled resources; fall back to app node_modules.
  */
 
 import * as path from "path";
 import log from "electron-log";
 import { getAppPaths, getBundledMcpProxyDir } from "./packageLocator";
 
-const PKG_NAME = "nuwax-mcp-stdio-proxy";
+const PKG_NAME = "@nuwax-ai/mcp-stdio-proxy";
 
 /**
  * Wrap electron-log so high-frequency messages (e.g. "New HTTP session")
@@ -35,7 +35,7 @@ function createQuietLogger(): typeof log {
   return quiet;
 }
 
-/** Lazy-loaded singleton instance (from nuwax-mcp-stdio-proxy) */
+/** Lazy-loaded singleton instance (from @nuwax-ai/mcp-stdio-proxy) */
 let instance: {
   start: (args: unknown) => Promise<void>;
   stop: () => Promise<void>;
@@ -69,18 +69,16 @@ function getInstance(): NonNullable<typeof instance> {
     }
   }
 
-  // 2. 回退兼容: ~/.nuwaxbot/node_modules
+  // 2. 回退: 应用 node_modules / ~/.nuwaclaw/node_modules
   const nodeModules = getAppPaths().nodeModules;
-  const pkgPath = path.join(nodeModules, PKG_NAME);
+  const pkgPath = path.join(nodeModules, ...PKG_NAME.split("/"));
   try {
     // eslint-disable-next-line @typescript-eslint/no-require-imports
     const pkg = require(pkgPath);
     if (!pkg.PersistentMcpBridge) {
       throw new Error(`${PKG_NAME}: PersistentMcpBridge export not found`);
     }
-    log.info(
-      `[PersistentMcpBridge] Using ~/.nuwaxbot path (legacy fallback): ${pkgPath}`,
-    );
+    log.info(`[PersistentMcpBridge] Using node_modules path: ${pkgPath}`);
     instance = new pkg.PersistentMcpBridge(createQuietLogger()) as NonNullable<
       typeof instance
     >;

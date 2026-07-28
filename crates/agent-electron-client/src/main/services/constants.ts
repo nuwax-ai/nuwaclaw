@@ -23,10 +23,10 @@ export const PERF_LOG_FILENAME_PREFIX = "perf";
 
 // ==================== 端口配置 ====================
 
-/** @deprecated MCP Proxy 不再使用端口（nuwax-mcp-stdio-proxy 为 stdio 直通模式） */
+/** @deprecated MCP Proxy 不再使用端口（@nuwax-ai/mcp-stdio-proxy 为 stdio 直通模式） */
 export const DEFAULT_MCP_PROXY_PORT = 18099;
 
-/** @deprecated MCP Proxy 不再使用监听地址（nuwax-mcp-stdio-proxy 为 stdio 直通模式） */
+/** @deprecated MCP Proxy 不再使用监听地址（@nuwax-ai/mcp-stdio-proxy 为 stdio 直通模式） */
 export const DEFAULT_MCP_PROXY_HOST = "127.0.0.1";
 
 /** 开发服务器默认端口 */

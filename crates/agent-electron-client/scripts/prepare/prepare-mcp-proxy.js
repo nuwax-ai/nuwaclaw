@@ -1,19 +1,19 @@
 #!/usr/bin/env node
 /**
- * 从 node_modules 复制 nuwax-mcp-stdio-proxy 到 resources/
+ * 从 node_modules 复制 @nuwax-ai/mcp-stdio-proxy 到 resources/
  *
  * 前提：
- *   1. pnpm install 已执行（workspace 链接生效）
- *   2. nuwax-mcp-stdio-proxy 已构建（npm run build）
+ *   1. pnpm/npm install 已执行
+ *   2. @nuwax-ai/mcp-stdio-proxy 已构建（npm run build）
  *
  * 产物（3 个文件）：
- *   resources/nuwax-mcp-stdio-proxy/
+ *   resources/mcp-stdio-proxy/
  *     ├── dist/index.js       — CLI bundle（esbuild 单文件，含 shebang）
  *     ├── dist/lib.bundle.js  — 库 bundle（PersistentMcpBridge 等导出）
  *     └── package.json        — 精简版（name/version/bin/main）
  *
  * 打包时 electron-builder extraResources 会打包到
- *   .app/Contents/Resources/nuwax-mcp-stdio-proxy/
+ *   .app/Contents/Resources/mcp-stdio-proxy/
  */
 
 const path = require('path');
@@ -40,15 +40,18 @@ function hashDistLibrarySources(distDir) {
   return hash.digest('hex');
 }
 
+const PKG_NAME = '@nuwax-ai/mcp-stdio-proxy';
+const BUNDLED_DIR_NAME = 'mcp-stdio-proxy';
+
 const projectRoot = getProjectRoot();
-const srcDir = path.join(projectRoot, 'node_modules', 'nuwax-mcp-stdio-proxy');
-const destDir = path.join(projectRoot, 'resources', 'nuwax-mcp-stdio-proxy');
+const srcDir = path.join(projectRoot, 'node_modules', '@nuwax-ai', 'mcp-stdio-proxy');
+const destDir = path.join(projectRoot, 'resources', BUNDLED_DIR_NAME);
 
 function main() {
-  // 1. 验证 node_modules 中存在 nuwax-mcp-stdio-proxy
+  // 1. 验证 node_modules 中存在包
   if (!fs.existsSync(path.join(srcDir, 'package.json'))) {
-    console.error(`[prepare-mcp-proxy] node_modules 中未找到 nuwax-mcp-stdio-proxy`);
-    console.error('[prepare-mcp-proxy] 请先执行 pnpm install');
+    console.error(`[prepare-mcp-proxy] node_modules 中未找到 ${PKG_NAME}`);
+    console.error('[prepare-mcp-proxy] 请先执行 pnpm install / npm install');
     process.exit(1);
   }
 
@@ -61,13 +64,13 @@ function main() {
 
   if (!fs.existsSync(srcIndexJs)) {
     console.error(`[prepare-mcp-proxy] CLI 入口不存在: ${srcIndexJs}`);
-    console.error('[prepare-mcp-proxy] 请先在 crates/nuwax-mcp-stdio-proxy 中执行 npm run build');
+    console.error('[prepare-mcp-proxy] 请先在 mcp-stdio-proxy 包中执行 npm run build');
     process.exit(1);
   }
 
   if (!fs.existsSync(srcLibJs)) {
     console.error(`[prepare-mcp-proxy] 库入口不存在: ${srcLibJs}`);
-    console.error('[prepare-mcp-proxy] 请先在 crates/nuwax-mcp-stdio-proxy 中执行 npm run build');
+    console.error('[prepare-mcp-proxy] 请先在 mcp-stdio-proxy 包中执行 npm run build');
     process.exit(1);
   }
 
@@ -135,8 +138,8 @@ function main() {
     }
   }
 
-  // 5. 复制到 resources/nuwax-mcp-stdio-proxy/
-  console.log('[prepare-mcp-proxy] 复制到 resources/nuwax-mcp-stdio-proxy/...');
+  // 5. 复制到 resources/mcp-stdio-proxy/
+  console.log(`[prepare-mcp-proxy] 复制到 resources/${BUNDLED_DIR_NAME}/...`);
 
   // 清理目标目录
   if (fs.existsSync(destDir)) {
@@ -155,11 +158,14 @@ function main() {
   fs.copyFileSync(libBundlePath, destLibJs);
   console.log(`  dist/lib.bundle.js (${(fs.statSync(destLibJs).size / 1024).toFixed(0)} KB)`);
 
-  // 6. 生成精简版 package.json
+  // 6. 生成精简版 package.json（CJS require 用 main=lib.bundle.js）
   const slimPkg = {
     name: srcPkg.name,
     version: srcPkg.version,
-    bin: { 'nuwax-mcp-stdio-proxy': './dist/index.js' },
+    bin: {
+      'mcp-stdio-proxy': './dist/index.js',
+      'nuwax-mcp-stdio-proxy': './dist/index.js',
+    },
     main: './dist/lib.bundle.js',
   };
   fs.writeFileSync(destPkgPath, JSON.stringify(slimPkg, null, 2) + '\n');
@@ -172,7 +178,7 @@ function main() {
     fs.rmSync(legacyMarker);
   }
 
-  console.log(`[prepare-mcp-proxy] ✓ resources/nuwax-mcp-stdio-proxy/ (${srcPkg.version})`);
+  console.log(`[prepare-mcp-proxy] ✓ resources/${BUNDLED_DIR_NAME}/ (${srcPkg.version})`);
 }
 
 main();

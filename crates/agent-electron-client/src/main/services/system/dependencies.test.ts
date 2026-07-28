@@ -227,11 +227,11 @@ describe("dependencies", () => {
       expect(agentDep?.required).toBe(true);
     });
 
-    it("should not require nuwax-mcp-stdio-proxy as npm-local dependency", async () => {
+    it("should not require @nuwax-ai/mcp-stdio-proxy as npm-local dependency", async () => {
       const { getSetupRequiredDependencies } =
         await import("../system/dependencies");
       const deps = getSetupRequiredDependencies();
-      const mcpDep = deps.find((d) => d.name === "nuwax-mcp-stdio-proxy");
+      const mcpDep = deps.find((d) => d.name === "@nuwax-ai/mcp-stdio-proxy");
 
       expect(mcpDep).toBeUndefined();
     });

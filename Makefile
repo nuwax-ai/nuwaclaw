@@ -42,7 +42,7 @@ help:
 	@echo "  electron-prepare-lanproxy   - Prepare lanproxy binary for Electron"
 	@echo "  electron-prepare-node      - Prepare bundled Node.js for Electron"
 	@echo "  electron-prepare-uv        - Prepare bundled uv for Electron"
-	@echo "  electron-prepare-mcp-proxy - Prepare nuwax-mcp-stdio-proxy for Electron"
+	@echo "  electron-prepare-mcp-proxy - Prepare @nuwax-ai/mcp-stdio-proxy for Electron"
 	@echo "  electron-prepare-nuwaxcode  - Prepare bundled nuwaxcode for Electron"
 	@echo "  electron-prepare-gui-server - Prepare agent-gui-server for Electron"
 	@echo "  electron-prepare-sandbox-runtime - Sync Windows sandbox helper (skipped on non-Windows hosts)"
@@ -111,7 +111,7 @@ sidecar-clean:
 .PHONY: electron-install-deps
 electron-install-deps:
 	@echo ">>> Installing Electron client dependencies (via pnpm workspace)..."
-	@echo ">>> nuwax-mcp-stdio-proxy will be auto-built via prepare script"
+	@echo ">>> @nuwax-ai/mcp-stdio-proxy will be auto-built via prepare script"
 	pnpm install --filter @nuwax-ai/nuwaclaw...
 
 .PHONY: electron-rebuild
@@ -136,7 +136,7 @@ electron-prepare-uv:
 
 .PHONY: electron-prepare-mcp-proxy
 electron-prepare-mcp-proxy:
-	@echo ">>> Preparing nuwax-mcp-stdio-proxy for Electron..."
+	@echo ">>> Preparing @nuwax-ai/mcp-stdio-proxy for Electron..."
 	cd crates/$(ELECTRON_CLIENT) && npm run prepare:mcp-proxy
 
 .PHONY: electron-prepare-nuwaxcode

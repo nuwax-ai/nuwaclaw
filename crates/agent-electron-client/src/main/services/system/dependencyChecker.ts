@@ -312,7 +312,7 @@ export async function checkMcpProxyBundled(): Promise<{
   available: boolean;
   version?: string;
 }> {
-  const bundledDir = path.join(getResourcesPath(), "nuwax-mcp-stdio-proxy");
+  const bundledDir = path.join(getResourcesPath(), "mcp-stdio-proxy");
   const pkgPath = path.join(bundledDir, "package.json");
   if (!fs.existsSync(pkgPath)) {
     log.info(

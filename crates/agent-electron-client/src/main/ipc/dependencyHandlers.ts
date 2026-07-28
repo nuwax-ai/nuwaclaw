@@ -44,7 +44,7 @@ export function registerDependencyHandlers(): void {
     }
   });
 
-  /** 检测应用包内集成的 nuwax-mcp-stdio-proxy，与 Node/uv 一起在系统环境中展示 */
+  /** 检测应用包内集成的 @nuwax-ai/mcp-stdio-proxy，与 Node/uv 一起在系统环境中展示 */
   ipcMain.handle("dependencies:checkMcpProxyBundled", async () => {
     const { checkMcpProxyBundled } =
       await import("../services/system/dependencies");

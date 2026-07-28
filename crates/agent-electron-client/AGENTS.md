@@ -48,7 +48,7 @@
 
 ## 依赖与路径
 
-- **必需**：uv（随包分发）、nuwax-file-server、claude-code-acp-ts、nuwaxcode、nuwax-mcp-stdio-proxy（均为 npm 本地包）。Node 由 Electron 提供。
+- **必需**：uv（随包分发）、nuwax-file-server、claude-code-acp-ts、nuwaxcode、@nuwax-ai/mcp-stdio-proxy（均为 npm 本地包）。Node 由 Electron 提供。
 - **数据目录**：`~/.nuwaclaw/`（engines、workspaces、node_modules、bin、logs、nuwaclaw.db）。不使用 `app.getPath('userData')`。
 - **环境**：子进程会注入 `PATH`（含 `.nuwaclaw/node_modules/.bin`、`resources/uv/bin`）和 `NODE_PATH`。见 `system/dependencies.ts` 中 `getAppEnv()`。
 - **随包资源**：`resources/uv/bin/uv`（打包后路径：`process.resourcesPath`）。

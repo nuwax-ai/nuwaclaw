@@ -52,7 +52,7 @@ NuwaClaw 采用 [ACP (Agent Client Protocol)](https://agentclientprotocol.com/) 
 nuwax-agent-client/
 ├── crates/
 │   ├── agent-electron-client/   # Electron 客户端 (主要开发)
-│   ├── nuwax-mcp-stdio-proxy/   # MCP 协议聚合代理
+│   ├── @nuwax-ai/mcp-stdio-proxy/   # MCP 协议聚合代理
 │   ├── agent-gpui-client/       # GPUI 客户端 (实验性)
 │   ├── agent-server-admin/      # 管理端 API 服务
 │   ├── agent-protocol/          # 通信协议定义
@@ -92,7 +92,7 @@ npm run dist:linux    # Linux
 ### MCP 代理服务
 
 ```bash
-cd crates/nuwax-mcp-stdio-proxy
+cd crates/@nuwax-ai/mcp-stdio-proxy
 
 # 安装依赖
 npm install
@@ -101,13 +101,13 @@ npm install
 npm run build
 
 # 运行 (stdio 聚合模式)
-nuwax-mcp-stdio-proxy --config '{"mcpServers":{...}}'
+@nuwax-ai/mcp-stdio-proxy --config '{"mcpServers":{...}}'
 
 # 运行 (协议转换模式)
-nuwax-mcp-stdio-proxy convert http://remote-mcp-server/sse
+@nuwax-ai/mcp-stdio-proxy convert http://remote-mcp-server/sse
 
 # 运行 (持久化桥接模式)
-nuwax-mcp-stdio-proxy proxy --port 18099 --config '{"mcpServers":{...}}'
+@nuwax-ai/mcp-stdio-proxy proxy --port 18099 --config '{"mcpServers":{...}}'
 ```
 
 ## 平台支持
@@ -164,15 +164,15 @@ nuwax-mcp-stdio-proxy proxy --port 18099 --config '{"mcpServers":{...}}'
 
 ## MCP 代理服务详解
 
-`nuwax-mcp-stdio-proxy` 是一个 MCP 协议聚合代理，解决多 MCP 服务器集成时的生命周期管理问题。
+`@nuwax-ai/mcp-stdio-proxy` 是一个 MCP 协议聚合代理，解决多 MCP 服务器集成时的生命周期管理问题。
 
 ### 运行模式
 
 | 模式 | 用途 | 命令 |
 |------|------|------|
-| **stdio** | 聚合多个 MCP 服务器为单个 stdio 接口 | `nuwax-mcp-stdio-proxy --config '...'` |
-| **convert** | 将远程 MCP 服务转换为本地 stdio | `nuwax-mcp-stdio-proxy convert <url>` |
-| **proxy** | 持久化桥接，预先启动并暴露 HTTP 接口 | `nuwax-mcp-stdio-proxy proxy --port 18099` |
+| **stdio** | 聚合多个 MCP 服务器为单个 stdio 接口 | `@nuwax-ai/mcp-stdio-proxy --config '...'` |
+| **convert** | 将远程 MCP 服务转换为本地 stdio | `@nuwax-ai/mcp-stdio-proxy convert <url>` |
+| **proxy** | 持久化桥接，预先启动并暴露 HTTP 接口 | `@nuwax-ai/mcp-stdio-proxy proxy --port 18099` |
 
 ### 核心特性
 - **就绪状态检测**: 阻塞等待 MCP 服务器就绪
@@ -246,7 +246,7 @@ cd crates/agent-electron-client
 npm run test
 
 # MCP 代理
-cd crates/nuwax-mcp-stdio-proxy
+cd crates/@nuwax-ai/mcp-stdio-proxy
 npm run test:run
 npm run test:coverage
 ```

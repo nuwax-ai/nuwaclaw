@@ -396,10 +396,10 @@ async function afterSignWindows(context) {
     totalFailed += result.failed;
   }
 
-  // 5. 签名 nuwax-mcp-stdio-proxy
-  const mcpProxyPath = path.join(resourcesPath, 'nuwax-mcp-stdio-proxy');
+  // 5. 签名 @nuwax-ai/mcp-stdio-proxy
+  const mcpProxyPath = path.join(resourcesPath, 'mcp-stdio-proxy');
   if (fs.existsSync(mcpProxyPath)) {
-    console.log('[after-sign] Windows: 签名 nuwax-mcp-stdio-proxy...');
+    console.log('[after-sign] Windows: 签名 @nuwax-ai/mcp-stdio-proxy...');
     const result = signWin.signDirectory(mcpProxyPath);
     totalSigned += result.success;
     totalFailed += result.failed;
