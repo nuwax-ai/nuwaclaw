@@ -10,7 +10,7 @@ export default defineConfig({
     // 让 vi.mock('fs') 作用于 Host Adapter（外部包默认不走 Vite 转换）
     server: {
       deps: {
-        inline: ['@nuwax-ai/mcp-stdio-proxy'],
+        inline: ['@nuwax-ai/mcp-proxy-ts'],
       },
     },
     coverage: {

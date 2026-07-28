@@ -48,6 +48,11 @@ vi.mock("../system/dependencies", () => ({
   getNodeBinPathWithFallback: vi.fn(() => "/mock/node"),
 }));
 
+// init() 的 setImmediate 会后台触发 MCP npx 缓存预热；mock 掉避免测试真实 spawn npx
+vi.mock("../system/mcpCacheWarmup", () => ({
+  warmupMcpNpxCache: vi.fn(() => Promise.resolve({ skipped: true })),
+}));
+
 vi.mock("../memory", () => ({
   memoryService: {
     isInitialized: vi.fn(() => false),

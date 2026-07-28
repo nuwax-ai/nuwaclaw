@@ -98,7 +98,7 @@ const MOCK_DEPS_INSTALLING = [
     status: "missing" as const,
   },
   {
-    name: "@nuwax-ai/mcp-stdio-proxy",
+    name: "@nuwax-ai/mcp-proxy-ts",
     displayName: "MCP Proxy",
     type: "npm-local" as const,
     description: "MCP 聚合代理",
@@ -140,7 +140,7 @@ const MOCK_DEPS_COMPLETED = [
     version: "1.0.0",
   },
   {
-    name: "@nuwax-ai/mcp-stdio-proxy",
+    name: "@nuwax-ai/mcp-proxy-ts",
     displayName: "MCP Proxy",
     type: "npm-local" as const,
     description: "MCP 聚合代理",
@@ -182,7 +182,7 @@ const MOCK_DEPS_ERROR = [
     status: "missing" as const,
   },
   {
-    name: "@nuwax-ai/mcp-stdio-proxy",
+    name: "@nuwax-ai/mcp-proxy-ts",
     displayName: "MCP Proxy",
     type: "npm-local" as const,
     description: "MCP 聚合代理",

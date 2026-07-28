@@ -21,7 +21,7 @@ export function resolveDepDisplayName(dep: DependencyNameInput): string {
     "@anthropic-ai/sdk": I18N_KEYS.Pages.Dependencies.DEP_ANTHROPIC_SDK,
     "claude-code-acp-ts": I18N_KEYS.Pages.Dependencies.DEP_CLAUDE_CODE_ACP,
     "nuwax-file-server": I18N_KEYS.Pages.Dependencies.DEP_FILE_SERVER,
-    "@nuwax-ai/mcp-stdio-proxy": I18N_KEYS.Pages.Dependencies.DEP_MCP_PROXY,
+    "@nuwax-ai/mcp-proxy-ts": I18N_KEYS.Pages.Dependencies.DEP_MCP_PROXY,
     nuwaxcode: I18N_KEYS.Pages.Dependencies.DEP_NUWAXCODE,
   };
 

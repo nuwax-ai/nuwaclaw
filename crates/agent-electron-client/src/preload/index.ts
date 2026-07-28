@@ -24,7 +24,7 @@ contextBridge.exposeInMainWorld("electronAPI", {
     close: () => ipcRenderer.invoke("window:close"),
   },
 
-  // MCP Proxy management (@nuwax-ai/mcp-stdio-proxy 聚合代理)
+  // MCP Proxy management (@nuwax-ai/mcp-proxy-ts 聚合代理)
   mcp: {
     start: () => ipcRenderer.invoke("mcp:start"),
     stop: () => ipcRenderer.invoke("mcp:stop"),

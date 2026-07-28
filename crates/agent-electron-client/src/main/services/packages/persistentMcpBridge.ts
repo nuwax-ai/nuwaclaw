@@ -1,7 +1,7 @@
 /**
  * PersistentMcpBridge — thin wrapper
  *
- * The implementation lives in @nuwax-ai/mcp-stdio-proxy.
+ * The implementation lives in @nuwax-ai/mcp-proxy-ts.
  * This module creates a singleton with electron-log injected as the logger.
  * Prefer bundled resources; fall back to app node_modules.
  */
@@ -10,7 +10,7 @@ import * as path from "path";
 import log from "electron-log";
 import { getAppPaths, getBundledMcpProxyDir } from "./packageLocator";
 
-const PKG_NAME = "@nuwax-ai/mcp-stdio-proxy";
+const PKG_NAME = "@nuwax-ai/mcp-proxy-ts";
 
 /**
  * Wrap electron-log so high-frequency messages (e.g. "New HTTP session")
@@ -35,7 +35,7 @@ function createQuietLogger(): typeof log {
   return quiet;
 }
 
-/** Lazy-loaded singleton instance (from @nuwax-ai/mcp-stdio-proxy) */
+/** Lazy-loaded singleton instance (from @nuwax-ai/mcp-proxy-ts) */
 let instance: {
   start: (args: unknown) => Promise<void>;
   stop: () => Promise<void>;

@@ -124,7 +124,7 @@
     "vite": "^6.0.7",
     "vitest": "^2.1.8",
     "wait-on": "^8.0.2",
-    "@nuwax-ai/mcp-stdio-proxy": "1.5.0-beta.2"
+    "@nuwax-ai/mcp-proxy-ts": "1.5.2"
   },
   "bundledSources": {
     "nuwax-file-server": {
@@ -242,8 +242,8 @@
         ]
       },
       {
-        "from": "resources/mcp-stdio-proxy",
-        "to": "mcp-stdio-proxy",
+        "from": "resources/mcp-proxy-ts",
+        "to": "mcp-proxy-ts",
         "filter": [
           "**/*"
         ]

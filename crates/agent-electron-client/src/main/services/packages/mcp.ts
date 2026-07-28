@@ -1,7 +1,7 @@
 /**
  * MCP Proxy Manager (Electron)
  *
- * 使用 @nuwax-ai/mcp-stdio-proxy 纯 Node.js stdio 聚合代理（应用内集成）。
+ * 使用 @nuwax-ai/mcp-proxy-ts 纯 Node.js stdio 聚合代理（应用内集成）。
  * Agent 引擎直接 spawn proxy 进程（stdio 直通），无需 HTTP 中间层。
  *
  * proxy 同时支持两种上游传输:
@@ -9,7 +9,7 @@
  * - bridge: 连接 PersistentMcpBridge（持久化 server，如 chrome-devtools-mcp）
  *
  * Electron 侧负责：
- * - 从应用内集成资源加载 @nuwax-ai/mcp-stdio-proxy
+ * - 从应用内集成资源加载 @nuwax-ai/mcp-proxy-ts
  * - 管理 mcpServers 配置（持久化到 SQLite）
  * - 管理 PersistentMcpBridge 生命周期
  * - 调用 Host Adapter rewriteServersToProxyCommands 注入引擎
@@ -48,8 +48,8 @@ import {
   mergeMcpServerConfigs,
 } from "../utils/mcpServerMerge";
 import { readSetting } from "../../db";
-import { rewriteServersToProxyCommands } from "@nuwax-ai/mcp-stdio-proxy/host";
-import type { HostMcpServerEntry } from "@nuwax-ai/mcp-stdio-proxy/host";
+import { rewriteServersToProxyCommands } from "@nuwax-ai/mcp-proxy-ts/host";
+import type { HostMcpServerEntry } from "@nuwax-ai/mcp-proxy-ts/host";
 type PerfValue = string | number | boolean | null | undefined;
 
 function formatPerfValue(value: PerfValue): string {
@@ -562,7 +562,7 @@ export function isRemoteEntry(
   return "url" in entry;
 }
 
-/** mcpServers 配置（传给 @nuwax-ai/mcp-stdio-proxy 的 JSON） */
+/** mcpServers 配置（传给 @nuwax-ai/mcp-proxy-ts 的 JSON） */
 export interface McpServersConfig {
   mcpServers: Record<string, McpServerEntry>;
   /** 工具白名单（只允许指定的工具） */
@@ -699,16 +699,16 @@ class McpProxyManager {
   }
 
   /**
-   * 解析 @nuwax-ai/mcp-stdio-proxy 脚本路径（disk lookup，不使用缓存）
+   * 解析 @nuwax-ai/mcp-proxy-ts 脚本路径（disk lookup，不使用缓存）
    *
    * 优先级：
    * 1. NUWAX_MCP_PROXY_LOCAL_PATH 环境变量（开发调试，可选）
-   * 2. 应用内集成版本（resources/mcp-stdio-proxy）
+   * 2. 应用内集成版本（resources/mcp-proxy-ts）
    *
    * 开发和生产模式统一使用 resources/ 目录，确保行为一致
    */
   private resolveProxyScriptPath(): string | null {
-    const pkgName = "@nuwax-ai/mcp-stdio-proxy";
+    const pkgName = "@nuwax-ai/mcp-proxy-ts";
 
     // 1. 开发模式：优先使用环境变量指定的本地路径（可选）
     const localDevPath = process.env.NUWAX_MCP_PROXY_LOCAL_PATH;
@@ -781,7 +781,7 @@ class McpProxyManager {
     this.cachedScriptPath = this.resolveProxyScriptPath();
     if (!this.cachedScriptPath) {
       this.cachedScriptPath = null;
-      if (!isInstalledLocally("@nuwax-ai/mcp-stdio-proxy")) {
+      if (!isInstalledLocally("@nuwax-ai/mcp-proxy-ts")) {
         const err = t("Claw.MCP.notInstalled");
         this.lastError = err;
         return { success: false, error: err };
@@ -790,10 +790,7 @@ class McpProxyManager {
       this.lastError = err;
       return { success: false, error: err };
     }
-    log.info(
-      "[McpProxy] @nuwax-ai/mcp-stdio-proxy ready:",
-      this.cachedScriptPath,
-    );
+    log.info("[McpProxy] @nuwax-ai/mcp-proxy-ts ready:", this.cachedScriptPath);
 
     // Start tailing proxy log file so its output appears in main.log
     const proxyLogFile = path.join(
@@ -958,7 +955,7 @@ class McpProxyManager {
   /**
    * 获取 Agent 引擎需要的 MCP 配置
    *
-   * 所有 server 统一经 @nuwax-ai/mcp-stdio-proxy Host Adapter 改写：
+   * 所有 server 统一经 @nuwax-ai/mcp-proxy-ts Host Adapter 改写：
    * - persistent server（如 chrome-devtools）→ bridge URL（长连接 PersistentMcpBridge）
    * - 动态 MCP server → stdio，由 proxy 按需 spawn
    * - 远程 server（url 类型）→ 透传进 proxy config

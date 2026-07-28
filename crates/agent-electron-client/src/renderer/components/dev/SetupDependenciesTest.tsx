@@ -69,7 +69,7 @@ const MOCK_PRESETS: Record<
         status: "missing",
       },
       {
-        name: "@nuwax-ai/mcp-stdio-proxy",
+        name: "@nuwax-ai/mcp-proxy-ts",
         displayName: "MCP Proxy",
         type: "npm-local",
         description: "MCP 协议聚合代理",
@@ -113,7 +113,7 @@ const MOCK_PRESETS: Record<
         version: "1.0.0",
       },
       {
-        name: "@nuwax-ai/mcp-stdio-proxy",
+        name: "@nuwax-ai/mcp-proxy-ts",
         displayName: "MCP Proxy",
         type: "npm-local",
         description: "MCP 协议聚合代理",
@@ -157,7 +157,7 @@ const MOCK_PRESETS: Record<
         status: "missing",
       },
       {
-        name: "@nuwax-ai/mcp-stdio-proxy",
+        name: "@nuwax-ai/mcp-proxy-ts",
         displayName: "MCP Proxy",
         type: "npm-local",
         description: "MCP 协议聚合代理",

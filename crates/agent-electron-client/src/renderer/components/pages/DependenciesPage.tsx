@@ -75,7 +75,7 @@ const MOCK_LOCAL_DEPS: LocalDependencyItem[] = [
     required: true,
   },
   {
-    name: "@nuwax-ai/mcp-stdio-proxy",
+    name: "@nuwax-ai/mcp-proxy-ts",
     displayName: t(I18N_KEYS.Pages.Dependencies.DEP_MCP_PROXY),
     description: t(I18N_KEYS.Pages.Dependencies.DESC_MCP_PROXY),
     type: "npm-local",
@@ -99,7 +99,7 @@ interface UvCheckResult {
   bundled?: boolean;
 }
 
-/** 应用包内集成的 @nuwax-ai/mcp-stdio-proxy 检测结果，与 Node/uv 一起在系统环境中展示 */
+/** 应用包内集成的 @nuwax-ai/mcp-proxy-ts 检测结果，与 Node/uv 一起在系统环境中展示 */
 interface McpProxyBundledResult {
   available: boolean;
   version?: string;
@@ -190,7 +190,7 @@ export default function DependenciesPage() {
         : { installed: false, meetsRequirement: false, bundled: false };
       setUvResult(uvData);
 
-      // 应用包内集成的 MCP Proxy (@nuwax-ai/mcp-stdio-proxy)，与 Node/uv 一起在系统环境中展示
+      // 应用包内集成的 MCP Proxy (@nuwax-ai/mcp-proxy-ts)，与 Node/uv 一起在系统环境中展示
       const mcpRes =
         await window.electronAPI?.dependencies.checkMcpProxyBundled();
       const mcpData: McpProxyBundledResult =
@@ -768,7 +768,7 @@ export default function DependenciesPage() {
             </span>
           </div>
 
-          {/* MCP Proxy (@nuwax-ai/mcp-stdio-proxy)：应用包内集成，与 Node/uv 一起展示 */}
+          {/* MCP Proxy (@nuwax-ai/mcp-proxy-ts)：应用包内集成，与 Node/uv 一起展示 */}
           <div className={styles.serviceRow}>
             <div className={styles.serviceInfo}>
               {mcpProxyBundled?.available ? (

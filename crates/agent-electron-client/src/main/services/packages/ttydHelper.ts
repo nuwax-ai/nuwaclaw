@@ -224,7 +224,7 @@ exec node "${entry}" "$@"
 export function ensureTtydMcpProxyShim(): void {
   const bundledDir = getBundledMcpProxyDir();
   if (!bundledDir) return;
-  const entry = resolveNpmPackageEntry(bundledDir, "@nuwax-ai/mcp-stdio-proxy");
+  const entry = resolveNpmPackageEntry(bundledDir, "@nuwax-ai/mcp-proxy-ts");
   if (!entry) return;
 
   const appBinDir = path.join(getAppDataDir(), "bin");
@@ -236,20 +236,20 @@ export function ensureTtydMcpProxyShim(): void {
 
   if (process.platform === "win32") {
     // 二进制 shim 名用短名（避免路径中的 @scope）
-    const shimPath = path.join(appBinDir, "mcp-stdio-proxy.cmd");
+    const shimPath = path.join(appBinDir, "mcp-proxy-ts.cmd");
     const content = `@echo off\r\n` + `setlocal\r\n` + `node "${entry}" %*\r\n`;
     try {
       fs.writeFileSync(shimPath, content, "utf8");
       log.info(`[ttydHelper] Wrote shim: ${shimPath} -> node ${entry}`);
     } catch (e) {
-      log.warn("[ttydHelper] Failed to write mcp-stdio-proxy shim:", e);
+      log.warn("[ttydHelper] Failed to write mcp-proxy-ts shim:", e);
     }
     return;
   }
 
-  const shimPath = path.join(appBinDir, "mcp-stdio-proxy");
+  const shimPath = path.join(appBinDir, "mcp-proxy-ts");
   const content = `#!/bin/bash
-# Nuwax Agent – @nuwax-ai/mcp-stdio-proxy shim (auto-generated; do not edit)
+# Nuwax Agent – @nuwax-ai/mcp-proxy-ts shim (auto-generated; do not edit)
 set -euo pipefail
 exec node "${entry}" "$@"
 `;
@@ -257,7 +257,7 @@ exec node "${entry}" "$@"
     fs.writeFileSync(shimPath, content, { mode: 0o755 });
     log.info(`[ttydHelper] Wrote shim: ${shimPath} -> node ${entry}`);
   } catch (e) {
-    log.warn("[ttydHelper] Failed to write mcp-stdio-proxy shim:", e);
+    log.warn("[ttydHelper] Failed to write mcp-proxy-ts shim:", e);
   }
 }
 

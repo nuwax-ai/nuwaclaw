@@ -483,15 +483,15 @@ export function spawnLocal(
 // ==================== Bundled MCP Proxy ====================
 
 /**
- * 获取应用内集成的 @nuwax-ai/mcp-stdio-proxy 目录
+ * 获取应用内集成的 @nuwax-ai/mcp-proxy-ts 目录
  *
- * 打包后: process.resourcesPath/mcp-stdio-proxy/
- * 开发时: resources/mcp-stdio-proxy/
+ * 打包后: process.resourcesPath/mcp-proxy-ts/
+ * 开发时: resources/mcp-proxy-ts/
  *
  * @returns 目录路径（存在且含 package.json），或 null
  */
 export function getBundledMcpProxyDir(): string | null {
-  const bundledDir = path.join(getResourcesPath(), "mcp-stdio-proxy");
+  const bundledDir = path.join(getResourcesPath(), "mcp-proxy-ts");
   if (fs.existsSync(path.join(bundledDir, "package.json"))) {
     return bundledDir;
   }

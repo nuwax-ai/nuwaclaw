@@ -453,11 +453,11 @@ describe("buildSandboxedSpawnArgs", () => {
       expect(call.writablePaths).toEqual(["/tmp/ws"]);
       expect(
         call.startupExecSubpathAllowlist.some((p: string) =>
-          p.includes("mcp-stdio-proxy"),
+          p.includes("mcp-proxy-ts"),
         ),
       ).toBe(true);
       expect(
-        call.writablePaths.some((p: string) => p.includes("mcp-stdio-proxy")),
+        call.writablePaths.some((p: string) => p.includes("mcp-proxy-ts")),
       ).toBe(false);
     });
   });

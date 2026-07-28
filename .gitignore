@@ -43,8 +43,9 @@ crates/agent-electron-client/resources/ttyd/bin/
 crates/agent-electron-client/.ttyd-build/
 
 # Bundled MCP proxy: 构建时 prepare-mcp-proxy 从 npm 包复制并集成
-crates/agent-electron-client/resources/mcp-stdio-proxy/
+crates/agent-electron-client/resources/mcp-proxy-ts/
 # 旧目录名残留（迁移前产物，勿提交）
+crates/agent-electron-client/resources/mcp-stdio-proxy/
 crates/agent-electron-client/resources/nuwax-mcp-stdio-proxy/
 
 # Bundled GUI Agent Server: 构建时 prepare-gui-server 从源码 build 并集成

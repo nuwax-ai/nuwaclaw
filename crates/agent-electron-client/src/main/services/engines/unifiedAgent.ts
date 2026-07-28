@@ -26,6 +26,7 @@ import {
 } from "./acp/isolatedHomePaths";
 import { maintainUvPackageCache } from "../system/uvCacheMaintenance";
 import { maintainNpmPackageCache } from "../system/npmCacheMaintenance";
+import { warmupMcpNpxCache } from "../system/mcpCacheWarmup";
 import { mapAgentCommand } from "./agentHelpers";
 import {
   parseContextServers,
@@ -273,6 +274,10 @@ export class UnifiedAgentService extends EventEmitter {
       } catch (err) {
         log.warn("[UnifiedAgent] Npm cache maintain failed:", err);
       }
+      // 后台静默预热 MCP npx 缓存（best-effort；须在 npm-cache 维护之后，避免被 GC 清掉）
+      void warmupMcpNpxCache().catch((err) =>
+        log.warn("[UnifiedAgent] MCP npx cache warmup failed:", err),
+      );
     });
     this.emit("ready");
     return true;

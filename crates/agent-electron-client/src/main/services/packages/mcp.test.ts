@@ -29,7 +29,7 @@ vi.mock("electron-log", () => ({
   },
 }));
 
-// Mock fs（含 node:fs，供 @nuwax-ai/mcp-stdio-proxy Host Adapter 使用）
+// Mock fs（含 node:fs，供 @nuwax-ai/mcp-proxy-ts Host Adapter 使用）
 const mockExistsSync = vi.fn(() => true);
 const mockMkdirSync = vi.fn();
 const mockWriteFileSync = vi.fn();
@@ -111,13 +111,13 @@ vi.mock("./packageLocator", () => ({
   getAppPaths: vi.fn(() => ({
     nodeModules: "/mock/home/.nuwaclaw/node_modules",
   })),
-  getBundledMcpProxyDir: vi.fn(() => "/mock/resources/mcp-stdio-proxy"),
+  getBundledMcpProxyDir: vi.fn(() => "/mock/resources/mcp-proxy-ts"),
   isInstalledLocally: vi.fn(() => true),
 }));
 
 vi.mock("../utils/spawnNoWindow", () => ({
   resolveNpmPackageEntry: vi.fn(
-    () => "/mock/home/.nuwaclaw/node_modules/mcp-stdio-proxy/dist/index.js",
+    () => "/mock/home/.nuwaclaw/node_modules/mcp-proxy-ts/dist/index.js",
   ),
 }));
 
@@ -150,7 +150,7 @@ describe("McpProxyManager", () => {
       getAppPaths: vi.fn(() => ({
         nodeModules: "/mock/home/.nuwaclaw/node_modules",
       })),
-      getBundledMcpProxyDir: vi.fn(() => "/mock/resources/mcp-stdio-proxy"),
+      getBundledMcpProxyDir: vi.fn(() => "/mock/resources/mcp-proxy-ts"),
       isInstalledLocally: vi.fn(() => true),
     }));
     vi.resetModules();
@@ -230,8 +230,7 @@ describe("McpProxyManager", () => {
       // Restore original mock
       vi.doMock("../utils/spawnNoWindow", () => ({
         resolveNpmPackageEntry: vi.fn(
-          () =>
-            "/mock/home/.nuwaclaw/node_modules/mcp-stdio-proxy/dist/index.js",
+          () => "/mock/home/.nuwaclaw/node_modules/mcp-proxy-ts/dist/index.js",
         ),
       }));
     });
@@ -505,8 +504,7 @@ describe("McpProxyManager", () => {
       // Restore original mock
       vi.doMock("../utils/spawnNoWindow", () => ({
         resolveNpmPackageEntry: vi.fn(
-          () =>
-            "/mock/home/.nuwaclaw/node_modules/mcp-stdio-proxy/dist/index.js",
+          () => "/mock/home/.nuwaclaw/node_modules/mcp-proxy-ts/dist/index.js",
         ),
       }));
     });
@@ -530,13 +528,13 @@ describe("McpProxyManager", () => {
   });
 
   describe("start - 验证 binary 可用性", () => {
-    it("@nuwax-ai/mcp-stdio-proxy 已安装时应该返回成功", async () => {
+    it("@nuwax-ai/mcp-proxy-ts 已安装时应该返回成功", async () => {
       const { mcpProxyManager } = await import("./mcp");
       const result = await mcpProxyManager.start();
       expect(result.success).toBe(true);
     });
 
-    it("@nuwax-ai/mcp-stdio-proxy 未安装时应该返回错误", async () => {
+    it("@nuwax-ai/mcp-proxy-ts 未安装时应该返回错误", async () => {
       vi.doMock("./packageLocator", () => ({
         getAppPaths: vi.fn(() => ({
           nodeModules: "/mock/home/.nuwaclaw/node_modules",
@@ -814,7 +812,7 @@ describe("McpProxyManager - getAllStdioServers", () => {
     }));
     vi.doMock("../utils/spawnNoWindow", () => ({
       resolveNpmPackageEntry: vi.fn(
-        () => "/mock/home/.nuwaclaw/node_modules/mcp-stdio-proxy/dist/index.js",
+        () => "/mock/home/.nuwaclaw/node_modules/mcp-proxy-ts/dist/index.js",
       ),
     }));
     vi.resetModules();
@@ -890,7 +888,7 @@ describe("McpProxyManager - bridge URL 优先策略", () => {
     // 恢复 spawnNoWindow mock（防止前序测试 doMock 泄漏）
     vi.doMock("../utils/spawnNoWindow", () => ({
       resolveNpmPackageEntry: vi.fn(
-        () => "/mock/home/.nuwaclaw/node_modules/mcp-stdio-proxy/dist/index.js",
+        () => "/mock/home/.nuwaclaw/node_modules/mcp-proxy-ts/dist/index.js",
       ),
     }));
     vi.resetModules();
@@ -1132,7 +1130,7 @@ describe("syncMcpConfigToProxyAndReload - bridge 重启", () => {
     }));
     vi.doMock("../utils/spawnNoWindow", () => ({
       resolveNpmPackageEntry: vi.fn(
-        () => "/mock/home/.nuwaclaw/node_modules/mcp-stdio-proxy/dist/index.js",
+        () => "/mock/home/.nuwaclaw/node_modules/mcp-proxy-ts/dist/index.js",
       ),
     }));
     vi.resetModules();
@@ -1246,7 +1244,7 @@ describe("McpProxyManager - cleanup async", () => {
     }));
     vi.doMock("../utils/spawnNoWindow", () => ({
       resolveNpmPackageEntry: vi.fn(
-        () => "/mock/home/.nuwaclaw/node_modules/mcp-stdio-proxy/dist/index.js",
+        () => "/mock/home/.nuwaclaw/node_modules/mcp-proxy-ts/dist/index.js",
       ),
     }));
     vi.resetModules();
@@ -1294,7 +1292,7 @@ describe("McpProxyManager - start 启动所有 stdio servers", () => {
     }));
     vi.doMock("../utils/spawnNoWindow", () => ({
       resolveNpmPackageEntry: vi.fn(
-        () => "/mock/home/.nuwaclaw/node_modules/mcp-stdio-proxy/dist/index.js",
+        () => "/mock/home/.nuwaclaw/node_modules/mcp-proxy-ts/dist/index.js",
       ),
     }));
     vi.resetModules();
@@ -1394,7 +1392,7 @@ describe("extractRealMcpServers - 真实 context_servers 配置", () => {
     }));
     vi.doMock("../utils/spawnNoWindow", () => ({
       resolveNpmPackageEntry: vi.fn(
-        () => "/mock/home/.nuwaclaw/node_modules/mcp-stdio-proxy/dist/index.js",
+        () => "/mock/home/.nuwaclaw/node_modules/mcp-proxy-ts/dist/index.js",
       ),
     }));
     vi.resetModules();
@@ -1667,7 +1665,7 @@ describe("syncMcpConfigToProxyAndReload - 真实 context_servers 场景", () => 
     }));
     vi.doMock("../utils/spawnNoWindow", () => ({
       resolveNpmPackageEntry: vi.fn(
-        () => "/mock/home/.nuwaclaw/node_modules/mcp-stdio-proxy/dist/index.js",
+        () => "/mock/home/.nuwaclaw/node_modules/mcp-proxy-ts/dist/index.js",
       ),
     }));
     vi.resetModules();

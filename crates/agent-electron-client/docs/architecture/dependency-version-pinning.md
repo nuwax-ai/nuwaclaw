@@ -17,7 +17,7 @@ status: stable
 | 包名 | 用途 |
 |------|------|
 | nuwax-file-server | 文件服务 |
-| @nuwax-ai/mcp-stdio-proxy | MCP 聚合代理 |
+| @nuwax-ai/mcp-proxy-ts | MCP 聚合代理 |
 | nuwaxcode | 引擎 |
 | claude-code-acp-ts | 引擎 ACP |
 

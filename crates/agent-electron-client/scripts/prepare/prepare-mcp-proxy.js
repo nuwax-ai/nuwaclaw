@@ -1,19 +1,19 @@
 #!/usr/bin/env node
 /**
- * 从 node_modules 复制 @nuwax-ai/mcp-stdio-proxy 到 resources/
+ * 从 node_modules 复制 @nuwax-ai/mcp-proxy-ts 到 resources/
  *
  * 前提：
  *   1. pnpm/npm install 已执行
- *   2. @nuwax-ai/mcp-stdio-proxy 已构建（npm run build）
+ *   2. @nuwax-ai/mcp-proxy-ts 已构建（npm run build）
  *
  * 产物（3 个文件）：
- *   resources/mcp-stdio-proxy/
+ *   resources/mcp-proxy-ts/
  *     ├── dist/index.js       — CLI bundle（esbuild 单文件，含 shebang）
  *     ├── dist/lib.bundle.js  — 库 bundle（PersistentMcpBridge 等导出）
  *     └── package.json        — 精简版（name/version/bin/main）
  *
  * 打包时 electron-builder extraResources 会打包到
- *   .app/Contents/Resources/mcp-stdio-proxy/
+ *   .app/Contents/Resources/mcp-proxy-ts/
  */
 
 const path = require('path');
@@ -40,11 +40,11 @@ function hashDistLibrarySources(distDir) {
   return hash.digest('hex');
 }
 
-const PKG_NAME = '@nuwax-ai/mcp-stdio-proxy';
-const BUNDLED_DIR_NAME = 'mcp-stdio-proxy';
+const PKG_NAME = '@nuwax-ai/mcp-proxy-ts';
+const BUNDLED_DIR_NAME = 'mcp-proxy-ts';
 
 const projectRoot = getProjectRoot();
-const srcDir = path.join(projectRoot, 'node_modules', '@nuwax-ai', 'mcp-stdio-proxy');
+const srcDir = path.join(projectRoot, 'node_modules', '@nuwax-ai', 'mcp-proxy-ts');
 const destDir = path.join(projectRoot, 'resources', BUNDLED_DIR_NAME);
 
 function main() {
@@ -64,13 +64,13 @@ function main() {
 
   if (!fs.existsSync(srcIndexJs)) {
     console.error(`[prepare-mcp-proxy] CLI 入口不存在: ${srcIndexJs}`);
-    console.error('[prepare-mcp-proxy] 请先在 mcp-stdio-proxy 包中执行 npm run build');
+    console.error('[prepare-mcp-proxy] 请先在 mcp-proxy-ts 包中执行 npm run build');
     process.exit(1);
   }
 
   if (!fs.existsSync(srcLibJs)) {
     console.error(`[prepare-mcp-proxy] 库入口不存在: ${srcLibJs}`);
-    console.error('[prepare-mcp-proxy] 请先在 mcp-stdio-proxy 包中执行 npm run build');
+    console.error('[prepare-mcp-proxy] 请先在 mcp-proxy-ts 包中执行 npm run build');
     process.exit(1);
   }
 
@@ -138,7 +138,7 @@ function main() {
     }
   }
 
-  // 5. 复制到 resources/mcp-stdio-proxy/
+  // 5. 复制到 resources/mcp-proxy-ts/
   console.log(`[prepare-mcp-proxy] 复制到 resources/${BUNDLED_DIR_NAME}/...`);
 
   // 清理目标目录
@@ -163,6 +163,7 @@ function main() {
     name: srcPkg.name,
     version: srcPkg.version,
     bin: {
+      'mcp-proxy-ts': './dist/index.js',
       'mcp-stdio-proxy': './dist/index.js',
       'nuwax-mcp-stdio-proxy': './dist/index.js',
     },
