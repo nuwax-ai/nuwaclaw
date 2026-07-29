@@ -59,9 +59,9 @@ import type { HostMcpServerEntry } from "@nuwax-ai/mcp-proxy-ts/host";
  * 因此静态 `import ... from "@nuwax-ai/mcp-proxy-ts/host"` 在打包后会变成无法解析的
  * bare `require("@nuwax-ai/mcp-proxy-ts/host")`，导致启动崩溃（Cannot find module）。
  *
- * 这里改为按路径 require `prepare:mcp-proxy` 用 esbuild 预构建的 CJS lib bundle
- * （lib.bundle.js，已导出 Host Adapter 全部函数）。开发与生产都从 resources/mcp-proxy-ts
- * 解析（开发可经 NUWAX_MCP_PROXY_LOCAL_PATH 覆盖）。
+ * 这里改为按路径 require 未打包的原生 ESM `dist/host/rewrite.js`（自包含，
+ * 详见下方内联注释）。开发与生产都从 resources/mcp-proxy-ts 解析（开发可经
+ * NUWAX_MCP_PROXY_LOCAL_PATH 覆盖）。
  */
 let cachedHostAdapter: typeof McpProxyHost | null = null;
 function loadHostAdapter(): typeof McpProxyHost {

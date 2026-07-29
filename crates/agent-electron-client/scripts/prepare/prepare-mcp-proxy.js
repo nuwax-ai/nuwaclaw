@@ -6,11 +6,16 @@
  *   1. pnpm/npm install 已执行
  *   2. @nuwax-ai/mcp-proxy-ts 已构建（npm run build）
  *
- * 产物（3 个文件）：
+ * 产物：
  *   resources/mcp-proxy-ts/
- *     ├── dist/index.js       — CLI bundle（esbuild 单文件，含 shebang）
- *     ├── dist/lib.bundle.js  — 库 bundle（PersistentMcpBridge 等导出）
- *     └── package.json        — 精简版（name/version/bin/main）
+ *     ├── dist/index.js         — CLI bundle（esbuild 单文件，含 shebang；CJS）
+ *     ├── dist/lib.bundle.mjs   — 库 bundle（ESM；导出 PersistentMcpBridge 等）
+ *     ├── dist/host/            — Host Adapter 原生 ESM 文件（rewrite.js 等，自包含）
+ *     └── package.json          — 精简版（name/version/bin/main）
+ *
+ * 为什么 lib bundle 用 ESM：bridge↔host 存在循环依赖，esbuild 的 CJS 输出会让
+ * 命名导出全部变成 undefined（PersistentMcpBridge 取不到）；ESM 的 live bindings
+ * 可正确处理该循环，且 Node 22+/Electron 支持同步 require() 此类 ESM 模块。
  *
  * 打包时 electron-builder extraResources 会打包到
  *   .app/Contents/Resources/mcp-proxy-ts/
@@ -26,7 +31,7 @@ function sha256File(filePath) {
   return crypto.createHash('sha256').update(data).digest('hex');
 }
 
-/** Hash all dist/*.js inputs that feed lib.bundle.js (not just lib.js stub). */
+/** Hash all dist/*.js inputs that feed lib.bundle.mjs (not just lib.js stub). */
 function hashDistLibrarySources(distDir) {
   const hash = crypto.createHash('sha256');
   const files = fs
@@ -83,8 +88,8 @@ function main() {
       const destPkg = JSON.parse(fs.readFileSync(destPkgPath, 'utf8'));
       if (destPkg.version === srcPkg.version) {
         const destIndexJs = path.join(destDir, 'dist', 'index.js');
-        const destLibJs = path.join(destDir, 'dist', 'lib.bundle.js');
-        if (fs.existsSync(destIndexJs) && fs.existsSync(destLibJs)) {
+        const destLibMjs = path.join(destDir, 'dist', 'lib.bundle.mjs');
+        if (fs.existsSync(destIndexJs) && fs.existsSync(destLibMjs)) {
           const srcDistHash = hashDistLibrarySources(srcDistDir);
           const markerPath = fs.existsSync(distHashMarker)
             ? distHashMarker
@@ -104,8 +109,8 @@ function main() {
     }
   }
 
-  // 4. 构建 lib bundle（使用 esbuild）
-  console.log('[prepare-mcp-proxy] 构建 lib bundle (esbuild)...');
+  // 4. 构建 lib bundle（使用 esbuild，ESM 输出）
+  console.log('[prepare-mcp-proxy] 构建 lib bundle (esbuild, ESM)...');
   const esbuildBin = path.join(srcDir, 'node_modules', '.bin', 'esbuild');
 
   // 如果 proxy 包中没有 esbuild，使用项目根目录的 esbuild
@@ -119,17 +124,17 @@ function main() {
     : esbuildToUse;
 
   const libEntry = srcLibJs;
-  const libBundlePath = path.join(srcDir, 'dist', 'lib.bundle.js');
+  const libBundlePath = path.join(srcDir, 'dist', 'lib.bundle.mjs');
 
   const { execSync } = require('child_process');
   try {
     execSync(
-      `"${esbuildCmd}" "${libEntry}" --bundle --platform=node --target=node22 --format=cjs --outfile="${libBundlePath}" --legal-comments=none`,
+      `"${esbuildCmd}" "${libEntry}" --bundle --platform=node --target=node22 --format=esm --outfile="${libBundlePath}" --legal-comments=none`,
       { cwd: srcDir, stdio: 'inherit' },
     );
   } catch (e) {
     console.error('[prepare-mcp-proxy] esbuild 打包失败，尝试直接复制 lib.js');
-    // 如果 esbuild 失败，直接使用 lib.js 作为 lib.bundle.js
+    // 如果 esbuild 失败，直接使用 lib.js 作为 lib.bundle.mjs（降级：bare 依赖在资源内不可解析）
     if (fs.existsSync(libEntry)) {
       fs.copyFileSync(libEntry, libBundlePath);
     } else {
@@ -153,10 +158,10 @@ function main() {
   fs.chmodSync(destIndexJs, 0o755);
   console.log(`  dist/index.js (${(fs.statSync(destIndexJs).size / 1024).toFixed(0)} KB)`);
 
-  // 复制 dist/lib.bundle.js (library bundle)
-  const destLibJs = path.join(destDir, 'dist', 'lib.bundle.js');
-  fs.copyFileSync(libBundlePath, destLibJs);
-  console.log(`  dist/lib.bundle.js (${(fs.statSync(destLibJs).size / 1024).toFixed(0)} KB)`);
+  // 复制 dist/lib.bundle.mjs (library bundle, ESM)
+  const destLibMjs = path.join(destDir, 'dist', 'lib.bundle.mjs');
+  fs.copyFileSync(libBundlePath, destLibMjs);
+  console.log(`  dist/lib.bundle.mjs (${(fs.statSync(destLibMjs).size / 1024).toFixed(0)} KB, ESM)`);
 
   // 复制 dist/host/（Host Adapter 原生 ESM 文件，供主进程按路径同步 require）
   const srcHostDir = path.join(srcDir, 'dist', 'host');
@@ -174,7 +179,7 @@ function main() {
     console.warn('[prepare-mcp-proxy] dist/host/ 不存在，主进程 Host Adapter 将无法加载');
   }
 
-  // 6. 生成精简版 package.json（CJS require 用 main=lib.bundle.js）
+  // 6. 生成精简版 package.json（main 指向 ESM lib bundle，供 require() 加载 PersistentMcpBridge）
   const slimPkg = {
     name: srcPkg.name,
     version: srcPkg.version,
@@ -183,7 +188,7 @@ function main() {
       'mcp-stdio-proxy': './dist/index.js',
       'nuwax-mcp-stdio-proxy': './dist/index.js',
     },
-    main: './dist/lib.bundle.js',
+    main: './dist/lib.bundle.mjs',
   };
   fs.writeFileSync(destPkgPath, JSON.stringify(slimPkg, null, 2) + '\n');
   console.log('  package.json (slim)');
