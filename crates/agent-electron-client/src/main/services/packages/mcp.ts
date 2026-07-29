@@ -48,8 +48,52 @@ import {
   mergeMcpServerConfigs,
 } from "../utils/mcpServerMerge";
 import { readSetting } from "../../db";
-import { rewriteServersToProxyCommands } from "@nuwax-ai/mcp-proxy-ts/host";
+import type * as McpProxyHost from "@nuwax-ai/mcp-proxy-ts/host";
 import type { HostMcpServerEntry } from "@nuwax-ai/mcp-proxy-ts/host";
+
+/**
+ * 运行期加载 @nuwax-ai/mcp-proxy-ts 的 Host Adapter。
+ *
+ * 主进程由 tsc 编译为 CommonJS（无打包步骤），而 @nuwax-ai/mcp-proxy-ts 以
+ * extraResource（resources/mcp-proxy-ts）随包发布、不在 app.asar 的 node_modules 中。
+ * 因此静态 `import ... from "@nuwax-ai/mcp-proxy-ts/host"` 在打包后会变成无法解析的
+ * bare `require("@nuwax-ai/mcp-proxy-ts/host")`，导致启动崩溃（Cannot find module）。
+ *
+ * 这里改为按路径 require `prepare:mcp-proxy` 用 esbuild 预构建的 CJS lib bundle
+ * （lib.bundle.js，已导出 Host Adapter 全部函数）。开发与生产都从 resources/mcp-proxy-ts
+ * 解析（开发可经 NUWAX_MCP_PROXY_LOCAL_PATH 覆盖）。
+ */
+let cachedHostAdapter: typeof McpProxyHost | null = null;
+function loadHostAdapter(): typeof McpProxyHost {
+  if (cachedHostAdapter) return cachedHostAdapter;
+  const localDev = process.env.NUWAX_MCP_PROXY_LOCAL_PATH;
+  const dir =
+    (localDev && fs.existsSync(path.join(localDev, "package.json"))
+      ? localDev
+      : null) ?? getBundledMcpProxyDir();
+  if (!dir) {
+    throw new Error(
+      "[McpProxy] @nuwax-ai/mcp-proxy-ts not found; run `npm run prepare:mcp-proxy`",
+    );
+  }
+  // 直接 require 未打包的原生 ESM `dist/host/rewrite.js`：
+  //   1. 它自包含（仅依赖 Node 内建 + 同目录文件），不引入 bridge /
+  //      @modelcontextprotocol/sdk，因此没有 bridge↔host 循环依赖；
+  //   2. 规避了 esbuild CJS 打包该循环依赖导致的导出全部丢失问题（lib.bundle.js
+  //      不可用）；
+  //   3. Node 22+/Electron 支持同步 require() 此类无 top-level await 的 ESM 模块
+  //      （即报错栈中的 resolveForCJSWithHooks 路径）。
+  // prepare:mcp-proxy 会在 dist/host/ 写入 {"type":"module"} 标记，确保此处 .js 按 ESM 解析。
+  const hostModule = path.join(dir, "dist", "host", "rewrite.js");
+  if (!fs.existsSync(hostModule)) {
+    throw new Error(
+      `[McpProxy] Host adapter missing: ${hostModule}; run \`npm run prepare:mcp-proxy\``,
+    );
+  }
+  cachedHostAdapter = require(hostModule) as typeof McpProxyHost;
+  return cachedHostAdapter;
+}
+
 type PerfValue = string | number | boolean | null | undefined;
 
 function formatPerfValue(value: PerfValue): string {
@@ -1009,7 +1053,7 @@ class McpProxyManager {
         fs.mkdirSync(logsDir, { recursive: true });
       }
 
-      const result = rewriteServersToProxyCommands(hostMap, {
+      const result = loadHostAdapter().rewriteServersToProxyCommands(hostMap, {
         proxyScriptPath: scriptPath,
         nodeBinPath,
         configDir: path.join(os.tmpdir(), "nuwax-mcp-configs"),
@@ -1030,7 +1074,7 @@ class McpProxyManager {
     }
 
     // fallback: 无 proxy 脚本时直接返回各 server 的 stdio 配置
-    return rewriteServersToProxyCommands(hostMap, {
+    return loadHostAdapter().rewriteServersToProxyCommands(hostMap, {
       proxyScriptPath: null,
       allowTools: this.config.allowTools,
       denyTools: this.config.denyTools,

@@ -158,6 +158,22 @@ function main() {
   fs.copyFileSync(libBundlePath, destLibJs);
   console.log(`  dist/lib.bundle.js (${(fs.statSync(destLibJs).size / 1024).toFixed(0)} KB)`);
 
+  // 复制 dist/host/（Host Adapter 原生 ESM 文件，供主进程按路径同步 require）
+  const srcHostDir = path.join(srcDir, 'dist', 'host');
+  const destHostDir = path.join(destDir, 'dist', 'host');
+  if (fs.existsSync(srcHostDir)) {
+    fs.cpSync(srcHostDir, destHostDir, { recursive: true });
+    // 资源根 package.json 不含 type:module（CLI index.js 为 CJS），在此放入
+    // {"type":"module"} 标记，使 dist/host/*.js 按 ESM 解析，供 Node require(esm) 加载。
+    fs.writeFileSync(
+      path.join(destHostDir, 'package.json'),
+      JSON.stringify({ type: 'module', private: true }, null, 2) + '\n',
+    );
+    console.log(`  dist/host/ (${fs.readdirSync(destHostDir).length} files, ESM)`);
+  } else {
+    console.warn('[prepare-mcp-proxy] dist/host/ 不存在，主进程 Host Adapter 将无法加载');
+  }
+
   // 6. 生成精简版 package.json（CJS require 用 main=lib.bundle.js）
   const slimPkg = {
     name: srcPkg.name,
