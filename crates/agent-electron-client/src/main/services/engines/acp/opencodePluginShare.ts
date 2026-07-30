@@ -50,7 +50,7 @@ export function resolveOpencodePluginVersion(): string | null {
   return null;
 }
 
-/** 拒绝路径穿越；版本号一般是 1.17.5，非法字符替换为下划线 */
+/** 拒绝路径穿越；版本号一般是 1.17.6，非法字符替换为下划线 */
 export function sanitizeVersionSegment(version: string): string {
   const trimmed = version.trim();
   if (!trimmed) return "unknown";
