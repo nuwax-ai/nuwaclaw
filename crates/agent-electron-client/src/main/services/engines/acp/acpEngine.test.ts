@@ -836,8 +836,8 @@ describe("AcpEngine.init", () => {
     expect(capturedEnv?.OPENCODE_CONFIG_CONTENT).toBeTruthy();
 
     const injected = JSON.parse(capturedEnv!.OPENCODE_CONFIG_CONTENT!);
-    expect(injected.mcp).toBeDefined();
-    expect(injected.mcp["chrome-devtools"]).toBeDefined();
+    // MCP 只经 ACP session/new 下发，避免 OPENCODE_CONFIG_CONTENT.mcp 双路径重复建连
+    expect(injected.mcp).toBeUndefined();
     expect(injected.permission.question).toBe("deny");
 
     await engine.destroy();

@@ -634,9 +634,11 @@ export class AcpEngine extends EventEmitter {
       const sandboxConfig = sandboxResolved.config;
 
       if (this.sandboxCaps.usesOpencodeSpawnConfig) {
+        // MCP 只走 ACP session/new 的 mcpServers，不再写入 OPENCODE_CONFIG_CONTENT.mcp。
+        // 旧「双路径」会让引擎 Instance 初始化先连一遍 cfg.mcp，registerMcpServers
+        // 再 mcp.add 一遍；坏远程 MCP 各卡 ~20s → session/new 合计 ~40s。
         const { configObj, sandboxApply: opencodeSandboxApply } =
           buildOpencodeSpawnConfig({
-            mcpServers: config.mcpServers,
             model: config.model,
             sandboxConfig,
             workspaceDir: config.workspaceDir,
@@ -666,9 +668,10 @@ export class AcpEngine extends EventEmitter {
           `${this.logTag} 🔌 OpenCode ACP config injected (OPENCODE_CONFIG_CONTENT)`,
           {
             engine: this.engineName,
-            mcp_injection: "enabled (legacy dual-path for A/B)",
-            mcp_servers: configObj.mcp
-              ? Object.keys(configObj.mcp as Record<string, unknown>)
+            // ACP session/new 仍会带上这些 server；此处仅表示未写入 CONFIG.mcp
+            mcp_injection: "disabled (acp session/new only)",
+            mcp_servers_via_acp: config.mcpServers
+              ? Object.keys(config.mcpServers)
               : [],
             permission: effectivePerm,
             permission_bridge_key: this.opencodePermissionBridgeKey || "(none)",

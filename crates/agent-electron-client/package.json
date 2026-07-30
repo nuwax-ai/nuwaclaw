@@ -124,7 +124,7 @@
     "vite": "^6.0.7",
     "vitest": "^2.1.8",
     "wait-on": "^8.0.2",
-    "@nuwax-ai/mcp-proxy-ts": "1.5.2"
+    "@nuwax-ai/mcp-proxy-ts": "1.5.3"
   },
   "bundledSources": {
     "nuwax-file-server": {
