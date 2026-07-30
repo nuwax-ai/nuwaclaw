@@ -36,7 +36,7 @@ describe("opencodePluginShare", () => {
     fs.mkdirSync(path.join(mockResources, "nuwaxcode"), { recursive: true });
     fs.writeFileSync(
       path.join(mockResources, "nuwaxcode", ".version"),
-      "1.17.6\n",
+      "1.17.5\n",
     );
   });
 
@@ -47,16 +47,16 @@ describe("opencodePluginShare", () => {
   });
 
   it("sanitizeVersionSegment blocks path traversal", () => {
-    expect(sanitizeVersionSegment("1.17.6")).toBe("1.17.6");
+    expect(sanitizeVersionSegment("1.17.5")).toBe("1.17.5");
     expect(sanitizeVersionSegment("../evil")).toBe("__evil");
   });
 
   it("resolveOpencodePluginVersion reads bundled .version", () => {
-    expect(resolveOpencodePluginVersion()).toBe("1.17.6");
+    expect(resolveOpencodePluginVersion()).toBe("1.17.5");
   });
 
   it("links with dir symlink on Unix and preserves package.json", () => {
-    const version = "1.17.6";
+    const version = "1.17.5";
     const sharedDir = getSharedOpencodePluginDir(version);
     const sharedNm = path.join(
       sharedDir,
@@ -88,7 +88,7 @@ describe("opencodePluginShare", () => {
 
   it("uses junction type on Windows", () => {
     mockIsWindows.mockReturnValue(true);
-    const version = "1.17.6";
+    const version = "1.17.5";
     const sharedDir = getSharedOpencodePluginDir(version);
     const sharedNm = path.join(
       sharedDir,
@@ -112,7 +112,7 @@ describe("opencodePluginShare", () => {
   });
 
   it("replaces real node_modules directory with link", () => {
-    const version = "1.17.6";
+    const version = "1.17.5";
     const sharedDir = getSharedOpencodePluginDir(version);
     const sharedNm = path.join(
       sharedDir,
@@ -137,7 +137,7 @@ describe("opencodePluginShare", () => {
   });
 
   it("is idempotent when already linked to shared", () => {
-    const version = "1.17.6";
+    const version = "1.17.5";
     const sharedDir = getSharedOpencodePluginDir(version);
     const sharedNmRoot = path.join(sharedDir, "node_modules");
     const sharedNm = path.join(sharedNmRoot, "@opencode-ai", "plugin");
