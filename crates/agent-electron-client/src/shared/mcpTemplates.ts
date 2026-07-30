@@ -13,6 +13,8 @@ export interface McpTemplate {
     command: string;
     args: string[];
     env?: Record<string, string>;
+    /** 是否走 PersistentMcpBridge（例如 chrome-devtools） */
+    persistent?: boolean;
   };
   // 需要用户填写的参数（如路径、token 等）
   requiredParams?: {
@@ -66,6 +68,17 @@ export const MCP_TEMPLATES: McpTemplate[] = [
         type: "password",
       },
     ],
+  },
+  {
+    id: "nuwax-openui",
+    name: "Nuwax OpenUI",
+    description: "在当前项目 data/ 目录生成可持久化的 OpenUI 产物",
+    category: "ai",
+    icon: "🧩",
+    config: {
+      command: "npx",
+      args: ["-y", "@nuwax-ai/openui-mcp@latest"],
+    },
   },
   {
     id: "slack",
@@ -230,7 +243,12 @@ export function getTemplateById(id: string): McpTemplate | undefined {
 export function applyTemplateParams(
   template: McpTemplate,
   params: Record<string, string>,
-): { command: string; args: string[]; env?: Record<string, string> } {
+): {
+  command: string;
+  args: string[];
+  env?: Record<string, string>;
+  persistent?: boolean;
+} {
   const config = { ...template.config };
 
   // 替换 args 中的占位符

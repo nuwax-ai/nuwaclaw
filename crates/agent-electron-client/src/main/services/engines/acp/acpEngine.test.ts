@@ -1459,7 +1459,10 @@ describe("AcpEngine.chat", () => {
     const { engine, sessionId, session } = setupEngine();
     session.projectId = key;
 
-    const warmupSpy = vi.spyOn(engine as any, "waitForCompatMcpWarmupIfNeeded");
+    const warmupSpy = vi.spyOn(
+      engine as any,
+      "waitForMcpFirstPromptWarmupIfNeeded",
+    );
     vi.spyOn(engine, "promptAsync").mockResolvedValue(undefined);
 
     const result = await engine.chat(
@@ -1550,7 +1553,7 @@ describe("AcpEngine.chat", () => {
     );
   });
 
-  it("claude-code: compat + 新会话 + context_servers 时等待 MCP warmup 后再发首条 prompt", async () => {
+  it("claude-code: 新会话即使未启用 sandbox/context_servers 也等待 MCP warmup 后再发首条 prompt", async () => {
     const engine = new AcpEngine("claude-code");
     (engine as any).config = {
       engine: "claude-code",
@@ -1561,13 +1564,6 @@ describe("AcpEngine.chat", () => {
       },
     };
     (engine as any).acpConnection = {} as any;
-    (engine as any).storedSandboxConfig = {
-      enabled: true,
-      mode: "compat",
-      type: "macos-seatbelt",
-      projectWorkspaceDir: "/tmp/workspace",
-    };
-
     vi.spyOn(engine, "createSession").mockImplementation(async () => {
       (engine as any).sessions.set("new-session-compat", {
         id: "new-session-compat",
@@ -1593,15 +1589,9 @@ describe("AcpEngine.chat", () => {
       project_id: "project-compat",
       request_id: "rid-chat-compat-001",
       prompt: "hello compat",
-      agent_config: {
-        context_servers: {
-          whois: { enabled: true },
-          time: { enabled: true },
-        },
-      },
     } as any);
 
-    await vi.advanceTimersByTimeAsync(1199);
+    await vi.advanceTimersByTimeAsync(2999);
     expect(promptAsyncSpy).not.toHaveBeenCalled();
 
     await vi.advanceTimersByTimeAsync(1);

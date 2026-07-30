@@ -8,6 +8,7 @@ import {
   message,
   Card,
   Select,
+  Switch,
 } from "antd";
 import { ArrowLeftOutlined, CheckCircleOutlined } from "@ant-design/icons";
 import CodeEditor from "@uiw/react-textarea-code-editor";
@@ -15,9 +16,11 @@ import type { McpServerEntry, McpServersConfig } from "@shared/types/electron";
 import { t } from "../../services/core/i18n";
 import {
   isMcpServerIdDuplicate,
+  parseEnvText,
   parseServerFromJson,
   resolveMcpEditorPayload,
   serializeEntryToJson,
+  serializeEnvToText,
 } from "./mcpServerEditorUtils";
 
 const { Text } = Typography;
@@ -59,6 +62,10 @@ function MCPServerEditor({
   const [serverId, setServerId] = useState("");
   const [command, setCommand] = useState("");
   const [argsText, setArgsText] = useState("");
+  // stdio 专用：JSON 对象文本，对应 entry.env（如 API_KEY）
+  const [envText, setEnvText] = useState("");
+  // stdio 专用：是否走 PersistentMcpBridge（与 chrome-devtools / nuwax-openui 同路径）
+  const [persistent, setPersistent] = useState(false);
   const [url, setUrl] = useState("");
   const [transport, setTransport] = useState<"streamable-http" | "sse">(
     "streamable-http",
@@ -86,10 +93,14 @@ function MCPServerEditor({
             setServerType("stdio");
             setCommand(initialEntry.command);
             setArgsText(JSON.stringify(initialEntry.args ?? []));
+            setEnvText(serializeEnvToText(initialEntry.env));
+            setPersistent(!!initialEntry.persistent);
           } else {
             setServerType("remote");
             setUrl(initialEntry.url);
             setTransport(initialEntry.transport ?? "streamable-http");
+            setEnvText("");
+            setPersistent(false);
           }
           setServerId(editingServerId);
           setJsonText(serializeEntryToJson(editingServerId, initialEntry));
@@ -98,6 +109,8 @@ function MCPServerEditor({
       }
     } else if (!isEdit) {
       setJsonText("");
+      setEnvText("");
+      setPersistent(false);
       lastInitialEntryRef.current = "";
       lastSyncedServerIdRef.current = "";
     }
@@ -148,6 +161,8 @@ function MCPServerEditor({
         return { ok: false, error: t("Claw.MCP.addServer.commandRequired") };
       const argsParsed = parseArgsText(argsText);
       if (!argsParsed.ok) return argsParsed;
+      const envParsed = parseEnvText(envText);
+      if (!envParsed.ok) return envParsed;
       return {
         ok: true,
         serverId: id,
@@ -155,6 +170,10 @@ function MCPServerEditor({
           command: cmd,
           args: argsParsed.args,
           enabled: initialEntry?.enabled ?? false,
+          // 仅在有有效键值时写入，对应如 API_KEY
+          ...(envParsed.env ? { env: envParsed.env } : {}),
+          // persistent: 进 PersistentMcpBridge，再由 mcp-proxy 以 {url} 接入（同 chrome-devtools）
+          ...(persistent ? { persistent: true } : {}),
         },
       };
     }
@@ -171,6 +190,8 @@ function MCPServerEditor({
     serverType,
     command,
     argsText,
+    envText,
+    persistent,
     url,
     transport,
     initialEntry?.enabled,
@@ -255,6 +276,8 @@ function MCPServerEditor({
     serverId,
     command,
     argsText,
+    envText,
+    persistent,
     url,
     transport,
     jsonText,
@@ -279,10 +302,14 @@ function MCPServerEditor({
         setServerType("stdio");
         setCommand(entry.command);
         setArgsText(JSON.stringify(entry.args ?? []));
+        setEnvText(serializeEnvToText(entry.env));
+        setPersistent(!!entry.persistent);
       } else {
         setServerType("remote");
         setUrl(entry.url);
         setTransport(entry.transport ?? "streamable-http");
+        setEnvText("");
+        setPersistent(false);
       }
       setServerId(parsedId);
       setJsonError("");
@@ -443,6 +470,33 @@ function MCPServerEditor({
                       "Claw.MCP.addServer.argsPlaceholderAdvanced",
                     )}
                   />
+                </div>
+                <div>
+                  <Text style={{ display: "block", marginBottom: 6 }}>
+                    {t("Claw.MCP.addServer.env")}
+                  </Text>
+                  <Input.TextArea
+                    value={envText}
+                    onChange={(e) => setEnvText(e.target.value)}
+                    autoSize={{ minRows: 2, maxRows: 8 }}
+                    placeholder={t("Claw.MCP.addServer.envPlaceholder")}
+                  />
+                </div>
+                <div>
+                  <Space align="center">
+                    <Switch
+                      checked={persistent}
+                      onChange={setPersistent}
+                      size="small"
+                    />
+                    <Text>{t("Claw.MCP.addServer.persistent")}</Text>
+                  </Space>
+                  <Text
+                    type="secondary"
+                    style={{ display: "block", marginTop: 4, fontSize: 12 }}
+                  >
+                    {t("Claw.MCP.addServer.persistentHint")}
+                  </Text>
                 </div>
               </>
             ) : (

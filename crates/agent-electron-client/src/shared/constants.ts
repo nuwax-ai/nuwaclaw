@@ -504,5 +504,10 @@ export const I18N_KEYS = {
     EDITOR_TAB_JSON: "Claw.MCP.editor.tabJson",
     EDITOR_JSON_HINT: "Claw.MCP.editor.jsonHint",
     EDITOR_DRAFT_HINT: "Claw.MCP.editor.draftHint",
+    ADD_SERVER_ENV: "Claw.MCP.addServer.env",
+    ADD_SERVER_ENV_PLACEHOLDER: "Claw.MCP.addServer.envPlaceholder",
+    ADD_SERVER_ENV_INVALID: "Claw.MCP.addServer.envInvalid",
+    ADD_SERVER_PERSISTENT: "Claw.MCP.addServer.persistent",
+    ADD_SERVER_PERSISTENT_HINT: "Claw.MCP.addServer.persistentHint",
   },
 } as const;

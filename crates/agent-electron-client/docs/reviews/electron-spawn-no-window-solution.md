@@ -262,7 +262,7 @@ const child1 = spawnJsFile('/path/to/script.js', ['--port', '8080']);
 
 // 启动 npm 包
 const child2 = spawnNpmPackage(
-  '/path/to/node_modules/mcp-stdio-proxy',
+  '/path/to/node_modules/mcp-proxy-ts',
   ['proxy', '--port', '9000'],
   { env: { CUSTOM_VAR: 'value' } },
   'mcp-proxy' // bin 名称（可选）

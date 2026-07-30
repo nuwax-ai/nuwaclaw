@@ -51,6 +51,20 @@ function setupPermissions(): void {
   );
 }
 
+// ---------- 拼写检查 ----------
+
+/**
+ * 在 session 级别禁用拼写检查。
+ *
+ * BrowserWindow 的 webPreferences.spellcheck:false 只对该窗口自身的 webContents
+ * 生效；而应用内打开网页用的是 <webview>，它是独立的 webContents、不会继承该设置，
+ * 因此 Windows 上网页输入框仍会出现红色拼写波浪线。这里在 default session（所有
+ * 未指定 partition 的 webview 与主窗口共用）上关闭拼写检查器，一次性覆盖全部。
+ */
+function setupSpellCheck(): void {
+  electronSession.defaultSession.setSpellCheckerEnabled(false);
+}
+
 // ---------- window.open ----------
 
 function isHttpUrl(url: string): boolean {
@@ -207,7 +221,10 @@ export function initWebviewPolicy(
   getMainWindow: () => BrowserWindow | null,
 ): void {
   setupPermissions();
+  setupSpellCheck();
   setupWindowOpen();
   setupDownloads(getMainWindow);
-  log.info("[WebviewPolicy] Initialized (permissions, window.open, downloads)");
+  log.info(
+    "[WebviewPolicy] Initialized (permissions, spellcheck off, window.open, downloads)",
+  );
 }

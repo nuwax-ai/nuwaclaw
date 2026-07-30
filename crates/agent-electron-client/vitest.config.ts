@@ -7,6 +7,12 @@ export default defineConfig({
     environment: 'node',
     include: ['src/**/*.{test,spec}.{ts,tsx}', 'tests/**/*.{test,spec}.{ts,tsx}'],
     exclude: ['node_modules', 'dist', 'release'],
+    // 让 vi.mock('fs') 作用于 Host Adapter（外部包默认不走 Vite 转换）
+    server: {
+      deps: {
+        inline: ['@nuwax-ai/mcp-proxy-ts'],
+      },
+    },
     coverage: {
       provider: 'v8',
       reporter: ['text', 'json', 'html', 'lcov'],

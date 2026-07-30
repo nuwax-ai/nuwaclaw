@@ -130,6 +130,9 @@ importers:
       '@eslint/js':
         specifier: ^9.39.2
         version: 9.39.4
+      '@nuwax-ai/mcp-proxy-ts':
+        specifier: 1.5.2
+        version: 1.5.2(zod@3.25.76)
       '@types/adm-zip':
         specifier: ^0.5.7
         version: 0.5.8
@@ -184,9 +187,6 @@ importers:
       eslint-plugin-react-refresh:
         specifier: ^0.5.0
         version: 0.5.2(eslint@9.39.4)
-      nuwax-mcp-stdio-proxy:
-        specifier: workspace:*
-        version: link:../nuwax-mcp-stdio-proxy
       sharp:
         specifier: ^0.34.5
         version: 0.34.5
@@ -233,134 +233,6 @@ importers:
         specifier: ^0.33.0
         version: 0.33.5
     devDependencies:
-      '@types/node':
-        specifier: ^22.0.0
-        version: 22.19.15
-      '@vitest/coverage-v8':
-        specifier: ^2.1.9
-        version: 2.1.9(vitest@2.1.9(@types/node@22.19.15))
-      esbuild:
-        specifier: ^0.27.3
-        version: 0.27.4
-      typescript:
-        specifier: ^5.7.0
-        version: 5.8.3
-      vitest:
-        specifier: ^2.1.8
-        version: 2.1.9(@types/node@22.19.15)
-
-  crates/agent-workbench:
-    dependencies:
-      '@js-preview/docx':
-        specifier: ^1.6.4
-        version: 1.6.4(core-js@3.49.0)
-      '@js-preview/excel':
-        specifier: ^1.7.14
-        version: 1.7.14
-      '@js-preview/pdf':
-        specifier: ^2.0.10
-        version: 2.0.10
-      '@nuwax-ai/chat-kit':
-        specifier: workspace:*
-        version: link:../chat-kit
-      '@xterm/addon-fit':
-        specifier: ^0.10.0
-        version: 0.10.0(@xterm/xterm@5.5.0)
-      '@xterm/xterm':
-        specifier: ^5.5.0
-        version: 5.5.0
-      katex:
-        specifier: ^0.16.47
-        version: 0.16.47
-      mermaid:
-        specifier: ^11.15.0
-        version: 11.15.0
-      pptx-preview:
-        specifier: ^1.0.7
-        version: 1.0.7
-      prism-react-renderer:
-        specifier: ^2.4.1
-        version: 2.4.1(react@18.3.1)
-      react-markdown:
-        specifier: ^10.1.0
-        version: 10.1.0(@types/react@18.3.28)(react@18.3.1)
-      rehype-katex:
-        specifier: ^7.0.1
-        version: 7.0.1
-      rehype-raw:
-        specifier: ^7.0.0
-        version: 7.0.0
-      remark-gfm:
-        specifier: ^4.0.1
-        version: 4.0.1
-      remark-math:
-        specifier: ^6.0.0
-        version: 6.0.0
-    devDependencies:
-      '@types/node':
-        specifier: ^22.19.15
-        version: 22.19.15
-      '@types/react':
-        specifier: ^18.3.18
-        version: 18.3.28
-      '@types/react-dom':
-        specifier: ^18.3.5
-        version: 18.3.7(@types/react@18.3.28)
-      '@vitejs/plugin-react':
-        specifier: ^4.3.4
-        version: 4.7.0(vite@6.4.1(@types/node@22.19.15)(yaml@2.8.2))
-      react:
-        specifier: ^18.3.1
-        version: 18.3.1
-      react-dom:
-        specifier: ^18.3.1
-        version: 18.3.1(react@18.3.1)
-      typescript:
-        specifier: ^5.7.3
-        version: 5.8.3
-      vite:
-        specifier: ^6.0.7
-        version: 6.4.1(@types/node@22.19.15)(yaml@2.8.2)
-      vitest:
-        specifier: ^2.1.8
-        version: 2.1.9(@types/node@22.19.15)
-
-  crates/chat-kit:
-    devDependencies:
-      '@types/react':
-        specifier: ^18.3.18
-        version: 18.3.28
-      '@types/react-dom':
-        specifier: ^18.3.5
-        version: 18.3.7(@types/react@18.3.28)
-      '@vitejs/plugin-react':
-        specifier: ^4.3.4
-        version: 4.7.0(vite@6.4.1(@types/node@24.12.0)(yaml@2.8.2))
-      react:
-        specifier: ^18.3.1
-        version: 18.3.1
-      react-dom:
-        specifier: ^18.3.1
-        version: 18.3.1(react@18.3.1)
-      typescript:
-        specifier: ^5.7.3
-        version: 5.8.3
-      vite:
-        specifier: ^6.0.7
-        version: 6.4.1(@types/node@24.12.0)(yaml@2.8.2)
-      vitest:
-        specifier: ^2.1.8
-        version: 2.1.9(@types/node@24.12.0)
-
-  crates/nuwax-mcp-stdio-proxy:
-    dependencies:
-      '@modelcontextprotocol/sdk':
-        specifier: ^1.27.1
-        version: 1.27.1(zod@3.25.76)
-    devDependencies:
-      '@types/estree':
-        specifier: ^1.0.6
-        version: 1.0.8
       '@types/node':
         specifier: ^22.0.0
         version: 22.19.15
@@ -1810,19 +1682,16 @@ packages:
   '@nut-tree-fork/libnut-darwin@2.7.5':
     resolution: {integrity: sha512-LbqtPtMPTJUcg4XoPP2jsU1wc8flBcGyKTerKsIfK9cD7nBHROnO0QksbrsbSWEpLym8T8fRtuU7XEY83l6Z2Q==}
     engines: {node: '>=10.15.3'}
-    cpu: [x64, arm64]
     os: [darwin, linux, win32]
 
   '@nut-tree-fork/libnut-linux@2.7.5':
     resolution: {integrity: sha512-uxaXEcRKnFObAljsoR6tLOBUU1dJ2sctloG6gFgCBGN7+k6Jdv6jZfOuNjd/fpdq2C5WPMm0rtn9EE7h5J3Jcg==}
     engines: {node: '>=10.15.3'}
-    cpu: [x64, arm64]
     os: [darwin, linux, win32]
 
   '@nut-tree-fork/libnut-win32@2.7.5':
     resolution: {integrity: sha512-yqC87zvmFcDPwFrRU40DYhN0xmEVM3aSkOuyF0IX+y1x+HWSu/i0PNklATpPBhGid3QVb/TOHuVoaraMrUFCNw==}
     engines: {node: '>=10.15.3'}
-    cpu: [x64, arm64]
     os: [darwin, linux, win32]
 
   '@nut-tree-fork/libnut@4.2.6':
@@ -1836,7 +1705,6 @@ packages:
   '@nut-tree-fork/nut-js@4.2.6':
     resolution: {integrity: sha512-aI/WCX7gE1HFGPH3EZP/UWqpNMM1NMoM/EkXqp7pKMgXFCi8e5+o5p+jd/QOYpmALv9bQg7+s69nI7FONbMqDg==}
     engines: {node: '>=16'}
-    cpu: [x64, arm64]
     os: [linux, darwin, win32]
 
   '@nut-tree-fork/provider-interfaces@4.2.6':
@@ -1844,6 +1712,11 @@ packages:
 
   '@nut-tree-fork/shared@4.2.6':
     resolution: {integrity: sha512-xZaa0YtJt/DDDq/i1vZkabjq8HOWzfhXieMai61cMbYD11J6VhAfhV23ZtQEM02WG7nc2LKjl4UwRnQCteikwA==}
+
+  '@nuwax-ai/mcp-proxy-ts@1.5.2':
+    resolution: {integrity: sha512-VVUhEh8GQMMqlwdYJjJLK3ciN8UTW81sf6rPGUMo4M5I61qNjZI+zQMPcuPU7vHO9xvrkl5hhrd8GROqPBhwUw==}
+    engines: {node: '>=22.0.0'}
+    hasBin: true
 
   '@pkgjs/parseargs@0.11.0':
     resolution: {integrity: sha512-+1VkjdD0QBLPodGrJUeqarH8VAIvQODIbwh9XpP5Syisf7YoQgsJKPNFoqqLQlu+VQ/tVSshMR6loPMn8U+dPg==}
@@ -8306,6 +8179,14 @@ snapshots:
     transitivePeerDependencies:
       - debug
       - encoding
+
+  '@nuwax-ai/mcp-proxy-ts@1.5.2(zod@3.25.76)':
+    dependencies:
+      '@modelcontextprotocol/sdk': 1.27.1(zod@3.25.76)
+    transitivePeerDependencies:
+      - '@cfworker/json-schema'
+      - supports-color
+      - zod
 
   '@pkgjs/parseargs@0.11.0':
     optional: true

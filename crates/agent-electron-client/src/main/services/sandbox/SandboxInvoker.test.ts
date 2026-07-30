@@ -324,7 +324,7 @@ describe("SandboxInvoker - macos-seatbelt", () => {
           startupExecAllowlist: [
             "/mock/resources/nuwaxcode/darwin-arm64/bin/nuwaxcode",
             "/mock/resources/node/darwin-arm64/bin/node",
-            "/mock/resources/nuwax-mcp-stdio-proxy/dist/index.js",
+            "/mock/resources/mcp-proxy-ts/dist/index.js",
           ],
         }),
       );
@@ -334,7 +334,7 @@ describe("SandboxInvoker - macos-seatbelt", () => {
         '(allow process-exec (literal "/mock/resources/node/darwin-arm64/bin/node"))',
       );
       expect(profile).toContain(
-        '(allow process-exec (literal "/mock/resources/nuwax-mcp-stdio-proxy/dist/index.js"))',
+        '(allow process-exec (literal "/mock/resources/mcp-proxy-ts/dist/index.js"))',
       );
     });
 

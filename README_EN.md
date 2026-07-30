@@ -52,7 +52,7 @@ NuwaClaw uses [ACP (Agent Client Protocol)](https://agentclientprotocol.com/) to
 nuwax-agent-client/
 ├── crates/
 │   ├── agent-electron-client/   # Electron client (primary development)
-│   ├── nuwax-mcp-stdio-proxy/   # MCP protocol aggregation proxy
+│   ├── @nuwax-ai/mcp-proxy-ts/   # MCP protocol aggregation proxy
 │   ├── agent-gpui-client/       # GPUI client (experimental)
 │   ├── agent-server-admin/      # Admin API service
 │   ├── agent-protocol/          # Communication protocol definitions
@@ -92,7 +92,7 @@ npm run dist:linux    # Linux
 ### MCP Proxy Service
 
 ```bash
-cd crates/nuwax-mcp-stdio-proxy
+cd crates/@nuwax-ai/mcp-proxy-ts
 
 # Install dependencies
 npm install
@@ -101,13 +101,13 @@ npm install
 npm run build
 
 # Run (stdio aggregation mode)
-nuwax-mcp-stdio-proxy --config '{"mcpServers":{...}}'
+@nuwax-ai/mcp-proxy-ts --config '{"mcpServers":{...}}'
 
 # Run (protocol conversion mode)
-nuwax-mcp-stdio-proxy convert http://remote-mcp-server/sse
+@nuwax-ai/mcp-proxy-ts convert http://remote-mcp-server/sse
 
 # Run (persistent bridge mode)
-nuwax-mcp-stdio-proxy proxy --port 18099 --config '{"mcpServers":{...}}'
+@nuwax-ai/mcp-proxy-ts proxy --port 18099 --config '{"mcpServers":{...}}'
 ```
 
 ## Platform Support
@@ -164,15 +164,15 @@ nuwax-mcp-stdio-proxy proxy --port 18099 --config '{"mcpServers":{...}}'
 
 ## MCP Proxy Service Details
 
-`nuwax-mcp-stdio-proxy` is an MCP protocol aggregation proxy that solves lifecycle management issues when integrating multiple MCP servers.
+`@nuwax-ai/mcp-proxy-ts` is an MCP protocol aggregation proxy that solves lifecycle management issues when integrating multiple MCP servers.
 
 ### Running Modes
 
 | Mode | Purpose | Command |
 |------|---------|---------|
-| **stdio** | Aggregate multiple MCP servers into single stdio interface | `nuwax-mcp-stdio-proxy --config '...'` |
-| **convert** | Convert remote MCP service to local stdio | `nuwax-mcp-stdio-proxy convert <url>` |
-| **proxy** | Persistent bridge, pre-start and expose HTTP interface | `nuwax-mcp-stdio-proxy proxy --port 18099` |
+| **stdio** | Aggregate multiple MCP servers into single stdio interface | `@nuwax-ai/mcp-proxy-ts --config '...'` |
+| **convert** | Convert remote MCP service to local stdio | `@nuwax-ai/mcp-proxy-ts convert <url>` |
+| **proxy** | Persistent bridge, pre-start and expose HTTP interface | `@nuwax-ai/mcp-proxy-ts proxy --port 18099` |
 
 ### Core Features
 - **Readiness Detection**: Block until MCP servers are ready
@@ -246,7 +246,7 @@ cd crates/agent-electron-client
 npm run test
 
 # MCP proxy
-cd crates/nuwax-mcp-stdio-proxy
+cd crates/@nuwax-ai/mcp-proxy-ts
 npm run test:run
 npm run test:coverage
 ```
