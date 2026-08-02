@@ -36,6 +36,7 @@
     "verify:sandboxed-mcp": "node scripts/verify-sandboxed-mcp-bundle.mjs",
     "prepare:nuwaxcode": "node scripts/prepare/prepare-nuwaxcode.js",
     "prepare:codex-acp": "node scripts/prepare/prepare-codex-acp.js",
+    "prepare:codex-acp-ts": "node scripts/prepare/prepare-codex-acp-ts.js",
     "prepare:sandbox-runtime": "node scripts/prepare/prepare-sandbox-runtime.js",
     "build:sandbox-helper": "node scripts/prepare/build-sandbox-helper.js",
     "prepare:sandbox-helper-win": "node scripts/prepare/prepare-sandbox-helper-windows.js",
@@ -288,6 +289,13 @@
           "**/*",
           "!*.cache",
           "!.cache/**"
+        ]
+      },
+      {
+        "from": "resources/nuwax-codex-acp-ts",
+        "to": "nuwax-codex-acp-ts",
+        "filter": [
+          "**/*"
         ]
       },
       {

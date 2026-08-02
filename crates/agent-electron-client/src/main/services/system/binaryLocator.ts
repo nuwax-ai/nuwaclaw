@@ -431,3 +431,15 @@ export function getClaudeCodeAcpBundledDir(): string | null {
     ? bundledDir
     : null;
 }
+
+/**
+ * @nuwax-ai/nuwax-codex-acp-ts（TS adapter）bundled dir。codex 引擎经 adapter
+ * （dist/index.js）spawn，adapter 内部 require.resolve("nuwax-codex/package.json")
+ * 定位 node_modules/.cache/nuwax-codex/<ver>/ 下的原生二进制。
+ */
+export function getCodexAcpTsBundledDir(): string | null {
+  const bundledDir = path.join(getResourcesPath(), "nuwax-codex-acp-ts");
+  return fs.existsSync(path.join(bundledDir, "package.json"))
+    ? bundledDir
+    : null;
+}

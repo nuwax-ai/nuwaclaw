@@ -450,3 +450,6 @@ export default {
   getClaudeCodeAcpBundledDir,
   getCodexAcpBundledDir,
 };
+
+// codex TS adapter bundled dir（binaryLocator 新增，单独 re-export 避免改上面 import 块）
+export { getCodexAcpTsBundledDir } from "./binaryLocator";
