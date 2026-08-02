@@ -137,11 +137,14 @@ export function resolveRequestEngineParams(args: {
   const { request, fallbackEngine, baseModel } = args;
   const agentServer = request.agent_config?.agent_server;
   const mp = request.model_provider;
-  const requiredEngine = resolveRequiredAgentEngine({
-    agentCommand: agentServer?.command,
-    apiProtocol: mp?.api_protocol,
-    fallbackEngine,
-  });
+  // 临时调试开关：NUWACLAW_FORCE_ENGINE=codex|claude-code|nuwaxcode 强制引擎（测 codex-acp 用）
+  const requiredEngine =
+    (process.env.NUWACLAW_FORCE_ENGINE as AgentEngineType | undefined) ||
+    resolveRequiredAgentEngine({
+      agentCommand: agentServer?.command,
+      apiProtocol: mp?.api_protocol,
+      fallbackEngine,
+    });
   const resolvedEnv = agentServer?.env
     ? resolveAgentEnv(agentServer.env, mp)
     : undefined;
