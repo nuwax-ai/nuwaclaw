@@ -71,13 +71,15 @@
     "lint:fix": "eslint src --fix"
   },
   "dependencies": {
-    "adm-zip": "^0.5.16",
     "@agentclientprotocol/sdk": "^0.26.0",
     "@ant-design/icons": "^5.6.1",
     "@anthropic-ai/sdk": "^0.39.0",
     "@modelcontextprotocol/sdk": "^1.27.1",
+    "@nuwax-ai/mcp-proxy-ts": "1.5.4",
+    "@nuwax-ai/nuwax-codex-acp-ts": "1.2.4",
     "@uiw/react-json-view": "2.0.0-alpha.42",
     "@uiw/react-textarea-code-editor": "^3.1.1",
+    "adm-zip": "^0.5.16",
     "antd": "^5.29.3",
     "auto-launch": "^5.0.6",
     "better-sqlite3": "^12.6.2",
@@ -93,8 +95,7 @@
     "react-dom": "^18.3.1",
     "react-syntax-highlighter": "^16.1.1",
     "sqlite-vec": "^0.1.7-alpha.2",
-    "zod": "^3.25.0",
-    "@nuwax-ai/mcp-proxy-ts": "1.5.4"
+    "zod": "^3.25.0"
   },
   "devDependencies": {
     "7zip-bin": "^5.2.0",
