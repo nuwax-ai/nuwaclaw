@@ -100,6 +100,20 @@ function main() {
   const destBinary = path.join(destDir, 'node_modules', '.cache', 'nuwax-codex', nuwaxCodexVer, binaryName);
   fs.copyFileSync(cacheBinary, destBinary);
   fs.chmodSync(destBinary, 0o755);
+  // macOS ad-hoc 签名（避免 Gatekeeper「无法验证开发者」弹窗），仿 prepare-codex-acp.js
+  if (process.platform === 'darwin') {
+    try {
+      require('child_process').execSync(
+        `codesign --force --sign - "${destBinary}"`,
+        { stdio: 'pipe' },
+      );
+      console.log(`  codesign (ad-hoc): ${binaryName}`);
+    } catch (err) {
+      console.warn(
+        `[prepare-codex-acp-ts] codesign failed: ${err instanceof Error ? err.message : err}`,
+      );
+    }
+  }
   console.log(`  node_modules/.cache/nuwax-codex/${nuwaxCodexVer}/${binaryName} (${(fs.statSync(cacheBinary).size / 1024 / 1024).toFixed(0)} MB)`);
 
   // 精简 package.json
