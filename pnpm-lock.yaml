@@ -60,6 +60,9 @@ importers:
       '@modelcontextprotocol/sdk':
         specifier: ^1.27.1
         version: 1.27.1(zod@3.25.76)
+      '@nuwax-ai/agent-kit':
+        specifier: 0.1.1
+        version: 0.1.1(@nuwax-ai/nuwax-codex-acp-ts@1.2.4)
       '@nuwax-ai/mcp-proxy-ts':
         specifier: 1.5.4
         version: 1.5.4(zod@3.25.76)
@@ -1692,6 +1695,12 @@ packages:
 
   '@nut-tree-fork/shared@4.2.6':
     resolution: {integrity: sha512-xZaa0YtJt/DDDq/i1vZkabjq8HOWzfhXieMai61cMbYD11J6VhAfhV23ZtQEM02WG7nc2LKjl4UwRnQCteikwA==}
+
+  '@nuwax-ai/agent-kit@0.1.1':
+    resolution: {integrity: sha512-yA9oupwZ+quIn8+7EASMOVkmwbMtRP9CAiD2OvBOSCb9gq7JA/Qx5oDrUzMayVoQ2mOQ9kIzjWJwwJhf1x/DpQ==}
+    engines: {node: '>=18.0.0'}
+    peerDependencies:
+      '@nuwax-ai/nuwax-codex-acp-ts': ^1.2.4
 
   '@nuwax-ai/mcp-proxy-ts@1.5.4':
     resolution: {integrity: sha512-PLhwiqSvTVyimatt/Rt1nG/YGvuIBrBTvbb4IL1Ixj+2hsParhji5Te0Qfi9A3/l2HwQQj8GaYWBjI/ItJ1IHA==}
@@ -7588,6 +7597,10 @@ snapshots:
     transitivePeerDependencies:
       - debug
       - encoding
+
+  '@nuwax-ai/agent-kit@0.1.1(@nuwax-ai/nuwax-codex-acp-ts@1.2.4)':
+    dependencies:
+      '@nuwax-ai/nuwax-codex-acp-ts': 1.2.4
 
   '@nuwax-ai/mcp-proxy-ts@1.5.4(zod@3.25.76)':
     dependencies:

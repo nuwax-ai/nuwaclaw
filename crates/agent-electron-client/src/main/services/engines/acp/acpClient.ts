@@ -31,6 +31,7 @@ import {
   getClaudeCodeAcpBundledDir,
 } from "../../system/dependencies";
 import { APP_DATA_DIR_NAME, LOGS_DIR_NAME } from "../../constants";
+import { resolveCodexAcp } from "@nuwax-ai/agent-kit";
 import { getAppDataDir } from "../../system/appPaths";
 import {
   resolveIsolatedHomePath,
@@ -625,16 +626,24 @@ export function resolveAcpBinary(
       return { binPath: overridePath, binArgs: [], isNative: true };
     }
 
-    // 优先：@nuwax-ai/nuwax-codex-acp-ts TS adapter（spawn(node, [adapter/dist/index.js])，
-    // adapter 内部 require.resolve("nuwax-codex/package.json") 定位 .cache 二进制）
-    const packageDir =
-      getCodexAcpTsBundledDir() ?? getAcpPackageDir("nuwax-codex-acp-ts");
-    const entryPath = packageDir
-      ? resolveNpmPackageEntry(packageDir, "nuwax-codex-acp-ts")
-      : null;
-    if (entryPath) {
-      log.info(`[AcpClient] codex: using TS adapter: ${entryPath}`);
-      return { binPath: entryPath, binArgs: [], isNative: false };
+    // 优先：@nuwax-ai/nuwax-codex-acp-ts TS adapter（codex resolve 共享自 @nuwax-ai/agent-kit：
+    // resources 模式传 entryOverride；否则 agent-kit 用 require.resolve node_modules）
+    const bundledDir = getCodexAcpTsBundledDir();
+    const entryOverride = bundledDir
+      ? path.join(bundledDir, "dist", "index.js")
+      : undefined;
+    try {
+      const resolved = resolveCodexAcp(
+        entryOverride ? { entryOverride } : undefined,
+      );
+      log.info(
+        `[AcpClient] codex: using TS adapter (agent-kit): ${resolved.args[0]}`,
+      );
+      return { binPath: resolved.args[0], binArgs: [], isNative: false };
+    } catch (e) {
+      log.warn(
+        `[AcpClient] codex: TS adapter resolve failed: ${e instanceof Error ? e.message : e}`,
+      );
     }
 
     // 回退：bundled 原生二进制（旧 codex-acp）
