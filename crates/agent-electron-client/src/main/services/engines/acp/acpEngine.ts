@@ -329,10 +329,19 @@ export class AcpEngine extends EventEmitter {
         `${this.logTag} session model sync failed (${plan.currentModelId || "(unknown)"} → ${plan.targetModelId}):`,
         err,
       );
-      // Agent 未实现本次 model sync RPC 时继续 prompt（模型由 spawn env 注入）；勿虚标 acpCurrentModelId。
-      if (isAcpSessionModelSyncMethodNotFound(err, plan.method)) {
+      // Agent 未实现 model sync RPC（Method not found）或拒绝其参数（Invalid params，
+      // 如 codex 0.17.4 不再接受 configId=model 的 set_config_option）时继续 prompt
+      // （模型由 spawn env CODEX_MODEL 注入）；勿虚标 acpCurrentModelId。
+      const isInvalidParams =
+        err &&
+        typeof err === "object" &&
+        (err as { code?: unknown }).code === -32602;
+      if (
+        isAcpSessionModelSyncMethodNotFound(err, plan.method) ||
+        isInvalidParams
+      ) {
         log.info(
-          `${this.logTag} Agent does not implement ${plan.method}; continuing with env-injected model (session model state unchanged)`,
+          `${this.logTag} Agent rejected ${plan.method} (${isInvalidParams ? "Invalid params" : "not implemented"}); continuing with env-injected model (session model state unchanged)`,
         );
         return;
       }

@@ -131,6 +131,7 @@ async function main() {
     'prepare:sandboxed-mcp',
     'prepare:nuwaxcode',
     'prepare:codex-acp',
+    'prepare:codex-acp-ts',
     'prepare:sandbox-helper-win',
     'prepare:sandbox-runtime',
     'prepare:gui-server',
