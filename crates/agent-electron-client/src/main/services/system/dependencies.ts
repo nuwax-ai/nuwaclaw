@@ -240,14 +240,16 @@ export async function checkAllDependencies(options?: {
           }
           break;
         }
-        case "codex-acp": {
-          const bundledDir = getCodexAcpBundledDir();
+        case "nuwax-codex-acp-ts": {
+          // codex 经 @nuwax-ai/nuwax-codex-acp-ts TS adapter；检测 resources 里的 adapter 包
+          const bundledDir = getCodexAcpTsBundledDir();
           if (bundledDir) {
-            const versionFile = path.join(bundledDir, ".version");
             try {
-              const version = fs.readFileSync(versionFile, "utf-8").trim();
+              const pkg = JSON.parse(
+                fs.readFileSync(path.join(bundledDir, "package.json"), "utf-8"),
+              );
               item.status = "bundled";
-              item.version = version;
+              item.version = pkg.version;
               item.binPath = bundledDir;
             } catch {
               item.status = "bundled";
@@ -451,5 +453,6 @@ export default {
   getCodexAcpBundledDir,
 };
 
-// codex TS adapter bundled dir（binaryLocator 新增，单独 re-export 避免改上面 import 块）
-export { getCodexAcpTsBundledDir } from "./binaryLocator";
+// codex TS adapter bundled dir（binaryLocator 新增；import 供本地 case 用 + re-export 给 acpClient）
+import { getCodexAcpTsBundledDir } from "./binaryLocator";
+export { getCodexAcpTsBundledDir };
