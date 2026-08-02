@@ -336,8 +336,9 @@ export function buildEffectiveConfig(args: {
     mcpServers: freshMcpServers,
   };
 
-  // nuwax-codex-acp ignores ACP session cwd, so we must spawn the process
-  // directly in the project workspace to ensure correct working directory
+  // codex 经 @nuwax-ai/nuwax-codex-acp-ts adapter 时，adapter spawn codex 二进制
+  // 不传 cwd（继承 adapter 进程 cwd），故仍需在 nuwaclaw 侧把 spawn workspaceDir
+  // 定到 project workspace，确保 codex 工作目录正确
   const workDirId = request.agent_work_dir || request.project_id;
   if (requiredEngine === "codex-cli" && workDirId && request.user_id) {
     effectiveConfig.workspaceDir = resolveComputerProjectWorkspaceDir(
