@@ -78,7 +78,7 @@
     "@modelcontextprotocol/sdk": "^1.27.1",
     "@nuwax-ai/agent-kit": "0.1.1",
     "@nuwax-ai/mcp-proxy-ts": "1.5.4",
-    "@nuwax-ai/nuwax-codex-acp-ts": "1.2.4",
+    "@nuwax-ai/nuwax-codex-acp-ts": "1.2.5",
     "@uiw/react-json-view": "2.0.0-alpha.42",
     "@uiw/react-textarea-code-editor": "^3.1.1",
     "adm-zip": "^0.5.16",

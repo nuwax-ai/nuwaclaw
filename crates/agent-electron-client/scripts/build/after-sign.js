@@ -239,6 +239,21 @@ async function afterSignMac(context) {
     }
   }
 
+  // 5c. 签名 resources/nuwax-codex-acp-ts（原生 codex 二进制；vendor/ 非隐藏路径）
+  //     prepare 仅做了 ad-hoc 占位签名，这里用 Developer ID 覆盖，否则带 quarantine 的
+  //     ad-hoc 二进制会触发 Gatekeeper「无法验证开发者」弹窗。
+  const codexAcpTsPath = path.join(resourcesPath, 'nuwax-codex-acp-ts', 'vendor', 'nuwax-codex');
+  if (fs.existsSync(codexAcpTsPath)) {
+    const codexFiles = findExecutables(codexAcpTsPath);
+    console.log(`[after-sign] 找到 nuwax-codex-acp-ts 可执行文件: ${codexFiles.length} 个`);
+    for (const file of codexFiles) {
+      if (file.includes('.cache')) continue;
+      const relative = path.relative(codexAcpTsPath, file);
+      console.log(`[after-sign] 签名 nuwax-codex-acp-ts/vendor/nuwax-codex/${relative}`);
+      codesign(file, identity);
+    }
+  }
+
   // 6. 对主 .app 重新签名，恢复 seal（内部二进制被签过后包内容已变，必须整体再签一次）
   console.log('[after-sign] 对主 app 重新签名以恢复 seal...');
   const entitlementsPath = path.join(process.cwd(), 'build', 'entitlements.mac.plist');
