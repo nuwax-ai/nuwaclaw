@@ -447,6 +447,16 @@ async function afterSignWindows(context) {
     totalFailed += result.failed;
   }
 
+  // 9. 签名 nuwax-codex-acp-ts（原生 codex 二进制 nuwax-codex.exe）
+  //    signDirectory 按扩展名(.exe/.dll)筛选，dist/index.js 等非可执行文件会被忽略。
+  const codexAcpTsPath = path.join(resourcesPath, 'nuwax-codex-acp-ts');
+  if (fs.existsSync(codexAcpTsPath)) {
+    console.log('[after-sign] Windows: 签名 nuwax-codex-acp-ts...');
+    const result = signWin.signDirectory(codexAcpTsPath);
+    totalSigned += result.success;
+    totalFailed += result.failed;
+  }
+
   console.log(`[after-sign] Windows: 额外签名完成 - 成功: ${totalSigned}, 失败: ${totalFailed}`);
 
   if (totalFailed > 0) {
