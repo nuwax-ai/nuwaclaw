@@ -76,7 +76,7 @@
     "@ant-design/icons": "^5.6.1",
     "@anthropic-ai/sdk": "^0.39.0",
     "@modelcontextprotocol/sdk": "^1.27.1",
-    "@nuwax-ai/agent-kit": "0.1.1",
+    "@nuwax-ai/agent-kit": "0.2.0",
     "@nuwax-ai/mcp-proxy-ts": "1.5.4",
     "@nuwax-ai/nuwax-codex-acp-ts": "1.2.5",
     "@uiw/react-json-view": "2.0.0-alpha.42",
