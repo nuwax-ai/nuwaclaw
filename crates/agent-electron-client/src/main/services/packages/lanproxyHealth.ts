@@ -2,6 +2,14 @@ import { readSetting } from "../../db";
 import { t } from "../i18n";
 import log from "electron-log";
 import { DEFAULT_SERVER_HOST } from "@shared/constants";
+// 同构原语（envelope 谓词 + 进程存活骨架）抽自 @nuwax-ai/agent-kit，与 nuwa-cli 共用。
+// 本文件的轮询/快失败/Electron 域名解析是 nuwaclaw 产品扩展，留宿主。
+import {
+  isLanproxyTunnelEnvelopeHealthy,
+  confirmProcessHealthy,
+} from "@nuwax-ai/agent-kit";
+// 谓词原本由本文件 export，现来自 agent-kit；保持 re-export 不破坏现有消费者/测试。
+export { isLanproxyTunnelEnvelopeHealthy };
 
 export interface LanproxyHealthResult {
   healthy: boolean;
@@ -48,41 +56,32 @@ export function getBusinessDomain(): string {
   return normalizeBusinessDomain(DEFAULT_SERVER_HOST);
 }
 
-/** 云端 envelope 健康判定：三选一容错，适配后端字段演进 */
-export function isLanproxyTunnelEnvelopeHealthy(envelope: {
-  code?: string;
-  success?: boolean;
-  data?: { online?: boolean };
-}): boolean {
-  return (
-    envelope.code === "0000" ||
-    envelope.success === true ||
-    envelope.data?.online === true
-  );
-}
+// isLanproxyTunnelEnvelopeHealthy（envelope 三选一容错谓词）已抽进 @nuwax-ai/agent-kit，
+// 与 nuwa-cli 共用同一判定；上方 import 直接复用。
 
 /**
  * 第 2 层：进程稳定存活检查。
  * spawn 成功后跨稳定窗口再次确认 pid 仍在，捕捉「连 server 失败后延迟退出」。
+ * 骨架（存活→等稳定窗口→再存活）委托 agent-kit confirmProcessHealthy，
+ * isAlive 注入 Electron 主进程的 process.kill(0) 探测。
  */
 export async function confirmLanproxyHealthy(
   pid: number | undefined,
   stabilizeMs = 1000,
 ): Promise<boolean> {
   if (!pid) return false;
-  const isAlive = (p: number): boolean => {
-    try {
-      process.kill(p, 0);
-      return true;
-    } catch {
-      return false;
-    }
-  };
-  if (!isAlive(pid)) return false;
-  if (stabilizeMs > 0) {
-    await new Promise((resolve) => setTimeout(resolve, stabilizeMs));
-  }
-  return isAlive(pid);
+  return confirmProcessHealthy({
+    pid,
+    stabilizeMs,
+    isAlive: (p) => {
+      try {
+        process.kill(p, 0);
+        return true;
+      } catch {
+        return false;
+      }
+    },
+  });
 }
 
 /**

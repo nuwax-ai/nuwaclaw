@@ -186,4 +186,63 @@ describe("ApprovalInterventionService computer permission callbacks", () => {
       },
     });
   });
+
+  it("keeps revision validation in the nuwaclaw host adapter", () => {
+    const service = new ApprovalInterventionService();
+    const { interventionRequest } = service.createPending({
+      engine: "nuwaxcode",
+      appSessionId: "app-session-1",
+      acpSessionId: "acp-session-1",
+      acpRequest: createRequest(),
+    });
+
+    const result = service.resolveFromCallback({
+      interventionId: interventionRequest.id,
+      revision: interventionRequest.revision + 1,
+      source: "acp_permission",
+      protocol: "acp",
+      action: "submit",
+      acpResponse: { outcome: { outcome: "selected", optionId: "allow" } },
+      resolvedBy: { kind: "web" },
+      resolvedAt: Date.now(),
+    });
+
+    expect(result).toMatchObject({
+      ok: false,
+      hostStatus: "superseded",
+      error: { code: "revision_mismatch" },
+    });
+    expect(service.pendingCount).toBe(1);
+    service.destroy();
+  });
+
+  it("supersedes duplicate session/tool keys through the shared core", async () => {
+    const service = new ApprovalInterventionService();
+    const resolved = vi.fn();
+    service.on("resolved", resolved);
+    const first = service.createPending({
+      engine: "nuwaxcode",
+      appSessionId: "app-session-1",
+      acpSessionId: "acp-session-1",
+      acpRequest: createRequest(),
+    });
+    const second = service.createPending({
+      engine: "nuwaxcode",
+      appSessionId: "app-session-1",
+      acpSessionId: "acp-session-1",
+      acpRequest: createRequest(),
+    });
+
+    await expect(first.acpResponsePromise).resolves.toEqual({
+      outcome: { outcome: "cancelled" },
+    });
+    expect(service.pendingCount).toBe(1);
+    expect(resolved).toHaveBeenCalledWith(
+      expect.objectContaining({ reason: "superseded" }),
+    );
+    service.destroy();
+    await expect(second.acpResponsePromise).resolves.toEqual({
+      outcome: { outcome: "cancelled" },
+    });
+  });
 });
