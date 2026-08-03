@@ -67,8 +67,8 @@ importers:
         specifier: 1.5.4
         version: 1.5.4(zod@3.25.76)
       '@nuwax-ai/nuwax-codex-acp-ts':
-        specifier: 1.2.5
-        version: 1.2.5
+        specifier: 1.2.7
+        version: 1.2.7
       '@uiw/react-json-view':
         specifier: 2.0.0-alpha.42
         version: 2.0.0-alpha.42(@babel/runtime@7.29.2)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
@@ -1693,6 +1693,10 @@ packages:
 
   '@nuwax-ai/nuwax-codex-acp-ts@1.2.5':
     resolution: {integrity: sha512-yeG9/FYrEtWx2Uh07WF/4FN/tFNWpGlaC0YI7dzdtnuiPGtpcO3p9ARTxh45WXQ1pnuaQIrVf0Q399xecG07XQ==}
+    hasBin: true
+
+  '@nuwax-ai/nuwax-codex-acp-ts@1.2.7':
+    resolution: {integrity: sha512-5jFIjZcsIHbZ/5J/ZsEeggwf4cUZghLKzgYbRJ0iutDoZ1yVV66DCRWLmlg4bv4AA1PGYUwrT3qSproQzLSOgA==}
     hasBin: true
 
   '@pkgjs/parseargs@0.11.0':
@@ -4464,6 +4468,11 @@ packages:
 
   nuwax-codex@0.17.4:
     resolution: {integrity: sha512-pJVadOJETtXyd4RH9+FahHQRHfGPTWTgReVIXbz+INYEiVV9iA2n5MB0Q4nrmptwdgYQJPMNOcW76XlAxhrUkg==}
+    engines: {node: '>=20'}
+    hasBin: true
+
+  nuwax-codex@0.17.5:
+    resolution: {integrity: sha512-4WHmR+FqXJECqUJ2AVzZWKJDY8LnSRDdfv0Iv8WWinil5ZvuD7Rrnb+GJiLc1ofL9TGeyz17oWOA3G//tPs0Uw==}
     engines: {node: '>=20'}
     hasBin: true
 
@@ -7707,6 +7716,15 @@ snapshots:
       '@agentclientprotocol/sdk': 1.3.0(zod@4.4.3)
       diff: 9.0.0
       nuwax-codex: 0.17.4
+      open: 11.0.0
+      vscode-jsonrpc: 9.0.1
+      zod: 4.4.3
+
+  '@nuwax-ai/nuwax-codex-acp-ts@1.2.7':
+    dependencies:
+      '@agentclientprotocol/sdk': 1.3.0(zod@4.4.3)
+      diff: 9.0.0
+      nuwax-codex: 0.17.5
       open: 11.0.0
       vscode-jsonrpc: 9.0.1
       zod: 4.4.3
@@ -11013,6 +11031,10 @@ snapshots:
       set-blocking: 2.0.0
 
   nuwax-codex@0.17.4:
+    dependencies:
+      detect-libc: 2.1.2
+
+  nuwax-codex@0.17.5:
     dependencies:
       detect-libc: 2.1.2
 
