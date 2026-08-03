@@ -256,7 +256,7 @@ importers:
     dependencies:
       '@nuwax-ai/nuwax-codex-acp-ts':
         specifier: ^1.2.4
-        version: 1.2.4
+        version: 1.2.5
     devDependencies:
       '@agentclientprotocol/sdk':
         specifier: ^1.2.1
