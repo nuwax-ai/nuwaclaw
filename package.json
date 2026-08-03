@@ -1,6 +1,8 @@
 {
   "private": true,
   "scripts": {
+    "postinstall": "pnpm --filter @nuwax-ai/agent-kit build",
+    "build:agent-kit": "pnpm --filter @nuwax-ai/agent-kit build",
     "prepare": "husky",
     "test:electron": "cd crates/agent-electron-client && npm run test:run",
     "test:electron:scripts": "cd crates/agent-electron-client && npm run test:scripts"
