@@ -62,13 +62,13 @@ importers:
         version: 1.27.1(zod@3.25.76)
       '@nuwax-ai/agent-kit':
         specifier: 0.1.1
-        version: 0.1.1(@nuwax-ai/nuwax-codex-acp-ts@1.2.5)
+        version: 0.1.1(@nuwax-ai/nuwax-codex-acp-ts@1.2.7)
       '@nuwax-ai/mcp-proxy-ts':
         specifier: 1.5.4
         version: 1.5.4(zod@3.25.76)
       '@nuwax-ai/nuwax-codex-acp-ts':
-        specifier: 1.2.5
-        version: 1.2.5
+        specifier: 1.2.7
+        version: 1.2.7
       '@uiw/react-json-view':
         specifier: 2.0.0-alpha.42
         version: 2.0.0-alpha.42(@babel/runtime@7.29.2)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
@@ -1675,8 +1675,8 @@ packages:
     engines: {node: '>=22.0.0'}
     hasBin: true
 
-  '@nuwax-ai/nuwax-codex-acp-ts@1.2.5':
-    resolution: {integrity: sha512-yeG9/FYrEtWx2Uh07WF/4FN/tFNWpGlaC0YI7dzdtnuiPGtpcO3p9ARTxh45WXQ1pnuaQIrVf0Q399xecG07XQ==}
+  '@nuwax-ai/nuwax-codex-acp-ts@1.2.7':
+    resolution: {integrity: sha512-5jFIjZcsIHbZ/5J/ZsEeggwf4cUZghLKzgYbRJ0iutDoZ1yVV66DCRWLmlg4bv4AA1PGYUwrT3qSproQzLSOgA==}
     hasBin: true
 
   '@pkgjs/parseargs@0.11.0':
@@ -4398,8 +4398,8 @@ packages:
     engines: {node: ^12.13.0 || ^14.15.0 || >=16.0.0}
     deprecated: This package is no longer supported.
 
-  nuwax-codex@0.17.4:
-    resolution: {integrity: sha512-pJVadOJETtXyd4RH9+FahHQRHfGPTWTgReVIXbz+INYEiVV9iA2n5MB0Q4nrmptwdgYQJPMNOcW76XlAxhrUkg==}
+  nuwax-codex@0.17.5:
+    resolution: {integrity: sha512-4WHmR+FqXJECqUJ2AVzZWKJDY8LnSRDdfv0Iv8WWinil5ZvuD7Rrnb+GJiLc1ofL9TGeyz17oWOA3G//tPs0Uw==}
     engines: {node: '>=20'}
     hasBin: true
 
@@ -7553,9 +7553,9 @@ snapshots:
       - debug
       - encoding
 
-  '@nuwax-ai/agent-kit@0.1.1(@nuwax-ai/nuwax-codex-acp-ts@1.2.5)':
+  '@nuwax-ai/agent-kit@0.1.1(@nuwax-ai/nuwax-codex-acp-ts@1.2.7)':
     dependencies:
-      '@nuwax-ai/nuwax-codex-acp-ts': 1.2.5
+      '@nuwax-ai/nuwax-codex-acp-ts': 1.2.7
 
   '@nuwax-ai/mcp-proxy-ts@1.5.4(zod@3.25.76)':
     dependencies:
@@ -7565,11 +7565,11 @@ snapshots:
       - supports-color
       - zod
 
-  '@nuwax-ai/nuwax-codex-acp-ts@1.2.5':
+  '@nuwax-ai/nuwax-codex-acp-ts@1.2.7':
     dependencies:
       '@agentclientprotocol/sdk': 1.3.0(zod@4.4.3)
       diff: 9.0.0
-      nuwax-codex: 0.17.4
+      nuwax-codex: 0.17.5
       open: 11.0.0
       vscode-jsonrpc: 9.0.1
       zod: 4.4.3
@@ -10831,7 +10831,7 @@ snapshots:
       gauge: 4.0.4
       set-blocking: 2.0.0
 
-  nuwax-codex@0.17.4:
+  nuwax-codex@0.17.5:
     dependencies:
       detect-libc: 2.1.2
 
