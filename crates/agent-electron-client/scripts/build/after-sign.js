@@ -289,6 +289,35 @@ async function afterSignMac(context) {
         appleApiIssuer: appleIssuerId,
       });
       console.log('[after-sign] 公证成功！');
+
+      // 8b. 给 Resources 内独立签名的二进制嵌公证票据 (staple)
+      //     app 顶层 staple 覆盖不到 Contents/Resources/ 里独立 Mach-O（如 codex）
+      //     的单独评估；首次 spawn 会触发 syspolicyd 在线查公证（系统进度条）。
+      //     staple 把票据嵌进签名，本地验证、不再在线查。staple 不改 cdhash，不破坏 seal。
+      console.log('[after-sign] 给内部二进制嵌公证票据 (staple)...');
+      const stapleDirs = [
+        path.join(resourcesPath, 'nuwax-codex-acp-ts', 'vendor', 'nuwax-codex'),
+        path.join(resourcesPath, 'node'),
+        path.join(resourcesPath, 'uv'),
+        path.join(resourcesPath, 'lanproxy'),
+        path.join(resourcesPath, 'sandbox-runtime'),
+        path.join(resourcesPath, 'nuwaxcode'),
+      ];
+      let stapled = 0;
+      for (const dir of stapleDirs) {
+        if (!fs.existsSync(dir)) continue;
+        for (const file of findExecutables(dir)) {
+          if (file.includes('.cache')) continue;
+          try {
+            execSync(`xcrun stapler staple "${file}"`, { stdio: 'pipe' });
+            console.log(`[after-sign]   staple: ${path.relative(resourcesPath, file)}`);
+            stapled++;
+          } catch (e2) {
+            console.warn(`[after-sign]   staple 跳过: ${path.basename(file)}`);
+          }
+        }
+      }
+      console.log(`[after-sign] staple 完成 (${stapled} 个)`);
     } catch (e) {
       console.error('[after-sign] 公证失败:', e.message || e);
       // 当公证凭据已配置时，失败应中止构建
