@@ -13,6 +13,79 @@ const rawInput = {
 };
 
 describe("normalizePermissionGatedToolUpdate", () => {
+  it("unwraps Codex ask-question MCP input without treating it as permission-gated", () => {
+    const cache = new Map<string, PermissionGatedToolInputCache>();
+    const result = normalizePermissionGatedToolUpdate(
+      {
+        sessionUpdate: "tool_call",
+        toolCallId: "tool-call-codex-ask",
+        title: "mcp.ask-question.nuwax_ask_question",
+        status: "in_progress",
+        rawInput: {
+          server: "ask-question",
+          tool: "nuwax_ask_question",
+          arguments: {
+            requestId: "ask-codex",
+            sessionId: "demo",
+            title: "Codex ask",
+            ui: {
+              version: "nuwax.interaction.v2",
+              presentation: "inline",
+              title: "Codex ask",
+              fields: [{ name: "choice", title: "Choice", widget: "radio" }],
+            },
+          },
+        },
+      } as any,
+      cache,
+    );
+
+    expect(result.delay).toBe(false);
+    expect((result.update as any).rawInput).toMatchObject({
+      toolName: "nuwax_ask_question",
+      schemaVersion: "nuwax.mcp_ask.v2",
+      requestId: "ask-codex",
+    });
+    expect(cache.size).toBe(0);
+  });
+
+  it("extracts Claude ask-question input from completed JSON rawOutput", () => {
+    const cache = new Map<string, PermissionGatedToolInputCache>();
+    const input = {
+      toolName: "nuwax_ask_question",
+      schemaVersion: "nuwax.mcp_ask.v2",
+      requestId: "ask-claude",
+      sessionId: "demo",
+      title: "Claude ask",
+      ui: {
+        version: "nuwax.interaction.v2",
+        presentation: "inline",
+        title: "Claude ask",
+        fields: [{ name: "choice", title: "Choice", widget: "radio" }],
+      },
+    };
+    const result = normalizePermissionGatedToolUpdate(
+      {
+        _meta: {
+          claudeCode: {
+            toolName: "mcp__ask-question__nuwax_ask_question",
+          },
+        },
+        sessionUpdate: "tool_call_update",
+        toolCallId: "tool-call-claude-ask",
+        status: "completed",
+        rawOutput: JSON.stringify({ status: "pending", input }),
+      } as any,
+      cache,
+    );
+
+    expect(result).toMatchObject({
+      delay: false,
+      update: { rawInput: input },
+    });
+    expect(cache.size).toBe(0);
+  });
+
   it("delays permission-gated interactive tool calls until the completed result", () => {
     const cache = new Map<string, PermissionGatedToolInputCache>();
     const result = normalizePermissionGatedToolUpdate(

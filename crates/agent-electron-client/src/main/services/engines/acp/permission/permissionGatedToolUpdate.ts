@@ -1,3 +1,4 @@
+import { normalizeMcpAskToolUpdate } from "@nuwax-ai/agent-kit";
 import type { AcpSessionUpdate } from "../acpClient";
 
 export interface PermissionGatedToolUpdateNormalization {
@@ -14,7 +15,10 @@ export function normalizePermissionGatedToolUpdate(
   update: AcpSessionUpdate,
   rawInputsByToolCallId: Map<string, PermissionGatedToolInputCache>,
 ): PermissionGatedToolUpdateNormalization {
-  const toolUpdate = update as Record<string, any>;
+  const normalizedMcpUpdate = normalizeMcpAskToolUpdate(
+    update as Record<string, any>,
+  ) as AcpSessionUpdate;
+  const toolUpdate = normalizedMcpUpdate as Record<string, any>;
   const toolCallId = readToolCallId(toolUpdate);
   const rawInput = readRawInput(toolUpdate);
   const title = readTitle(toolUpdate);
@@ -23,7 +27,7 @@ export function normalizePermissionGatedToolUpdate(
   const hasInteractiveInput = isInteractiveToolInput(rawInput);
 
   if (!hasInteractiveInput && !hasCachedInteractiveInput) {
-    return { update, delay: false };
+    return { update: normalizedMcpUpdate, delay: false };
   }
 
   if (toolCallId && hasInteractiveInput) {
@@ -31,11 +35,11 @@ export function normalizePermissionGatedToolUpdate(
   }
 
   const isCompletedResult =
-    update.sessionUpdate === "tool_call_update" &&
+    normalizedMcpUpdate.sessionUpdate === "tool_call_update" &&
     toolUpdate.status === "completed" &&
     readRawOutput(toolUpdate) !== undefined;
   if (!isCompletedResult) {
-    return { update, delay: !isCompletedResult };
+    return { update: normalizedMcpUpdate, delay: !isCompletedResult };
   }
 
   if (rawInput !== undefined) {
@@ -49,12 +53,12 @@ export function normalizePermissionGatedToolUpdate(
   }
 
   if (!toolCallId) {
-    return { update, delay: false };
+    return { update: normalizedMcpUpdate, delay: false };
   }
 
   const cached = rawInputsByToolCallId.get(toolCallId);
   if (!cached) {
-    return { update, delay: false };
+    return { update: normalizedMcpUpdate, delay: false };
   }
 
   rawInputsByToolCallId.delete(toolCallId);

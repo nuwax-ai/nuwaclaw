@@ -113,6 +113,11 @@ export * from "./proxyBridge.js";
 // MCP npx cache warmup state machine. Hosts inject command/env/state adapters.
 export * from "./mcpCacheWarmup.js";
 
+// Cross-engine MCP ask-question tool update normalization. Codex and Claude
+// expose the same MCP result through different ACP payload shapes; hosts use
+// this boundary helper before forwarding updates to Web/Mobile clients.
+export * from "./mcpAskToolUpdate.js";
+
 // ACP permission subsystem (decision chain + classifier framework +
 // tool_approval_rules + notify-resolved protocol + pending state machine).
 // See ./permissions/index.ts.
