@@ -2475,11 +2475,21 @@ export class AcpEngine extends EventEmitter {
       acpSessionId,
       messageType: "acpRequestPermission",
       subType: "request_permission",
-      data: toComputerPermissionProgressData({
-        acpRequest: params,
-        interventionId: interventionRequest.id,
-        revision: interventionRequest.revision,
-      }),
+      data: {
+        ...toComputerPermissionProgressData({
+          acpRequest: params,
+          interventionId: interventionRequest.id,
+          revision: interventionRequest.revision,
+        }),
+        // Keep the product envelope at the host boundary. The web client can
+        // reconstruct it from the ACP request, but forwarding layers may
+        // normalize/drop fields before the SSE reaches the embedded page.
+        // Shipping the authoritative envelope makes permission rendering
+        // independent of that lossy reconstruction while agent-kit continues
+        // to own only the isomorphic wire core.
+        _intervention: interventionRequest,
+        _engine: this.engineName,
+      },
       timestamp: new Date().toISOString(),
     });
 

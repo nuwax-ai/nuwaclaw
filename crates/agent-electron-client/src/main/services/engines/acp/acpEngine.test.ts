@@ -683,8 +683,23 @@ describe("AcpEngine.handlePermissionRequest(strict)", () => {
         tool_call_id: "tool-call-ask",
       },
     });
-    expect(event.data._intervention).toBeUndefined();
-    expect(event.data._engine).toBeUndefined();
+    expect(event.data._intervention).toMatchObject({
+      id: expect.stringMatching(/^itv_/),
+      revision: 1,
+      status: "pending",
+      sessionId,
+      source: "acp_permission",
+      engine: "nuwaxcode",
+      protocol: "acp",
+      acp: {
+        method: "session/request_permission",
+        request: {
+          sessionId,
+          toolCall: { toolCallId: "tool-call-ask" },
+        },
+      },
+    });
+    expect(event.data._engine).toBe("nuwaxcode");
 
     const result = (engine as any).resolvePermissionIntervention({
       permission_resolve_request: {
