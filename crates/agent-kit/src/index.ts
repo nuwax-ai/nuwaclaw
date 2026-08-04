@@ -6,13 +6,19 @@
 // npm-resolving it.
 
 import { createRequire } from "node:module";
+import { pathToFileURL } from "node:url";
 
-// createRequire(import.meta.url) gives a require whose resolution is anchored
-// to this module — correct under ESM (native import.meta.url). Under CJS,
-// tsup's `shims: true` provides a compatible import.meta.url (based on
-// __filename), so the same source works for both build outputs without a
-// runtime `typeof require` branch (which misfires on Node 22+ ESM).
-const runtimeRequire = createRequire(import.meta.url);
+// bundle-safe createRequire:
+// - 纯 ESM:import.meta.url(native)。
+// - CJS(tsup 输出)/ 被打进 CJS bundle(esbuild/webpack,如 nuwaclaw electron main):
+//   bundler 提供 __filename,import.meta.url 不会被 shim(→ undefined → createRequire
+//   崩溃)。此时用 __filename 转 file URL 锚定 require。
+// typeof __filename 在 ESM 安全(返回 undefined,不抛错)。
+const runtimeRequire = createRequire(
+  typeof __filename !== "undefined"
+    ? pathToFileURL(__filename).href
+    : import.meta.url,
+);
 
 /**
  * Resolve an installed package's entry specifier (e.g.
