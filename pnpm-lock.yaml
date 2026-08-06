@@ -62,13 +62,13 @@ importers:
         version: 1.27.1(zod@3.25.76)
       '@nuwax-ai/agent-kit':
         specifier: 0.3.2
-        version: 0.3.2(@agentclientprotocol/sdk@0.26.0(zod@3.25.76))(@nuwax-ai/nuwax-codex-acp-ts@1.2.7)
+        version: 0.3.2(@agentclientprotocol/sdk@0.26.0(zod@3.25.76))(@nuwax-ai/nuwax-codex-acp-ts@1.2.8)
       '@nuwax-ai/mcp-proxy-ts':
         specifier: 1.5.4
         version: 1.5.4(zod@3.25.76)
       '@nuwax-ai/nuwax-codex-acp-ts':
-        specifier: 1.2.7
-        version: 1.2.7
+        specifier: 1.2.8
+        version: 1.2.8
       '@uiw/react-json-view':
         specifier: 2.0.0-alpha.42
         version: 2.0.0-alpha.42(@babel/runtime@7.29.2)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
@@ -1633,16 +1633,19 @@ packages:
   '@nut-tree-fork/libnut-darwin@2.7.5':
     resolution: {integrity: sha512-LbqtPtMPTJUcg4XoPP2jsU1wc8flBcGyKTerKsIfK9cD7nBHROnO0QksbrsbSWEpLym8T8fRtuU7XEY83l6Z2Q==}
     engines: {node: '>=10.15.3'}
+    cpu: [x64, arm64]
     os: [darwin, linux, win32]
 
   '@nut-tree-fork/libnut-linux@2.7.5':
     resolution: {integrity: sha512-uxaXEcRKnFObAljsoR6tLOBUU1dJ2sctloG6gFgCBGN7+k6Jdv6jZfOuNjd/fpdq2C5WPMm0rtn9EE7h5J3Jcg==}
     engines: {node: '>=10.15.3'}
+    cpu: [x64, arm64]
     os: [darwin, linux, win32]
 
   '@nut-tree-fork/libnut-win32@2.7.5':
     resolution: {integrity: sha512-yqC87zvmFcDPwFrRU40DYhN0xmEVM3aSkOuyF0IX+y1x+HWSu/i0PNklATpPBhGid3QVb/TOHuVoaraMrUFCNw==}
     engines: {node: '>=10.15.3'}
+    cpu: [x64, arm64]
     os: [darwin, linux, win32]
 
   '@nut-tree-fork/libnut@4.2.6':
@@ -1656,6 +1659,7 @@ packages:
   '@nut-tree-fork/nut-js@4.2.6':
     resolution: {integrity: sha512-aI/WCX7gE1HFGPH3EZP/UWqpNMM1NMoM/EkXqp7pKMgXFCi8e5+o5p+jd/QOYpmALv9bQg7+s69nI7FONbMqDg==}
     engines: {node: '>=16'}
+    cpu: [x64, arm64]
     os: [linux, darwin, win32]
 
   '@nut-tree-fork/provider-interfaces@4.2.6':
@@ -1676,8 +1680,8 @@ packages:
     engines: {node: '>=22.0.0'}
     hasBin: true
 
-  '@nuwax-ai/nuwax-codex-acp-ts@1.2.7':
-    resolution: {integrity: sha512-5jFIjZcsIHbZ/5J/ZsEeggwf4cUZghLKzgYbRJ0iutDoZ1yVV66DCRWLmlg4bv4AA1PGYUwrT3qSproQzLSOgA==}
+  '@nuwax-ai/nuwax-codex-acp-ts@1.2.8':
+    resolution: {integrity: sha512-7Lxzm84X1r1LOoD1/C20VoY9ngvPaGYAZFFqlP7c7bW34V+o6xFUTDgYgHMaaGn22fbHswumsNl0suPLc0D4VA==}
     hasBin: true
 
   '@pkgjs/parseargs@0.11.0':
@@ -3536,12 +3540,12 @@ packages:
 
   glob@7.2.3:
     resolution: {integrity: sha512-nFR0zLpU2YCaRxwoCJvL6UvCH2JFyFVIvwTLsIf21AuHlMskA1hhTdk+LlYJtOlYt9v6dvszD2BGRqBL+iQK9Q==}
-    deprecated: Glob versions prior to v9 are no longer supported
+    deprecated: Old versions of glob are not supported, and contain widely publicized security vulnerabilities, which have been fixed in the current version. Please update. Support for old versions may be purchased (at exorbitant rates) by contacting i@izs.me
 
   glob@8.1.0:
     resolution: {integrity: sha512-r8hpEjiQEYlF2QU0df3dS+nxxSIreXQS1qRhMJM0Q5NDdR386C7jb7Hwwod8Fgiuex+k0GFjgft18yvxm5XoCQ==}
     engines: {node: '>=12'}
-    deprecated: Glob versions prior to v9 are no longer supported
+    deprecated: Old versions of glob are not supported, and contain widely publicized security vulnerabilities, which have been fixed in the current version. Please update. Support for old versions may be purchased (at exorbitant rates) by contacting i@izs.me
 
   global-agent@3.0.0:
     resolution: {integrity: sha512-PT6XReJ+D07JvGoxQMkT6qji/jVNfX/h364XHZOWeRzy64sSFr+xJ5OX7LI3b4MPQzdL4H8Y8M0xzPpsVMwA8Q==}
@@ -4399,8 +4403,8 @@ packages:
     engines: {node: ^12.13.0 || ^14.15.0 || >=16.0.0}
     deprecated: This package is no longer supported.
 
-  nuwax-codex@0.17.5:
-    resolution: {integrity: sha512-4WHmR+FqXJECqUJ2AVzZWKJDY8LnSRDdfv0Iv8WWinil5ZvuD7Rrnb+GJiLc1ofL9TGeyz17oWOA3G//tPs0Uw==}
+  nuwax-codex@0.17.8:
+    resolution: {integrity: sha512-zDKur5qekaRRTmTAjImMBUuVbgtxLUyemsS/MrKaTMOItMwnnmpAYG10kjOrl+tcQ6/Ebm2+ic/CQIqPGtsZpA==}
     engines: {node: '>=20'}
     hasBin: true
 
@@ -5929,6 +5933,10 @@ packages:
 
   yauzl@2.10.0:
     resolution: {integrity: sha512-p4a9I6X6nu6IhoGmBqAcbJy1mlC4j27vEPZX9F4L4/vZT3Lyq1VkFHw/V/PUcB9Buo+DG3iHkT0x3Qya58zc3g==}
+
+  yauzl@3.4.0:
+    resolution: {integrity: sha512-jIH9yLR9wqr0wOS0TpBvo/g/2UgZH5qePVbjgRliiF0BYvOZyaBknKsF+x9Iht0O6sqgnB93rCICdOZFecJuDw==}
+    engines: {node: '>=12'}
 
   yocto-queue@0.1.0:
     resolution: {integrity: sha512-rVksvsnNCdJ/ohGc6xgPwyN8eheCxsiLM8mxuE/t/mOVqJewPuO1miLpTHQiRgTKCLexL4MeAFVagts7HmNZ2Q==}
@@ -7554,10 +7562,10 @@ snapshots:
       - debug
       - encoding
 
-  '@nuwax-ai/agent-kit@0.3.2(@agentclientprotocol/sdk@0.26.0(zod@3.25.76))(@nuwax-ai/nuwax-codex-acp-ts@1.2.7)':
+  '@nuwax-ai/agent-kit@0.3.2(@agentclientprotocol/sdk@0.26.0(zod@3.25.76))(@nuwax-ai/nuwax-codex-acp-ts@1.2.8)':
     dependencies:
       '@agentclientprotocol/sdk': 0.26.0(zod@3.25.76)
-      '@nuwax-ai/nuwax-codex-acp-ts': 1.2.7
+      '@nuwax-ai/nuwax-codex-acp-ts': 1.2.8
 
   '@nuwax-ai/mcp-proxy-ts@1.5.4(zod@3.25.76)':
     dependencies:
@@ -7567,11 +7575,11 @@ snapshots:
       - supports-color
       - zod
 
-  '@nuwax-ai/nuwax-codex-acp-ts@1.2.7':
+  '@nuwax-ai/nuwax-codex-acp-ts@1.2.8':
     dependencies:
       '@agentclientprotocol/sdk': 1.3.0(zod@4.4.3)
       diff: 9.0.0
-      nuwax-codex: 0.17.5
+      nuwax-codex: 0.17.8
       open: 11.0.0
       vscode-jsonrpc: 9.0.1
       zod: 4.4.3
@@ -10833,9 +10841,11 @@ snapshots:
       gauge: 4.0.4
       set-blocking: 2.0.0
 
-  nuwax-codex@0.17.5:
+  nuwax-codex@0.17.8:
     dependencies:
       detect-libc: 2.1.2
+      tar: 7.5.11
+      yauzl: 3.4.0
 
   object-assign@4.1.1: {}
 
@@ -12522,6 +12532,10 @@ snapshots:
     dependencies:
       buffer-crc32: 0.2.13
       fd-slicer: 1.1.0
+
+  yauzl@3.4.0:
+    dependencies:
+      pend: 1.2.0
 
   yocto-queue@0.1.0: {}
 
