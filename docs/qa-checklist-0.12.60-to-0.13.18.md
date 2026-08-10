@@ -45,14 +45,22 @@
   - [ ] 故意停掉 / 阻断进程后，健康检查能反映失败（日志/UI 可见）
   - [ ] 应用启动不被健康检查长时间卡死
 
-### 4. 内置 OpenUI（nuwax-openui）走 Persistent Bridge（P0）
+### 4. MCP npx 缓存预热（非内置启用）（P0）
 
-- **变更**：内置 OpenUI 接入 persistent bridge；后续升级为会话级 Artifact 持久化（随项目 cwd）。
-- **相关提交**：`87eb203f`、`0c5918a2`、`3447405d`、`ea80cea6`、`cfc6dc5b` 等
+- **代码事实**（以当前代码为准）
+  - 客户端**默认内置** MCP 仅 `chrome-devtools`（`DEFAULT_MCP_PROXY_CONFIG`，且 `persistent: true`，走 PersistentMcpBridge）
+  - `ask-question` / `nuwax-openui` **不在默认配置**；注释写明改由后端 ACP `agent_config.context_servers` 下发，或用户从模板/本地配置自行添加
+  - 启动期 `warmupMcpNpxCache()` 仅预热 npx 包缓存（不启动为默认服务），白名单为：
+    - `nuwax-ask-question-mcp@latest`
+    - `@nuwax-ai/openui-mcp@latest`
+    - `chrome-devtools-mcp@latest`
+  - 设置页「Nuwax OpenUI」只是 **MCP 模板**（`mcpTemplates.ts`），模板**未**标 `persistent`；测例也断言默认 bridge **不含** `nuwax-openui` / `ask-question`
+- **相关代码**：`mcp.ts`（`DEFAULT_MCP_PROXY_CONFIG`）、`mcpCacheWarmup.ts`（`MCP_WARMUP_SPECS`）、`unifiedAgent.ts`（启动后调用 warmup）、`mcpTemplates.ts`
 - **测试要点**
-  - [ ] 会话中可正常使用 OpenUI / Artifact
-  - [ ] Artifact 按会话 / 项目 cwd 持久化，重启或重开会话后仍可访问
-  - [ ] OpenUI MCP 能正常通过 npx 启动（无「找不到 bin」）
+  - [ ] 未下发 / 未手动添加时：默认 MCP **只有** chrome-devtools，没有 openui / ask-question
+  - [ ] 应用启动后上述 3 个包会做后台 npx 缓存预热（二次拉起更快；warmup 失败不阻塞启动）
+  - [ ] 后端下发或用户从模板添加 openui / ask-question 后，可正常启用并拉起
+  - [ ] 默认路径下 openui **不**进 PersistentMcpBridge（除非配置显式带 `persistent: true`）
 
 ### 5. MCP 表单编辑器支持 stdio `env` 配置（P1）
 
@@ -103,12 +111,12 @@
   - [ ] PersistentMcpBridge / `@nuwax-ai/mcp-proxy-ts/host` 可正常加载
   - [ ] MCP 列表加载与常用 MCP 启动正常
 
-### 5. OpenUI / npx 启动失败与兼容性（P0）
+### 5. OpenUI / ask-question npx 拉起兼容（P1 · 配置/下发启用时）
 
-- **相关提交**：`74cde7c5`、`5d2557a7`、`248f8ff7`、`4a1d7178` 等（最终依赖对齐至 openui-mcp 较新版本）
+- **说明**：历史提交修过 openui 的 npx/`-p`/包名问题；**仅在后端下发或用户添加后**才需验。
 - **验证**
-  - [ ] OpenUI 可通过标准包名 + `-p` 指定 bin 正常启动
-  - [ ] 首次启动（需拉包）与二次启动均成功
+  - [ ] 配置启用后，openui / ask-question 能通过 npx 正常启动
+  - [ ] 二次启动可命中 warmup 缓存（体感更快、少因拉包失败）
 
 ### 6. ACP 权限干预 envelope 丢失（P0）
 
@@ -167,7 +175,7 @@
 - **测试要点**
   - [ ] 安装包 / 开发包 MCP 代理链路可用
   - [ ] 二次启动 MCP 相关冷启动时间可接受（预热生效）
-  - [ ] 默认代理配置中不再错误注入已移除的 ask-question / openui 默认项（`fb72c0e4`）
+  - [ ] 默认代理配置中不再注入 ask-question / openui（仅保留 chrome-devtools；`fb72c0e4` / 当前 `DEFAULT_MCP_PROXY_CONFIG`）
 
 ### 2. 关闭 OPENCODE MCP 双路径注入，加速 session/new（P1）
 
@@ -212,7 +220,8 @@
 | Claude Code 对话（含中文长流式） | Bugfix | P0 | 全平台 |
 | Codex 对话 + 模型同步 | Feature | P0 | 全平台 |
 | 权限审批 / Ask Question | Bugfix | P0 | 全平台 |
-| OpenUI Artifact 持久化 | Feature | P0 | 全平台 |
+| MCP npx 预热（ask-question / openui / chrome-devtools） | Optimize | P0 | 全平台 |
+| OpenUI / ask-question（仅配置或后端下发后） | 条件测 | P1 | 全平台 |
 | MCP 增删改 + env + 宽松 JSON | Feature | P1 | 全平台 |
 | file-server / lanproxy 健康检查 | Feature | P0 | 全平台 |
 | 单日日志文件形态 | Bugfix | P0 | 全平台 |
@@ -230,7 +239,7 @@
 | Commit | 说明 |
 |--------|------|
 | `2d39dd7e` | feat(mcp): 表单编辑器支持 stdio env 配置 |
-| `87eb203f` | feat(mcp): 内置 nuwax-openui 走 persistent bridge |
+| `87eb203f` | feat(mcp): openui 走 persistent bridge（后续默认配置已移除，改 warmup / 下发） |
 | `f1427907` | feat(electron): 接入真实 file-server / lanproxy 启动健康检查 |
 | `c319e414` | feat(mcp): MCP 配置 JSON 输入支持宽松解析 |
 | `70a1332e` | feat(codex): 迁移 codex 到 `@nuwax-ai/nuwax-codex-acp-ts` TS adapter |

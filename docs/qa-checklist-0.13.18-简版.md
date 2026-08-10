@@ -17,10 +17,11 @@
 - [ ] 模型切换 / 同步正常，不卡住、不崩溃
 - [ ] 与 Claude Code 来回切换后仍可正常对话
 
-### 2. OpenUI / Artifact
+### 2. MCP 预热 / OpenUI（按代码行为）
 
-- [ ] 会话中 OpenUI 可正常打开使用
-- [ ] Artifact 能保存，关掉会话或重启后再打开仍在（按项目目录）
+- [ ] 默认 MCP **只有** chrome-devtools；没有自动内置的 openui / ask-question
+- [ ] 启动后会对这 3 个包做 npx 缓存预热：`ask-question`、`openui-mcp`、`chrome-devtools`（只预热，不等于默认启用）
+- [ ] 后端下发或用户从模板添加 openui / ask-question 后，可正常使用
 
 ### 3. MCP 配置
 
@@ -50,7 +51,7 @@
 
 - [ ] **安装包**冷启动不崩溃
 - [ ] MCP 相关功能在安装包中可正常加载、使用
-- [ ] OpenUI / 常用 MCP 能正常拉起
+- [ ] 已配置 / 已下发的 MCP（含 openui）能正常拉起
 
 ### 4. 日志
 
