@@ -10,7 +10,52 @@ import { resolveComputerProjectWorkspaceDir } from "../../workspacePaths";
 import type { NewSessionOpts } from "./acpNewSessionParams";
 import { supportsLoadSession } from "./acpAgentCapabilities";
 
+/**
+ * loadSession 超时后走 newSession fallback，避免跨引擎/无效 sessionId 时长时间卡住。
+ *
+ * 背景（2026-08-10 测试日志）：同会话切换模型协议导致 agent engine 切换
+ * （claude-code ↔ nuwaxcode）时，平台仍携带上一引擎的 sessionId 调用 session/load。
+ * nuwaxcode(OpenCode) 对异引擎 UUID 会卡约 64–68s 才返回
+ * `OpenCode service failure`，体感「约 1 分钟才启动」；claude-code 对异引擎
+ * `ses_*` 约 1s 即失败，故不对称。完整方案（按引擎绑定 session、切换时跳过 load）
+ * 尚未落地，先用超时兜底把最坏路径从 ~65s 压到本阈值。
+ *
+ * TODO(engine-switch-session): 正式方案落地后可缩短/移除该超时：
+ * 1) 会话与 engine 绑定（或识别 id 形态 ses_* vs UUID），跨引擎禁止 loadSession，直接 newSession
+ * 2) 避免 tool_approval_rules 变更触发的二次整进程 reinit
+ * 3) 修正 OpenCode 不支持的 setSessionMode(ask) 映射
+ */
+export const LOAD_SESSION_TIMEOUT_MS = 15_000;
+
 export type SessionRestoredVia = "memory" | "resume" | "load" | "new";
+
+/**
+ * 给 promise 加超时；超时 reject，不取消底层 RPC（ACP 无 abort 时仍可最终返回，仅不再阻塞 chat 路径）。
+ */
+function withLoadSessionTimeout<T>(
+  promise: Promise<T>,
+  ms: number,
+  sessionId: string,
+): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => {
+      reject(
+        new Error(
+          `loadSession timed out after ${ms}ms (sessionId=${sessionId})`,
+        ),
+      );
+    }, ms);
+    promise
+      .then((value) => {
+        clearTimeout(timer);
+        resolve(value);
+      })
+      .catch((err) => {
+        clearTimeout(timer);
+        reject(err);
+      });
+  });
+}
 
 export interface AcpSessionLike {
   id: string;
@@ -99,7 +144,12 @@ export async function resolveSessionForChat(
       log.info(
         `${deps.logTag} Loading ACP session (suppress SSE history replay): ${request.session_id}`,
       );
-      const loaded = await deps.loadSession(request.session_id, sessionOpts);
+      // 见文件头 TODO(engine-switch-session)：跨引擎 load 可能挂起 ~65s，先 15s 超时再 fallback
+      const loaded = await withLoadSessionTimeout(
+        deps.loadSession(request.session_id, sessionOpts),
+        LOAD_SESSION_TIMEOUT_MS,
+        request.session_id,
+      );
       loaded.projectId = request.agent_work_dir || request.project_id;
       return {
         session: loaded,

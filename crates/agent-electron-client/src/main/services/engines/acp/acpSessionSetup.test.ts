@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import {
   resolveSessionForChat,
+  LOAD_SESSION_TIMEOUT_MS,
   type AcpSessionLike,
   type SessionSetupDeps,
 } from "./acpSessionSetup";
@@ -133,6 +134,34 @@ describe("resolveSessionForChat", () => {
     expect(result.isNewSession).toBe(true);
     expect(deps.loadSession).toHaveBeenCalled();
     expect(deps.createSession).toHaveBeenCalled();
+  });
+
+  it("falls back to newSession when loadSession exceeds timeout", async () => {
+    vi.useFakeTimers();
+    try {
+      const deps = makeDeps({
+        agentCapabilities: { loadSession: true },
+        // 永不 resolve，模拟跨引擎 load 挂起（实测约 65s）
+        loadSession: vi.fn(() => new Promise(() => {})),
+      });
+
+      const pending = resolveSessionForChat(deps, {
+        user_id: "u1",
+        project_id: "p1",
+        session_id: "foreign-engine-uuid",
+        prompt: "hi",
+      });
+
+      await vi.advanceTimersByTimeAsync(LOAD_SESSION_TIMEOUT_MS);
+      const result = await pending;
+
+      expect(result.restoredVia).toBe("new");
+      expect(result.isNewSession).toBe(true);
+      expect(deps.loadSession).toHaveBeenCalled();
+      expect(deps.createSession).toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("creates new session when no session_id", async () => {
