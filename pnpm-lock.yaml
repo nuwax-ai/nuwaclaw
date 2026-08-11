@@ -61,8 +61,8 @@ importers:
         specifier: ^1.27.1
         version: 1.27.1(zod@3.25.76)
       '@nuwax-ai/agent-kit':
-        specifier: 0.3.2
-        version: 0.3.2(@agentclientprotocol/sdk@0.26.0(zod@3.25.76))(@nuwax-ai/nuwax-codex-acp-ts@1.2.8)
+        specifier: 0.3.3
+        version: 0.3.3(@agentclientprotocol/sdk@0.26.0(zod@3.25.76))(@nuwax-ai/nuwax-codex-acp-ts@1.2.8)
       '@nuwax-ai/mcp-proxy-ts':
         specifier: 1.5.4
         version: 1.5.4(zod@3.25.76)
@@ -1633,19 +1633,16 @@ packages:
   '@nut-tree-fork/libnut-darwin@2.7.5':
     resolution: {integrity: sha512-LbqtPtMPTJUcg4XoPP2jsU1wc8flBcGyKTerKsIfK9cD7nBHROnO0QksbrsbSWEpLym8T8fRtuU7XEY83l6Z2Q==}
     engines: {node: '>=10.15.3'}
-    cpu: [x64, arm64]
     os: [darwin, linux, win32]
 
   '@nut-tree-fork/libnut-linux@2.7.5':
     resolution: {integrity: sha512-uxaXEcRKnFObAljsoR6tLOBUU1dJ2sctloG6gFgCBGN7+k6Jdv6jZfOuNjd/fpdq2C5WPMm0rtn9EE7h5J3Jcg==}
     engines: {node: '>=10.15.3'}
-    cpu: [x64, arm64]
     os: [darwin, linux, win32]
 
   '@nut-tree-fork/libnut-win32@2.7.5':
     resolution: {integrity: sha512-yqC87zvmFcDPwFrRU40DYhN0xmEVM3aSkOuyF0IX+y1x+HWSu/i0PNklATpPBhGid3QVb/TOHuVoaraMrUFCNw==}
     engines: {node: '>=10.15.3'}
-    cpu: [x64, arm64]
     os: [darwin, linux, win32]
 
   '@nut-tree-fork/libnut@4.2.6':
@@ -1659,7 +1656,6 @@ packages:
   '@nut-tree-fork/nut-js@4.2.6':
     resolution: {integrity: sha512-aI/WCX7gE1HFGPH3EZP/UWqpNMM1NMoM/EkXqp7pKMgXFCi8e5+o5p+jd/QOYpmALv9bQg7+s69nI7FONbMqDg==}
     engines: {node: '>=16'}
-    cpu: [x64, arm64]
     os: [linux, darwin, win32]
 
   '@nut-tree-fork/provider-interfaces@4.2.6':
@@ -1668,8 +1664,8 @@ packages:
   '@nut-tree-fork/shared@4.2.6':
     resolution: {integrity: sha512-xZaa0YtJt/DDDq/i1vZkabjq8HOWzfhXieMai61cMbYD11J6VhAfhV23ZtQEM02WG7nc2LKjl4UwRnQCteikwA==}
 
-  '@nuwax-ai/agent-kit@0.3.2':
-    resolution: {integrity: sha512-NP9JJgXek1my67S2eNgjDuG+iBryARMMYbXzpq5KxpkPL5X8sKT5VXE4A4rOa+vaB/cirYE1z4EARW9c9EL6jg==}
+  '@nuwax-ai/agent-kit@0.3.3':
+    resolution: {integrity: sha512-eo1U/cslzv+BuxVeHJw77Wacmby+FdnOW1rupxRNMffyWC+Kkn6J8iAilmwTHXCE7cW8DJnpmNEMigLTQ59bNA==}
     engines: {node: '>=20.3.0'}
     peerDependencies:
       '@agentclientprotocol/sdk': ^0.26.0 || ^1.2.1
@@ -7562,7 +7558,7 @@ snapshots:
       - debug
       - encoding
 
-  '@nuwax-ai/agent-kit@0.3.2(@agentclientprotocol/sdk@0.26.0(zod@3.25.76))(@nuwax-ai/nuwax-codex-acp-ts@1.2.8)':
+  '@nuwax-ai/agent-kit@0.3.3(@agentclientprotocol/sdk@0.26.0(zod@3.25.76))(@nuwax-ai/nuwax-codex-acp-ts@1.2.8)':
     dependencies:
       '@agentclientprotocol/sdk': 0.26.0(zod@3.25.76)
       '@nuwax-ai/nuwax-codex-acp-ts': 1.2.8

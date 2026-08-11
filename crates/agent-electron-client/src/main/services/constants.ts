@@ -45,6 +45,13 @@ export const LOCALHOST_HOSTNAME = "localhost";
 /** 启动延迟 (ms) */
 export const DEFAULT_STARTUP_DELAY = 3000;
 
+/**
+ * file-server 单次启动后轮询 /health 的总超时（ms）。
+ * 与 agent-kit DEFAULT_FILE_SERVER_HEALTH_TIMEOUT_MS 对齐；
+ * Windows 冷启过短会误杀仍在初始化的进程，外层 withStartRetry 再完整重试。
+ */
+export const FILE_SERVER_HEALTH_TIMEOUT_MS = 20_000;
+
 /** SSE 默认重试延迟 (ms) */
 export const DEFAULT_SSE_RETRY_DELAY = 3000;
 

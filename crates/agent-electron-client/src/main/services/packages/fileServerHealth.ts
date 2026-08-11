@@ -73,11 +73,12 @@ export async function checkFileServerHealth(
 
 /**
  * 轮询 GET /health 直到 file-server 就绪或超时。
- * 对齐 nuwa-cli waitForFileServerHealth：冷启 Express 通常 1–2s，默认留 10s 余量。
+ * 默认 20s（对齐 agent-kit DEFAULT_FILE_SERVER_HEALTH_TIMEOUT_MS）；
+ * 外层完整启动重试见 @nuwax-ai/agent-kit withStartRetry。
  */
 export async function waitForFileServerHealth(
   port: number,
-  timeoutMs = 10_000,
+  timeoutMs = 20_000,
   intervalMs = 200,
 ): Promise<FileServerHealthResult> {
   const deadline = Date.now() + timeoutMs;
