@@ -4,6 +4,7 @@
 // Do not introduce number-typed IDs in this file.
 
 import type { CSSProperties, ReactNode } from 'react';
+import type { ChatMessagePart } from '@nuwax-ai/chat-kit/core';
 
 export type WorkbenchAdapterMode = 'web' | 'mock' | 'custom';
 
@@ -75,6 +76,15 @@ export interface WorkbenchMessage {
   kind?: WorkbenchMessageKind;
   status?: WorkbenchMessageStatus;
   metadata?: Record<string, unknown>;
+  /**
+   * Structured chat-kit parts, carried verbatim for lossless rendering.
+   *
+   * The live conversation path hydrates this from `useChatSession` via
+   * `fromChatMessage`, so renderers can read parts directly instead of
+   * re-deriving them from the flat `content` + `metadata` fields. Wire /
+   * legacy messages without parts still use `toChatMessage`'s reconstruction.
+   */
+  parts?: ChatMessagePart[];
 }
 
 export interface WorkbenchPermissionChoice {

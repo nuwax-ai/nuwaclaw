@@ -28,7 +28,9 @@ export type IconName =
   | 'stop'
   | 'attachment'
   | 'tools'
-  | 'spark';
+  | 'spark'
+  | 'copy'
+  | 'check';
 
 const ICON_PATHS = {
   sidebar: 'M4 5.5h16M4 12h16M4 18.5h16M8 5.5v13',
@@ -49,6 +51,8 @@ const ICON_PATHS = {
   tools: 'M14.7 6.3a4 4 0 0 0-5.4 5.4L4 17l3 3 5.3-5.3a4 4 0 0 0 5.4-5.4l-2.6 2.6-3-3z',
   spark:
     'M12 3l1.7 5.1L19 10l-5.3 1.9L12 17l-1.7-5.1L5 10l5.3-1.9zM19 17l.8 2.2L22 20l-2.2.8L19 23l-.8-2.2L16 20l2.2-.8z',
+  copy: 'M9 9h10v10H9z M5 15V5h10',
+  check: 'M5 13l4 4L19 7',
 } satisfies Record<IconName, string>;
 
 export function Icon({ name }: { name: IconName }): JSX.Element {

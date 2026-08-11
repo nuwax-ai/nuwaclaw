@@ -9,8 +9,9 @@
  * label types, which now live in their own modules.
  */
 
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import { ChatMessageItem } from '@nuwax-ai/chat-kit/react';
+import { attachments, partsToText, partsToThinking, toolParts } from '@nuwax-ai/chat-kit/core';
 import { MarkdownRenderer, type RunOverStep } from '../MarkdownRenderer';
 import type {
   WorkbenchAgentDetail,
@@ -19,7 +20,7 @@ import type {
   WorkbenchPermissionChoice,
   WorkbenchPermissionRequest,
 } from '../../types';
-import { AgentAvatar } from './icons';
+import { AgentAvatar, Icon } from './icons';
 import type { Labels } from './labels';
 import { applyTemplate, questionText } from './utils';
 import { toChatMessage } from '../../adapters/chatKitAdapter';
@@ -41,35 +42,75 @@ import { toChatMessage } from '../../adapters/chatKitAdapter';
 export function ChatMessage({
   message,
   agent,
+  labels,
   onFilePreview,
   conversationId,
 }: {
   message: WorkbenchMessage;
   agent: WorkbenchAgentDetail | null;
+  labels: Labels;
   onFilePreview?: (fileId: string, context?: { conversationId?: string }) => void;
   conversationId?: string;
 }): JSX.Element {
   const isUser = message.role === 'user';
-  // TODO(types): extend WorkbenchMessage / WorkbenchMessageMetadata with
-  // dedicated `thinking` + `runOverSteps` fields so the cast goes away.
+  const [copied, setCopied] = useState(false);
+  const handleCopy = () => {
+    if (!message.content) return;
+    void navigator.clipboard?.writeText(message.content).then(() => {
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 1200);
+    });
+  };
+  // Render natively from chat-kit structured `parts` when present (the live
+  // path always supplies them via fromChatMessage). Fall back to the legacy
+  // flat `content` + `metadata` shape for any WorkbenchMessage without parts.
+  const parts = message.parts ?? [];
+  const hasParts = parts.length > 0;
   const meta = (message.metadata ?? {}) as Record<string, unknown>;
-  const thinking =
-    typeof meta.thinking === 'string' && meta.thinking.length > 0
+  const text = hasParts ? partsToText(parts) : message.content;
+  const thinking = hasParts
+    ? partsToThinking(parts)
+    : typeof meta.thinking === 'string' && meta.thinking.length > 0
       ? (meta.thinking as string)
       : undefined;
-  const runOverSteps = Array.isArray(meta.runOverSteps)
-    ? (meta.runOverSteps as RunOverStep[])
-    : undefined;
+  const runOverSteps: RunOverStep[] | undefined = hasParts
+    ? toolParts(parts).map((part) => ({
+        id: part.id,
+        name: part.name,
+        status:
+          part.status === 'complete'
+            ? 'done'
+            : part.status === 'error'
+              ? 'error'
+              : 'executing',
+        durationMs: part.durationMs,
+        args:
+          typeof part.input === 'string'
+            ? part.input
+            : part.input == null
+              ? undefined
+              : JSON.stringify(part.input),
+        output:
+          typeof part.output === 'string'
+            ? part.output
+            : part.output == null
+              ? undefined
+              : JSON.stringify(part.output),
+      }))
+    : Array.isArray(meta.runOverSteps)
+      ? (meta.runOverSteps as RunOverStep[])
+      : undefined;
   const runOverStatus =
     meta.runOverStatus === 'running' ||
     meta.runOverStatus === 'done' ||
     meta.runOverStatus === 'error'
       ? (meta.runOverStatus as 'running' | 'done' | 'error')
       : undefined;
+  const msgAttachments = hasParts ? attachments(parts) : undefined;
   // Show the streaming spinner inside ThinkingBlock when the assistant is
   // mid-stream but has not emitted final text yet.
   const thinkingStreaming =
-    message.status === 'streaming' && !message.content && !!thinking;
+    message.status === 'streaming' && !text && !!thinking;
   return (
     <ChatMessageItem
       message={toChatMessage(message)}
@@ -87,7 +128,7 @@ export function ChatMessage({
       contentClassName="open-app-message-content"
       renderContent={() => (
         <div className="open-app-message-text">
-          {!message.content &&
+          {!text &&
             !thinking &&
             (!runOverSteps || runOverSteps.length === 0) &&
             message.status === 'streaming' && (
@@ -100,10 +141,26 @@ export function ChatMessage({
                 </span>
               </span>
             )}
-          {message.content && isUser && <span>{message.content}</span>}
-          {!isUser && (message.content || thinking || runOverSteps) && (
+          {text && isUser && <span>{text}</span>}
+          {msgAttachments && msgAttachments.length > 0 && (
+            <div className="open-app-message-attachments">
+              {msgAttachments.map((attachment, index) => (
+                <a
+                  key={`${attachment.url}-${index}`}
+                  className="open-app-message-attachment"
+                  href={attachment.url}
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  <Icon name="attachment" />
+                  <span>{attachment.name}</span>
+                </a>
+              ))}
+            </div>
+          )}
+          {!isUser && (text || thinking || (runOverSteps && runOverSteps.length > 0)) && (
             <MarkdownRenderer
-              content={message.content}
+              content={text}
               thinking={thinking}
               thinkingStreaming={thinkingStreaming}
               runOverSteps={runOverSteps}
@@ -114,6 +171,19 @@ export function ChatMessage({
           )}
         </div>
       )}
+      actions={!isUser && message.content ? (
+        <div className="open-app-message-actions">
+          <button
+            type="button"
+            className="open-app-message-action"
+            onClick={handleCopy}
+            title={copied ? labels.copied : labels.copy}
+            aria-label={copied ? labels.copied : labels.copy}
+          >
+            <Icon name={copied ? 'check' : 'copy'} />
+          </button>
+        </div>
+      ) : undefined}
     />
   );
 }

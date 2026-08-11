@@ -7,6 +7,7 @@ import type {
   ChatStreamEvent,
   ChatToolPart,
 } from '@nuwax-ai/chat-kit/core';
+import { firstPart, partsToText, partsToThinking, toolParts } from '@nuwax-ai/chat-kit/core';
 import type {
   WorkbenchApiAdapter,
   WorkbenchConversation,
@@ -35,32 +36,22 @@ export function fromChatConversation(source: ChatConversation): WorkbenchConvers
 }
 
 export function fromChatMessage(source: ChatMessage): WorkbenchMessage {
-  const text = source.parts
-    .filter((part): part is Extract<ChatMessagePart, { type: 'text' }> => part.type === 'text')
-    .map((part) => part.text)
-    .join('');
-  const thinking = source.parts
-    .filter((part): part is Extract<ChatMessagePart, { type: 'thinking' }> => part.type === 'thinking')
-    .map((part) => part.text)
-    .join('');
-  const tools = source.parts
-    .filter((part): part is ChatToolPart => part.type === 'tool')
-    .map((part) => ({
-      id: part.id,
-      name: part.name,
-      status:
-        part.status === 'complete'
-          ? 'done'
-          : part.status === 'error'
-            ? 'error'
-            : 'executing',
-      durationMs: part.durationMs,
-      args: part.input,
-      output: part.output,
-    }));
-  const error = source.parts.find(
-    (part): part is Extract<ChatMessagePart, { type: 'error' }> => part.type === 'error',
-  );
+  const text = partsToText(source.parts);
+  const thinking = partsToThinking(source.parts);
+  const tools = toolParts(source.parts).map((part) => ({
+    id: part.id,
+    name: part.name,
+    status:
+      part.status === 'complete'
+        ? 'done'
+        : part.status === 'error'
+          ? 'error'
+          : 'executing',
+    durationMs: part.durationMs,
+    args: part.input,
+    output: part.output,
+  }));
+  const error = firstPart(source.parts, 'error');
   return {
     id: source.id,
     conversationId: source.conversationId,
@@ -76,6 +67,9 @@ export function fromChatMessage(source: ChatMessage): WorkbenchMessage {
           : source.status === 'error'
             ? 'error'
             : 'complete',
+    // Carry the structured parts verbatim so renderers can consume them
+    // directly (lossless round-trip — attachments/thinking/tools survive).
+    parts: source.parts,
     metadata: {
       ...source.metadata,
       ...(thinking ? { thinking } : {}),
@@ -134,6 +128,27 @@ function toToolPart(raw: unknown, index: number): ChatToolPart | null {
 }
 
 export function toChatMessage(source: WorkbenchMessage): ChatMessage {
+  // Lossless fast path: live messages carry their structured parts verbatim
+  // (set by fromChatMessage). Reconstruct only for wire/legacy messages that
+  // never had parts.
+  if (source.parts) {
+    return {
+      id: source.id,
+      conversationId: source.conversationId,
+      role: source.role,
+      status:
+        source.status === 'sending'
+          ? 'pending'
+          : source.status === 'streaming'
+            ? 'streaming'
+            : source.status === 'error'
+              ? 'error'
+              : 'complete',
+      parts: source.parts,
+      createdAt: source.createdAt,
+      metadata: source.metadata,
+    };
+  }
   const parts: ChatMessagePart[] = [];
   const thinking = source.metadata?.thinking;
   if (typeof thinking === 'string' && thinking.length > 0) {

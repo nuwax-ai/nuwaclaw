@@ -169,6 +169,7 @@ export function ChatArea(props: ChatAreaProps): JSX.Element {
                 <ChatMessage
                   message={message}
                   agent={agent}
+                  labels={labels}
                   onFilePreview={onFilePreview}
                   conversationId={conversationId}
                 />

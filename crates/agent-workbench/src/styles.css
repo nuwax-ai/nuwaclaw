@@ -1356,6 +1356,80 @@ body[data-theme="dark"] .nuwax-open-app,
   line-height: 1.6;
 }
 
+/* Hover-reveal row of per-message actions (copy, …). Rendered via chat-kit's
+   `ChatMessageItem.actions` slot. Subtle by default, full opacity on hover. */
+.open-app-message-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--xagi-padding-xs);
+  margin-top: var(--xagi-padding-xs);
+  opacity: 0.45;
+  transition: opacity 0.15s ease;
+}
+.open-app-message:hover .open-app-message-actions,
+.open-app-message:focus-within .open-app-message-actions {
+  opacity: 1;
+}
+.open-app-message-action {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--xagi-color-text-secondary);
+  cursor: pointer;
+  border-radius: var(--xagi-border-radius-xs);
+}
+.open-app-message-action:hover {
+  background: var(--xagi-color-fill-secondary);
+  color: var(--xagi-color-text);
+}
+.open-app-message-action .open-app-svg-icon {
+  width: 15px;
+  height: 15px;
+}
+
+/* Attachment chips rendered from chat-kit `attachment` parts (e.g. files the
+   user attached to a turn). Shown for both user and assistant messages. */
+.open-app-message-attachments {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--xagi-padding-xs);
+  margin-top: var(--xagi-padding-xs);
+}
+.open-app-message-attachment {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 240px;
+  padding: 4px var(--xagi-padding-xs);
+  border: 1px solid var(--xagi-color-border-secondary);
+  border-radius: var(--xagi-border-radius-sm);
+  background: var(--xagi-color-fill-tertiary);
+  color: var(--xagi-color-text);
+  font-size: 13px;
+  text-decoration: none;
+  overflow: hidden;
+}
+.open-app-message-attachment:hover {
+  border-color: var(--xagi-color-border);
+  background: var(--xagi-color-fill-secondary);
+}
+.open-app-message-attachment span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.open-app-message-attachment .open-app-svg-icon {
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+  color: var(--xagi-color-text-secondary);
+}
+
 /* Meta row — ref: nuwax .agent-title-bar */
 .open-app-message-meta {
   display: flex;

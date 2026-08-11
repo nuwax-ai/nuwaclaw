@@ -346,9 +346,6 @@ export function ChatInputHome({
              uploading: labels.uploadAttachment,
            }}
          />
-         <button type="button" title={labels.enableTools} disabled={disabled || streaming}>
-           <Icon name="tools" />
-         </button>
           <div className="open-app-mode-segment" aria-label={labels.agentMode}>
             <button
               type="button"

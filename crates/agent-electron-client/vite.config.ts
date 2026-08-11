@@ -65,6 +65,13 @@ export default defineConfig(({ mode }) => ({
         __dirname,
         '../agent-workbench/src/index.ts',
       ),
+      // chat-kit 是同级 workspace 源码包，dist 未构建（gitignore）。与 agent-workbench
+      // 一致，开发期直接别名到源码以获得 HMR，避免依赖未构建的 dist。
+      // 注意：子路径必须在裸路径 '@nuwax-ai/chat-kit' 之前，否则裸路径前缀匹配会吞掉子路径。
+      '@nuwax-ai/chat-kit/react': path.resolve(__dirname, '../chat-kit/src/react/index.ts'),
+      '@nuwax-ai/chat-kit/core': path.resolve(__dirname, '../chat-kit/src/core/index.ts'),
+      '@nuwax-ai/chat-kit/styles.css': path.resolve(__dirname, '../chat-kit/src/styles.css'),
+      '@nuwax-ai/chat-kit': path.resolve(__dirname, '../chat-kit/src/index.ts'),
     },
   },
   build: {
@@ -116,6 +123,7 @@ export default defineConfig(({ mode }) => ({
         '../..',
         '../../node_modules',
         path.resolve(__dirname, '../agent-workbench'),
+        path.resolve(__dirname, '../chat-kit'),
       ],
     },
   },
