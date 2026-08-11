@@ -1,6 +1,6 @@
 {
   "name": "@nuwax-ai/agent-kit",
-  "version": "0.3.2",
+  "version": "0.3.3",
   "description": "Shared agent/ACP logic for nuwa-cli and nuwaclaw (engine resolution, agent install).",
   "type": "module",
   "main": "./dist/index.cjs",

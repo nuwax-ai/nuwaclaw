@@ -51,6 +51,13 @@ export interface FileServerHealthOptions extends HealthCheckOptions {
 }
 
 /**
+ * Default wall-clock budget for a single file-server start health poll.
+ * Windows cold start (post-upgrade, AV scan, concurrent MCP sync) often exceeds
+ * 10s before Express listens; hosts may still pass a shorter timeout for tests.
+ */
+export const DEFAULT_FILE_SERVER_HEALTH_TIMEOUT_MS = 20_000;
+
+/**
  * Poll `GET /health` until `status === "ok"`, timeout, or signal abort.
  * Returns `{ healthy, error }` (nuwa-cli takes `.healthy`; nuwaclaw uses the
  * full result).
@@ -61,7 +68,7 @@ export async function waitForFileServerHealth(
   const {
     port,
     hostname = "127.0.0.1",
-    timeoutMs = 10_000,
+    timeoutMs = DEFAULT_FILE_SERVER_HEALTH_TIMEOUT_MS,
     intervalMs = 200,
     perRequestTimeoutMs = 1500,
     signal,

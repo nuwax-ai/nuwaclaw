@@ -33,13 +33,16 @@ Shared slices, dual-format (ESM + CJS) build:
 - `EngineResolution` — type (`{ command; args; envOverlay? }`), structurally compatible with nuwa-cli's `ResolvedEngine`.
 
 ### Health primitives (`src/health.ts`)
-- `waitForFileServerHealth({ port, fetchImpl?, signal?, … })` — poll `GET /health` until ok / timeout / abort.
+- `waitForFileServerHealth({ port, fetchImpl?, signal?, … })` — poll `GET /health` until ok / timeout / abort. Default timeout `DEFAULT_FILE_SERVER_HEALTH_TIMEOUT_MS` (20s) for Windows cold start.
 - `waitForLanproxyTunnel({ domain, configKey, fetchImpl?, signal?, … })` — poll the cloud tunnel health endpoint.
 - `isLanproxyTunnelEnvelopeHealthy(envelope)` — pure predicate; `LANPROXY_OK_CODE` (`"0000"`) exported for the magic code.
 - `confirmProcessHealthy({ pid, isAlive, … })` — process liveness across a stabilize window.
 - `delay(ms, signal?)` — abortable sleep.
 
 Host differences (`fetch` vs `http.request`; `isPidAlive` vs `process.kill(0)`) are injected via `fetchImpl` / `isAlive`.
+
+### Start retry (`src/startRetry.ts`)
+- `withStartRetry(attemptFn, { label, maxAttempts?, backoffMs?, logger?, signal? })` — isomorphic full-start retry (default 3 attempts, 1s/2s/4s backoff). Hosts inject `attemptFn` (spawn → health → cleanup on failure) and an optional logger; agent-kit never owns process lifecycle.
 
 ### Persistent bridge (`src/proxyBridge.ts`)
 - `createPersistentBridge({ create, logger, … })` — manage one bridge across config changes. Returns a handle with `ensureStarted(servers)` / `stop()` / `isRunning()`.
