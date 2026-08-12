@@ -208,6 +208,14 @@ function createWindow() {
     minHeight: DEFAULT_WINDOW_MIN_HEIGHT,
     title: APP_DISPLAY_NAME,
     icon: getIconPath(),
+    // 沉浸式无边框：隐藏原生系统标题栏，让 nuwax 内容顶到窗口上沿。
+    // mac 保留原生红绿灯（悬浮于内容之上）；Win/Linux 完全无边框，由 renderer 自绘窗口控制按钮。
+    ...(process.platform === "darwin"
+      ? {
+          titleBarStyle: "hidden" as const,
+          trafficLightPosition: { x: 16, y: 16 },
+        }
+      : { frame: false, hasShadow: true }),
     webPreferences: {
       preload: path.join(__dirname, "..", "preload", "index.js"),
       contextIsolation: true,

@@ -48,7 +48,7 @@ import {
 describe("Constants", () => {
   describe("App Identity", () => {
     it("should have consistent app name", () => {
-      expect(APP_DISPLAY_NAME).toBe("NuwaClaw");
+      expect(APP_DISPLAY_NAME).toBe("女娲 Nuwax");
       expect(APP_NAME_IDENTIFIER).toBe("nuwaclaw");
     });
 
