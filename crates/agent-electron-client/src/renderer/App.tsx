@@ -58,9 +58,8 @@ import AboutPage from "./components/pages/AboutPage";
 import LogViewer from "./components/pages/LogViewer";
 import PermissionsPage from "./components/pages/PermissionsPage";
 import SessionsPage from "./components/pages/SessionsPage";
-import BrowserHomePage, {
-  type BrowserTarget,
-} from "./components/pages/BrowserHomePage";
+import { type BrowserTarget } from "./components/pages/BrowserHomePage";
+import NuwaxHostWebview from "./components/pages/NuwaxHostWebview";
 import MCPSettings from "./components/settings/MCPSettings";
 import { ModeNavIcon } from "./components/icons/ModeNavIcon";
 import { createLogger } from "./services/utils/rendererLog";
@@ -347,7 +346,8 @@ function App() {
   // 核心状态
   // ============================================
   const [activeTab, setActiveTab] = useState<TabKey>("client");
-  const [mainViewMode, setMainViewMode] = useState<MainViewMode>("config");
+  // 默认进入沉浸式 nuwax 主视图；配置外壳经浮动「设置」入口可达
+  const [mainViewMode, setMainViewMode] = useState<MainViewMode>("browser");
   const [browserTarget, setBrowserTarget] = useState<BrowserTarget>({
     type: "home",
   });
@@ -444,7 +444,8 @@ function App() {
 
     if (!loggedIn) {
       setUsername("");
-      setMainViewMode("config");
+      // 沉浸式 nuwax 为主视图，鉴权交给 nuwax 自身 /Login 页，
+      // 不因 nuwaclaw sandbox 未登录而强制回到 config 外壳
       setActiveTab("client");
       return;
     }
@@ -1264,7 +1265,18 @@ function App() {
             <div className="app-header">
               <div className={styles.headerLeft}>
                 {!isAuthLoggedIn ? (
-                  <div className="app-header-logo">
+                  <div
+                    className="app-header-logo"
+                    role="button"
+                    tabIndex={0}
+                    title={t("Claw.App.modeBrowser")}
+                    onClick={() => setMainViewMode("browser")}
+                    onKeyDown={(e) =>
+                      (e.key === "Enter" || e.key === " ") &&
+                      setMainViewMode("browser")
+                    }
+                    style={{ cursor: "pointer" }}
+                  >
                     <img
                       src="./32x32.png"
                       alt=""
@@ -1415,10 +1427,12 @@ function App() {
               <div
                 className={`app-content app-content-fullwidth ${styles.platformPane}`}
                 style={{
-                  display:
-                    isAuthLoggedIn && mainViewMode === "browser"
-                      ? "flex"
-                      : "none",
+                  display: mainViewMode === "browser" ? "flex" : "none",
+                  // 沉浸式：browser 模式下覆盖整窗（含顶部 app-header，z-index 高于 header 的 100），
+                  // nuwax 内容顶到窗口上沿；app-container/app-body 无 transform，fixed 不被捕获
+                  position: "fixed",
+                  inset: 0,
+                  zIndex: 1000,
                 }}
               >
                 <div
@@ -1427,15 +1441,26 @@ function App() {
                     minHeight: 0,
                     display: "flex",
                     flexDirection: "column",
-                    background: "var(--color-bg-layout)",
                   }}
                 >
-                  <BrowserHomePage
-                    target={browserTarget}
-                    openKey={browserOpenKey}
-                    onReloadReady={handleBrowserReloadReady}
-                  />
+                  <NuwaxHostWebview reloadKey={browserOpenKey} />
                 </div>
+                {/* 浮动入口：切回 nuwaclaw 配置外壳（服务/依赖/设置） */}
+                <Button
+                  size="small"
+                  type="text"
+                  icon={<SettingOutlined />}
+                  title={t("Claw.App.modeConfig")}
+                  onClick={() => setMainViewMode("config")}
+                  style={{
+                    position: "absolute",
+                    bottom: 12,
+                    left: 12,
+                    zIndex: 12,
+                    background: "rgba(0, 0, 0, 0.25)",
+                    color: "#fff",
+                  }}
+                />
               </div>
 
               <div

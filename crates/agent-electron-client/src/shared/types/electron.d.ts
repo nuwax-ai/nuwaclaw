@@ -746,6 +746,7 @@ export interface ElectronAPI {
   window: {
     minimize: () => Promise<void>;
     maximize: () => Promise<void>;
+    isMaximized: () => Promise<boolean>;
     close: () => Promise<void>;
   };
   mcp: MCPAPI;
