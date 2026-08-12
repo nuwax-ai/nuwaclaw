@@ -16,6 +16,7 @@ import { registerPerfHandlers } from "./perfHandlers";
 import { registerGuiServerHandlers } from "./guiServerHandlers";
 import { registerI18nHandlers } from "./i18nHandlers";
 import { registerTtydHandlers } from "./ttydHandlers";
+import { registerNuwaxBridgeHandlers } from "./nuwaxBridgeHandlers";
 import log from "electron-log";
 
 export function registerAllHandlers(ctx: HandlerContext): void {
@@ -36,6 +37,7 @@ export function registerAllHandlers(ctx: HandlerContext): void {
   registerGuiServerHandlers();
   registerI18nHandlers();
   registerTtydHandlers(ctx);
+  registerNuwaxBridgeHandlers(ctx);
 
   log.info("IPC handlers registered");
 }

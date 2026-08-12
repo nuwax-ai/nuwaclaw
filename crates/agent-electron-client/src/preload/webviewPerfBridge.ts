@@ -89,6 +89,42 @@ const perf = {
   },
 };
 
+/**
+ * auth 命名空间：nuwax webview ↔ nuwaclaw 壳的 ACCESS_TOKEN 双向同步。
+ * nuwax 用 localStorage.ACCESS_TOKEN 鉴权（Authorization header），非 cookie；
+ * token 由主进程按 webview 来源 origin 持久化到 settings 表，跨重启复用。
+ * 后端见 main/ipc/nuwaxBridgeHandlers.ts。
+ */
+const auth = {
+  /** 读取本 origin 持久化的 nuwax ACCESS_TOKEN（重启免登）。 */
+  getToken(): Promise<string | null> {
+    return ipcRenderer.invoke("auth:getToken");
+  },
+  /** nuwax 登录成功后持久化 token（写入 settings 表）。 */
+  persistToken(token: string): Promise<boolean> {
+    return ipcRenderer.invoke("auth:persistToken", token);
+  },
+  /** nuwax 登出联动：清除本 origin 的持久化 token。 */
+  clear(): Promise<boolean> {
+    return ipcRenderer.invoke("auth:clear");
+  },
+};
+
+/**
+ * native 命名空间：宿主原生能力。浏览器端不存在此桥，nuwax 自行降级。
+ */
+const native = {
+  /** 右键另存图片：调用系统保存对话框并下载。 */
+  saveImage(
+    url: string,
+    filename?: string,
+  ): Promise<{ success: boolean; path?: string; error?: string }> {
+    return ipcRenderer.invoke("native:saveImage", { url, filename });
+  },
+};
+
 contextBridge.exposeInMainWorld("NuwaClawBridge", {
   perf,
+  auth,
+  native,
 });
