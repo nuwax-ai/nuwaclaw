@@ -413,6 +413,8 @@ function App() {
         const completed = await setupService.isSetupCompleted();
 
         // 每次启动优先读取 quick init 配置
+        // 注意：quickInit 仍含 step1 serverHost/端口写入（NuwaxHostWebview 路由依赖）
+        // 与旧 savedKey/reg 链路；后者随 Phase 3 登录统一到 nuwax webview 一并移除。
         if (completed) {
           try {
             const qiConfig = await window.electronAPI?.quickInit.getConfig();
@@ -425,8 +427,10 @@ function App() {
           }
         }
 
-        log.info("isSetupComplete:", completed);
-        setIsSetupComplete(completed);
+        // 登录流程已统一到 nuwax webview /Login：外壳不再以 SetupWizard 作为首屏门控，
+        // 无论 setup_state 如何，首屏一律展示 nuwax webview（/Login 或已登录业务页）。
+        log.info("Setup gate bypassed: login unified to nuwax webview /Login");
+        setIsSetupComplete(true);
       } catch (error) {
         log.error("Failed to check setup status:", error);
         setIsSetupComplete(true);
@@ -439,8 +443,11 @@ function App() {
   // 登录态同步（控制平台 Tab 是否展示）
   // ============================================
   const refreshAuthState = useCallback(async () => {
+    // isAuthLoggedIn 以 nuwax webview token 为唯一真实源（由 main 推送的 nuwax:authChanged
+    // 事件驱动，见下方监听器），此处不再用 configKey 覆盖——否则 nuwaclaw configKey 残留会让
+    // 顶栏显示「伪已登录」，与 webview 实际未登录不一致。用户定：以 webview 状态为最优先。
+    // 此处 loggedIn(基于 configKey) 仅用于决定 username 显示来源与默认 tab。
     const loggedIn = await isLoggedIn();
-    setIsAuthLoggedIn(loggedIn);
 
     if (!loggedIn) {
       setUsername("");
@@ -482,6 +489,21 @@ function App() {
     void refreshAuthState();
   }, [isSetupComplete, authRefreshTrigger, refreshAuthState]);
 
+  // 顶栏账号状态跟随 nuwax token：监听 main 推送的 nuwax:authChanged 事件
+  // （bridge auth:persistToken=登录 / auth:clear=登出·401失效），使顶栏登录态与
+  // nuwax webview 一致——未登录时 headerRight 显示「去登录」。Phase 3 configKey 退役前，
+  // 该事件优先级高于 refreshAuthState（基于 configKey）的判定。
+  useEffect(() => {
+    const onNuwaxAuthChanged = (payload: { loggedIn: boolean }) => {
+      setIsAuthLoggedIn(payload.loggedIn);
+      if (!payload.loggedIn) setUsername("");
+    };
+    window.electronAPI?.on("nuwax:authChanged", onNuwaxAuthChanged as any);
+    return () => {
+      window.electronAPI?.off("nuwax:authChanged", onNuwaxAuthChanged as any);
+    };
+  }, []);
+
   // ============================================
   // 浏览器模式导航
   // ============================================
@@ -506,8 +528,10 @@ function App() {
     [],
   );
 
+  // 刷新 nuwax webview：递增 browserOpenKey → NuwaxHostWebview 的 reloadKey effect → webview.reload()。
+  // （旧 browserReloadRef/handleBrowserReloadReady 链路随旧 browser 组件废弃而失效，改走 reloadKey 机制。）
   const handleBrowserRefresh = useCallback(() => {
-    browserReloadRef.current?.();
+    setBrowserOpenKey((k) => k + 1);
   }, []);
 
   // ============================================
@@ -1221,16 +1245,10 @@ function App() {
 
   // ============================================
   // 渲染：初始化向导
+  // 登录已统一到 nuwax webview /Login，外壳首屏直接进 webview，不再渲染 SetupWizard。
+  // （handleSetupComplete / setupJustCompleted / <SetupWizard> import 暂作 dormant 入口保留，
+  //  随 Phase 3 登录统一收尾一并清理。）
   // ============================================
-  if (!isSetupComplete) {
-    return (
-      <I18nContext.Provider value={i18nContextValue}>
-        <ConfigProvider theme={currentTheme}>
-          <SetupWizard onComplete={handleSetupComplete} />
-        </ConfigProvider>
-      </I18nContext.Provider>
-    );
-  }
 
   // ============================================
   // 渲染：主界面下必需依赖未满足 → 全屏依赖安装，完成后重启服务回到主界面
@@ -1263,7 +1281,13 @@ function App() {
           <div className="app-container">
             {/* 顶部栏：Logo + 模式切换 + 浏览器刷新 + 用户状态 + 升级提示 */}
             <div className="app-header">
-              <div className={styles.headerLeft}>
+              {/* mac 左侧留出 80px 避让原生红绿灯（位于 {16,16}），与 NuwaxHostWebview
+                  顶部拖拽条 left:isMac?80:0 约定一致；Win/Linux 顶栏左侧无系统控件，不需避让。
+                  headerLeft 同时承载 logo（未登录）与 Segmented 首页/配置（已登录·config 模式可见）。 */}
+              <div
+                className={styles.headerLeft}
+                style={{ paddingLeft: isMacOS ? 80 : 0 }}
+              >
                 {!isAuthLoggedIn ? (
                   <div
                     className="app-header-logo"
@@ -1327,8 +1351,25 @@ function App() {
                 )}
               </div>
               <div className={styles.headerRight}>
-                {username && (
-                  <span className={styles.username}>{username}</span>
+                {isAuthLoggedIn ? (
+                  <span className={styles.username}>
+                    {username || t("Claw.App.loggedIn")}
+                  </span>
+                ) : (
+                  <span
+                    className={styles.username}
+                    role="button"
+                    tabIndex={0}
+                    title={t("Claw.App.goLogin")}
+                    onClick={() => setMainViewMode("browser")}
+                    onKeyDown={(e) =>
+                      (e.key === "Enter" || e.key === " ") &&
+                      setMainViewMode("browser")
+                    }
+                    style={{ cursor: "pointer" }}
+                  >
+                    {t("Claw.App.goLogin")}
+                  </span>
                 )}
                 <Badge
                   status={badge.status}
@@ -1428,10 +1469,16 @@ function App() {
                 className={`app-content app-content-fullwidth ${styles.platformPane}`}
                 style={{
                   display: mainViewMode === "browser" ? "flex" : "none",
-                  // 沉浸式：browser 模式下覆盖整窗（含顶部 app-header，z-index 高于 header 的 100），
-                  // nuwax 内容顶到窗口上沿；app-container/app-body 无 transform，fixed 不被捕获
+                  // 顶栏常驻：browser 模式下 webview 让出顶部 48px（= .app-header 高度），
+                  // 使「首页/配置」切换 + 账号状态 + 刷新按钮始终可见（用户定：保留顶栏，
+                  // 核心是首页 tab 时刷新按钮可用）。不再覆盖 app-header；
+                  // z-index 1000 仅用于高于 configPane 等同级层。
+                  // （app-container/app-body 无 transform，fixed 定位不被祖先捕获。）
                   position: "fixed",
-                  inset: 0,
+                  top: 48,
+                  left: 0,
+                  right: 0,
+                  bottom: 0,
                   zIndex: 1000,
                 }}
               >
@@ -1445,22 +1492,6 @@ function App() {
                 >
                   <NuwaxHostWebview reloadKey={browserOpenKey} />
                 </div>
-                {/* 浮动入口：切回 nuwaclaw 配置外壳（服务/依赖/设置） */}
-                <Button
-                  size="small"
-                  type="text"
-                  icon={<SettingOutlined />}
-                  title={t("Claw.App.modeConfig")}
-                  onClick={() => setMainViewMode("config")}
-                  style={{
-                    position: "absolute",
-                    bottom: 12,
-                    left: 12,
-                    zIndex: 12,
-                    background: "rgba(0, 0, 0, 0.25)",
-                    color: "#fff",
-                  }}
-                />
               </div>
 
               <div
@@ -1511,6 +1542,8 @@ function App() {
                         onLoginStarted={handleLoginStarted}
                         onLoginComplete={openBrowserHome}
                         onStartSession={openStartSession}
+                        isWebviewLoggedIn={isAuthLoggedIn}
+                        onGotoLogin={() => setMainViewMode("browser")}
                       />
                     )}
                     {activeTab === "sessions" && (

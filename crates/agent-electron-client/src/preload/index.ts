@@ -580,6 +580,7 @@ contextBridge.exposeInMainWorld("electronAPI", {
       "admin:servicesRestarted",
       "intervention:request",
       "intervention:updated",
+      "nuwax:authChanged",
     ];
     if (validChannels.includes(channel)) {
       const wrapper = (_: unknown, ...args: unknown[]) => callback(...args);

@@ -27,7 +27,6 @@ import {
   UserOutlined,
   LockOutlined,
   GlobalOutlined,
-  LogoutOutlined,
   PlayCircleOutlined,
   PoweroffOutlined,
   SettingOutlined,
@@ -36,6 +35,7 @@ import {
   CheckCircleOutlined,
   CloseCircleOutlined,
   ExclamationCircleOutlined,
+  LoginOutlined,
   QrcodeOutlined,
   ReloadOutlined,
   LoadingOutlined,
@@ -43,7 +43,6 @@ import {
 import { QRCodeSVG } from "qrcode.react";
 import {
   loginAndRegister,
-  logout,
   getCurrentAuth,
   syncConfigToServer,
 } from "../../services/core/auth";
@@ -82,6 +81,10 @@ interface ClientPageProps {
   onLoginComplete?: () => void;
   /** 开始会话：打开 sandbox redirect URL */
   onStartSession?: () => void;
+  /** nuwax webview 登录态（以 webview 为最优先，与顶栏同一来源）；驱动本页登录状态显示 */
+  isWebviewLoggedIn?: boolean;
+  /** 未登录时切回 nuwax webview /Login（切 browser 模式） */
+  onGotoLogin?: () => void;
 }
 
 interface AuthState {
@@ -104,6 +107,8 @@ function ClientPage({
   onLoginStarted,
   onLoginComplete,
   onStartSession,
+  isWebviewLoggedIn,
+  onGotoLogin,
 }: ClientPageProps) {
   const getStartupServiceKeys = useCallback(async (): Promise<string[]> => {
     const keys = ["mcpProxy", "agent", "fileServer", "lanproxy", "ttyd"];
@@ -242,68 +247,9 @@ function ClientPage({
     }
   };
 
-  const handleLogout = async () => {
-    Modal.confirm({
-      title: t("Claw.Client.logoutConfirm"),
-      content: t("Claw.Client.logoutConfirmDetail"),
-      okText: t("Claw.Client.logout"),
-      cancelText: t("Claw.Client.cancel"),
-      okButtonProps: { danger: true },
-      onOk: async () => {
-        try {
-          // 停止所有运行中或处于 error 状态的服务（error 状态进程可能仍驻留）
-          const toStop = services.filter((s) => s.running || !!s.error);
-          for (const svc of toStop) {
-            try {
-              if (svc.key === "agent")
-                await window.electronAPI?.agent.destroy();
-              else if (svc.key === "fileServer")
-                await window.electronAPI?.fileServer.stop();
-              else if (svc.key === "lanproxy")
-                await window.electronAPI?.lanproxy.stop();
-              else if (svc.key === "mcpProxy")
-                await window.electronAPI?.mcp.stop();
-              else if (svc.key === "guiServer")
-                await window.electronAPI?.guiServer?.stop();
-              else if (svc.key === "ttyd")
-                await window.electronAPI?.ttyd.stop();
-            } catch (e) {
-              console.error(`[ClientPage] Failed to stop ${svc.label}:`, e);
-            }
-          }
-          // computerServer 不在 services 列表中，需单独停止，避免进程残留导致端口冲突
-          await window.electronAPI?.computerServer
-            .stop()
-            .catch((e: unknown) => {
-              console.error("[ClientPage] Failed to stop computerServer:", e);
-            });
-
-          await logout();
-          // 退出登录后，默认回填上一次“服务域名”到登录输入框，减少用户重复输入。
-          // 回填优先级说明（从高到低）：
-          // 1) displayDomainFallback：本页面内最近一次明确业务域名（用户输入/认证状态同步得到）；
-          // 2) authState.domain：当前登录态里记录的业务域名；
-          // 3) step1_config.serverHost：持久化配置兜底（首次进入或刷新后也可恢复）。
-          // 说明：这里回填的是“业务域名”，仅用于登录输入体验，不改变 reg/lanproxy 的代理地址逻辑。
-          const step1 = (await window.electronAPI?.settings.get(
-            "step1_config",
-          )) as { serverHost?: string } | null;
-          const lastDomain =
-            displayDomainFallback ||
-            authState.domain ||
-            step1?.serverHost ||
-            "";
-          setLoginDomain(lastDomain);
-          setDisplayDomainFallback(lastDomain);
-
-          setAuthState({ isLoggedIn: false, username: null, domain: null });
-          onAuthChange?.();
-        } catch {
-          message.error(t("Claw.Client.logoutFailed"));
-        }
-      },
-    });
-  };
+  // 退出登录已统一到 nuwax webview 用户菜单承担（Phase 2 登录收敛），原生 handleLogout
+  // 连同客户端页的退出按钮一并移除；登出触发的停服务由 bridge auth:clear →
+  // stopAllServicesNow 在 main 侧统一处理。
 
   const getRedirectUrl = useCallback(() => {
     if (!authState.domain || !authState.userId) return "";
@@ -630,7 +576,10 @@ function ClientPage({
       );
     }
 
-    if (authState.isLoggedIn) {
+    // 登录状态显示以 nuwax webview 为最优先（isWebviewLoggedIn），而非 nuwaclaw configKey
+    // （authState.isLoggedIn）。否则 configKey 残留会导致此处显示「伪已登录」，与 webview 实际
+    // 未登录不一致。username/domain 仍取自 authState（configKey/reg 产物）作业务字段。
+    if (isWebviewLoggedIn) {
       const redirectUrl = getRedirectUrl();
       // 域名展示优先级：
       // 1) authState.domain：当前登录态中明确的业务域名（首选）；
@@ -691,67 +640,41 @@ function ClientPage({
               >
                 {t("Claw.Client.qrCode")}
               </Button>
-              <Button
-                type="text"
-                icon={<LogoutOutlined />}
-                onClick={handleLogout}
-                size="small"
-                danger
-              >
-                {t("Claw.Client.logout")}
-              </Button>
             </div>
           </div>
         </div>
       );
     }
 
-    // Not logged in — show login form
+    // 未登录：登录已统一到 nuwax webview /Login（用户定调），此处仅引导前往，不再提供
+    // 原生 domain/账号/密码登录表单（原生 configKey 登录链路废弃；handleLogin 暂留 dormant，Phase 3 清理）。
+    // webview 未登录 → 不显「已登录」区块，引导用户去 webview 登录（以 webview 为最优先）。
     return (
       <div className={styles.sectionBody}>
-        <Form layout="vertical" size="small" onFinish={handleLogin}>
-          <Form.Item style={{ marginBottom: 10 }}>
-            <Input
-              prefix={<GlobalOutlined />}
-              value={loginDomain}
-              onChange={(e) => setLoginDomain(e.target.value)}
-              placeholder={t("Claw.Client.domainPlaceholder")}
-              allowClear
-              autoComplete="off"
-              spellCheck={false}
+        <div className={styles.loggedInContainer}>
+          <div className={styles.userInfo}>
+            <InfoCircleOutlined
+              style={{ color: "var(--color-text-secondary)", fontSize: 14 }}
             />
-          </Form.Item>
-
-          <Form.Item style={{ marginBottom: 10 }}>
-            <Input
-              prefix={<UserOutlined />}
-              value={loginUsername}
-              onChange={(e) => setLoginUsername(e.target.value)}
-              placeholder={t("Claw.Client.usernamePlaceholder")}
-              autoComplete="username"
-              allowClear
-            />
-          </Form.Item>
-
-          <Form.Item style={{ marginBottom: 12 }}>
-            <Input.Password
-              prefix={<LockOutlined />}
-              value={loginPassword}
-              onChange={(e) => setLoginPassword(e.target.value)}
-              placeholder={t("Claw.Client.passwordPlaceholder")}
-              autoComplete="current-password"
-            />
-          </Form.Item>
-
-          <Button type="primary" htmlType="submit" loading={loginLoading} block>
-            {t("Claw.Client.login")}
-          </Button>
-        </Form>
-
-        <div className={styles.loginHint}>
-          <span className={styles.loginHintText}>
-            {t("Claw.Client.loginHint")}
-          </span>
+            <div className={styles.userInfoText}>
+              <span className={styles.username}>
+                {t("Claw.Client.loginInNuwax")}
+              </span>
+              <div className={styles.domain}>
+                {t("Claw.Client.loginInNuwaxHint")}
+              </div>
+            </div>
+          </div>
+          <div className={styles.actionButtons}>
+            <Button
+              type="primary"
+              icon={<LoginOutlined />}
+              onClick={() => onGotoLogin?.()}
+              size="small"
+            >
+              {t("Claw.Client.gotoLogin")}
+            </Button>
+          </div>
         </div>
       </div>
     );

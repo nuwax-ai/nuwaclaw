@@ -505,16 +505,32 @@ app.whenReady().then(async () => {
   }
 
   // 为所有 http/https 出站请求注入客户端标识头，供 nuwax 后端识别「桌面客户端内」环境，
-  // 进而走 httpOnly ticket cookie 等 PC 客户端方案。值非敏感（客户端身份本就体现在 UA 中），
-  // 对所有域生效，避免漏掉 nuwax 后端域名导致识别失败。
+  // 后端凭该头在登录响应里返回 token（nuwax 用 Authorization 头鉴权）。值非敏感
+  // （客户端身份本就体现在 UA 中），对所有域生效，避免漏掉 nuwax 后端域名导致识别失败。
+  //
+  // 但当请求「来源 origin」是 nuwax 本地开发调试服务(localhost / 127.0.0.1)时跳过注入：
+  // 后端为前端调试设计——凭 origin=localhost 即返回 token，无需此头；且注入这个自定义头
+  // 会使跨域请求触发 CORS preflight（后端 CORS 未放行 x-client-type）而被拦下、请求发不出。
+  // 生产 webview 加载 nuwax 线上域(origin 非 localhost)，正常注入、凭头识别。
+  // 注意：判断维度是「nuwax dev server 的来源 origin」，不是 electron 客户端自身的 isDev。
   session.defaultSession.webRequest.onBeforeSendHeaders(
     { urls: ["http://*/*", "https://*/*"] },
     (details, callback) => {
+      const origin =
+        details.requestHeaders["Origin"] ||
+        details.requestHeaders["origin"] ||
+        "";
+      if (/^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?/i.test(origin)) {
+        callback({ requestHeaders: details.requestHeaders });
+        return;
+      }
       details.requestHeaders["x-client-type"] = "nuwaclaw";
       callback({ requestHeaders: details.requestHeaders });
     },
   );
-  log.info("x-client-type header injection enabled");
+  log.info(
+    "x-client-type header injection enabled (skipped for localhost/127.0.0.1 dev origin)",
+  );
 
   // Set Dock icon on macOS (development mode needs this)
   if (process.platform === "darwin" && app.dock) {

@@ -46,11 +46,120 @@ async function clearServicePort(
 /** 模块级 _serviceManager，供其他模块（如 computerServer）访问 */
 let _serviceManager: ReturnType<typeof createServiceManager> | null = null;
 
+/** 模块级 _ctx，供 stopAllServicesNow/restartAllServicesNow 等聚合函数访问 */
+let _ctx: HandlerContext | null = null;
+
 /** 获取 _serviceManager 实例（需先调用 registerProcessHandlers） */
 export function getServiceManager(): ReturnType<
   typeof createServiceManager
 > | null {
   return _serviceManager;
+}
+
+/**
+ * 任意核心托管服务是否在运行（fileServer/lanproxy/agentRunner/ttyd）。
+ * 供桥 handler 做幂等守卫——如 auth:persistToken 时仅在「未运行」才起服务，
+ * 避免已登录态下重复 restart 打断在跑的会话。
+ */
+export function isAnyCoreServiceRunning(): boolean {
+  const ctx = _ctx;
+  if (!ctx) return false;
+  return (
+    ctx.fileServer.running ||
+    ctx.lanproxy.running ||
+    ctx.agentRunner.running ||
+    ctx.ttyd.running
+  );
+}
+
+/**
+ * 停止全部本地服务（sm.stopAllServices + computerServer + 端口清理 + 托盘同步）。
+ * 供 services:stopAll IPC 与桥 auth:clear（登出 / token 失效 401）共用，确保
+ * 登出与失效都立即停掉所有服务（见 syncTrayStatusFromContext 的托盘推断）。
+ */
+export async function stopAllServicesNow(): Promise<{
+  success: boolean;
+  results: Record<string, { success: boolean; error?: string }>;
+}> {
+  const ctx = _ctx;
+  const sm = _serviceManager;
+  if (!ctx || !sm) {
+    log.warn("[Services] stopAllServicesNow: not initialized yet");
+    return { success: false, results: {} };
+  }
+  log.info("[Services] Stopping all services...");
+  const base = await sm.stopAllServices();
+  const results: Record<string, { success: boolean; error?: string }> = {
+    ...base.results,
+  };
+
+  // 补充 processHandlers 特有步骤：Computer Server
+  try {
+    const { stopComputerServer } = await import("../services/computerServer");
+    await stopComputerServer();
+    await clearServicePort(
+      "computerServer:stopAll",
+      getConfiguredPorts().agent,
+    );
+    results.computerServer = { success: true };
+    log.info("[Services] ComputerServer stopped");
+  } catch (e) {
+    results.computerServer = { success: false, error: String(e) };
+    log.error("[Services] ComputerServer stop failed:", e);
+  }
+
+  syncTrayStatusFromContext(ctx);
+  log.info("[Services] All services stopped:", results);
+  return { success: true, results };
+}
+
+/**
+ * 重启全部本地服务（best-effort：复用 settings 中已有 reg 产物）。
+ * 供 services:restartAll IPC 与桥 auth:persistToken（登录成功）共用。
+ * 注意：lanproxy 强依赖 reg 的 configKey/serverHost/serverPort；若 settings 缺失，
+ * serviceManager 内部会跳过 lanproxy 并 warn，其余服务照常启动。
+ * 完整的「登录即自动起 lanproxy」待 Phase 3 后端 reg 支持 token 鉴权后实现。
+ */
+export async function restartAllServicesNow(): Promise<{
+  success: boolean;
+  results: Record<string, { success: boolean; error?: string }>;
+}> {
+  const ctx = _ctx;
+  const sm = _serviceManager;
+  if (!ctx || !sm) {
+    log.warn("[Services] restartAllServicesNow: not initialized yet");
+    return { success: false, results: {} };
+  }
+  log.info("[Services] Restarting all services...");
+  try {
+    const { stopComputerServer } = await import("../services/computerServer");
+    await stopComputerServer();
+    await clearServicePort(
+      "computerServer:restartAll",
+      getConfiguredPorts().agent,
+    );
+  } catch (e) {
+    log.warn("[Services] ComputerServer stop error (ignored):", e);
+  }
+  const base = await sm.restartAllServices();
+  const results: Record<string, { success: boolean; error?: string }> = {
+    ...base.results,
+  };
+
+  // 补充 processHandlers 特有步骤：Computer Server
+  try {
+    const { startComputerServer } = await import("../services/computerServer");
+    const { agent: agentPort } = getConfiguredPorts();
+    results.computerServer = await startComputerServer(agentPort);
+    log.info("[Services] ComputerServer started:", results.computerServer);
+  } catch (e) {
+    results.computerServer = { success: false, error: String(e) };
+    log.error("[Services] ComputerServer start failed:", e);
+  }
+
+  syncTrayStatusFromContext(ctx);
+  log.info("[Services] All services restart complete:", results);
+  return { success: true, results };
 }
 
 export function registerProcessHandlers(ctx: HandlerContext): void {
@@ -60,6 +169,7 @@ export function registerProcessHandlers(ctx: HandlerContext): void {
     agentRunner: ctx.agentRunner,
     ttyd: ctx.ttyd,
   });
+  _ctx = ctx;
 
   // 本地别名，确保 TypeScript 知道它已被赋值
   const sm = _serviceManager;
@@ -320,72 +430,13 @@ export function registerProcessHandlers(ctx: HandlerContext): void {
   // ==================== services:restartAll ====================
 
   ipcMain.handle("services:restartAll", async () => {
-    log.info("[Services] Restarting all services...");
-    try {
-      const { stopComputerServer } = await import("../services/computerServer");
-      await stopComputerServer();
-      await clearServicePort(
-        "computerServer:restartAll",
-        getConfiguredPorts().agent,
-      );
-    } catch (e) {
-      log.warn("[Services] ComputerServer stop error (ignored):", e);
-    }
-    const base = await sm.restartAllServices();
-    const results: Record<string, { success: boolean; error?: string }> = {
-      ...base.results,
-    };
-
-    // 补充 processHandlers 特有步骤：Computer Server
-    try {
-      const { startComputerServer } =
-        await import("../services/computerServer");
-      const { getConfiguredPorts } = await import("../services/startupPorts");
-      const { agent: agentPort } = getConfiguredPorts();
-      results.computerServer = await startComputerServer(agentPort);
-      log.info("[Services] ComputerServer started:", results.computerServer);
-    } catch (e) {
-      results.computerServer = { success: false, error: String(e) };
-      log.error("[Services] ComputerServer start failed:", e);
-    }
-
-    // 同步托盘状态：基于 ManagedProcess.running 推断整体服务运行状态，
-    // 避免 UI 触发重启后托盘仍停留在 "stopped" 文案。
-    syncTrayStatusFromContext(ctx);
-
-    log.info("[Services] All services restart complete:", results);
-    return { success: true, results };
+    return restartAllServicesNow();
   });
 
   // ==================== services:stopAll ====================
 
   ipcMain.handle("services:stopAll", async () => {
-    log.info("[Services] Stopping all services...");
-    const base = await sm.stopAllServices();
-    const results: Record<string, { success: boolean; error?: string }> = {
-      ...base.results,
-    };
-
-    // 补充 processHandlers 特有步骤：Computer Server
-    try {
-      const { stopComputerServer } = await import("../services/computerServer");
-      await stopComputerServer();
-      await clearServicePort(
-        "computerServer:stopAll",
-        getConfiguredPorts().agent,
-      );
-      results.computerServer = { success: true };
-      log.info("[Services] ComputerServer stopped");
-    } catch (e) {
-      results.computerServer = { success: false, error: String(e) };
-      log.error("[Services] ComputerServer stop failed:", e);
-    }
-
-    // 同步托盘状态：停止后所有进程应已退出，托盘显示 "stopped"。
-    syncTrayStatusFromContext(ctx);
-
-    log.info("[Services] All services stopped:", results);
-    return { success: true, results };
+    return stopAllServicesNow();
   });
 
   // ==================== services:restartAllExceptLanproxy ====================

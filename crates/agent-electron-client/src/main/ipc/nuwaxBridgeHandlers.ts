@@ -5,6 +5,8 @@
  *     nuwax 用 localStorage.ACCESS_TOKEN（Authorization header）鉴权，非 cookie。
  *     这里把 token 按 webview 来源 origin 持久化到 settings 表（键 nuwax.accessToken.<origin>），
  *     与 sandbox ticket 隔离，实现「重启免登 / 登录持久化 / 登出联动」。
+ *     服务生命周期联动（Phase 2）：persistToken(≈登录成功) → best-effort 起服务；
+ *     clear(≈登出 + 401 失效) → 停止全部本地服务。
  * - native:saveImage
  *     右键另存图片：系统保存对话框 + net.fetch（走 defaultSession，携带登录态 cookie）写盘。
  *
@@ -18,6 +20,11 @@ import * as path from "path";
 import log from "electron-log";
 import type { HandlerContext } from "@shared/types/ipc";
 import { readSetting, writeSetting } from "../db";
+import {
+  stopAllServicesNow,
+  restartAllServicesNow,
+  isAnyCoreServiceRunning,
+} from "./processHandlers";
 
 /** nuwax ACCESS_TOKEN 存储键前缀，按来源 origin 分域，避免污染 sandbox ticket。 */
 const NUWAX_TOKEN_KEY_PREFIX = "nuwax.accessToken.";
@@ -41,7 +48,25 @@ export function registerNuwaxBridgeHandlers(ctx: HandlerContext): void {
   ipcMain.handle("auth:getToken", (event) => {
     const scope = resolveSenderOrigin(event);
     const value = readSetting(tokenKey(scope));
-    log.debug("[NuwaxBridge] auth:getToken", { scope, hasToken: !!value });
+    const loggedIn = typeof value === "string" && !!value;
+    log.debug("[NuwaxBridge] auth:getToken", { scope, hasToken: loggedIn });
+
+    // 顶栏登录态同步（以 webview 为最优先）：nuwax 启动 getInitialState 无条件调 getToken，
+    // 是感知 webview 真实登录态最可靠的时机。
+    // - token 在（重启免登态）→ 推 loggedIn:true。
+    // - token 不在（webview 未登录）→ 推 loggedIn:false，纠正 nuwaclaw configKey 残留导致的
+    //   「伪已登录」，使原生顶栏始终跟随 webview 实际状态。
+    // （persistToken 只在 /Login 登录成功时触发，覆盖不了「启动即未登录」场景，故在此补全。）
+    ctx.getMainWindow()?.webContents.send("nuwax:authChanged", { loggedIn });
+    if (loggedIn) {
+      log.info(
+        "[NuwaxBridge] getToken → sync header loggedIn:true (relogin-free)",
+      );
+    } else {
+      log.info(
+        "[NuwaxBridge] getToken → sync header loggedIn:false (webview not logged in)",
+      );
+    }
     return typeof value === "string" ? value : null;
   });
 
@@ -50,13 +75,46 @@ export function registerNuwaxBridgeHandlers(ctx: HandlerContext): void {
     if (typeof token !== "string" || !token) return false;
     writeSetting(tokenKey(scope), token);
     log.info("[NuwaxBridge] auth:persistToken saved", { scope });
+
+    // 登录成功联动：best-effort 启动本地服务。仅在「当前无核心服务运行」时触发，
+    // 避免已登录态下（如 token 刷新）重复 restart 打断在跑的会话。
+    // 异步触发、不阻塞 persistToken 返回，保持 nuwax 登录即时跳转。
+    // lanproxy 完整自起待 Phase 3 后端 reg 支持 token 鉴权后实现。
+    if (!isAnyCoreServiceRunning()) {
+      log.info("[NuwaxBridge] login → starting services (best-effort)");
+      void restartAllServicesNow().catch((e) => {
+        log.warn("[NuwaxBridge] login service start failed (ignored):", e);
+      });
+    } else {
+      log.info("[NuwaxBridge] login → services already running, skip restart");
+    }
+
+    // 顶栏账号状态联动：登录成功 → 通知 renderer 顶栏切「已登录」态（跟随 nuwax token，
+    // 而非 nuwaclaw 原生 configKey）。Phase 3 configKey 退役前，顶栏以此事件为准。
+    ctx.getMainWindow()?.webContents.send("nuwax:authChanged", {
+      loggedIn: true,
+    });
     return true;
   });
 
-  ipcMain.handle("auth:clear", (event) => {
+  ipcMain.handle("auth:clear", async (event) => {
     const scope = resolveSenderOrigin(event);
     writeSetting(tokenKey(scope), null);
     log.info("[NuwaxBridge] auth:clear", { scope });
+
+    // 登出 / token 失效（401）联动：停止全部本地服务。
+    // 用户定：登出与失效都停服务。await 以确保重定向回 /Login 前服务确停；
+    // stopAllServicesNow 内部对各进程有超时，整体有界，失败仅 warn 不影响 clear 结果。
+    try {
+      await stopAllServicesNow();
+    } catch (e) {
+      log.warn("[NuwaxBridge] logout/expiry service stop failed (ignored):", e);
+    }
+
+    // 顶栏账号状态联动：登出 / token 失效 → 通知 renderer 顶栏切「去登录」态。
+    ctx.getMainWindow()?.webContents.send("nuwax:authChanged", {
+      loggedIn: false,
+    });
     return true;
   });
 

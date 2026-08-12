@@ -22,6 +22,13 @@ const isMac = /mac/i.test(navigator.platform);
 const DRAG = { WebkitAppRegion: "drag" } as any;
 const NO_DRAG = { WebkitAppRegion: "no-drag" } as any;
 
+/**
+ * 开发联调时加载的本地 nuwax dev server。
+ * 仅 vite dev 模式（import.meta.env.DEV）启用：webview 直接加载本地 nuwax，
+ * 便于实时调试前端改动；生产仍走 step1_config.serverHost / DEFAULT_SERVER_HOST。
+ */
+const NUWAX_DEV_HOST = "http://localhost:3000";
+
 export interface NuwaxHostWebviewProps {
   /** 递增时强制 reload webview（供外部刷新按钮调用）。 */
   reloadKey?: number;
@@ -49,12 +56,31 @@ function NuwaxHostWebview({ reloadKey = 0 }: NuwaxHostWebviewProps) {
         const step1 = (await window.electronAPI?.settings.get(
           "step1_config",
         )) as { serverHost?: string } | null;
-        const domain = normalizeServerHost(
-          step1?.serverHost || DEFAULT_SERVER_HOST,
+        // 开发联调（vite dev）：优先加载本地 nuwax dev server(localhost:3000)，
+        // 便于实时调试 nuwax 前端改动；生产加载 step1_config.serverHost / DEFAULT_SERVER_HOST。
+        const rawHost = import.meta.env.DEV
+          ? NUWAX_DEV_HOST
+          : step1?.serverHost || DEFAULT_SERVER_HOST;
+        const domain = normalizeServerHost(rawHost);
+        const finalUrl = buildHomeUrl(domain);
+        // 打印实际加载地址，便于联调排查（devtools console / ~/.nuwaclaw/logs/latest.log）。
+        logger.info(
+          "[NuwaxHostWebview] resolved webview url",
+          "NuwaxHostWebview",
+          {
+            dev: import.meta.env.DEV,
+            step1ServerHost: step1?.serverHost ?? null,
+            rawHost,
+            url: finalUrl,
+          },
         );
-        if (!cancelled && domain) setUrl(buildHomeUrl(domain));
+        if (!cancelled && domain) setUrl(finalUrl);
       } catch (e) {
-        logger.error("[NuwaxHostWebview] resolve url failed", e);
+        logger.error(
+          "[NuwaxHostWebview] resolve url failed",
+          "NuwaxHostWebview",
+          e,
+        );
       }
     })();
     return () => {

@@ -126,6 +126,17 @@ body {
   flex-shrink: 0;
   z-index: 100;
   border-bottom: 1px solid var(--color-border);
+  /* 顶栏常驻后作为窗口主拖拽区（空白处可移窗）；交互元素在下方规则里 no-drag 恢复点击 */
+  -webkit-app-region: drag;
+}
+
+/* 顶栏内交互元素恢复 no-drag，避免切换/刷新/账号等点击被拖拽吞掉 */
+.app-header button,
+.app-header [role="button"],
+.app-header .ant-segmented,
+.app-header .ant-segmented-item,
+.app-header a {
+  -webkit-app-region: no-drag;
 }
 
 .app-header-logo {
