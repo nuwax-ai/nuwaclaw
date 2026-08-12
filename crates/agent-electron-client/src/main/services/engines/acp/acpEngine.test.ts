@@ -683,8 +683,23 @@ describe("AcpEngine.handlePermissionRequest(strict)", () => {
         tool_call_id: "tool-call-ask",
       },
     });
-    expect(event.data._intervention).toBeUndefined();
-    expect(event.data._engine).toBeUndefined();
+    expect(event.data._intervention).toMatchObject({
+      id: expect.stringMatching(/^itv_/),
+      revision: 1,
+      status: "pending",
+      sessionId,
+      source: "acp_permission",
+      engine: "nuwaxcode",
+      protocol: "acp",
+      acp: {
+        method: "session/request_permission",
+        request: {
+          sessionId,
+          toolCall: { toolCallId: "tool-call-ask" },
+        },
+      },
+    });
+    expect(event.data._engine).toBe("nuwaxcode");
 
     const result = (engine as any).resolvePermissionIntervention({
       permission_resolve_request: {
@@ -836,8 +851,8 @@ describe("AcpEngine.init", () => {
     expect(capturedEnv?.OPENCODE_CONFIG_CONTENT).toBeTruthy();
 
     const injected = JSON.parse(capturedEnv!.OPENCODE_CONFIG_CONTENT!);
-    expect(injected.mcp).toBeDefined();
-    expect(injected.mcp["chrome-devtools"]).toBeDefined();
+    // MCP 只经 ACP session/new 下发，避免 OPENCODE_CONFIG_CONTENT.mcp 双路径重复建连
+    expect(injected.mcp).toBeUndefined();
     expect(injected.permission.question).toBe("deny");
 
     await engine.destroy();
@@ -1684,8 +1699,9 @@ describe("AcpEngine.chat session restore", () => {
 
   it("uses loadSession for session_id when agent supports loadSession (nuwaxcode)", async () => {
     const engine = new AcpEngine("nuwaxcode");
+    const sesId = "ses_010fsavedSessionForLoad";
     const loadSession = vi.fn().mockResolvedValue({
-      modes: { currentModeId: "yolo", availableModes: [] },
+      modes: { currentModeId: "default", availableModes: [] },
     });
     const resumeSession = vi.fn();
     const setSessionMode = vi.fn().mockResolvedValue({});
@@ -1712,7 +1728,7 @@ describe("AcpEngine.chat session restore", () => {
     const result = await engine.chat({
       user_id: "u1",
       project_id: "proj-1",
-      session_id: "saved-sess",
+      session_id: sesId,
       prompt: "continue",
       request_id: "req-1",
       agent_config: { agent_server: { agent_mode: "ask" } },
@@ -1720,20 +1736,19 @@ describe("AcpEngine.chat session restore", () => {
 
     expect(loadSession).toHaveBeenCalled();
     expect(resumeSession).not.toHaveBeenCalled();
-    expect(setSessionMode).toHaveBeenCalledWith({
-      sessionId: "saved-sess",
-      modeId: "ask",
-    });
+    // agent_mode 只进本地权限，不调用 ACP session/set_mode
+    expect(setSessionMode).not.toHaveBeenCalled();
+    expect((engine as any).permissions.getEffectiveMode(sesId)).toBe("ask");
     expect(result.success).toBe(true);
     expect(result.data?.is_new_session).toBe(false);
-    expect(result.data?.session_id).toBe("saved-sess");
+    expect(result.data?.session_id).toBe(sesId);
   });
 
   it("uses newSession when agent does not support loadSession", async () => {
     const engine = new AcpEngine("nuwaxcode");
     const newSession = vi.fn().mockResolvedValue({
-      sessionId: "fresh-sess",
-      modes: { currentModeId: "yolo", availableModes: [] },
+      sessionId: "ses_010ffreshSession",
+      modes: { currentModeId: "default", availableModes: [] },
     });
     const setSessionMode = vi.fn().mockResolvedValue({});
     const prompt = vi.fn().mockResolvedValue({ stopReason: "end_turn" });
@@ -1756,26 +1771,27 @@ describe("AcpEngine.chat session restore", () => {
     const result = await engine.chat({
       user_id: "u1",
       project_id: "proj-1",
-      session_id: "saved-sess",
+      session_id: "ses_010fsavedButNoLoadCap",
       prompt: "continue",
       request_id: "req-1",
       agent_config: { agent_server: { agent_mode: "ask" } },
     });
 
     expect(newSession).toHaveBeenCalled();
-    expect(setSessionMode).toHaveBeenCalledWith({
-      sessionId: "fresh-sess",
-      modeId: "ask",
-    });
+    expect(setSessionMode).not.toHaveBeenCalled();
+    expect(
+      (engine as any).permissions.getEffectiveMode("ses_010ffreshSession"),
+    ).toBe("ask");
     expect(result.success).toBe(true);
     expect(result.data?.is_new_session).toBe(true);
-    expect(result.data?.session_id).toBe("fresh-sess");
+    expect(result.data?.session_id).toBe("ses_010ffreshSession");
   });
 
-  it("skips setSessionMode when loaded mode already matches request", async () => {
+  it("applies agent_mode locally without ACP setSessionMode even when modes match", async () => {
     const engine = new AcpEngine("nuwaxcode");
+    const sesId = "ses_010falreadyAsk";
     const loadSession = vi.fn().mockResolvedValue({
-      modes: { currentModeId: "ask", availableModes: [] },
+      modes: { currentModeId: "default", availableModes: [] },
     });
     const setSessionMode = vi.fn();
     const prompt = vi.fn().mockResolvedValue({ stopReason: "end_turn" });
@@ -1799,18 +1815,20 @@ describe("AcpEngine.chat session restore", () => {
     await engine.chat({
       user_id: "u1",
       project_id: "proj-1",
-      session_id: "saved-sess",
+      session_id: sesId,
       prompt: "continue",
       agent_config: { agent_server: { agent_mode: "ask" } },
     });
 
     expect(setSessionMode).not.toHaveBeenCalled();
+    expect((engine as any).permissions.getEffectiveMode(sesId)).toBe("ask");
   });
 
   it("syncs session model when loaded session model differs from request model", async () => {
     const engine = new AcpEngine("nuwaxcode");
+    const sesId = "ses_010fmodelSyncTest";
     const loadSession = vi.fn().mockResolvedValue({
-      modes: { currentModeId: "ask", availableModes: [] },
+      modes: { currentModeId: "default", availableModes: [] },
       configOptions: [
         {
           id: "model",
@@ -1843,7 +1861,7 @@ describe("AcpEngine.chat session restore", () => {
     const result = await engine.chat({
       user_id: "u1",
       project_id: "proj-1",
-      session_id: "saved-sess",
+      session_id: sesId,
       prompt: "continue",
       request_id: "req-1",
       agent_config: {
@@ -1857,7 +1875,7 @@ describe("AcpEngine.chat session restore", () => {
     } as any);
 
     expect(unstable_setSessionModel).toHaveBeenCalledWith({
-      sessionId: "saved-sess",
+      sessionId: sesId,
       modelId: "openai-compatible/deepseek-v4-flash",
     });
     expect(result.success).toBe(true);
@@ -1913,7 +1931,7 @@ describe("AcpEngine.chat session restore", () => {
     expect(result.message).toContain("openai-compatible/deepseek-v4-flash");
   });
 
-  it("syncs setSessionMode when reusing in-memory session and agent_mode changes", async () => {
+  it("updates local permission agent_mode when reusing in-memory session", async () => {
     const engine = new AcpEngine("nuwaxcode");
     const setSessionMode = vi.fn().mockResolvedValue({});
     const prompt = vi.fn().mockResolvedValue({ stopReason: "end_turn" });
@@ -1947,10 +1965,7 @@ describe("AcpEngine.chat session restore", () => {
       agent_config: { agent_server: { agent_mode: "ask" } },
     });
 
-    expect(setSessionMode).toHaveBeenCalledWith({
-      sessionId: "mem-sess",
-      modeId: "ask",
-    });
+    expect(setSessionMode).not.toHaveBeenCalled();
     expect((engine as any).permissions.getEffectiveMode("mem-sess")).toBe(
       "ask",
     );

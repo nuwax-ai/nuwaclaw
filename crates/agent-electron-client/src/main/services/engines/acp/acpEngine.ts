@@ -108,11 +108,7 @@ import { ACP_ABORT_TIMEOUT } from "@shared/constants";
 import { APP_DATA_DIR_NAME } from "../../constants";
 import { perfEmitter } from "../perf/perfEmitter";
 import { firstTokenTrace } from "../perf/firstTokenTrace";
-import {
-  parseAcpModeId,
-  resolveEffectiveMode,
-  type AcpMode,
-} from "@shared/types/acpMode";
+import { resolveEffectiveMode, type AcpMode } from "@shared/types/acpMode";
 import {
   approvalInterventionService,
   isComputerPermissionResolveRequest,
@@ -179,7 +175,7 @@ interface AcpSession {
   resumedModeState?: { currentModeId?: string } | null;
   /** session/load|resume 返回的当前模型，chat 同步后继续作为运行时 hint 使用 */
   resumedModelId?: string | null;
-  /** 上次与 ACP Agent 对齐的 mode（仅运行时跟踪，不做持久化） */
+  /** 上次与本地权限协调器对齐的 agent_mode（ask/yolo），不是引擎 ACP session mode */
   acpCurrentModeId?: AcpMode;
   /** 上次与 ACP Agent 对齐的 model（仅运行时跟踪，不做持久化） */
   acpCurrentModelId?: string | null;
@@ -228,43 +224,30 @@ export class AcpEngine extends EventEmitter {
   }
 
   /**
-   * 每次 chat 按请求的 agent_mode 对齐 Agent 与客户端，不缓存跨轮次 mode。
-   * currentEngineModeHint：load/resume/newSession 返回的 currentModeId，或 session 上次同步记录。
+   * 将业务侧 agent_mode（ask/yolo）同步到本地权限协调器。
+   *
+   * 注意：不要与 ACP `session/set_mode` 搞混。
+   * - agent_mode：控制本端对 `session/request_permission` 的审批策略
+   *   （ask 弹窗 / yolo 自动放行），见 permissionCoordinator
+   * - 引擎 ACP session mode：由 Agent 自行默认（如 claude 的 default/auto/plan），
+   *   调用时保持引擎默认，不把 ask/yolo 当成 modeId 下发（OpenCode 无此 mode，
+   *   claude 也不认 ask/yolo）
    */
-  private async syncSessionModeForChat(
+  private syncSessionModeForChat(
     acpSessionId: string,
     targetMode: AcpMode,
-    currentEngineModeHint?: AcpMode | null,
-  ): Promise<void> {
+  ): void {
     const session = this.sessions.get(acpSessionId);
-    const currentEngineMode =
-      currentEngineModeHint ??
-      session?.acpCurrentModeId ??
-      this.permissions.getEffectiveMode(acpSessionId);
-
-    if (
-      currentEngineMode !== targetMode &&
-      this.acpConnection?.setSessionMode
-    ) {
-      try {
-        await this.acpConnection.setSessionMode({
-          sessionId: acpSessionId,
-          modeId: targetMode,
-        });
-        log.info(
-          `${this.logTag} setSessionMode: ${currentEngineMode} → ${targetMode}`,
-        );
-      } catch (err) {
-        log.warn(
-          `${this.logTag} setSessionMode failed (${currentEngineMode} → ${targetMode}):`,
-          err,
-        );
-      }
-    }
-
+    const previous = this.permissions.getEffectiveMode(acpSessionId);
     this.setEffectiveMode(acpSessionId, targetMode);
     if (session) {
+      // 仅跟踪本地权限 mode，不是引擎 ACP mode
       session.acpCurrentModeId = targetMode;
+    }
+    if (previous !== targetMode) {
+      log.info(
+        `${this.logTag} agent_mode for permission: ${previous} → ${targetMode} (no ACP session/set_mode)`,
+      );
     }
   }
 
@@ -329,10 +312,19 @@ export class AcpEngine extends EventEmitter {
         `${this.logTag} session model sync failed (${plan.currentModelId || "(unknown)"} → ${plan.targetModelId}):`,
         err,
       );
-      // Agent 未实现本次 model sync RPC 时继续 prompt（模型由 spawn env 注入）；勿虚标 acpCurrentModelId。
-      if (isAcpSessionModelSyncMethodNotFound(err, plan.method)) {
+      // Agent 未实现 model sync RPC（Method not found）或拒绝其参数（Invalid params，
+      // 如 codex 0.17.4 不再接受 configId=model 的 set_config_option）时继续 prompt
+      // （模型由 spawn env CODEX_MODEL 注入）；勿虚标 acpCurrentModelId。
+      const isInvalidParams =
+        err &&
+        typeof err === "object" &&
+        (err as { code?: unknown }).code === -32602;
+      if (
+        isAcpSessionModelSyncMethodNotFound(err, plan.method) ||
+        isInvalidParams
+      ) {
         log.info(
-          `${this.logTag} Agent does not implement ${plan.method}; continuing with env-injected model (session model state unchanged)`,
+          `${this.logTag} Agent rejected ${plan.method} (${isInvalidParams ? "Invalid params" : "not implemented"}); continuing with env-injected model (session model state unchanged)`,
         );
         return;
       }
@@ -345,14 +337,17 @@ export class AcpEngine extends EventEmitter {
     }
   }
 
+  /**
+   * 引擎 session/new|load|resume 返回的 modes 是 Agent 自己的 ACP session mode
+   * （如 default/auto/plan），与业务 agent_mode（ask/yolo）无关，禁止写入本地权限 mode。
+   */
   private applyAcpModeFromRpc(
-    session: AcpSession,
-    modes: { currentModeId?: string } | null | undefined,
+    _session: AcpSession,
+    _modes: { currentModeId?: string } | null | undefined,
   ): void {
-    const modeId = parseAcpModeId(modes?.currentModeId);
-    if (modeId) {
-      session.acpCurrentModeId = modeId;
-    }
+    // no-op：权限 mode 只由 chat 请求的 agent_mode → syncSessionModeForChat 设置
+    void _session;
+    void _modes;
   }
 
   private activePromptSessions = new Set<string>();
@@ -364,6 +359,14 @@ export class AcpEngine extends EventEmitter {
   private readonly _engineName: string;
   /** ACP initialize 返回的 agentInfo.name，用于自定义下发引擎的会话列表展示 */
   private _acpAgentName: string | null = null;
+  /** 最近一次 init 耗时（ms），供 [startup.diag] 汇总 */
+  private lastInitMs: number | null = null;
+  /** 最近一次 session/new 诊断，供 [startup.diag] 汇总 */
+  private lastNewSessionDiag: {
+    createMs: number;
+    mcpCount: number;
+    mcpNames: string[];
+  } | null = null;
 
   constructor(engineName: string = "claude-code") {
     super();
@@ -634,9 +637,11 @@ export class AcpEngine extends EventEmitter {
       const sandboxConfig = sandboxResolved.config;
 
       if (this.sandboxCaps.usesOpencodeSpawnConfig) {
+        // MCP 只走 ACP session/new 的 mcpServers，不再写入 OPENCODE_CONFIG_CONTENT.mcp。
+        // 旧「双路径」会让引擎 Instance 初始化先连一遍 cfg.mcp，registerMcpServers
+        // 再 mcp.add 一遍；坏远程 MCP 各卡 ~20s → session/new 合计 ~40s。
         const { configObj, sandboxApply: opencodeSandboxApply } =
           buildOpencodeSpawnConfig({
-            mcpServers: config.mcpServers,
             model: config.model,
             sandboxConfig,
             workspaceDir: config.workspaceDir,
@@ -666,9 +671,10 @@ export class AcpEngine extends EventEmitter {
           `${this.logTag} 🔌 OpenCode ACP config injected (OPENCODE_CONFIG_CONTENT)`,
           {
             engine: this.engineName,
-            mcp_injection: "enabled (legacy dual-path for A/B)",
-            mcp_servers: configObj.mcp
-              ? Object.keys(configObj.mcp as Record<string, unknown>)
+            // ACP session/new 仍会带上这些 server；此处仅表示未写入 CONFIG.mcp
+            mcp_injection: "disabled (acp session/new only)",
+            mcp_servers_via_acp: config.mcpServers
+              ? Object.keys(config.mcpServers)
               : [],
             permission: effectivePerm,
             permission_bridge_key: this.opencodePermissionBridgeKey || "(none)",
@@ -821,7 +827,9 @@ export class AcpEngine extends EventEmitter {
 
       this._ready = true;
       this.emit("ready");
-      timer.end("acp.init.total", { engine: this.engineName });
+      this.lastInitMs = timer.end("acp.init.total", {
+        engine: this.engineName,
+      });
       firstTokenTrace.trace("acp.init.ready", { engine: this.engineName });
       return { ok: true };
     } catch (error) {
@@ -1177,6 +1185,13 @@ export class AcpEngine extends EventEmitter {
     log.info(
       `${this.logTag} newSession: cwd=${sessionCwd}, mcpServers=${mcpServers.length}, hasSystemPrompt=${!!opts?.systemPrompt}`,
     );
+    // session/new 明细仅 debug；汇总见 sessionSetup.summary
+    const mcpNames = mcpServers.map((m) => m.name);
+    log.debug(`${this.logTag} [startup.diag] newSession.start`, {
+      engine: this.engineName,
+      mcpCount: mcpServers.length,
+      mcpNames,
+    });
     log.debug(`${this.logTag} newSession debug`, {
       systemPrompt: systemPromptTrimmed,
       systemPromptLength: systemPromptTrimmed?.length ?? 0,
@@ -1200,9 +1215,24 @@ export class AcpEngine extends EventEmitter {
       mcpCount: mcpServers.length,
     });
 
+    // ≥15s 基本可定性为 MCP/服务冷启动（相对 claude ~1s）
+    const verdict = createMs >= 15_000 ? "mcp_cold_start" : "normal";
+    this.lastNewSessionDiag = {
+      createMs,
+      mcpCount: mcpServers.length,
+      mcpNames,
+    };
     log.info(
       `${this.logTag} ✅ ACP newSession completed (${createMs}ms), acpSessionId=${acpResult.sessionId}`,
     );
+    log.debug(`${this.logTag} [startup.diag] newSession.done`, {
+      engine: this.engineName,
+      createMs,
+      mcpCount: mcpServers.length,
+      mcpNames,
+      verdict,
+      acpSessionId: acpResult.sessionId,
+    });
 
     firstTokenTrace.trace(
       "acp.new_session.done",
@@ -1913,6 +1943,8 @@ export class AcpEngine extends EventEmitter {
         {
           logTag: this.logTag,
           workspaceDir: this.config.workspaceDir,
+          // 用于跨引擎 sessionId 形态校验（ses_* vs UUID），避免异引擎 load 挂起
+          engineName: this.engineName,
           agentCapabilities: this.agentCapabilities,
           getSession: (id) => this.sessions.get(id),
           findSessionByProjectId: (pid) => this.findSessionByProjectId(pid),
@@ -1936,6 +1968,7 @@ export class AcpEngine extends EventEmitter {
       const session = setup.session as AcpSession;
       const isNewSession = setup.isNewSession;
       restoredVia = setup.restoredVia;
+      const setupPath = setup.setupPath;
 
       if (request.agent_config?.context_servers && restoredVia === "new") {
         const servers = request.agent_config.context_servers;
@@ -1974,16 +2007,9 @@ export class AcpEngine extends EventEmitter {
       }
 
       if (session.acpSessionId) {
-        const engineModeHint =
-          parseAcpModeId(session.resumedModeState?.currentModeId) ??
-          session.acpCurrentModeId ??
-          null;
+        // agent_mode → 本地权限审批；不调用 ACP session/set_mode（引擎保持默认 mode）
+        this.syncSessionModeForChat(session.acpSessionId, effectiveMode);
         const targetModelId = resolveTargetModelForChat(request, this.config);
-        await this.syncSessionModeForChat(
-          session.acpSessionId,
-          effectiveMode,
-          engineModeHint,
-        );
         await this.syncSessionModelForChat(
           session.acpSessionId,
           targetModelId,
@@ -1998,12 +2024,37 @@ export class AcpEngine extends EventEmitter {
         );
       }
 
-      timer.end("acp.chat.sessionSetup", {
+      const totalSetupMs = timer.end("acp.chat.sessionSetup", {
         stage: "session_setup",
         sessionId: session.id,
         isNewSession,
         engine: this.engineName,
         model: this.config.model || envModel || "(not set)",
+      });
+      // info 只保留汇总；慢启动时一眼能看 dominant / createMs / mcpCount
+      const createMs = this.lastNewSessionDiag?.createMs ?? 0;
+      const initMs = this.lastInitMs ?? 0;
+      const mcpCount =
+        this.lastNewSessionDiag?.mcpCount ?? session.mcpServerCount ?? 0;
+      let dominant: "init" | "newSession" | "other" | "memory" = "other";
+      if (setupPath === "memory") {
+        dominant = "memory";
+      } else if (createMs >= initMs && createMs >= totalSetupMs * 0.5) {
+        dominant = "newSession";
+      } else if (initMs > createMs && initMs >= totalSetupMs * 0.5) {
+        dominant = "init";
+      }
+      log.info(`${this.logTag} [startup.diag] sessionSetup.summary`, {
+        engine: this.engineName,
+        restoredVia,
+        setupPath,
+        initMs,
+        createMs,
+        totalSetupMs,
+        mcpCount,
+        dominant,
+        requestId: request.request_id,
+        projectId: request.project_id,
       });
       firstTokenTrace.trace(
         "acp.chat.session_ready",
@@ -2463,11 +2514,21 @@ export class AcpEngine extends EventEmitter {
       acpSessionId,
       messageType: "acpRequestPermission",
       subType: "request_permission",
-      data: toComputerPermissionProgressData({
-        acpRequest: params,
-        interventionId: interventionRequest.id,
-        revision: interventionRequest.revision,
-      }),
+      data: {
+        ...toComputerPermissionProgressData({
+          acpRequest: params,
+          interventionId: interventionRequest.id,
+          revision: interventionRequest.revision,
+        }),
+        // Keep the product envelope at the host boundary. The web client can
+        // reconstruct it from the ACP request, but forwarding layers may
+        // normalize/drop fields before the SSE reaches the embedded page.
+        // Shipping the authoritative envelope makes permission rendering
+        // independent of that lossy reconstruction while agent-kit continues
+        // to own only the isomorphic wire core.
+        _intervention: interventionRequest,
+        _engine: this.engineName,
+      },
       timestamp: new Date().toISOString(),
     });
 

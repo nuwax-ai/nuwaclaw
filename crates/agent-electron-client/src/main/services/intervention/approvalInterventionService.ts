@@ -1,37 +1,60 @@
 /**
  * Approval Intervention Service
  *
- * 管理 ACP permission 的 pending 状态机：
- * - ask 模式：创建 pending 并等待 /computer/notify-resolved 回调
- * - timeout/session cancel 自动 cancelled
- * - resolve 校验 optionId 白名单
- * - 同步 resolve 只一次
+ * agent-kit owns the pending state machine (dual indexes, duplicate
+ * supersession, timeout, option validation and cancellation). nuwaclaw keeps
+ * its intervention envelope, revision policy, HTTP error mapping, logs and
+ * EventEmitter contract at this boundary.
  */
 
 import { EventEmitter } from "events";
 import log from "electron-log/main";
+import {
+  createPendingService,
+  type PendingServiceHandle,
+  type ResolveResult,
+} from "@nuwax-ai/agent-kit";
 import type {
-  PendingAcpPermission,
   NotifyResolvedRequest,
   NotifyResolvedResponse,
   AcpPermissionResponse,
-  AcpPermissionOption,
   ComputerNotifyResolvedRequest,
 } from "@shared/types/intervention";
 import type { AcpPermissionRequest } from "../engines/acp/acpClient";
 import { buildAcpPermissionInterventionRequest } from "./buildAcpPermissionInterventionRequest";
 import { parseComputerPermissionResolveRequest } from "./computerPermissionProtocol";
 
+type SharedRequest = Parameters<
+  PendingServiceHandle["createPending"]
+>[0]["request"];
+type SharedResponse = Parameters<
+  PendingServiceHandle["resolveByInterventionId"]
+>[1];
+
 export class ApprovalInterventionService extends EventEmitter {
-  private pending = new Map<string, PendingAcpPermission>();
-  private pendingByAcpPermissionKey = new Map<string, string>();
+  private readonly resolutionReasons = new Map<string, string>();
+  private suppressResolvedEvents = false;
 
-  private static readonly DEFAULT_TIMEOUT_MS: number | undefined = undefined;
+  private readonly pendingService = createPendingService({
+    defaultTimeoutMs: 0,
+    // Preserve nuwaclaw's existing immediate-delete behavior. Cloud retries
+    // after completion receive gone rather than agent-kit's optional cache.
+    retentionMs: 0,
+    onResolved: ({ interventionId, response, reason }) => {
+      const hostReason = this.resolutionReasons.get(interventionId) ?? reason;
+      log.info(
+        `[Intervention] Resolved: id=${interventionId} reason=${hostReason} outcome=${response.outcome.outcome}`,
+      );
+      if (!this.suppressResolvedEvents) {
+        this.emit("resolved", {
+          interventionId,
+          reason: hostReason,
+          response: response as AcpPermissionResponse,
+        });
+      }
+    },
+  });
 
-  /**
-   * 创建 pending intervention 并返回 intervention request（用于 SSE 抨递）
-   * 同时返回 ACP Promise，resolve 后得到 ACP 官方 response。
-   */
   createPending(args: {
     engine: string;
     appSessionId: string;
@@ -45,21 +68,6 @@ export class ApprovalInterventionService extends EventEmitter {
     acpResponsePromise: Promise<AcpPermissionResponse>;
   } {
     const { engine, appSessionId, acpSessionId, acpRequest, timeoutMs } = args;
-    const toolCallId = acpRequest.toolCall.toolCallId;
-    const permissionKey = this.buildAcpPermissionKey(acpSessionId, toolCallId);
-    const existingInterventionId =
-      this.pendingByAcpPermissionKey.get(permissionKey);
-    if (existingInterventionId) {
-      log.warn(
-        `[Intervention] Duplicate pending permission key; cancelling previous pending: acpSession=${acpSessionId} toolCall=${toolCallId}`,
-      );
-      this.resolvePendingInternal(
-        existingInterventionId,
-        { outcome: { outcome: "cancelled" } },
-        "superseded",
-      );
-    }
-
     const interventionRequest = buildAcpPermissionInterventionRequest({
       engine,
       appSessionId,
@@ -67,56 +75,32 @@ export class ApprovalInterventionService extends EventEmitter {
       timeoutMs,
     });
 
-    const acpResponsePromise = new Promise<AcpPermissionResponse>((resolve) => {
-      const effectiveTimeoutMs =
-        interventionRequest.timeoutMs ??
-        ApprovalInterventionService.DEFAULT_TIMEOUT_MS;
-      const timer = effectiveTimeoutMs
-        ? setTimeout(() => {
-            this.resolvePendingInternal(
-              interventionRequest.id,
-              { outcome: { outcome: "cancelled" } },
-              "timeout",
-            );
-          }, effectiveTimeoutMs)
-        : undefined;
-
-      this.pending.set(interventionRequest.id, {
-        interventionId: interventionRequest.id,
-        revision: interventionRequest.revision,
-        acpSessionId,
-        appSessionId,
-        toolCallId,
-        request: acpRequest,
-        options: acpRequest.options,
-        status: "pending",
-        resolve,
-        timer,
-        createdAt: Date.now(),
-      });
-      this.pendingByAcpPermissionKey.set(permissionKey, interventionRequest.id);
-
-      log.info(
-        `[Intervention] Pending created: id=${interventionRequest.id} session=${appSessionId} acpSession=${acpSessionId} toolCall=${toolCallId}`,
-      );
+    const created = this.pendingService.createPending({
+      interventionId: interventionRequest.id,
+      revision: interventionRequest.revision,
+      appSessionId,
+      acpSessionId,
+      request: acpRequest as unknown as SharedRequest,
+      timeoutMs,
     });
 
-    return { interventionRequest, acpResponsePromise };
+    log.info(
+      `[Intervention] Pending created: id=${interventionRequest.id} session=${appSessionId} acpSession=${acpSessionId} toolCall=${acpRequest.toolCall.toolCallId}`,
+    );
+
+    return {
+      interventionRequest,
+      acpResponsePromise: created.promise as Promise<AcpPermissionResponse>,
+    };
   }
 
-  /**
-   * 通过 /computer/notify-resolved 回调 resolve pending
-   */
   resolveFromCallback(payload: NotifyResolvedRequest): NotifyResolvedResponse {
-    const pending = this.pending.get(payload.interventionId);
+    const pending = this.pendingService.getPendingByInterventionId(
+      payload.interventionId,
+    );
     if (!pending) {
-      return {
-        ok: false,
-        hostStatus: "gone",
-        error: { code: "not_found", message: "pending permission not found" },
-      };
+      return this.notFound("not_found");
     }
-
     if (pending.revision !== payload.revision) {
       return {
         ok: false,
@@ -125,222 +109,125 @@ export class ApprovalInterventionService extends EventEmitter {
       };
     }
 
-    if (pending.status !== "pending") {
-      if (this.sameAcpResponse(pending.resolvedResponse, payload.acpResponse)) {
-        return { ok: true, hostStatus: "already_resolved" };
-      }
-      return {
-        ok: false,
-        error: {
-          code: "already_resolved_conflict",
-          message: "permission already resolved with different response",
-        },
-      };
-    }
-
-    if (
-      !this.isValidAcpPermissionResponse(payload.acpResponse, pending.options)
-    ) {
-      return {
-        ok: false,
-        error: {
-          code: "invalid_acp_response",
-          message: "invalid ACP permission response",
-        },
-      };
-    }
-
-    this.resolvePendingInternal(
-      payload.interventionId,
-      payload.acpResponse,
+    return this.mapResolveResult(
+      this.resolveByInterventionId(
+        payload.interventionId,
+        payload.acpResponse,
+        "callback",
+      ),
       "callback",
     );
-
-    return { ok: true, hostStatus: "resolved" };
   }
 
-  /**
-   * 通过 /computer/notify-resolved 的 permission_resolve_request 回调 resolve pending
-   */
   resolveFromComputerPermissionCallback(
     payload: ComputerNotifyResolvedRequest,
   ): NotifyResolvedResponse {
     const parsed = parseComputerPermissionResolveRequest(payload);
-    if (!parsed.ok) {
-      return parsed.response;
-    }
+    if (!parsed.ok) return parsed.response;
 
     const { acpSessionId, toolCallId, acpResponse } = parsed.command;
-    const permissionKey = this.buildAcpPermissionKey(acpSessionId, toolCallId);
-    const interventionId = this.pendingByAcpPermissionKey.get(permissionKey);
-    if (!interventionId) {
-      return {
-        ok: false,
-        hostStatus: "gone",
-        error: {
-          code: "ERR_PERMISSION_NOT_FOUND",
-          message: "pending permission not found",
-        },
-      };
-    }
+    const pending = this.pendingService.getPendingBySessionTool(
+      acpSessionId,
+      toolCallId,
+    );
+    if (!pending) return this.notFound("ERR_PERMISSION_NOT_FOUND");
 
-    const pending = this.pending.get(interventionId);
-    if (!pending) {
-      this.pendingByAcpPermissionKey.delete(permissionKey);
-      return {
-        ok: false,
-        hostStatus: "gone",
-        error: {
-          code: "ERR_PERMISSION_NOT_FOUND",
-          message: "pending permission not found",
-        },
-      };
-    }
-
-    if (pending.status !== "pending") {
-      if (this.sameAcpResponse(pending.resolvedResponse, acpResponse)) {
-        return { ok: true, hostStatus: "already_resolved" };
-      }
-      return {
-        ok: false,
-        error: {
-          code: "ERR_PERMISSION_RESOLVE_FAILED",
-          message: "permission already resolved with different response",
-        },
-      };
-    }
-
-    if (!this.isValidAcpPermissionResponse(acpResponse, pending.options)) {
-      return {
-        ok: false,
-        error: {
-          code: "ERR_VALIDATION",
-          message: "invalid ACP permission response",
-        },
-      };
-    }
-
-    this.resolvePendingInternal(
-      interventionId,
-      acpResponse,
+    return this.mapResolveResult(
+      this.resolveByInterventionId(
+        pending.interventionId,
+        acpResponse,
+        "computer_permission_callback",
+      ),
       "computer_permission_callback",
     );
-    return { ok: true, hostStatus: "resolved" };
   }
 
   hasPendingForAcpSession(acpSessionId: string): boolean {
-    for (const pending of this.pending.values()) {
-      if (
-        pending.acpSessionId === acpSessionId &&
-        pending.status === "pending"
-      ) {
-        return true;
-      }
-    }
-    return false;
+    return this.pendingService.hasPendingForAcpSession(acpSessionId);
   }
 
-  /**
-   * 按 acpSessionId 取消所有 pending（session cancel / 新 chat 顶替时调用）
-   */
   cancelByAcpSession(acpSessionId: string, reason = "session_cancel"): void {
-    for (const [id, pending] of this.pending) {
-      if (pending.acpSessionId === acpSessionId) {
-        this.resolvePendingInternal(
-          id,
-          { outcome: { outcome: "cancelled" } },
-          reason,
-        );
-      }
-    }
+    this.pendingService.cancelByAcpSession(acpSessionId, reason);
   }
 
-  /**
-   * 按 appSessionId 取消所有 pending
-   */
   cancelByAppSession(appSessionId: string): void {
-    for (const [id, pending] of this.pending) {
-      if (pending.appSessionId === appSessionId) {
-        this.resolvePendingInternal(
-          id,
-          { outcome: { outcome: "cancelled" } },
-          "session_cancel",
-        );
-      }
-    }
+    this.pendingService.cancelByAppSession(appSessionId, "session_cancel");
   }
 
-  /**
-   * 销毁：清理所有 pending
-   */
   destroy(): void {
-    for (const [id, pending] of this.pending) {
-      if (pending.timer) clearTimeout(pending.timer);
-      pending.resolve({ outcome: { outcome: "cancelled" } });
+    this.suppressResolvedEvents = true;
+    try {
+      this.pendingService.cancelAll();
+    } finally {
+      this.suppressResolvedEvents = false;
+      this.resolutionReasons.clear();
     }
-    this.pending.clear();
-    this.pendingByAcpPermissionKey.clear();
   }
 
   get pendingCount(): number {
-    return this.pending.size;
+    return this.pendingService.pendingCount;
   }
 
-  // === Private ===
-
-  private resolvePendingInternal(
+  private resolveByInterventionId(
     interventionId: string,
     response: AcpPermissionResponse,
     reason: string,
-  ): void {
-    const pending = this.pending.get(interventionId);
-    if (!pending || pending.status !== "pending") return;
-
-    pending.status =
-      response.outcome.outcome === "cancelled" ? "cancelled" : "resolved";
-    pending.resolvedResponse = response;
-    if (pending.timer) clearTimeout(pending.timer);
-
-    log.info(
-      `[Intervention] Resolved: id=${interventionId} reason=${reason} outcome=${response.outcome.outcome}`,
-    );
-
-    // 同步删除，再 resolve Promise
-    this.pending.delete(interventionId);
-    this.pendingByAcpPermissionKey.delete(
-      this.buildAcpPermissionKey(pending.acpSessionId, pending.toolCallId),
-    );
-    pending.resolve(response);
-
-    this.emit("resolved", { interventionId, reason, response });
+  ): ResolveResult {
+    this.resolutionReasons.set(interventionId, reason);
+    try {
+      return this.pendingService.resolveByInterventionId(
+        interventionId,
+        response as SharedResponse,
+      );
+    } finally {
+      this.resolutionReasons.delete(interventionId);
+    }
   }
 
-  private isValidAcpPermissionResponse(
-    response: AcpPermissionResponse,
-    options: AcpPermissionOption[],
-  ): boolean {
-    if (response.outcome.outcome === "cancelled") return true;
-    if (response.outcome.outcome !== "selected") return false;
-    return options.some(
-      (option) =>
-        option.optionId ===
-        (response.outcome as { outcome: "selected"; optionId: string })
-          .optionId,
+  private mapResolveResult(
+    result: ResolveResult,
+    source: "callback" | "computer_permission_callback",
+  ): NotifyResolvedResponse {
+    if (result.ok) {
+      return { ok: true, hostStatus: result.hostStatus };
+    }
+
+    if (result.error.code === "invalid_acp_response") {
+      return {
+        ok: false,
+        error: {
+          code:
+            source === "callback" ? "invalid_acp_response" : "ERR_VALIDATION",
+          message: result.error.message,
+        },
+      };
+    }
+    if (result.error.code === "already_resolved_conflict") {
+      return {
+        ok: false,
+        error: {
+          code:
+            source === "callback"
+              ? "already_resolved_conflict"
+              : "ERR_PERMISSION_RESOLVE_FAILED",
+          message: result.error.message,
+        },
+      };
+    }
+    return this.notFound(
+      source === "callback" ? "not_found" : "ERR_PERMISSION_NOT_FOUND",
     );
   }
 
-  private sameAcpResponse(
-    a?: AcpPermissionResponse,
-    b?: AcpPermissionResponse,
-  ): boolean {
-    if (!a || !b) return false;
-    return JSON.stringify(a) === JSON.stringify(b);
-  }
-
-  private buildAcpPermissionKey(acpSessionId: string, toolCallId: string) {
-    return `${acpSessionId}\u0000${toolCallId}`;
+  private notFound(
+    code: "not_found" | "ERR_PERMISSION_NOT_FOUND",
+  ): NotifyResolvedResponse {
+    return {
+      ok: false,
+      hostStatus: "gone",
+      error: { code, message: "pending permission not found" },
+    };
   }
 }
 
-/** 单例 */
 export const approvalInterventionService = new ApprovalInterventionService();

@@ -5,7 +5,6 @@ import { z } from "zod";
 import type { HandlerContext } from "@shared/types/ipc";
 import { createServiceManager } from "../window/serviceManager";
 import { getTrayManager } from "../window/trayManager";
-import { probeLanproxyAfterStart } from "../services/packages/lanproxyHealth";
 import { getConfiguredPorts } from "../services/startupPorts";
 import { killProcessTreesListeningOnTcpPort } from "../services/utils/processTree";
 
@@ -104,35 +103,20 @@ export function registerProcessHandlers(ctx: HandlerContext): void {
       keyMasked: maskedKey,
       ssl: useSsl,
     });
+    // startLanproxy 内部：spawn + 三层健康检查 + 失败完整重试（最多 3 次）
     const result = await sm.startLanproxy(config);
     if (result.success) {
       log.info("[Lanproxy] Started", {
         server: config.serverIp,
         port: config.serverPort,
+        healthCheck: result.healthCheck,
       });
-      // 三层健康检查（进程稳定 + 业务域云端回探）；await 写入 healthCheck，失败不改 success
-      try {
-        const health = await probeLanproxyAfterStart(
-          ctx.lanproxy.pid,
-          config.clientKey,
-        );
-        result.healthCheck = health;
-        if (!health.healthy) {
-          log.warn(
-            "[Lanproxy] Post-start health probe failed (non-fatal):",
-            health.error,
-          );
-        } else {
-          log.info("[Lanproxy] Post-start health probe OK");
-        }
-      } catch (e) {
-        log.warn("[Lanproxy] Post-start health probe error (non-fatal):", e);
-      }
     } else {
       log.error("[Lanproxy] Start failed", {
         error: result.error,
         server: config.serverIp,
         port: config.serverPort,
+        healthCheck: result.healthCheck,
       });
     }
     return result;

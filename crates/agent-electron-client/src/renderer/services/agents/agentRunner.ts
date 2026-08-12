@@ -4,7 +4,7 @@ import {
   DEFAULT_LANPROXY_PORT,
   DEFAULT_ANTHROPIC_API_URL,
   DEFAULT_AI_MODEL,
-} from '@shared/constants';
+} from "@shared/constants";
 
 export interface AgentRunnerConfig {
   enabled: boolean;
@@ -18,10 +18,10 @@ export interface AgentRunnerConfig {
 
 export const defaultAgentRunnerConfig: AgentRunnerConfig = {
   enabled: false,
-  binPath: 'nuwax-agent-core',
+  binPath: "nuwax-agent-core",
   backendPort: DEFAULT_AGENT_RUNNER_PORT,
   proxyPort: DEFAULT_LANPROXY_PORT,
-  apiKey: '',
+  apiKey: "",
   apiBaseUrl: DEFAULT_ANTHROPIC_API_URL,
   defaultModel: DEFAULT_AI_MODEL,
 };
@@ -35,14 +35,14 @@ export interface AgentRunnerStatus {
 }
 
 export interface ChatRequest {
-  messages: { role: 'user' | 'assistant'; content: string }[];
+  messages: { role: "user" | "assistant"; content: string }[];
   model?: string;
   maxTokens?: number;
 }
 
 export interface ChatResponse {
   content: string;
-  type: 'message' | 'error';
+  type: "message" | "error";
 }
 
 class AgentRunnerManager {
@@ -67,20 +67,28 @@ class AgentRunnerManager {
 
   async loadConfig(): Promise<void> {
     try {
-      const saved = await window.electronAPI?.settings.get('agent_runner_config');
+      const saved = await window.electronAPI?.settings.get(
+        "agent_runner_config",
+      );
       if (saved) {
-        this.config = { ...defaultAgentRunnerConfig, ...(saved as AgentRunnerConfig) };
+        this.config = {
+          ...defaultAgentRunnerConfig,
+          ...(saved as AgentRunnerConfig),
+        };
       }
     } catch (error) {
-      console.error('Failed to load agent runner config:', error);
+      console.error("Failed to load agent runner config:", error);
     }
   }
 
   async saveConfig(): Promise<void> {
     try {
-      await window.electronAPI?.settings.set('agent_runner_config', this.config);
+      await window.electronAPI?.settings.set(
+        "agent_runner_config",
+        this.config,
+      );
     } catch (error) {
-      console.error('Failed to save agent runner config:', error);
+      console.error("Failed to save agent runner config:", error);
     }
   }
 
@@ -104,7 +112,7 @@ class AgentRunnerManager {
         this.status.running = true;
         this.status.backendUrl = this.getBackendUrl();
       }
-      return result || { success: false, error: 'IPC failed' };
+      return result || { success: false, error: "IPC failed" };
     } catch (error) {
       return { success: false, error: String(error) };
     }
@@ -121,7 +129,7 @@ class AgentRunnerManager {
       if (result?.success) {
         this.status.running = false;
       }
-      return result || { success: false, error: 'IPC failed' };
+      return result || { success: false, error: "IPC failed" };
     } catch (error) {
       return { success: false, error: String(error) };
     }
@@ -141,15 +149,15 @@ class AgentRunnerManager {
   // Send chat request to the agent runner HTTP API
   async chat(request: ChatRequest): Promise<ChatResponse> {
     if (!this.status.running) {
-      return { content: 'Agent Runner is not running', type: 'error' };
+      return { content: "Agent Runner is not running", type: "error" };
     }
 
     try {
       const response = await fetch(`${this.getBackendUrl()}/computer/chat`, {
-        method: 'POST',
+        method: "POST",
         headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${this.config.apiKey}`,
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${this.config.apiKey}`,
         },
         body: JSON.stringify({
           messages: request.messages,
@@ -160,28 +168,34 @@ class AgentRunnerManager {
 
       if (!response.ok) {
         const error = await response.text();
-        return { content: `Error: ${response.status} - ${error}`, type: 'error' };
+        return {
+          content: `Error: ${response.status} - ${error}`,
+          type: "error",
+        };
       }
 
       const data = await response.json();
-      return { content: data.content || data.message?.content || '', type: 'message' };
+      return {
+        content: data.content || data.message?.content || "",
+        type: "message",
+      };
     } catch (error) {
-      return { content: `Error: ${error}`, type: 'error' };
+      return { content: `Error: ${error}`, type: "error" };
     }
   }
 
   // Stream chat via SSE
   async *streamChat(request: ChatRequest): AsyncGenerator<string> {
     if (!this.status.running) {
-      yield 'Error: Agent Runner is not running';
+      yield "Error: Agent Runner is not running";
       return;
     }
 
     const response = await fetch(`${this.getBackendUrl()}/computer/chat`, {
-      method: 'POST',
+      method: "POST",
       headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${this.config.apiKey}`,
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${this.config.apiKey}`,
       },
       body: JSON.stringify({
         messages: request.messages,
@@ -198,6 +212,7 @@ class AgentRunnerManager {
 
     const reader = response.body?.getReader();
     const decoder = new TextDecoder();
+    let buffer = "";
 
     if (!reader) return;
 
@@ -205,15 +220,22 @@ class AgentRunnerManager {
       while (true) {
         const { done, value } = await reader.read();
         if (done) break;
-        
-        const chunk = decoder.decode(value);
-        const lines = chunk.split('\n');
-        
+
+        // { stream: true } keeps incomplete multi-byte (CJK) sequences buffered
+        // across read chunks; without it, a character split on a chunk boundary
+        // is flushed as U+FFFD — the "�" corruption seen in CJK output.
+        buffer += decoder.decode(value, { stream: true });
+
+        // A single SSE "data:" line can be split across two read chunks; only
+        // process fully-received lines and retain the trailing partial line.
+        const lines = buffer.split("\n");
+        buffer = lines.pop() || "";
+
         for (const line of lines) {
-          if (line.startsWith('data: ')) {
+          if (line.startsWith("data: ")) {
             const data = line.slice(6);
-            if (data === '[DONE]') return;
-            
+            if (data === "[DONE]") return;
+
             try {
               const parsed = JSON.parse(data);
               if (parsed.content) {

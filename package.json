@@ -1,6 +1,8 @@
 {
   "private": true,
   "scripts": {
+    "postinstall": "pnpm --filter @nuwax-ai/agent-kit build",
+    "build:agent-kit": "pnpm --filter @nuwax-ai/agent-kit build",
     "prepare": "husky",
     "test:electron": "cd crates/agent-electron-client && npm run test:run",
     "test:electron:scripts": "cd crates/agent-electron-client && npm run test:scripts"
@@ -37,6 +39,14 @@
       "basic-ftp": ">=5.2.1",
       "fast-xml-parser": ">=4.8.1",
       "lodash": ">=4.17.31"
-    }
+    },
+    "onlyBuiltDependencies": [
+      "@nuwax-ai/nuwax-codex-acp-ts",
+      "electron",
+      "better-sqlite3",
+      "esbuild",
+      "protobufjs",
+      "sharp"
+    ]
   }
 }

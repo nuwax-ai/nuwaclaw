@@ -1,7 +1,7 @@
 /**
  * 主进程日志配置：按日分割、TTL 清理，开发/正式环境区分
  *
- * - 按日分割：每日一个日志文件 main.YYYY-MM-DD.log（单文件大小不限制）
+ * - 按日分割：每日一个日志文件 main.YYYY-MM-DD.log；单文件超 MAX_FILE_SIZE 时兜底轮转
  * - TTL：启动时删除 logs 目录下超过有效期的归档文件
  * - latest.log：符号链接（或 Windows 硬链接）指向当日活跃日志
  * - 开发：文件级别 debug、更长保留期；正式：info、更短保留期
@@ -27,6 +27,13 @@ function isDev(): boolean {
 /** 归档日志保留时间（毫秒）：开发 30 天，正式 7 天 */
 const TTL_MS_DEV = 30 * 24 * 60 * 60 * 1000;
 const TTL_MS_PROD = 7 * 24 * 60 * 60 * 1000;
+
+/**
+ * 单文件大小上限（兜底安全网）。默认按日分割；仅当单日日志异常膨胀超过此阈值时，
+ * electron-log 才按大小轮转（重命名为 *.old.log 并新开文件），避免单个文件无限增长。
+ * 1GB：日常远不会触及；同一日内触发二次轮转需 >2GB 日志，基本不会丢数据。
+ */
+const MAX_FILE_SIZE = 1024 * 1024 * 1024; // 1 GB
 
 /** 返回当天日期字符串 YYYY-MM-DD */
 function todayDateStr(): string {
@@ -192,7 +199,8 @@ function initPerfLogging(logDir: string): void {
   _perfLogger.transports.file.level = "info";
   // 不重复打到控制台（main logger 已输出）；electron-log v5 level=false 禁用该 transport
   (_perfLogger.transports.console as any).level = false;
-  // perf 日志大小不限制，与主日志保持一致
+  // 同主日志设置大小兜底，保持纯按日分割 + MAX_FILE_SIZE 安全网
+  _perfLogger.transports.file.maxSize = MAX_FILE_SIZE;
 }
 
 /**
@@ -256,8 +264,10 @@ export function initLogging(): void {
 
   const ttlMs = dev ? TTL_MS_DEV : TTL_MS_PROD;
 
-  // 按日分割：只保留按日分割，去掉大小轮转和单文件大小限制
-  // 单文件大小不受限制，由 TTL 清理机制控制日志保留时间
+  // 单文件大小兜底：仅当单日日志超过 MAX_FILE_SIZE 才按大小轮转（默认 1MB 太小，
+  // 会把单日日志拆成 .log + .old.log 两个文件，且多次轮转会覆盖丢失旧块）。
+  // 本项目以按日分割为主，大小上限仅作安全网，由 TTL 清理机制控制日志保留时间。
+  log.transports.file.maxSize = MAX_FILE_SIZE;
 
   // 旧 main.log 一次性迁移（必须在 TTL 清理之前，避免旧文件被直接删除）
   migrateOldMainLog(logDir);
@@ -287,6 +297,8 @@ export function initLogging(): void {
     dev ? "(development)" : "(production)",
     "fileLevel=",
     log.transports.file.level,
+    "maxSizeMB=",
+    Math.round(MAX_FILE_SIZE / (1024 * 1024)),
     "ttlDays=",
     Math.round(ttlMs / (24 * 60 * 60 * 1000)),
   );
