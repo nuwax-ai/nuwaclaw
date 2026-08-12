@@ -504,6 +504,18 @@ app.whenReady().then(async () => {
     log.info("Dev CORS fix enabled");
   }
 
+  // 为所有 http/https 出站请求注入客户端标识头，供 nuwax 后端识别「桌面客户端内」环境，
+  // 进而走 httpOnly ticket cookie 等 PC 客户端方案。值非敏感（客户端身份本就体现在 UA 中），
+  // 对所有域生效，避免漏掉 nuwax 后端域名导致识别失败。
+  session.defaultSession.webRequest.onBeforeSendHeaders(
+    { urls: ["http://*/*", "https://*/*"] },
+    (details, callback) => {
+      details.requestHeaders["x-client-type"] = "nuwaclaw";
+      callback({ requestHeaders: details.requestHeaders });
+    },
+  );
+  log.info("x-client-type header injection enabled");
+
   // Set Dock icon on macOS (development mode needs this)
   if (process.platform === "darwin" && app.dock) {
     const iconPath = getDockIconPath();
