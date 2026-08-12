@@ -53,7 +53,7 @@ describe("devcomputer reload + load SSE hygiene", () => {
   });
 
   it("reload 清掉旧 SSE 缓冲，load 期间不写入历史 replay", async () => {
-    const sessionId = "sess-history-1";
+    const sessionId = "ses_010fhistoryReload1";
     pushSseEvent(sessionId, "agentSessionUpdate", {
       sessionId,
       subType: "text",
@@ -81,7 +81,7 @@ describe("devcomputer reload + load SSE hygiene", () => {
     expect(getSseEventBufferSize(sessionId)).toBe(0);
 
     const loadSession = vi.fn().mockResolvedValue({
-      modes: { currentModeId: "yolo", availableModes: [] },
+      modes: { currentModeId: "default", availableModes: [] },
     });
     const setSessionMode = vi.fn().mockResolvedValue({});
     const prompt = vi.fn().mockResolvedValue({ stopReason: "end_turn" });
@@ -114,10 +114,9 @@ describe("devcomputer reload + load SSE hygiene", () => {
 
     expect(result.success).toBe(true);
     expect(loadSession).toHaveBeenCalled();
-    expect(setSessionMode).toHaveBeenCalledWith({
-      sessionId,
-      modeId: "ask",
-    });
+    // agent_mode 只驱动本地权限审批，不调用 ACP session/set_mode
+    expect(setSessionMode).not.toHaveBeenCalled();
+    expect((engine as any).permissions.getEffectiveMode(sessionId)).toBe("ask");
     expect(getSseEventBufferSize(sessionId)).toBe(0);
   });
 });

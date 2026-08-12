@@ -10,11 +10,14 @@
     "dev": "dotenv -e .env.development -- cross-env NODE_ENV=development concurrently \"npm run dev:vite\" \"npm run dev:electron\"",
     "dev:vite": "vite --force",
     "dev:electron": "wait-on http://localhost:60173 && npm run prepare:mcp-proxy && npm run build:main:dev && dotenv -e .env.development -- cross-env NODE_ENV=development electron .",
-    "build:main:dev": "dotenv -e .env.development -- cross-env NODE_ENV=development tsc -p tsconfig.main.json && tsc-alias -p tsconfig.main.json",
-    "build:main": "dotenv -e .env.production -- cross-env NODE_ENV=production tsc -p tsconfig.main.json && tsc-alias -p tsconfig.main.json",
+    "prebuild:main:dev": "echo \"agent-kit from npm, skip local build\"",
+    "build:main:dev": "cross-env NODE_ENV=development node scripts/build/build-main-esbuild.js",
+    "prebuild:main": "echo \"agent-kit from npm, skip local build\"",
+    "build:main": "cross-env NODE_ENV=production node scripts/build/build-main-esbuild.js",
     "build:renderer": "vite build",
     "build": "dotenv -e .env.production -- cross-env NODE_ENV=production npm run build:main && npm run build:renderer",
     "test": "vitest",
+    "pretest:run": "echo \"agent-kit from npm, skip local build\"",
     "test:run": "vitest run",
     "test:scripts": "vitest run tests/scripts",
     "test:coverage": "vitest run --coverage",
@@ -36,6 +39,7 @@
     "verify:sandboxed-mcp": "node scripts/verify-sandboxed-mcp-bundle.mjs",
     "prepare:nuwaxcode": "node scripts/prepare/prepare-nuwaxcode.js",
     "prepare:codex-acp": "node scripts/prepare/prepare-codex-acp.js",
+    "prepare:codex-acp-ts": "node scripts/prepare/prepare-codex-acp-ts.js",
     "prepare:sandbox-runtime": "node scripts/prepare/prepare-sandbox-runtime.js",
     "build:sandbox-helper": "node scripts/prepare/build-sandbox-helper.js",
     "prepare:sandbox-helper-win": "node scripts/prepare/prepare-sandbox-helper-windows.js",
@@ -71,13 +75,16 @@
     "lint:fix": "eslint src --fix"
   },
   "dependencies": {
-    "adm-zip": "^0.5.16",
     "@agentclientprotocol/sdk": "^0.26.0",
     "@ant-design/icons": "^5.6.1",
     "@anthropic-ai/sdk": "^0.39.0",
     "@modelcontextprotocol/sdk": "^1.27.1",
+    "@nuwax-ai/agent-kit": "0.3.3",
+    "@nuwax-ai/mcp-proxy-ts": "1.5.4",
+    "@nuwax-ai/nuwax-codex-acp-ts": "1.2.8",
     "@uiw/react-json-view": "2.0.0-alpha.42",
     "@uiw/react-textarea-code-editor": "^3.1.1",
+    "adm-zip": "^0.5.16",
     "antd": "^5.29.3",
     "auto-launch": "^5.0.6",
     "better-sqlite3": "^12.6.2",
@@ -117,7 +124,6 @@
     "eslint-config-prettier": "^10.1.8",
     "eslint-plugin-react-hooks": "^7.0.1",
     "eslint-plugin-react-refresh": "^0.5.0",
-    "nuwax-mcp-stdio-proxy": "workspace:*",
     "sharp": "^0.34.5",
     "tsc-alias": "^1.8.16",
     "typescript": "^5.7.3",
@@ -242,8 +248,8 @@
         ]
       },
       {
-        "from": "resources/nuwax-mcp-stdio-proxy",
-        "to": "nuwax-mcp-stdio-proxy",
+        "from": "resources/mcp-proxy-ts",
+        "to": "mcp-proxy-ts",
         "filter": [
           "**/*"
         ]
@@ -287,6 +293,13 @@
           "**/*",
           "!*.cache",
           "!.cache/**"
+        ]
+      },
+      {
+        "from": "resources/nuwax-codex-acp-ts",
+        "to": "nuwax-codex-acp-ts",
+        "filter": [
+          "**/*"
         ]
       },
       {

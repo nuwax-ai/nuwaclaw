@@ -26,10 +26,12 @@ import {
   applySharedPackageManagerCacheEnv,
   getNuwaxcodeBundledBinPath,
   getCodexAcpBundledBinPath,
+  getCodexAcpTsBundledDir,
   getNodeBinPathWithFallback,
   getClaudeCodeAcpBundledDir,
 } from "../../system/dependencies";
 import { APP_DATA_DIR_NAME, LOGS_DIR_NAME } from "../../constants";
+import { resolveCodexAcp } from "@nuwax-ai/agent-kit";
 import { getAppDataDir } from "../../system/appPaths";
 import {
   resolveIsolatedHomePath,
@@ -613,6 +615,7 @@ export function resolveAcpBinary(
   // -- codex / codex-cli (backward compat) --
 
   if (engine === "codex" || engine === "codex-cli") {
+    // env override：直接 spawn 指定的原生二进制（绕过 adapter，调试用）
     const overridePath = (
       process.env.NUWACLAW_CODEX_ACP_BIN ||
       process.env.CODEX_ACP_BIN ||
@@ -623,24 +626,33 @@ export function resolveAcpBinary(
       return { binPath: overridePath, binArgs: [], isNative: true };
     }
 
-    // 优先使用应用内打包的二进制
+    // 优先：@nuwax-ai/nuwax-codex-acp-ts TS adapter（codex resolve 共享自 @nuwax-ai/agent-kit：
+    // resources 模式传 entryOverride；否则 agent-kit 用 require.resolve node_modules）
+    const bundledDir = getCodexAcpTsBundledDir();
+    const entryOverride = bundledDir
+      ? path.join(bundledDir, "dist", "index.js")
+      : undefined;
+    try {
+      const resolved = resolveCodexAcp(
+        entryOverride ? { entryOverride } : undefined,
+      );
+      log.info(
+        `[AcpClient] codex: using TS adapter (agent-kit): ${resolved.args[0]}`,
+      );
+      return { binPath: resolved.args[0], binArgs: [], isNative: false };
+    } catch (e) {
+      log.warn(
+        `[AcpClient] codex: TS adapter resolve failed: ${e instanceof Error ? e.message : e}`,
+      );
+    }
+
+    // 回退：bundled 原生二进制（旧 codex-acp）
     const bundledPath = getCodexAcpBundledBinPath();
     if (bundledPath) {
-      log.info(`[AcpClient] codex: using bundled binary: ${bundledPath}`);
+      log.warn(
+        `[AcpClient] codex: TS adapter not found, falling back to bundled native binary: ${bundledPath}`,
+      );
       return { binPath: bundledPath, binArgs: [], isNative: true };
-    }
-    // 回退：npm 全局安装
-    const binName = isWindows() ? "nuwax-codex-acp.cmd" : "nuwax-codex-acp";
-    const localPath = path.join(
-      app.getPath("home"),
-      APP_DATA_DIR_NAME,
-      "node_modules",
-      ".bin",
-      binName,
-    );
-    if (fs.existsSync(localPath)) {
-      log.info(`[AcpClient] codex: using npm binary: ${localPath}`);
-      return { binPath: localPath, binArgs: [], isNative: true };
     }
     return { binPath: "nuwax-codex-acp", binArgs: [], isNative: true };
   }
@@ -915,7 +927,12 @@ export async function createAcpConnection(
     // Setting CODEX_WIRE_API=chat forces codex-acp to translate Chat API → Responses upstream.
     env.CODEX_WIRE_API = "chat";
     env.CODEX_MODEL_CONTEXT_WINDOW = "200000";
-    env.CODEX_LOG_DIR = "/Users/apple/workspace/nuwaclaw/logs";
+    env.CODEX_LOG_DIR = path.join(
+      app.getPath("home"),
+      APP_DATA_DIR_NAME,
+      LOGS_DIR_NAME,
+      "codex",
+    );
     env.RUST_LOG = "debug";
   }
 

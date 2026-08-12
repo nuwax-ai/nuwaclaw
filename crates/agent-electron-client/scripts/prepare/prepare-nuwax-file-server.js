@@ -2,17 +2,17 @@
 /**
  * 准备 nuwax-file-server 源码并复制到 resources/
  *
- * 逻辑：
- *   1. 若 sources/nuwax-file-server 不存在 → git clone + npm install + npm run build
- *   2. 若存在但无 node_modules → npm install + npm run build
- *   3. 否则跳过构建（认为已就绪）
- *   4. 复制到 resources/nuwax-file-server/
+ * 策略：
+ *   1. 以远程 origin/<branch> 为准（fetch + reset --hard + clean）
+ *   2. 用远程 commit hash 做缓存：与 resources/.commit-hash 一致且产物齐全则跳过
+ *   3. commit 变更时必须重新 install + build，再完整复制到 resources/
  *
  * 产物：
  *   resources/nuwax-file-server/
  *     ├── dist/
  *     ├── node_modules/
- *     └── package.json
+ *     ├── package.json
+ *     └── .commit-hash   # 远程 commit，供下次缓存比对
  */
 
 const path = require('path');
@@ -24,137 +24,203 @@ const projectRoot = getProjectRoot();
 const electronClientRoot = projectRoot;
 
 // 从 package.json 读取源码地址
-const pkgJson = JSON.parse(fs.readFileSync(path.join(electronClientRoot, 'package.json'), 'utf8'));
-const { url: GIT_REPO, branch: GIT_BRANCH } = pkgJson.bundledSources['nuwax-file-server'];
+const pkgJson = JSON.parse(
+  fs.readFileSync(path.join(electronClientRoot, 'package.json'), 'utf8'),
+);
+const { url: GIT_REPO, branch: GIT_BRANCH } =
+  pkgJson.bundledSources['nuwax-file-server'];
 
 const SOURCE_DIR = path.join(electronClientRoot, 'sources', 'nuwax-file-server');
 const destDir = path.join(electronClientRoot, 'resources', 'nuwax-file-server');
+/** resources 侧缓存的远程 commit 文件 */
+const DEST_COMMIT_HASH_PATH = path.join(destDir, '.commit-hash');
 
+/**
+ * 执行命令并原样打印到控制台。
+ * @param {string} cmd shell 命令
+ * @param {import('child_process').ExecSyncOptions} [opts]
+ */
 function exec(cmd, opts = {}) {
   console.log(`  $ ${cmd}`);
   execSync(cmd, { stdio: 'inherit', ...opts });
 }
 
 /**
- * 获取 git commit hash
- * @param {string} repoDir git 仓库目录
- * @returns {string|null} commit hash 或 null
+ * 在指定仓库执行 git 命令，返回 stdout（trim 后）。
+ * @param {string} repoDir
+ * @param {string} args git 子命令参数（不含 git 前缀）
+ * @returns {string}
  */
-function getGitCommitHash(repoDir) {
-  try {
-    return execSync('git rev-parse HEAD', { cwd: repoDir, encoding: 'utf8' }).trim();
-  } catch {
-    return null;
-  }
+function git(repoDir, args) {
+  return execSync(`git ${args}`, {
+    cwd: repoDir,
+    encoding: 'utf8',
+    stdio: ['pipe', 'pipe', 'inherit'],
+  }).trim();
 }
 
-function main() {
-  // 0. 版本和 commit hash 检查：若源码已存在且版本和 commit 都匹配，跳过全部工作
-  const srcPkgPath = path.join(SOURCE_DIR, 'package.json');
-  const destPkgPath = path.join(destDir, 'package.json');
-  const destCommitHashPath = path.join(destDir, '.commit-hash');
+/**
+ * 读取文本文件并去掉空白；不存在则返回 null。
+ * @param {string} filePath
+ * @returns {string|null}
+ */
+function readTrimmedFile(filePath) {
+  if (!fs.existsSync(filePath)) return null;
+  return fs.readFileSync(filePath, 'utf8').trim() || null;
+}
 
-  if (fs.existsSync(srcPkgPath) && fs.existsSync(destPkgPath)) {
-    try {
-      const srcPkg = JSON.parse(fs.readFileSync(srcPkgPath, 'utf8'));
-      const destPkg = JSON.parse(fs.readFileSync(destPkgPath, 'utf8'));
+/**
+ * 判断 resources 产物是否齐全（可被 Electron 直接启动）。
+ * @returns {boolean}
+ */
+function hasDestBuild() {
+  return (
+    fs.existsSync(path.join(destDir, 'dist')) &&
+    fs.existsSync(path.join(destDir, 'node_modules')) &&
+    fs.existsSync(path.join(destDir, 'package.json'))
+  );
+}
 
-      // 获取源码的 commit hash
-      const srcCommitHash = getGitCommitHash(SOURCE_DIR);
-      // 读取目标目录保存的 commit hash
-      const destCommitHash = fs.existsSync(destCommitHashPath)
-        ? fs.readFileSync(destCommitHashPath, 'utf8').trim()
-        : null;
+/**
+ * 确保 SOURCE_DIR 是可 fetch 的 git 仓库；缺失则 clone。
+ */
+function ensureSourceRepo() {
+  if (fs.existsSync(path.join(SOURCE_DIR, '.git'))) return;
 
-      const versionMatch = destPkg.version === srcPkg.version;
-      const commitMatch = srcCommitHash && destCommitHash && srcCommitHash === destCommitHash;
-      const hasBuild = fs.existsSync(path.join(destDir, 'dist')) && fs.existsSync(path.join(destDir, 'node_modules'));
+  console.log('[prepare-nuwax-file-server] 克隆源码...');
+  fs.mkdirSync(path.dirname(SOURCE_DIR), { recursive: true });
+  if (fs.existsSync(SOURCE_DIR)) {
+    // 半成品目录（无 .git）会挡住 clone
+    fs.rmSync(SOURCE_DIR, { recursive: true, force: true });
+  }
+  exec(`git clone --branch ${GIT_BRANCH} ${GIT_REPO} "${SOURCE_DIR}"`);
+}
 
-      if (versionMatch && commitMatch && hasBuild) {
-        console.log(`[prepare-nuwax-file-server] ${destPkg.version} (${srcCommitHash.slice(0, 8)}) 已是最新，跳过`);
-        return;
-      }
+/**
+ * fetch 远程并返回 origin/<branch> 的 commit hash（以远程为准）。
+ * @returns {string}
+ */
+function fetchRemoteCommitHash() {
+  console.log(`[prepare-nuwax-file-server] 拉取远程 ${GIT_BRANCH}...`);
+  git(SOURCE_DIR, `fetch origin ${GIT_BRANCH}`);
+  return git(SOURCE_DIR, `rev-parse origin/${GIT_BRANCH}`);
+}
 
-      // 打印跳过原因
-      if (!versionMatch) {
-        console.log(`[prepare-nuwax-file-server] 版本变更: ${destPkg.version} -> ${srcPkg.version}，需要重新构建`);
-      } else if (!commitMatch) {
-        console.log(`[prepare-nuwax-file-server] 源码更新: ${destCommitHash?.slice(0, 8) || 'none'} -> ${srcCommitHash?.slice(0, 8) || 'none'}，需要重新构建`);
-      } else if (!hasBuild) {
-        console.log(`[prepare-nuwax-file-server] 构建产物缺失，需要重新构建`);
-      }
-    } catch { /* 版本文件损坏，继续执行 */ }
+/**
+ * 将本地工作树硬对齐到 origin/<branch>，并清理未跟踪文件。
+ * 避免 git pull 被 untracked 文件 abort（此前 prepare 失败根因）。
+ * @param {string} remoteHash 仅用于日志展示
+ */
+function hardResetToRemote(remoteHash) {
+  console.log(
+    `[prepare-nuwax-file-server] 对齐远程 origin/${GIT_BRANCH} (${remoteHash.slice(0, 8)})...`,
+  );
+  git(SOURCE_DIR, `checkout -B ${GIT_BRANCH} origin/${GIT_BRANCH}`);
+  git(SOURCE_DIR, `reset --hard origin/${GIT_BRANCH}`);
+  // -fd：删除未跟踪文件/目录，防止与远程新增同名路径冲突
+  git(SOURCE_DIR, 'clean -fd');
+}
+
+/**
+ * 清理 node_modules 后重新 install + build。
+ * commit 变更时必须重建，禁止复用旧 dist。
+ */
+function installAndBuild() {
+  const nm = path.join(SOURCE_DIR, 'node_modules');
+  if (fs.existsSync(nm)) {
+    console.log('[prepare-nuwax-file-server] 清理旧的 node_modules...');
+    fs.rmSync(nm, { recursive: true, force: true });
   }
 
-  // 1. 克隆或更新源码
-  if (!fs.existsSync(path.join(SOURCE_DIR, '.git'))) {
-    console.log('[prepare-nuwax-file-server] 克隆源码...');
-    exec(`git clone --branch ${GIT_BRANCH} ${GIT_REPO} "${SOURCE_DIR}"`);
-  } else {
-    console.log('[prepare-nuwax-file-server] 更新源码...');
-    exec(`cd "${SOURCE_DIR}" && git checkout ${GIT_BRANCH} && git pull`);
-  }
+  console.log('[prepare-nuwax-file-server] 安装依赖...');
+  exec(`cd "${SOURCE_DIR}" && npm install --ignore-scripts`);
 
-  // 2. 检查构建产物是否存在
-  const hasBuild = fs.existsSync(path.join(SOURCE_DIR, 'dist'));
-  const hasNodeModules = fs.existsSync(path.join(SOURCE_DIR, 'node_modules'));
+  console.log('[prepare-nuwax-file-server] 构建项目...');
+  exec(`cd "${SOURCE_DIR}" && npm run build`);
+}
 
-  if (!hasBuild || !hasNodeModules) {
-    // 清理旧的 node_modules（若有）
-    if (fs.existsSync(path.join(SOURCE_DIR, 'node_modules'))) {
-      console.log('[prepare-nuwax-file-server] 清理旧的 node_modules...');
-      exec(`rm -rf "${path.join(SOURCE_DIR, 'node_modules')}"`);
-    }
+/**
+ * 将 sources 构建产物完整复制到 resources，并写入远程 commit 缓存。
+ * @param {string} remoteHash
+ */
+function copyToResources(remoteHash) {
+  const srcPkg = JSON.parse(
+    fs.readFileSync(path.join(SOURCE_DIR, 'package.json'), 'utf8'),
+  );
+  console.log(
+    `[prepare-nuwax-file-server] 源码版本: ${srcPkg.name}@${srcPkg.version}`,
+  );
 
-    // 3. 安装依赖
-    console.log('[prepare-nuwax-file-server] 安装依赖...');
-    exec(`cd "${SOURCE_DIR}" && npm install --ignore-scripts`);
-
-    // 4. 构建
-    console.log('[prepare-nuwax-file-server] 构建项目...');
-    exec(`cd "${SOURCE_DIR}" && npm run build`);
-  } else {
-    console.log('[prepare-nuwax-file-server] 构建产物已就绪，跳过构建');
-  }
-
-  // 5. 读取版本
-  const srcPkg = JSON.parse(fs.readFileSync(path.join(SOURCE_DIR, 'package.json'), 'utf8'));
-  console.log(`[prepare-nuwax-file-server] 源码版本: ${srcPkg.name}@${srcPkg.version}`);
-
-  // 6. 清理并创建目标目录
   if (fs.existsSync(destDir)) {
-    fs.rmSync(destDir, { recursive: true });
+    fs.rmSync(destDir, { recursive: true, force: true });
   }
   fs.mkdirSync(destDir, { recursive: true });
 
-  // 7. 复制 dist/
   console.log('[prepare-nuwax-file-server] 复制 dist/...');
   exec(`cp -R "${path.join(SOURCE_DIR, 'dist')}" "${destDir}/"`);
 
-  // 8. 复制 package.json
   fs.copyFileSync(
     path.join(SOURCE_DIR, 'package.json'),
-    path.join(destDir, 'package.json')
+    path.join(destDir, 'package.json'),
   );
 
-  // 9. 复制 node_modules/
   console.log('[prepare-nuwax-file-server] 复制 node_modules/...');
   exec(`cp -R "${path.join(SOURCE_DIR, 'node_modules')}" "${destDir}/"`);
 
-  // 10. 复制 LICENSE
   const licenseSrc = path.join(SOURCE_DIR, 'LICENSE');
   if (fs.existsSync(licenseSrc)) {
     fs.copyFileSync(licenseSrc, path.join(destDir, 'LICENSE'));
   }
 
-  // 11. 保存 commit hash 到目标目录
-  const commitHash = getGitCommitHash(SOURCE_DIR);
-  if (commitHash) {
-    fs.writeFileSync(path.join(destDir, '.commit-hash'), commitHash, 'utf8');
-    console.log(`[prepare-nuwax-file-server] 保存 commit hash: ${commitHash.slice(0, 8)}`);
+  fs.writeFileSync(DEST_COMMIT_HASH_PATH, `${remoteHash}\n`, 'utf8');
+  console.log(
+    `[prepare-nuwax-file-server] 保存 commit hash: ${remoteHash.slice(0, 8)}`,
+  );
+  console.log(
+    `[prepare-nuwax-file-server] ✓ resources/nuwax-file-server/ (${srcPkg.version})`,
+  );
+}
+
+function main() {
+  ensureSourceRepo();
+
+  const remoteHash = fetchRemoteCommitHash();
+  const cachedHash = readTrimmedFile(DEST_COMMIT_HASH_PATH);
+  const destReady = hasDestBuild();
+
+  // 缓存命中：远程未变 + resources 产物齐全 → 整段跳过
+  if (cachedHash && cachedHash === remoteHash && destReady) {
+    let version = 'unknown';
+    try {
+      version = JSON.parse(
+        fs.readFileSync(path.join(destDir, 'package.json'), 'utf8'),
+      ).version;
+    } catch {
+      /* ignore */
+    }
+    console.log(
+      `[prepare-nuwax-file-server] ${version} (${remoteHash.slice(0, 8)}) 已是最新，跳过`,
+    );
+    return;
   }
 
-  console.log(`[prepare-nuwax-file-server] ✓ resources/nuwax-file-server/ (${srcPkg.version})`);
+  if (cachedHash && cachedHash !== remoteHash) {
+    console.log(
+      `[prepare-nuwax-file-server] 远程更新: ${cachedHash.slice(0, 8)} -> ${remoteHash.slice(0, 8)}，需要重新构建`,
+    );
+  } else if (!destReady) {
+    console.log(
+      '[prepare-nuwax-file-server] 构建产物缺失，需要重新构建',
+    );
+  } else {
+    console.log(
+      '[prepare-nuwax-file-server] 无有效缓存，需要重新构建',
+    );
+  }
+
+  hardResetToRemote(remoteHash);
+  installAndBuild();
+  copyToResources(remoteHash);
 }
 
 main();

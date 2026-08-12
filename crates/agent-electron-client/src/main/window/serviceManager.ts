@@ -9,15 +9,17 @@ import * as fs from "fs";
 import { execSync } from "child_process";
 import { app } from "electron";
 import log from "electron-log";
+import { withStartRetry } from "@nuwax-ai/agent-kit";
 import { createFileServerPerfHandler } from "../ipc/perfHandlers";
 import type { ManagedProcess } from "../processManager";
 import { readSetting } from "../db";
 import { t } from "../services/i18n";
-import { checkLanproxyHealth } from "../services/packages/lanproxyHealth";
-import { checkFileServerHealth } from "../services/packages/fileServerHealth";
+import { probeLanproxyAfterStart } from "../services/packages/lanproxyHealth";
+import { waitForFileServerHealth } from "../services/packages/fileServerHealth";
 import {
   APP_DATA_DIR_NAME,
   DEFAULT_STARTUP_DELAY,
+  FILE_SERVER_HEALTH_TIMEOUT_MS,
   normalizeAgentEngine,
   normalizeOptionalPort,
 } from "../services/constants";
@@ -55,6 +57,16 @@ import { clearAllSseEventBuffers } from "../services/computerServer";
 import { killProcessTreesListeningOnTcpPort } from "../services/utils/processTree";
 import { shouldStartGuiMcpServices } from "../services/packages/guiMcpLocalConfig";
 import { isWindows } from "../services/system/shellEnv";
+
+/** 注入 electron-log，供 agent-kit withStartRetry 打英文启动重试日志 */
+const startRetryLogger = {
+  info: (...args: unknown[]) => {
+    log.info(...args);
+  },
+  warn: (...args: unknown[]) => {
+    log.warn(...args);
+  },
+};
 
 export interface ServiceManagerContext {
   lanproxy: ManagedProcess;
@@ -96,13 +108,17 @@ async function waitForTtydGatewayHealth(
  */
 export function createServiceManager(ctx: ServiceManagerContext) {
   /**
-   * 启动文件服务器（备用路径：restartAllServices 调用此处）
-   * 注：正常启动流程经由 processHandlers.ts:startFileServerProcess，
-   *     两处均挂载 createFileServerPerfHandler() 以保证任一路径均有 PERF 覆盖。
+   * 单次启动文件服务器（不含外层重试）。
+   * 健康失败会 stop 进程，避免下次命中「Already running」假成功。
    */
-  const startFileServer = async (port: number): Promise<ServiceResult> => {
+  const startFileServerOnce = async (port: number): Promise<ServiceResult> => {
+    // 重试前可能残留 running 标记；先清掉再 spawn
     if (ctx.fileServer.running) {
-      return { success: true, message: "Already running" };
+      try {
+        await ctx.fileServer.stopAsync(3000);
+      } catch (e) {
+        log.warn("[ServiceManager] FileServer stop before start attempt:", e);
+      }
     }
 
     try {
@@ -204,14 +220,26 @@ export function createServiceManager(ctx: ServiceManagerContext) {
       onStdoutLine: createFileServerPerfHandler(),
     });
 
-    // 启动后进行健康检查验证
+    // 启动后轮询 GET /health，确认 Express 真正就绪（非仅 spawn 成功）
     if (startResult.success) {
-      const health = await checkFileServerHealth(port);
+      const health = await waitForFileServerHealth(
+        port,
+        FILE_SERVER_HEALTH_TIMEOUT_MS,
+      );
       if (!health.healthy) {
         log.error(
           "[ServiceManager] FileServer health check failed:",
           health.error,
         );
+        // 健康失败必须停掉已 spawn 的进程，否则下次会命中「Already running」假成功
+        try {
+          await ctx.fileServer.stopAsync(3000);
+        } catch (e) {
+          log.warn(
+            "[ServiceManager] FileServer stop after failed health check:",
+            e,
+          );
+        }
         return {
           success: false,
           error: `FileServer started but health check failed: ${health.error}`,
@@ -224,16 +252,59 @@ export function createServiceManager(ctx: ServiceManagerContext) {
   };
 
   /**
-   * 启动 Lanproxy
+   * 启动文件服务器（含高可用重试）。
+   * 注：正常启动流程经由 processHandlers.ts:startFileServerProcess，
+   *     两处均挂载 createFileServerPerfHandler() 以保证任一路径均有 PERF 覆盖。
+   *
+   * 幂等：已在跑且健康时直接成功；不健康则进入完整重试。
    */
-  const startLanproxy = async (config: {
+  const startFileServer = async (port: number): Promise<ServiceResult> => {
+    // 已运行：再探一次 /health，避免升级后僵尸进程被当成成功
+    if (ctx.fileServer.running) {
+      const health = await waitForFileServerHealth(
+        port,
+        Math.min(5000, FILE_SERVER_HEALTH_TIMEOUT_MS),
+      );
+      if (health.healthy) {
+        return { success: true, message: "Already running" };
+      }
+      log.warn(
+        "[ServiceManager] FileServer marked running but unhealthy, restarting:",
+        health.error,
+      );
+      try {
+        await ctx.fileServer.stopAsync(3000);
+      } catch (e) {
+        log.warn("[ServiceManager] FileServer stop before retry:", e);
+      }
+    }
+
+    return withStartRetry(
+      (attempt, maxAttempts) => {
+        log.info(
+          `[ServiceManager] FileServer full start ${attempt}/${maxAttempts} (healthTimeout=${FILE_SERVER_HEALTH_TIMEOUT_MS}ms)`,
+        );
+        return startFileServerOnce(port);
+      },
+      { label: "FileServer", logger: startRetryLogger },
+    );
+  };
+
+  /**
+   * 单次启动 Lanproxy（spawn only，不含健康探测与重试）。
+   */
+  const startLanproxyOnce = async (config: {
     serverIp: string;
     serverPort: number;
     clientKey: string;
     ssl?: boolean;
   }): Promise<ServiceResult> => {
     if (ctx.lanproxy.running) {
-      return { success: true };
+      try {
+        await ctx.lanproxy.stopAsync(3000);
+      } catch (e) {
+        log.warn("[ServiceManager] Lanproxy stop before start attempt:", e);
+      }
     }
 
     const binPath = getLanproxyBinPath();
@@ -258,6 +329,104 @@ export function createServiceManager(ctx: ServiceManagerContext) {
       env: getAppEnv(),
       startupDelayMs: 1000,
     });
+  };
+
+  /**
+   * 启动 Lanproxy：spawn + 三层健康检查；失败则 stop 并完整重试（最多 3 次）。
+   * 健康不通过视为启动失败，避免「本地显示已联通、会话文件口不通」的假成功。
+   */
+  const startLanproxy = async (config: {
+    serverIp: string;
+    serverPort: number;
+    clientKey: string;
+    ssl?: boolean;
+  }): Promise<ServiceResult> => {
+    // 已运行：探测隧道；健康则幂等返回，否则停掉走重试
+    if (ctx.lanproxy.running) {
+      try {
+        const health = await probeLanproxyAfterStart(
+          ctx.lanproxy.pid,
+          config.clientKey,
+        );
+        if (health.healthy) {
+          return { success: true, healthCheck: health };
+        }
+        log.warn(
+          "[ServiceManager] Lanproxy marked running but unhealthy, restarting:",
+          health.error,
+        );
+      } catch (e) {
+        log.warn(
+          "[ServiceManager] Lanproxy health probe before restart failed:",
+          e,
+        );
+      }
+      try {
+        await ctx.lanproxy.stopAsync(3000);
+      } catch (e) {
+        log.warn("[ServiceManager] Lanproxy stop before retry:", e);
+      }
+    }
+
+    return withStartRetry(
+      async (attempt, maxAttempts) => {
+        log.info(
+          `[ServiceManager] Lanproxy full start ${attempt}/${maxAttempts}`,
+        );
+        const startResult = await startLanproxyOnce(config);
+        if (!startResult.success) {
+          return startResult;
+        }
+
+        try {
+          const health = await probeLanproxyAfterStart(
+            ctx.lanproxy.pid,
+            config.clientKey,
+          );
+          if (health.healthy) {
+            log.info("[ServiceManager] Lanproxy post-start health probe OK");
+            return { ...startResult, healthCheck: health };
+          }
+
+          log.warn(
+            "[ServiceManager] Lanproxy post-start health probe failed:",
+            health.error,
+          );
+          try {
+            await ctx.lanproxy.stopAsync(3000);
+          } catch (e) {
+            log.warn(
+              "[ServiceManager] Lanproxy stop after failed health probe:",
+              e,
+            );
+          }
+          return {
+            success: false,
+            error: `Lanproxy started but health check failed: ${health.error}`,
+            healthCheck: health,
+          };
+        } catch (e) {
+          const errMsg = e instanceof Error ? e.message : String(e);
+          log.warn(
+            "[ServiceManager] Lanproxy post-start health probe error:",
+            e,
+          );
+          try {
+            await ctx.lanproxy.stopAsync(3000);
+          } catch (stopErr) {
+            log.warn(
+              "[ServiceManager] Lanproxy stop after health probe error:",
+              stopErr,
+            );
+          }
+          return {
+            success: false,
+            error: `Lanproxy health probe error: ${errMsg}`,
+          };
+        }
+      },
+      { label: "Lanproxy", logger: startRetryLogger },
+    );
   };
 
   /**
@@ -583,6 +752,7 @@ export function createServiceManager(ctx: ServiceManagerContext) {
       const serverPort = (lpConfig.serverPort as number) || serverPortStored;
 
       if (serverIp && clientKey && serverPort) {
+        // startLanproxy 已含三层健康检查与失败重试，勿再二次 probe
         results.lanproxy = await startLanproxy({
           serverIp,
           serverPort,
@@ -590,29 +760,13 @@ export function createServiceManager(ctx: ServiceManagerContext) {
           ssl: lpConfig.ssl as boolean,
         });
         if (results.lanproxy.success) {
-          // 远端 health 接口可选；异步探测仅打日志，不阻塞批量重启
-          const lanproxyResult = results.lanproxy;
-          void checkLanproxyHealth(clientKey)
-            .then((health) => {
-              lanproxyResult.healthCheck = health;
-              if (!health.healthy) {
-                log.warn(
-                  "[Lanproxy] Post-start health probe failed (non-fatal; private backends may omit /api/sandbox/config/health):",
-                  health.error,
-                );
-              } else {
-                log.info("[Lanproxy] Post-start health probe OK");
-              }
-            })
-            .catch((e) => {
-              log.warn(
-                "[Lanproxy] Post-start health probe error (non-fatal):",
-                e,
-              );
-            });
+          log.info("[Lanproxy] Batch start OK", {
+            healthCheck: results.lanproxy.healthCheck,
+          });
         } else {
           log.error("[Lanproxy] Batch start failed", {
             error: results.lanproxy.error,
+            healthCheck: results.lanproxy.healthCheck,
           });
         }
       } else {

@@ -21,6 +21,7 @@ vi.mock("electron", () => ({
   app: {
     getPath: vi.fn(() => "/mock/home"),
     isPackaged: false,
+    on: vi.fn(),
   },
 }));
 
@@ -675,7 +676,7 @@ describe("logConfig", () => {
       const { initLogging } = await import("./logConfig");
       initLogging();
 
-      expect(mockLog.transports.file.maxSize).toBe(100 * 1024 * 1024);
+      expect(mockLog.transports.file.maxSize).toBe(1024 * 1024 * 1024);
     });
 
     it("应设置 file level 为 debug（开发模式）", async () => {
@@ -703,8 +704,8 @@ describe("logConfig", () => {
         "(development)",
         "fileLevel=",
         "debug",
-        "maxSize=",
-        "100MB",
+        "maxSizeMB=",
+        1024,
         "ttlDays=",
         30,
       );

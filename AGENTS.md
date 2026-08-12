@@ -124,7 +124,7 @@ Data root directory: `~/.nuwaclaw/` (not `~/.nuwax-agent/` in older docs).
 | **uv** | bundled | Python package manager (>=0.5.0), shipped in extraResources |
 | **nuwax-file-server** | npm-local | File service |
 | **nuwaxcode** | npm-local | Agent engine |
-| **nuwax-mcp-stdio-proxy** | npm-local | MCP protocol aggregation proxy |
+| **@nuwax-ai/mcp-proxy-ts** | npm-local | MCP protocol aggregation proxy |
 
 ### Installation Locations
 
@@ -195,7 +195,7 @@ nuwax-agent/
 ├── crates/
 │   ├── agent-electron-client/  # Electron client
 │   ├── agent-gui-server/       # GUI agent server (Node.js)
-│   └── nuwax-mcp-stdio-proxy/  # MCP proxy (Node.js)
+│   └── @nuwax-ai/mcp-proxy-ts/  # MCP proxy (Node.js)
 │
 ├── docs/                      # Documentation
 ├── scripts/                   # Build scripts

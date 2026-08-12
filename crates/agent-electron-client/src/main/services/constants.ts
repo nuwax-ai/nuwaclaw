@@ -23,10 +23,10 @@ export const PERF_LOG_FILENAME_PREFIX = "perf";
 
 // ==================== 端口配置 ====================
 
-/** @deprecated MCP Proxy 不再使用端口（nuwax-mcp-stdio-proxy 为 stdio 直通模式） */
+/** @deprecated MCP Proxy 不再使用端口（@nuwax-ai/mcp-proxy-ts 为 stdio 直通模式） */
 export const DEFAULT_MCP_PROXY_PORT = 18099;
 
-/** @deprecated MCP Proxy 不再使用监听地址（nuwax-mcp-stdio-proxy 为 stdio 直通模式） */
+/** @deprecated MCP Proxy 不再使用监听地址（@nuwax-ai/mcp-proxy-ts 为 stdio 直通模式） */
 export const DEFAULT_MCP_PROXY_HOST = "127.0.0.1";
 
 /** 开发服务器默认端口 */
@@ -44,6 +44,13 @@ export const LOCALHOST_HOSTNAME = "localhost";
 
 /** 启动延迟 (ms) */
 export const DEFAULT_STARTUP_DELAY = 3000;
+
+/**
+ * file-server 单次启动后轮询 /health 的总超时（ms）。
+ * 与 agent-kit DEFAULT_FILE_SERVER_HEALTH_TIMEOUT_MS 对齐；
+ * Windows 冷启过短会误杀仍在初始化的进程，外层 withStartRetry 再完整重试。
+ */
+export const FILE_SERVER_HEALTH_TIMEOUT_MS = 20_000;
 
 /** SSE 默认重试延迟 (ms) */
 export const DEFAULT_SSE_RETRY_DELAY = 3000;

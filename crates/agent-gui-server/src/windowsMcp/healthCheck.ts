@@ -2,7 +2,7 @@
  * Windows-MCP 健康检查
  *
  * 使用官方 MCP SDK（Streamable HTTP Transport + Client）完成 initialize 握手，
- * 并调用 listTools() 确认服务真正可用，与 nuwax-mcp-stdio-proxy 针对 HTTP MCP 的判定方式一致。
+ * 并调用 listTools() 确认服务真正可用，与 @nuwax-ai/mcp-proxy-ts 针对 HTTP MCP 的判定方式一致。
  *
  * 注意：StreamableHTTPClientTransport 在 send() 里会用内部 AbortController 的 signal 覆盖
  * requestInit.signal，因此超时必须外层 Promise.race，并在 finally 里 client.close() 以 abort 传输层。

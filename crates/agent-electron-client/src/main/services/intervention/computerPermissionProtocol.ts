@@ -6,6 +6,10 @@ import type {
   ComputerPermissionProgressData,
   ComputerPermissionSaveRule,
 } from "@shared/types/intervention";
+import {
+  parseComputerPermissionResolveRequest as parseSharedPermissionResolveRequest,
+  toComputerPermissionProgressData as toSharedPermissionProgressData,
+} from "@nuwax-ai/agent-kit";
 
 export interface ComputerPermissionResolveCommand {
   acpSessionId: string;
@@ -37,80 +41,14 @@ export function parseComputerPermissionResolveRequest(
 ):
   | { ok: true; command: ComputerPermissionResolveCommand }
   | { ok: false; response: NotifyResolvedResponse } {
-  if (!isRecord(body)) {
-    return validationError("request body is required");
-  }
-  if (!isComputerPermissionResolveRequest(body)) {
-    return validationError("permission_resolve_request is required");
-  }
-
-  const request = body.permission_resolve_request;
-  if (!isRecord(request)) {
-    return validationError("permission_resolve_request must be an object");
+  const parsed = parseSharedPermissionResolveRequest(body);
+  if (!parsed.ok) {
+    // HTTP response shape is a nuwaclaw host contract. Keep it local while the
+    // wire-protocol validation and legacy outcome normalization live in agent-kit.
+    return validationError(parsed.body.error.message);
   }
 
-  if (typeof request.session_id !== "string" || !request.session_id) {
-    return validationError("permission_resolve_request.session_id is required");
-  }
-  if (typeof request.tool_call_id !== "string" || !request.tool_call_id) {
-    return validationError(
-      "permission_resolve_request.tool_call_id is required",
-    );
-  }
-
-  const response = request.request_permission_response;
-  if (!isRecord(response)) {
-    return validationError(
-      "permission_resolve_request.request_permission_response is required",
-    );
-  }
-  if (!isRecord(response.outcome)) {
-    return validationError("request_permission_response.outcome is required");
-  }
-
-  const outcome = response.outcome;
-  let acpResponse: AcpPermissionResponse;
-  if ("Selected" in outcome) {
-    const selected = outcome.Selected;
-    if (!isRecord(selected)) {
-      return validationError("Selected outcome must be an object");
-    }
-    if (typeof selected.option_id !== "string" || !selected.option_id) {
-      return validationError("Selected outcome requires option_id");
-    }
-    acpResponse = {
-      outcome: { outcome: "selected", optionId: selected.option_id },
-    };
-  } else if ("Cancelled" in outcome) {
-    acpResponse = { outcome: { outcome: "cancelled" } };
-  } else if (outcome.outcome === "selected") {
-    const optionId =
-      typeof outcome.optionId === "string" ? outcome.optionId : undefined;
-    if (!optionId) {
-      return validationError("Legacy selected outcome requires optionId");
-    }
-    acpResponse = {
-      outcome: { outcome: "selected", optionId },
-    };
-  } else if (outcome.outcome === "cancelled") {
-    acpResponse = { outcome: { outcome: "cancelled" } };
-  } else {
-    return validationError("outcome must be Selected or Cancelled");
-  }
-
-  return {
-    ok: true,
-    command: {
-      acpSessionId: request.session_id,
-      toolCallId: request.tool_call_id,
-      acpResponse,
-      saveRule:
-        typeof request.save_rule === "boolean" ? request.save_rule : undefined,
-      projectId:
-        typeof body.project_id === "string" ? body.project_id : undefined,
-      userId: typeof body.user_id === "string" ? body.user_id : undefined,
-    },
-  };
+  return { ok: true, command: parsed.command };
 }
 
 export function toComputerPermissionProgressData(args: {
@@ -119,32 +57,26 @@ export function toComputerPermissionProgressData(args: {
   revision?: number;
 }): ComputerPermissionProgressData {
   const { acpRequest, interventionId, revision } = args;
-  const toolCall = acpRequest.toolCall;
-  const toolCallId = toolCall.toolCallId;
+  // agent-kit 0.2.0 exposes the SDK 0.26 enum for toolCall.kind while
+  // nuwaclaw intentionally accepts engine-specific string kinds. The shared
+  // mapper only reads the common fields, so keep this compatibility cast at
+  // the host boundary until agent-kit's structural request type is released.
+  const sharedRequest = acpRequest as unknown as Parameters<
+    typeof toSharedPermissionProgressData
+  >[0]["request"];
+  const base = toSharedPermissionProgressData({
+    request: sharedRequest,
+  }) as Pick<
+    ComputerPermissionProgressData,
+    "request_permission_request" | "tool_call_id"
+  >;
   const saveRule = buildSaveRuleSuggestion(acpRequest);
   const meta: Record<string, unknown> = {};
   if (interventionId) meta.nuwaclaw_intervention_id = interventionId;
   if (typeof revision === "number") meta.nuwaclaw_revision = revision;
 
   return {
-    request_permission_request: {
-      sessionId: acpRequest.sessionId,
-      toolCall: {
-        toolCallId: toolCallId,
-        kind: toolCall.kind ?? "tool",
-        status: toolCall.status ?? "pending",
-        title: toolCall.title ?? toolCall.kind ?? "tool",
-        content: Array.isArray(toolCall.content) ? toolCall.content : [],
-        rawInput: toolCall.rawInput ?? {},
-        locations: toolCall.locations ?? [],
-      },
-      options: acpRequest.options.map((option) => ({
-        optionId: option.optionId,
-        name: option.name,
-        kind: option.kind,
-      })),
-    },
-    tool_call_id: toolCallId,
+    ...base,
     ...(saveRule ? { save_rule: saveRule } : {}),
     ...(Object.keys(meta).length > 0 ? { _meta: meta } : {}),
   };

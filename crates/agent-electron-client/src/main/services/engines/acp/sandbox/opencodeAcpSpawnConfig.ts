@@ -1,5 +1,10 @@
 /**
  * Build OPENCODE_CONFIG_CONTENT payload for OpenCode-family ACP engines.
+ *
+ * 注意：MCP 默认不要经本模块写入 configObj.mcp。
+ * AcpEngine 已改为只通过 ACP session/new.mcpServers 下发，避免与
+ * nuwaxcode Instance MCP.state + registerMcpServers 形成双路径重复建连。
+ * buildOpencodeMcpSection 仍保留，供测试或显式 opt-in。
  */
 
 import log from "electron-log";

@@ -1,5 +1,5 @@
 /**
- * macOS seatbelt strict：session/new 需 spawn bundled node + nuwax-mcp-stdio-proxy。
+ * macOS seatbelt strict：session/new 需 spawn bundled node + @nuwax-ai/mcp-proxy-ts。
  * strict 默认仅允许引擎本体 exec，此处解析 MCP 工具链所需的最小路径集。
  */
 
@@ -33,7 +33,7 @@ export function resolveMacOsStrictMcpExecAllowlist(): string[] {
 
   const proxyIndex = path.join(
     getResourcesPath(),
-    "nuwax-mcp-stdio-proxy",
+    "mcp-proxy-ts",
     "dist",
     "index.js",
   );
@@ -52,11 +52,8 @@ export function resolveMacOsStrictMcpResourceSubpaths(): string[] {
   const resourcesPath = getResourcesPath();
   const subpaths: string[] = [];
 
-  pushIfExists(
-    subpaths,
-    path.join(resourcesPath, "nuwax-mcp-stdio-proxy", "dist"),
-  );
-  pushIfExists(subpaths, path.join(resourcesPath, "nuwax-mcp-stdio-proxy"));
+  pushIfExists(subpaths, path.join(resourcesPath, "mcp-proxy-ts", "dist"));
+  pushIfExists(subpaths, path.join(resourcesPath, "mcp-proxy-ts"));
 
   const nodePath = getNodeBinPathWithFallback();
   if (nodePath) {

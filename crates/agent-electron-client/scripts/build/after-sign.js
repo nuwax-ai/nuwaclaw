@@ -239,6 +239,21 @@ async function afterSignMac(context) {
     }
   }
 
+  // 5c. 签名 resources/nuwax-codex-acp-ts（原生 codex 二进制；vendor/ 非隐藏路径）
+  //     prepare 仅做了 ad-hoc 占位签名，这里用 Developer ID 覆盖，否则带 quarantine 的
+  //     ad-hoc 二进制会触发 Gatekeeper「无法验证开发者」弹窗。
+  const codexAcpTsPath = path.join(resourcesPath, 'nuwax-codex-acp-ts', 'vendor', 'nuwax-codex');
+  if (fs.existsSync(codexAcpTsPath)) {
+    const codexFiles = findExecutables(codexAcpTsPath);
+    console.log(`[after-sign] 找到 nuwax-codex-acp-ts 可执行文件: ${codexFiles.length} 个`);
+    for (const file of codexFiles) {
+      if (file.includes('.cache')) continue;
+      const relative = path.relative(codexAcpTsPath, file);
+      console.log(`[after-sign] 签名 nuwax-codex-acp-ts/vendor/nuwax-codex/${relative}`);
+      codesign(file, identity);
+    }
+  }
+
   // 6. 对主 .app 重新签名，恢复 seal（内部二进制被签过后包内容已变，必须整体再签一次）
   console.log('[after-sign] 对主 app 重新签名以恢复 seal...');
   const entitlementsPath = path.join(process.cwd(), 'build', 'entitlements.mac.plist');
@@ -274,6 +289,35 @@ async function afterSignMac(context) {
         appleApiIssuer: appleIssuerId,
       });
       console.log('[after-sign] 公证成功！');
+
+      // 8b. 给 Resources 内独立签名的二进制嵌公证票据 (staple)
+      //     app 顶层 staple 覆盖不到 Contents/Resources/ 里独立 Mach-O（如 codex）
+      //     的单独评估；首次 spawn 会触发 syspolicyd 在线查公证（系统进度条）。
+      //     staple 把票据嵌进签名，本地验证、不再在线查。staple 不改 cdhash，不破坏 seal。
+      console.log('[after-sign] 给内部二进制嵌公证票据 (staple)...');
+      const stapleDirs = [
+        path.join(resourcesPath, 'nuwax-codex-acp-ts', 'vendor', 'nuwax-codex'),
+        path.join(resourcesPath, 'node'),
+        path.join(resourcesPath, 'uv'),
+        path.join(resourcesPath, 'lanproxy'),
+        path.join(resourcesPath, 'sandbox-runtime'),
+        path.join(resourcesPath, 'nuwaxcode'),
+      ];
+      let stapled = 0;
+      for (const dir of stapleDirs) {
+        if (!fs.existsSync(dir)) continue;
+        for (const file of findExecutables(dir)) {
+          if (file.includes('.cache')) continue;
+          try {
+            execSync(`xcrun stapler staple "${file}"`, { stdio: 'pipe' });
+            console.log(`[after-sign]   staple: ${path.relative(resourcesPath, file)}`);
+            stapled++;
+          } catch (e2) {
+            console.warn(`[after-sign]   staple 跳过: ${path.basename(file)}`);
+          }
+        }
+      }
+      console.log(`[after-sign] staple 完成 (${stapled} 个)`);
     } catch (e) {
       console.error('[after-sign] 公证失败:', e.message || e);
       // 当公证凭据已配置时，失败应中止构建
@@ -396,10 +440,10 @@ async function afterSignWindows(context) {
     totalFailed += result.failed;
   }
 
-  // 5. 签名 nuwax-mcp-stdio-proxy
-  const mcpProxyPath = path.join(resourcesPath, 'nuwax-mcp-stdio-proxy');
+  // 5. 签名 @nuwax-ai/mcp-proxy-ts
+  const mcpProxyPath = path.join(resourcesPath, 'mcp-proxy-ts');
   if (fs.existsSync(mcpProxyPath)) {
-    console.log('[after-sign] Windows: 签名 nuwax-mcp-stdio-proxy...');
+    console.log('[after-sign] Windows: 签名 @nuwax-ai/mcp-proxy-ts...');
     const result = signWin.signDirectory(mcpProxyPath);
     totalSigned += result.success;
     totalFailed += result.failed;
@@ -428,6 +472,16 @@ async function afterSignWindows(context) {
   if (fs.existsSync(sandboxHelperPath)) {
     console.log('[after-sign] Windows: 签名 sandbox-helper...');
     const result = signWin.signDirectory(sandboxHelperPath);
+    totalSigned += result.success;
+    totalFailed += result.failed;
+  }
+
+  // 9. 签名 nuwax-codex-acp-ts（原生 codex 二进制 nuwax-codex.exe）
+  //    signDirectory 按扩展名(.exe/.dll)筛选，dist/index.js 等非可执行文件会被忽略。
+  const codexAcpTsPath = path.join(resourcesPath, 'nuwax-codex-acp-ts');
+  if (fs.existsSync(codexAcpTsPath)) {
+    console.log('[after-sign] Windows: 签名 nuwax-codex-acp-ts...');
+    const result = signWin.signDirectory(codexAcpTsPath);
     totalSigned += result.success;
     totalFailed += result.failed;
   }

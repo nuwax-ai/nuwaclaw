@@ -88,7 +88,7 @@ Agent 组件 API 中也有技能/MCP/插件/工作流组件更新：
     │     (仅 persistent 服务)             │
     └─────────────────────────────────────┘
               ↓
-    nuwax-mcp-stdio-proxy 聚合启动
+    @nuwax-ai/mcp-proxy-ts 聚合启动
               ↓
     Agent 引擎 (ACP) 通过 stdio 与 MCP servers 通信
 ```
@@ -557,7 +557,7 @@ class McpManager {
 │                                 │                                      │
 │                                 ▼                                      │
 │  ┌──────────────────────────────────────────────────────────────────┐  │
-│  │  nuwax-mcp-stdio-proxy (聚合层)                                    │  │
+│  │  @nuwax-ai/mcp-proxy-ts (聚合层)                                    │  │
 │  │  - stdio 聚合所有 MCP servers                                      │  │
 │  │  - 支持 stdio / sse / streamable-http 传输                        │  │
 │  │  - 工具白名单/黑名单过滤                                           │  │
