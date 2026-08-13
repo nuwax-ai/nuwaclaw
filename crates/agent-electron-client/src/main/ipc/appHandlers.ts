@@ -8,6 +8,7 @@ import {
 } from "electron";
 import * as path from "path";
 import * as fs from "fs";
+import * as os from "os";
 import { execSync } from "child_process";
 import log from "electron-log";
 import type { HandlerContext } from "@shared/types/ipc";
@@ -185,6 +186,11 @@ export function registerAppHandlers(ctx: HandlerContext): void {
 
   ipcMain.handle("app:getDeviceId", () => {
     return getDeviceId();
+  });
+
+  // 本机电脑名（主机名），供顶栏已登录态作为这台设备的标识展示
+  ipcMain.handle("app:getHostname", () => {
+    return os.hostname();
   });
 
   ipcMain.handle("app:checkUpdate", async () => {

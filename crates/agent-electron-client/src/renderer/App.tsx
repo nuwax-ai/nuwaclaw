@@ -356,6 +356,9 @@ function App() {
   /** 是否已登录（有 config_key）；未登录时不展示平台切换 */
   const [isAuthLoggedIn, setIsAuthLoggedIn] = useState(false);
   const [username, setUsername] = useState<string>("");
+  // 本机电脑名（主机名）。登录统一到 nuwax webview 后，nuwaclaw 侧 username（来自 configKey）
+  // 常拿不到，顶栏已登录态用它替代抽象的「已登录」文案，作为这台设备的标识。
+  const [computerName, setComputerName] = useState<string>("");
   const [onlineStatus, setOnlineStatus] = useState<boolean | null>(null);
   const [agentStatus, setAgentStatus] = useState<string>("idle");
   const [services, setServices] = useState<ServiceItem[]>([]);
@@ -437,6 +440,20 @@ function App() {
       }
     };
     checkSetup();
+  }, []);
+
+  // ============================================
+  // 读取本机主机名（顶栏已登录态设备标识，替代「已登录」文案）
+  // ============================================
+  useEffect(() => {
+    window.electronAPI?.app
+      ?.getHostname?.()
+      .then((name) => {
+        if (name) setComputerName(name);
+      })
+      .catch(() => {
+        /* 读取失败忽略，顶栏回退到默认文案 */
+      });
   }, []);
 
   // ============================================
@@ -1353,22 +1370,11 @@ function App() {
               <div className={styles.headerRight}>
                 {isAuthLoggedIn ? (
                   <span className={styles.username}>
-                    {username || t("Claw.App.loggedIn")}
+                    {username || computerName || t("Claw.App.loggedIn")}
                   </span>
                 ) : (
-                  <span
-                    className={styles.username}
-                    role="button"
-                    tabIndex={0}
-                    title={t("Claw.App.goLogin")}
-                    onClick={() => setMainViewMode("browser")}
-                    onKeyDown={(e) =>
-                      (e.key === "Enter" || e.key === " ") &&
-                      setMainViewMode("browser")
-                    }
-                    style={{ cursor: "pointer" }}
-                  >
-                    {t("Claw.App.goLogin")}
+                  <span className={styles.username}>
+                    {t("Claw.App.notLoggedIn")}
                   </span>
                 )}
                 <Badge

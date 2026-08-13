@@ -18,7 +18,7 @@
 | 3 | dev 联调 CORS | 请求来源 origin 为 localhost/127.0.0.1 时**跳过** `x-client-type` 注入（避免 preflight） | `src/main/main.ts` |
 | 4 | webview 指向 + 日志 | dev 加载本地 nuwax dev server（localhost:3000），打印实际加载地址 | `src/renderer/components/pages/NuwaxHostWebview.tsx` |
 | 5 | UI 避让 | config 模式顶栏左侧让出 80px 避让 mac 原生红绿灯 | `src/renderer/App.tsx` |
-| 6 | 顶栏账号同步 | 顶栏登录态**以 webview token 为最优先**（纯 `nuwax:authChanged` 事件驱动，configKey 残留不再覆盖；getToken 未登录也推 false 纠正）；未登录显「去登录」 | `nuwaxBridgeHandlers.ts`、`preload/index.ts`、`App.tsx`、`shared/locales/*` |
+| 6 | 顶栏账号同步 | 顶栏登录态**以 webview token 为最优先**（纯 `nuwax:authChanged` 事件驱动，configKey 残留不再覆盖；getToken 未登录也推 false 纠正）；未登录显「未登录」（非引导性「去登录」，顶栏仅作状态指示） | `nuwaxBridgeHandlers.ts`、`preload/index.ts`、`App.tsx`、`shared/locales/*` |
 | 7 | 去原生退出 | 移除 ClientPage 退出按钮 + handleLogout（退出统一由 nuwax webview 用户菜单承担） | `ClientPage.tsx` |
 | 8 | ClientPage 登录态以 webview 为准 | ClientPage 登录状态显示跟随 nuwax token（App 传 `isWebviewLoggedIn`）；未登录不再露原生 domain/账号/密码登录表单，改引导去 webview；业务门禁 `handleStartAll`(reg 依赖)仍用 configKey | `ClientPage.tsx`、`App.tsx`、`shared/locales/*` |
 
@@ -93,9 +93,9 @@
 - **结果**：✅ 通过（2026-08-12 用户实测：config 模式顶栏左侧右移 80px 避让 mac 红绿灯）。
 
 ### 项 8 — 顶栏账号状态以 webview 为最优先 ⏳
-> **原则**：原生顶栏登录态完全跟随 nuwax webview token，**不因 nuwaclaw configKey 残留而显示「伪已登录」**。webview 未登录 → 顶栏必显「去登录」。
+> **原则**：原生顶栏登录态完全跟随 nuwax webview token，**不因 nuwaclaw configKey 残留而显示「伪已登录」**。webview 未登录 → 顶栏必显「未登录」。
 - **改动**：① main `auth:getToken` 在 token 不在时**也推 `loggedIn:false`**（nuwax 启动 getInitialState 无条件调 getToken，是感知 webview 未登录的最可靠时机，补 persistToken 只在登录成功触发的缺口）；② `refreshAuthState` 移除 `setIsAuthLoggedIn(isLoggedIn(configKey))`，顶栏 `isAuthLoggedIn` 纯由 `nuwax:authChanged` 事件驱动。
-- **操作 ①（正常登录）**：nuwax webview 登录 → 切 config 模式看顶栏右侧 → 显用户名或「已登录」；nuwax 登出 → 切 config 看顶栏 → 显「去登录」。
+- **操作 ①（正常登录）**：nuwax webview 登录 → 切 config 模式看顶栏右侧 → 显用户名或**本机电脑名**（`os.hostname()`，2026-08-13 起替代原抽象「已登录」文案，作为设备标识；username 仍优先）；nuwax 登出 → 切 config 看顶栏 → 显「未登录」。
 - **操作 ②（configKey 残留纠正，本次修复核心）**：保留 nuwaclaw configKey（如曾原生登录过）+ nuwax 未登录（清 localStorage 或全新会话）→ 启动后切 config 模式看顶栏 → **应显「去登录」**（修复前会错误显「已登录」）。
 - **预期日志**：
   - 登录：`auth:persistToken` + `getToken → sync header loggedIn:true`

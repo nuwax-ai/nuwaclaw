@@ -199,7 +199,7 @@
   "Claw.App.modeConfig": "配置",
   "Claw.App.browserLoginRequired": "请先登录后再使用首页",
   "Claw.App.loggedIn": "已登录",
-  "Claw.App.goLogin": "去登录",
+  "Claw.App.notLoggedIn": "未登录",
   "Claw.App.UpdateTag.newVersion": "新版本 v{version}",
   "Claw.App.UpdateTag.download": "v{version} 更新",
   "Claw.App.UpdateTag.update": "更新",

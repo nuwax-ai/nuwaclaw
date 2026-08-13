@@ -199,7 +199,7 @@
   "Claw.App.modeConfig": "Config",
   "Claw.App.browserLoginRequired": "Please log in before accessing Home",
   "Claw.App.loggedIn": "Logged in",
-  "Claw.App.goLogin": "Log in",
+  "Claw.App.notLoggedIn": "Not logged in",
   "Claw.App.UpdateTag.newVersion": "v{version} available",
   "Claw.App.UpdateTag.download": "Update v{version}",
   "Claw.App.UpdateTag.update": "Update",

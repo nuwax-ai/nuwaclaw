@@ -547,6 +547,7 @@ export interface AppAPI {
     error?: string;
   }>;
   getDeviceId: () => Promise<string>;
+  getHostname: () => Promise<string>;
 }
 
 export type PermissionStatus = "granted" | "denied" | "unknown";

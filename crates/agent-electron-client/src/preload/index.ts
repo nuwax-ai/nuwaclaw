@@ -530,6 +530,7 @@ contextBridge.exposeInMainWorld("electronAPI", {
     openReleasesPage: () => ipcRenderer.invoke("app:openReleasesPage"),
     getUpdateDebugInfo: () => ipcRenderer.invoke("app:getUpdateDebugInfo"),
     getDeviceId: () => ipcRenderer.invoke("app:getDeviceId"),
+    getHostname: () => ipcRenderer.invoke("app:getHostname"),
   },
 
   // Permissions (macOS)
