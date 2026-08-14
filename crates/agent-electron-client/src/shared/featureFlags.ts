@@ -45,6 +45,17 @@ function hasViteFlagEnableGuiAgentServer(): boolean {
   return typeof __ENABLE_GUI_AGENT_SERVER__ !== "undefined";
 }
 
+function getViteFlagDarkTheme(): boolean {
+  return (
+    typeof __DARK_THEME__ !== "undefined" &&
+    (__DARK_THEME__ === true || __DARK_THEME__ === "true")
+  );
+}
+
+function hasViteFlagDarkTheme(): boolean {
+  return typeof __DARK_THEME__ !== "undefined";
+}
+
 function getProcessFlag(envKey: string, defaultValue = false): boolean {
   try {
     const value = process?.env?.[envKey];
@@ -73,6 +84,13 @@ export const FEATURES = {
   ENABLE_GUI_AGENT_SERVER: hasViteFlagEnableGuiAgentServer()
     ? getViteFlagEnableGuiAgentServer()
     : getProcessFlag("ENABLE_GUI_AGENT_SERVER", true),
+  /**
+   * 壳暗黑模式：默认关闭（恒浅色，与 nuwax 女娲主题统一基调）。
+   * DARK_THEME=true 可恢复暗黑（含外观设置项）。
+   */
+  DARK_THEME: hasViteFlagDarkTheme()
+    ? getViteFlagDarkTheme()
+    : getProcessFlag("DARK_THEME", false),
 } as const;
 
 export type FeatureFlag = keyof typeof FEATURES;

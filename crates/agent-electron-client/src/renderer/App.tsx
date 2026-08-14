@@ -216,8 +216,11 @@ function App() {
   const [themeMode, setThemeMode] = useState<ThemeMode>("system");
   const [systemIsDark, setSystemIsDark] = useState(false);
 
-  // 计算实际使用的主题
+  // 计算实际使用的主题。
+  // 暗黑模式经环境变量关闭（FEATURES.DARK_THEME，默认 false）：恒浅色，
+  // 与 nuwax 女娲主题（亮色体系）保持统一基调，外观设置项随之隐藏。
   const isDarkMode = useMemo(() => {
+    if (!FEATURES.DARK_THEME) return false;
     if (themeMode === "system") {
       return systemIsDark;
     }

@@ -865,39 +865,41 @@ export default function SettingsPage() {
                 />
               </div>
 
-              {/* 主题设置 */}
-              <div className={styles.serviceRow}>
-                <div className={styles.serviceInfo}>
-                  <div>
-                    <span className={styles.serviceLabel}>
-                      {t("Claw.Settings.system.theme")}
-                    </span>
-                    <div className={styles.serviceDescription}>
-                      {t("Claw.Settings.system.themeDesc")}
+              {/* 主题设置（暗黑模式经环境变量关闭时恒浅色，外观项无意义随之隐藏） */}
+              {FEATURES.DARK_THEME && (
+                <div className={styles.serviceRow}>
+                  <div className={styles.serviceInfo}>
+                    <div>
+                      <span className={styles.serviceLabel}>
+                        {t("Claw.Settings.system.theme")}
+                      </span>
+                      <div className={styles.serviceDescription}>
+                        {t("Claw.Settings.system.themeDesc")}
+                      </div>
                     </div>
                   </div>
+                  <Select
+                    size="small"
+                    value={themeMode}
+                    onChange={(value) => setThemeMode(value)}
+                    style={{ width: 100 }}
+                    options={[
+                      {
+                        value: "system",
+                        label: t("Claw.Settings.system.themeSystem"),
+                      },
+                      {
+                        value: "light",
+                        label: t("Claw.Settings.system.themeLight"),
+                      },
+                      {
+                        value: "dark",
+                        label: t("Claw.Settings.system.themeDark"),
+                      },
+                    ]}
+                  />
                 </div>
-                <Select
-                  size="small"
-                  value={themeMode}
-                  onChange={(value) => setThemeMode(value)}
-                  style={{ width: 100 }}
-                  options={[
-                    {
-                      value: "system",
-                      label: t("Claw.Settings.system.themeSystem"),
-                    },
-                    {
-                      value: "light",
-                      label: t("Claw.Settings.system.themeLight"),
-                    },
-                    {
-                      value: "dark",
-                      label: t("Claw.Settings.system.themeDark"),
-                    },
-                  ]}
-                />
-              </div>
+              )}
 
               {/* 语言设置 */}
               <div className={styles.serviceRow}>

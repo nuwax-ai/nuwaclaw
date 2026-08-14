@@ -17,6 +17,8 @@ function getFeatureFlags(mode: string) {
     __INJECT_GUI_MCP__: toViteFlag(env.INJECT_GUI_MCP),
     __LOG_FULL_SECRETS__: toViteFlag(env.NUWAX_AGENT_LOG_FULL_SECRETS),
     __ENABLE_GUI_AGENT_SERVER__: toViteFlag(env.ENABLE_GUI_AGENT_SERVER),
+    // 暗黑模式开关（默认关闭，恒浅色；设 DARK_THEME=true 恢复）
+    __DARK_THEME__: toViteFlag(env.DARK_THEME),
   };
 }
 
