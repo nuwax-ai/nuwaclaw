@@ -1440,6 +1440,37 @@ function App() {
               onForward={handleToolbarForward}
               onReload={handleToolbarReload}
               onOpenSettings={handleOpenSettings}
+              statusEntry={
+                // 服务状态指示器：非绿色（有服务 error→红 / 未全跑→橙）时渲染颜色点，
+                // 点击打开设置弹窗并落到 client tab（服务列表页）；全绿或未知（空）不渲染。
+                services.length > 0 && !services.every((s) => s.running) ? (
+                  <Tooltip title="服务状态异常，点击查看" mouseEnterDelay={0.7}>
+                    <Button
+                      type="text"
+                      size="small"
+                      aria-label="服务状态"
+                      onClick={() => {
+                        setActiveTab("client");
+                        setSettingsModalOpen(true);
+                      }}
+                      style={{ ...({ WebkitAppRegion: "no-drag" } as any) }}
+                    >
+                      <span
+                        style={{
+                          width: 8,
+                          height: 8,
+                          borderRadius: "50%",
+                          display: "inline-block",
+                          // 有服务报错→红；否则（未全跑）→橙
+                          background: services.some((s) => s.error)
+                            ? "#EF4444"
+                            : "#F59E0B",
+                        }}
+                      />
+                    </Button>
+                  </Tooltip>
+                ) : undefined
+              }
               updateEntry={
                 // 新版本入口（仅有新版本时渲染）：可用→绿底下载 icon（点击下载，
                 // 不支持自动更新时跳 releases 页）；下载中→蓝底进度；已下载→橙底安装 icon。

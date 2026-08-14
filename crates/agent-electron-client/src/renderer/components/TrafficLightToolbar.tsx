@@ -48,6 +48,8 @@ export interface TrafficLightToolbarProps {
   onForward: () => void;
   onReload: () => void;
   onOpenSettings: () => void;
+  /** 服务状态指示器（非绿色时由 App.tsx 注入颜色点，点击打开设置弹窗；全绿不渲染）。 */
+  statusEntry?: React.ReactNode;
   /** 新版本更新入口（仅当检测到新版本时注入：下载 icon / 下载中百分比 / 待安装；其余不渲染）。 */
   updateEntry?: React.ReactNode;
 }
@@ -62,6 +64,7 @@ const TrafficLightToolbar: React.FC<TrafficLightToolbarProps> = ({
   onForward,
   onReload,
   onOpenSettings,
+  statusEntry,
   updateEntry,
 }) => {
   // Win/Linux 最大化状态（自绘按钮图标）；mac 用原生红绿灯不渲染按钮
@@ -160,6 +163,8 @@ const TrafficLightToolbar: React.FC<TrafficLightToolbarProps> = ({
           {iconBtn("后退", !canGoBack, onBack, <LeftOutlined />)}
           {iconBtn("前进", !canGoForward, onForward, <RightOutlined />)}
           {iconBtn("刷新", false, onReload, <ReloadOutlined />)}
+          {/* 服务状态指示器：非绿色时由 App.tsx 注入（点击打开设置弹窗），全绿不渲染 */}
+          {statusEntry}
         </div>
 
         {/* 中间留白：拖拽手柄 */}
