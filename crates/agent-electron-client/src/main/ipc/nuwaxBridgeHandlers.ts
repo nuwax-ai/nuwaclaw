@@ -9,6 +9,10 @@
  *     clear(≈登出 + 401 失效) → 停止全部本地服务。
  * - native:saveImage
  *     右键另存图片：系统保存对话框 + net.fetch（走 defaultSession，携带登录态 cookie）写盘。
+ * - native:openWindow
+ *     新开独立窗口打开 nuwax 站内页面（智能体详情/工作流/网页应用开发/我的电脑等
+ *     全屏页）。带系统标题栏（零遮挡）+ 同一 webview 桥 preload；URL 追加 _shell=1
+ *     让 nuwax 解除沉浸式门控。仅接受站内相对路径并校验同源。
  * - nuwax:theme-sync
  *     nuwax 女娲主题状态推送（{ active, 调色板 }）→ 转发 nuwax:theme-changed 给壳
  *     renderer，壳给自己的 antd tokens / CSS 变量叠加同套米白调色板（原生 UI 统一）。
@@ -19,7 +23,7 @@
  * 桥前端：preload/webviewPerfBridge.ts（注入到所有 http/https webview guest）。
  * 注册入口：ipc/index.ts 的 registerAllHandlers。
  */
-import { ipcMain, dialog, net } from "electron";
+import { ipcMain, dialog, net, BrowserWindow } from "electron";
 import type { IpcMainInvokeEvent } from "electron";
 import * as fs from "fs";
 import * as path from "path";
@@ -48,6 +52,9 @@ function resolveSenderOrigin(event: IpcMainInvokeEvent): string {
 function tokenKey(scope: string): string {
   return `${NUWAX_TOKEN_KEY_PREFIX}${scope}`;
 }
+
+/** 桌面独立窗口注册表：持引用防 GC，closed 时清理。 */
+const shellWindows = new Set<BrowserWindow>();
 
 export function registerNuwaxBridgeHandlers(ctx: HandlerContext): void {
   // ---- theme：nuwax 女娲主题 → 壳原生 UI 统一 ----
@@ -146,6 +153,64 @@ export function registerNuwaxBridgeHandlers(ctx: HandlerContext): void {
       loggedIn: false,
     });
     return true;
+  });
+
+  // ---- native：新开独立窗口打开 nuwax 页面 ----
+  // 智能体详情/工作流/网页应用开发/我的电脑等全屏页在主窗口会被沉浸式工具栏遮挡
+  //（fixed 头部/画布类布局也无法内嵌避让），改为独立窗口承载：带系统标题栏零遮挡，
+  // 注入同一 webview 桥 preload（isNuwaClaw/主题等桥能力一致），URL 追加 _shell=1
+  // 标记让 nuwax 解除沉浸式专属门控（菜单避让/隐藏 logo）。
+  ipcMain.handle("native:openWindow", (event, opts: { path?: unknown }) => {
+    try {
+      const raw = opts?.path;
+      if (typeof raw !== "string" || !raw) {
+        return { success: false, error: "invalid path" };
+      }
+      const base = event.senderFrame?.url || event.sender?.getURL?.() || "";
+      if (!base) return { success: false, error: "sender url missing" };
+      let target: URL;
+      if (/^https?:\/\//i.test(raw)) {
+        // 绝对 http(s) URL：外链（如导航"文档"），仅校验协议
+        target = new URL(raw);
+      } else if (raw.startsWith("/") && !raw.startsWith("//")) {
+        // 站内相对路径：与发起 webview 同源拼接，杜绝任意源打开
+        target = new URL(raw, base);
+        if (target.origin !== new URL(base).origin) {
+          return { success: false, error: "cross-origin blocked" };
+        }
+        // 独立窗口标记（nuwax 据此恢复浏览器式布局：显示 logo/收起按钮、不避让）
+        target.searchParams.set("_shell", "1");
+      } else {
+        return { success: false, error: "invalid path" };
+      }
+
+      const win = new BrowserWindow({
+        width: 1280,
+        height: 832,
+        autoHideMenuBar: true,
+        webPreferences: {
+          // 与 webview guest 同一桥 preload：NuwaClawBridge 全能力（auth/theme/layout）
+          preload: path.join(
+            __dirname,
+            "..",
+            "preload",
+            "webviewPerfBridge.js",
+          ),
+        },
+      });
+      shellWindows.add(win);
+      win.on("closed", () => shellWindows.delete(win));
+      void win.loadURL(target.href);
+      win.focus();
+      log.info("[NuwaxBridge] native:openWindow", { path: raw });
+      return { success: true };
+    } catch (error) {
+      log.error("[NuwaxBridge] native:openWindow failed", error);
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : String(error),
+      };
+    }
   });
 
   // ---- native：右键另存图片 ----
