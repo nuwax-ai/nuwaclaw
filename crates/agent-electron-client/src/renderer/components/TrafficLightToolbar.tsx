@@ -37,6 +37,8 @@ const NO_DRAG = { WebkitAppRegion: "no-drag" } as any;
 export interface TrafficLightToolbarProps {
   /** 二级菜单收起态（决定收起/展开 icon 与 tooltip）。 */
   menuCollapsed: boolean;
+  /** 当前页是否存在可收起的二级菜单（nuwax 经桥推送；无则隐藏收起按钮）。 */
+  menuAvailable: boolean;
   /** webview 后退能力（false 时禁用后退按钮）。 */
   canGoBack: boolean;
   /** webview 前进能力（false 时禁用前进按钮）。 */
@@ -52,6 +54,7 @@ export interface TrafficLightToolbarProps {
 
 const TrafficLightToolbar: React.FC<TrafficLightToolbarProps> = ({
   menuCollapsed,
+  menuAvailable,
   canGoBack,
   canGoForward,
   onToggleMenu,
@@ -145,12 +148,14 @@ const TrafficLightToolbar: React.FC<TrafficLightToolbarProps> = ({
             ...NO_DRAG,
           }}
         >
-          {iconBtn(
-            menuCollapsed ? "展开二级菜单" : "收起二级菜单",
-            false,
-            onToggleMenu,
-            menuCollapsed ? <MenuUnfoldOutlined /> : <MenuFoldOutlined />,
-          )}
+          {/* 收起/展开二级菜单：仅当 nuwax 报告当前页存在二级菜单时渲染（无则隐藏） */}
+          {menuAvailable &&
+            iconBtn(
+              menuCollapsed ? "展开二级菜单" : "收起二级菜单",
+              false,
+              onToggleMenu,
+              menuCollapsed ? <MenuUnfoldOutlined /> : <MenuFoldOutlined />,
+            )}
           {iconBtn("设置", false, onOpenSettings, <SettingOutlined />)}
           {iconBtn("后退", !canGoBack, onBack, <LeftOutlined />)}
           {iconBtn("前进", !canGoForward, onForward, <RightOutlined />)}

@@ -251,6 +251,25 @@ function App() {
     };
   }, []);
 
+  // nuwax 布局状态 → 工具栏收起按钮显隐：当前页无二级菜单时按钮无意义，隐藏。
+  // 默认 false（隐藏）——nuwax 布局挂载后推送真实值；/Login 等无布局页不推或推 false。
+  const [secondMenuAvailable, setSecondMenuAvailable] = useState(false);
+
+  useEffect(() => {
+    const onNuwaxLayoutChanged = (payload: {
+      secondMenuAvailable?: boolean;
+    }) => {
+      setSecondMenuAvailable(payload?.secondMenuAvailable === true);
+    };
+    window.electronAPI?.on("nuwax:layout-changed", onNuwaxLayoutChanged as any);
+    return () => {
+      window.electronAPI?.off(
+        "nuwax:layout-changed",
+        onNuwaxLayoutChanged as any,
+      );
+    };
+  }, []);
+
   // CSS 变量叠加（inline 优先级高于 index.css 的亮/暗定义，removeProperty 即回落）。
   // 与 antd tokens 同步加暗色守卫：壳深色时不叠加，避免米白变量染坏暗色 UI。
   useEffect(() => {
@@ -1413,6 +1432,7 @@ function App() {
                 后退/前进/刷新/收起二级菜单/设置由工具栏承载（见 TrafficLightToolbar，浮于 webview 之上）。 */}
             <TrafficLightToolbar
               menuCollapsed={secondMenuCollapsed}
+              menuAvailable={secondMenuAvailable}
               canGoBack={canGoBack}
               canGoForward={canGoForward}
               onToggleMenu={handleToggleMenu}

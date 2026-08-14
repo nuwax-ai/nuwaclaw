@@ -154,10 +154,23 @@ const theme = {
   },
 };
 
+/**
+ * layout 命名空间：nuwax → 壳的布局状态同步（guest→host）。
+ * 如「当前页是否存在可收起的二级菜单」→ 主进程转发（nuwax:layout-changed）给壳
+ * renderer，工具栏据此显隐收起按钮。fire-and-forget。
+ */
+const layout = {
+  /** 告知壳当前页是否有二级菜单可收起。 */
+  setSecondMenuAvailable(available: boolean): void {
+    ipcRenderer.send("nuwax:layout-sync", { secondMenuAvailable: !!available });
+  },
+};
+
 contextBridge.exposeInMainWorld("NuwaClawBridge", {
   perf,
   auth,
   native,
   events,
   theme,
+  layout,
 });

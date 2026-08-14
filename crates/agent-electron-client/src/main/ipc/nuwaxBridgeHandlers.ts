@@ -12,6 +12,9 @@
  * - nuwax:theme-sync
  *     nuwax 女娲主题状态推送（{ active, 调色板 }）→ 转发 nuwax:theme-changed 给壳
  *     renderer，壳给自己的 antd tokens / CSS 变量叠加同套米白调色板（原生 UI 统一）。
+ * - nuwax:layout-sync
+ *     nuwax 布局状态推送（{ secondMenuAvailable }）→ 转发 nuwax:layout-changed 给壳
+ *     renderer，工具栏据此显隐「收起二级菜单」按钮（无二级菜单的页面按钮无意义）。
  *
  * 桥前端：preload/webviewPerfBridge.ts（注入到所有 http/https webview guest）。
  * 注册入口：ipc/index.ts 的 registerAllHandlers。
@@ -57,6 +60,18 @@ export function registerNuwaxBridgeHandlers(ctx: HandlerContext): void {
         : null;
     if (!safe || typeof safe.active !== "boolean") return;
     ctx.getMainWindow()?.webContents.send("nuwax:theme-changed", safe);
+  });
+
+  // ---- layout：nuwax 布局状态 → 壳（如二级菜单存在性，工具栏据此显隐收起按钮） ----
+  ipcMain.on("nuwax:layout-sync", (_event, payload: unknown) => {
+    const safe =
+      payload && typeof payload === "object"
+        ? (payload as Record<string, unknown>)
+        : null;
+    if (!safe || typeof safe.secondMenuAvailable !== "boolean") return;
+    ctx.getMainWindow()?.webContents.send("nuwax:layout-changed", {
+      secondMenuAvailable: safe.secondMenuAvailable,
+    });
   });
 
   // ---- auth：ACCESS_TOKEN 双向同步 ----

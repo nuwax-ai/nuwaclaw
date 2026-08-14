@@ -583,6 +583,7 @@ contextBridge.exposeInMainWorld("electronAPI", {
       "intervention:updated",
       "nuwax:authChanged",
       "nuwax:theme-changed",
+      "nuwax:layout-changed",
     ];
     if (validChannels.includes(channel)) {
       const wrapper = (_: unknown, ...args: unknown[]) => callback(...args);
