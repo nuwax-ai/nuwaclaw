@@ -36,6 +36,7 @@
 
   --color-icon: #6B7280;
   --color-divider: #F3F4F6;
+  --color-bg-hover: #F3F4F6;
 
   --border-radius: 8px;
   --border-radius-lg: 10px;
@@ -73,6 +74,7 @@
 
   --color-icon: #a1a1aa;
   --color-divider: #27272a;
+  --color-bg-hover: #27272a;
 
   --border-radius: 8px;
   --border-radius-lg: 10px;
@@ -235,6 +237,34 @@ body {
 .app-content.app-content-fullwidth {
   padding: 0;
   overflow: hidden;
+}
+
+/* ========== 沉浸式工具栏窗口控制（TrafficLightToolbar，Win/Linux 自绘三键） ========== */
+/* Windows 标题栏样式：贴死右上角、方角实底，不做悬浮装饰 */
+.toolbar-ctrl-group {
+  /* 背景走变量：女娲主题推送（nuwax:theme-changed）时随米白调色板，暗色回落壳自身色 */
+  background: var(--color-bg-container, #ffffff);
+  overflow: hidden; /* 裁切子键 hover 底色，贴合方角 */
+}
+
+.toolbar-ctrl-btn {
+  transition: background-color 0.15s ease, color 0.15s ease;
+}
+
+.toolbar-ctrl-btn:hover {
+  /* 固定深色叠层而非主题 hover token：女娲菜单 hover 色在米白底上差异过小
+     （#F3F4F6 vs #F0F1F5）不可见；窗口三键按 Windows 惯例需清晰 hover */
+  background: rgba(0, 0, 0, 0.07);
+}
+
+[data-theme='dark'] .toolbar-ctrl-btn:hover {
+  background: rgba(255, 255, 255, 0.1);
+}
+
+/* 关闭键 hover 沿用 Windows 惯例红底白字 */
+.toolbar-ctrl-btn--danger:hover {
+  background: #e81123;
+  color: #fff;
 }
 
 /* ========== 滚动条 ========== */

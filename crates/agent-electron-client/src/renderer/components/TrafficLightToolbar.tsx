@@ -8,7 +8,8 @@
  *    （{16,16}）；其右紧跟工具 icon 组：收起/展开二级菜单 | 设置 | 后退 | 前进 | 刷新。
  *    右侧渲染新版本更新入口（updateEntry，仅当检测到新版本时由 App.tsx 注入
  *    icon/下载进度；Agent 运行状态不再展示）；
- *    Win/Linux 自绘最小化/最大化/关闭按钮（mac 用原生红绿灯，不渲染）。
+ *    Win/Linux 自绘最小化/最大化/关闭按钮（Windows 标题栏样式贴死右上角，
+ *    实底方角无悬浮装饰；mac 用原生红绿灯，不渲染）。
  *
  * icon 组与更新入口为 no-drag + pointer-events:auto（可点击），中间大片留白事件穿透
  * 到 webview（不再遮挡其顶部可点击元素）。Win/Linux 窗口控制自包含
@@ -130,7 +131,9 @@ const TrafficLightToolbar: React.FC<TrafficLightToolbarProps> = ({
           display: "flex",
           alignItems: "center",
           paddingLeft: isMac ? 80 : 8,
-          paddingRight: 4,
+          // Win/Linux 右上角被贴角的窗口控制三键（46×3=138px）占据，
+          // 容器留出对应右内边距，防止更新入口等流内元素被其覆盖
+          paddingRight: isMac ? 4 : 142,
           // 容器事件穿透：中间大片区域不拦截鼠标，仅左右子块可交互
           pointerEvents: "none",
         }}
@@ -175,14 +178,19 @@ const TrafficLightToolbar: React.FC<TrafficLightToolbarProps> = ({
           </div>
         )}
 
-        {/* Win/Linux 自绘窗口控制按钮（mac 用原生红绿灯） */}
+        {/* Win/Linux 自绘窗口控制按钮（mac 用原生红绿灯）：
+            Windows 标题栏样式——absolute 贴死窗口右上角（不受容器 padding/居中影响），
+            方角实底无悬浮装饰（index.css .toolbar-ctrl-group，
+            背景走 --color-bg-container 变量：女娲推送时随米白，暗色回落壳自身色） */}
         {!isMac && (
           <div
+            className="toolbar-ctrl-group"
             style={{
+              position: "absolute",
+              top: 0,
+              right: 0,
               display: "flex",
-              alignItems: "center",
-              marginLeft: 8,
-              height: "100%",
+              alignItems: "stretch",
               pointerEvents: "auto",
               ...NO_DRAG,
             }}
@@ -203,7 +211,7 @@ const TrafficLightToolbar: React.FC<TrafficLightToolbarProps> = ({
   );
 };
 
-/** Win/Linux 窗口控制按钮（与原 NuwaxHostWebview 样式一致）。 */
+/** Win/Linux 窗口控制按钮（实底背景与 hover 底色见 index.css .toolbar-ctrl-*）。 */
 const CtrlButton: React.FC<{
   title: string;
   onClick: () => void;
@@ -214,14 +222,16 @@ const CtrlButton: React.FC<{
     aria-label={title}
     title={title}
     onClick={onClick}
+    className={`toolbar-ctrl-btn${danger ? " toolbar-ctrl-btn--danger" : ""}`}
     style={{
-      width: 40,
-      height: 28,
+      width: 46, // Windows 标题栏三键标准尺寸（46×32）
+      height: 32,
       border: "none",
       background: "transparent",
-      color: danger ? "#ff5f57" : "#555",
+      // 文字色走变量：暗色主题/女娲米白下均随壳主题（关闭键保持红）
+      color: danger ? "#ff5f57" : "var(--color-text-secondary, #555)",
       fontSize: 13,
-      lineHeight: "28px",
+      lineHeight: "32px",
       cursor: "pointer",
       ...NO_DRAG,
     }}
