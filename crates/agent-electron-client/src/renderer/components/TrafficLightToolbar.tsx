@@ -6,10 +6,11 @@
  *    mac 避开红绿灯；工具栏主体不再整层 drag，否则会拦截 webview 顶部元素的点击。
  * 2) 工具栏主体（pointer-events:none 事件穿透）：mac 左侧留出 80px 避让原生红绿灯
  *    （{16,16}）；其右紧跟工具 icon 组：收起/展开二级菜单 | 设置 | 后退 | 前进 | 刷新。
- *    右侧渲染账号/更新状态槽位（rightSlot，由 App.tsx 注入原顶栏的 Badge + 更新标签）；
+ *    右侧渲染新版本更新入口（updateEntry，仅当检测到新版本时由 App.tsx 注入
+ *    icon/下载进度；Agent 运行状态不再展示）；
  *    Win/Linux 自绘最小化/最大化/关闭按钮（mac 用原生红绿灯，不渲染）。
  *
- * icon 组与右侧槽位为 no-drag + pointer-events:auto（可点击），中间大片留白事件穿透
+ * icon 组与更新入口为 no-drag + pointer-events:auto（可点击），中间大片留白事件穿透
  * 到 webview（不再遮挡其顶部可点击元素）。Win/Linux 窗口控制自包含
  * （maximized/onMin/onMax/onClose），不污染 App.tsx。
  *
@@ -45,8 +46,8 @@ export interface TrafficLightToolbarProps {
   onForward: () => void;
   onReload: () => void;
   onOpenSettings: () => void;
-  /** 右侧状态槽位：Agent 运行状态 Badge + 更新标签（App.tsx 注入，逻辑不变）。 */
-  rightSlot?: React.ReactNode;
+  /** 新版本更新入口（仅当检测到新版本时注入：下载 icon / 下载中百分比 / 待安装；其余不渲染）。 */
+  updateEntry?: React.ReactNode;
 }
 
 const TrafficLightToolbar: React.FC<TrafficLightToolbarProps> = ({
@@ -58,7 +59,7 @@ const TrafficLightToolbar: React.FC<TrafficLightToolbarProps> = ({
   onForward,
   onReload,
   onOpenSettings,
-  rightSlot,
+  updateEntry,
 }) => {
   // Win/Linux 最大化状态（自绘按钮图标）；mac 用原生红绿灯不渲染按钮
   const [maximized, setMaximized] = useState(false);
@@ -105,104 +106,99 @@ const TrafficLightToolbar: React.FC<TrafficLightToolbarProps> = ({
 
   return (
     <>
-    {/* 顶部窄拖拽带（全宽 10px，避开红绿灯）：窗口拖拽手柄由这条承担，
+      {/* 顶部窄拖拽带（全宽 10px，避开红绿灯）：窗口拖拽手柄由这条承担，
         工具栏主体不再整层 drag，避免遮挡 webview 顶部元素的点击 */}
-    <div
-      style={{
-        position: "fixed",
-        top: 0,
-        left: isMac ? 80 : 0,
-        right: 0,
-        height: 10,
-        zIndex: 1099,
-        ...DRAG,
-      }}
-    />
-    <div
-      style={{
-        position: "fixed",
-        top: 0,
-        left: 10,
-        right: 0,
-        height: 48,
-        zIndex: 1100,
-        display: "flex",
-        alignItems: "center",
-        paddingLeft: isMac ? 80 : 8,
-        paddingRight: 4,
-        // 容器事件穿透：中间大片区域不拦截鼠标，仅左右子块可交互
-        pointerEvents: "none",
-      }}
-    >
-      {/* 左侧工具 icon 组 */}
       <div
         style={{
+          position: "fixed",
+          top: 0,
+          left: isMac ? 80 : 0,
+          right: 0,
+          height: 10,
+          zIndex: 1099,
+          ...DRAG,
+        }}
+      />
+      <div
+        style={{
+          position: "fixed",
+          top: 0,
+          left: 10,
+          right: 0,
+          height: 48,
+          zIndex: 1100,
           display: "flex",
           alignItems: "center",
-          gap: 2,
-          pointerEvents: "auto",
-          ...NO_DRAG,
+          paddingLeft: isMac ? 80 : 8,
+          paddingRight: 4,
+          // 容器事件穿透：中间大片区域不拦截鼠标，仅左右子块可交互
+          pointerEvents: "none",
         }}
       >
-        {iconBtn(
-          menuCollapsed ? "展开二级菜单" : "收起二级菜单",
-          false,
-          onToggleMenu,
-          menuCollapsed ? <MenuUnfoldOutlined /> : <MenuFoldOutlined />,
+        {/* 左侧工具 icon 组 */}
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: 0,
+            pointerEvents: "auto",
+            ...NO_DRAG,
+          }}
+        >
+          {iconBtn(
+            menuCollapsed ? "展开二级菜单" : "收起二级菜单",
+            false,
+            onToggleMenu,
+            menuCollapsed ? <MenuUnfoldOutlined /> : <MenuFoldOutlined />,
+          )}
+          {iconBtn("设置", false, onOpenSettings, <SettingOutlined />)}
+          {iconBtn("后退", !canGoBack, onBack, <LeftOutlined />)}
+          {iconBtn("前进", !canGoForward, onForward, <RightOutlined />)}
+          {iconBtn("刷新", false, onReload, <ReloadOutlined />)}
+        </div>
+
+        {/* 中间留白：拖拽手柄 */}
+        <div style={{ flex: 1 }} />
+
+        {/* 右侧：新版本更新入口（仅当有新版本时由 App.tsx 注入，其余不渲染） */}
+        {updateEntry && (
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              marginLeft: 8,
+              pointerEvents: "auto",
+              ...NO_DRAG,
+            }}
+          >
+            {updateEntry}
+          </div>
         )}
-        {iconBtn("设置", false, onOpenSettings, <SettingOutlined />)}
-        {iconBtn("后退", !canGoBack, onBack, <LeftOutlined />)}
-        {iconBtn("前进", !canGoForward, onForward, <RightOutlined />)}
-        {iconBtn("刷新", false, onReload, <ReloadOutlined />)}
+
+        {/* Win/Linux 自绘窗口控制按钮（mac 用原生红绿灯） */}
+        {!isMac && (
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              marginLeft: 8,
+              height: "100%",
+              pointerEvents: "auto",
+              ...NO_DRAG,
+            }}
+          >
+            <CtrlButton title="最小化" onClick={onMin}>
+              &#8211;
+            </CtrlButton>
+            <CtrlButton title={maximized ? "还原" : "最大化"} onClick={onMax}>
+              {maximized ? "⧉" : "□"}
+            </CtrlButton>
+            <CtrlButton title="关闭" danger onClick={onClose}>
+              &#10005;
+            </CtrlButton>
+          </div>
+        )}
       </div>
-
-      {/* 中间留白：拖拽手柄 */}
-      <div style={{ flex: 1 }} />
-
-      {/* 右侧：账号/更新状态槽位（App.tsx 注入） */}
-      {rightSlot && (
-        <div
-          style={{
-            display: "flex",
-            alignItems: "center",
-            alignSelf: "flex-start", // 贴顶，保持左下角圆角垂下效果
-            height: 32, // 高度收窄（不撑满工具栏）
-            background: "rgba(255, 255, 255, 0.6)",
-            borderBottomLeftRadius: 10,
-            paddingLeft: 10,
-            paddingRight: 8,
-            pointerEvents: "auto",
-            ...NO_DRAG,
-          }}
-        >
-          {rightSlot}
-        </div>
-      )}
-
-      {/* Win/Linux 自绘窗口控制按钮（mac 用原生红绿灯） */}
-      {!isMac && (
-        <div
-          style={{
-            display: "flex",
-            alignItems: "center",
-            marginLeft: 8,
-            height: "100%",
-            pointerEvents: "auto",
-            ...NO_DRAG,
-          }}
-        >
-          <CtrlButton title="最小化" onClick={onMin}>
-            &#8211;
-          </CtrlButton>
-          <CtrlButton title={maximized ? "还原" : "最大化"} onClick={onMax}>
-            {maximized ? "⧉" : "□"}
-          </CtrlButton>
-          <CtrlButton title="关闭" danger onClick={onClose}>
-            &#10005;
-          </CtrlButton>
-        </div>
-      )}
-    </div>
     </>
   );
 };

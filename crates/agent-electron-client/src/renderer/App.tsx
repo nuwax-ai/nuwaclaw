@@ -14,6 +14,7 @@ import {
   Spin,
   Button,
   Modal,
+  Tooltip,
   notification,
   message,
 } from "antd";
@@ -28,6 +29,10 @@ import {
   TeamOutlined,
   ReloadOutlined,
   ApiOutlined,
+  DownloadOutlined,
+  LoadingOutlined,
+  RocketOutlined,
+  CloseOutlined,
 } from "@ant-design/icons";
 import {
   setupService,
@@ -1339,8 +1344,8 @@ function App() {
           <div className="app-container">
             {/* 顶部栏：Logo + 模式切换 + 浏览器刷新 + 用户状态 + 升级提示 */}
             {/* 顶栏撤除：沉浸式 webview 顶到窗口上沿。原顶栏的 Segmented 模式切换与账号登录态
-                移除；Agent 运行状态 + 更新标签迁入工具栏 rightSlot；后退/前进/刷新/收起二级菜单/
-                设置由工具栏承载（见 TrafficLightToolbar，浮于 webview 之上）。 */}
+                移除；新版本更新入口迁入工具栏 updateEntry（Agent 运行状态不再展示）；
+                后退/前进/刷新/收起二级菜单/设置由工具栏承载（见 TrafficLightToolbar，浮于 webview 之上）。 */}
             <TrafficLightToolbar
               menuCollapsed={secondMenuCollapsed}
               canGoBack={canGoBack}
@@ -1350,26 +1355,18 @@ function App() {
               onForward={handleToolbarForward}
               onReload={handleToolbarReload}
               onOpenSettings={handleOpenSettings}
-              rightSlot={
-                <>
-                  <Badge
-                    status={badge.status}
-                    className={
-                      agentStatus === "idle" || agentStatus === "busy"
-                        ? styles.badgeIdle
-                        : undefined
-                    }
-                    text={
-                      <span className={styles.badgeText}>
-                        {t(badge.textKey)}
-                      </span>
-                    }
-                  />
-                  {updateState.status === "available" && (
-                    <span
-                      className="app-header-update-tag app-header-update-tag--available"
-                      role="button"
-                      tabIndex={0}
+              updateEntry={
+                // 新版本入口（仅有新版本时渲染）：可用→绿底下载 icon（点击下载，
+                // 不支持自动更新时跳 releases 页）；下载中→蓝底进度；已下载→橙底安装 icon。
+                updateState.status === "available" ? (
+                  <Tooltip
+                    title={t("Claw.App.UpdateTag.update")}
+                    mouseEnterDelay={0.7}
+                  >
+                    <Button
+                      type="text"
+                      size="small"
+                      aria-label={t("Claw.App.UpdateTag.update")}
                       onClick={async () => {
                         if (updateState.canAutoUpdate === false) {
                           await window.electronAPI?.app?.openReleasesPage?.();
@@ -1400,29 +1397,56 @@ function App() {
                           }));
                         }
                       }}
-                      onKeyDown={(e) =>
-                        (e.key === "Enter" || e.key === " ") &&
-                        (e.target as HTMLElement).click()
-                      }
+                      style={{
+                        // 绿底白 icon：一眼可辨的"可下载"动作按钮（用户要求的下载 icon + 背景色）
+                        display: "inline-flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        width: 26,
+                        height: 26,
+                        padding: 0,
+                        borderRadius: 13,
+                        background: "#52c41a",
+                        color: "#fff",
+                        fontSize: 13,
+                      }}
                     >
-                      {t("Claw.App.UpdateTag.update")}
-                    </span>
-                  )}
-                  {updateState.status === "downloading" && (
-                    <span className="app-header-update-tag app-header-update-tag--downloading">
-                      {t("Claw.App.UpdateTag.downloading", {
-                        percent: Math.round(
-                          updateState.progress?.percent ??
-                            headerSimulatedPercent,
-                        ),
-                      })}
-                    </span>
-                  )}
-                  {updateState.status === "downloaded" && (
-                    <span
-                      className="app-header-update-tag app-header-update-tag--install"
-                      role="button"
-                      tabIndex={0}
+                      <DownloadOutlined />
+                    </Button>
+                  </Tooltip>
+                ) : updateState.status === "downloading" ? (
+                  <div
+                    style={{
+                      // 蓝底进度胶囊：下载中不可点，展示百分比（真实进度缺失时用模拟进度）
+                      display: "inline-flex",
+                      alignItems: "center",
+                      gap: 6,
+                      height: 26,
+                      padding: "0 10px",
+                      borderRadius: 13,
+                      background: "#2563eb",
+                      color: "#fff",
+                      fontSize: 12,
+                      lineHeight: 1,
+                      whiteSpace: "nowrap",
+                    }}
+                  >
+                    <LoadingOutlined spin />
+                    {t("Claw.App.UpdateTag.downloading", {
+                      percent: Math.round(
+                        updateState.progress?.percent ?? headerSimulatedPercent,
+                      ),
+                    })}
+                  </div>
+                ) : updateState.status === "downloaded" ? (
+                  <Tooltip
+                    title={t("Claw.About.installUpdate")}
+                    mouseEnterDelay={0.7}
+                  >
+                    <Button
+                      type="text"
+                      size="small"
+                      aria-label={t("Claw.About.installUpdate")}
                       onClick={async () => {
                         try {
                           const res =
@@ -1436,15 +1460,24 @@ function App() {
                           message.error(t("Claw.About.installFailed"));
                         }
                       }}
-                      onKeyDown={(e) =>
-                        (e.key === "Enter" || e.key === " ") &&
-                        (e.target as HTMLElement).click()
-                      }
+                      style={{
+                        // 橙底安装 icon：提示"下载完成，点击重启安装"
+                        display: "inline-flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        width: 26,
+                        height: 26,
+                        padding: 0,
+                        borderRadius: 13,
+                        background: "#fa8c16",
+                        color: "#fff",
+                        fontSize: 13,
+                      }}
                     >
-                      {t("Claw.About.installUpdate")}
-                    </span>
-                  )}
-                </>
+                      <RocketOutlined />
+                    </Button>
+                  </Tooltip>
+                ) : undefined
               }
             />
 
@@ -1482,19 +1515,55 @@ function App() {
                 </div>
               </div>
 
-              {/* 系统配置浮层：原 configPane 整页切换 → antd Modal，沉浸式下不打断 webview */}
+              {/* 系统配置浮层：原 configPane 整页切换 → antd Modal，沉浸式下不打断 webview。
+                  关闭钮不走 Modal 默认（绝对定位 top:17 与收紧后的 header 对不齐，且
+                  antd 5.29 styles 无 close 语义键），改为 closable=false + title 内 flex 行
+                  自渲染，随 header 文档流天然垂直居中。 */}
               <Modal
                 open={settingsModalOpen}
                 onCancel={() => setSettingsModalOpen(false)}
                 footer={null}
                 centered
                 width={800}
-                title="客户端配置"
+                closable={false}
+                title={
+                  <div
+                    style={{ display: "flex", alignItems: "center", gap: 8 }}
+                  >
+                    <span>客户端配置</span>
+                    <span style={{ flex: 1 }} />
+                    <Button
+                      type="text"
+                      size="small"
+                      aria-label="关闭"
+                      onClick={() => setSettingsModalOpen(false)}
+                      style={{
+                        width: 24,
+                        height: 24,
+                        padding: 0,
+                        display: "inline-flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        fontSize: 12,
+                        // 右移补偿：让 icon 视觉中心对齐 header 16px 右内边距
+                        marginInlineEnd: -6,
+                        color: "rgba(0, 0, 0, 0.58)",
+                      }}
+                    >
+                      <CloseOutlined />
+                    </Button>
+                  </div>
+                }
                 styles={{
                   // 四周外边距收紧
-                  content: { padding: "0" },
+                  content: {
+                    padding: "0",
+                    borderRadius: "12px",
+                    overflow: "hidden",
+                  },
                   header: {
                     padding: "10px 16px",
+                    marginBottom: "0",
                     borderBottom: "1px solid #e5e7eb",
                   },
                   // 固定尺寸 800×600：外壳不滚，左菜单/右内容在固定高度容器内各自滚动
@@ -1512,77 +1581,77 @@ function App() {
                 }}
                 destroyOnHidden
               >
-              <div
-                className={styles.configPane}
-                style={{
-                  display: "flex",
-                  height: "100%", // 撑满 body 固定高度，左菜单/右内容各自内部滚动
-                }}
-              >
                 <div
-                  className={
-                    i18nLang.toLowerCase().startsWith("en")
-                      ? "app-sider app-sider-en"
-                      : "app-sider"
-                  }
+                  className={styles.configPane}
+                  style={{
+                    display: "flex",
+                    height: "100%", // 撑满 body 固定高度，左菜单/右内容各自内部滚动
+                  }}
                 >
-                  <Menu
-                    mode="inline"
-                    inlineIndent={0}
-                    selectedKeys={[activeTab]}
-                    items={menuItems.map((item) => ({
-                      key: item.key,
-                      icon: item.icon,
-                      label: item.label,
-                      onClick: () => setActiveTab(item.key as TabKey),
-                    }))}
-                  />
-                </div>
-                <div className="app-content">
                   <div
-                    style={{
-                      flex: 1,
-                      minHeight: 0,
-                      display: "flex",
-                      flexDirection: "column",
-                      background: "var(--color-bg-layout)",
-                    }}
+                    className={
+                      i18nLang.toLowerCase().startsWith("en")
+                        ? "app-sider app-sider-en"
+                        : "app-sider"
+                    }
                   >
-                    {activeTab === "client" && (
-                      <ClientPage
-                        onNavigate={(tab) => setActiveTab(tab as TabKey)}
-                        services={services}
-                        servicesLoading={servicesLoading}
-                        startingServices={startingServices}
-                        setStartingServices={setStartingServices}
-                        onRefreshServices={pollServicesStatus}
-                        authRefreshTrigger={authRefreshTrigger}
-                        onAuthChange={handleAuthChange}
-                        onLoginStarted={handleLoginStarted}
-                        onLoginComplete={openBrowserHome}
-                        onStartSession={openStartSession}
-                        isWebviewLoggedIn={isAuthLoggedIn}
-                        onGotoLogin={() => setMainViewMode("browser")}
-                      />
-                    )}
-                    {activeTab === "sessions" && (
-                      <SessionsPage onOpenInBrowser={openInBrowser} />
-                    )}
+                    <Menu
+                      mode="inline"
+                      inlineIndent={0}
+                      selectedKeys={[activeTab]}
+                      items={menuItems.map((item) => ({
+                        key: item.key,
+                        icon: item.icon,
+                        label: item.label,
+                        onClick: () => setActiveTab(item.key as TabKey),
+                      }))}
+                    />
+                  </div>
+                  <div className="app-content">
                     <div
                       style={{
-                        display: activeTab === "mcp" ? "contents" : "none",
+                        flex: 1,
+                        minHeight: 0,
+                        display: "flex",
+                        flexDirection: "column",
+                        background: "var(--color-bg-layout)",
                       }}
                     >
-                      <MCPSettings isOpen={activeTab === "mcp"} />
+                      {activeTab === "client" && (
+                        <ClientPage
+                          onNavigate={(tab) => setActiveTab(tab as TabKey)}
+                          services={services}
+                          servicesLoading={servicesLoading}
+                          startingServices={startingServices}
+                          setStartingServices={setStartingServices}
+                          onRefreshServices={pollServicesStatus}
+                          authRefreshTrigger={authRefreshTrigger}
+                          onAuthChange={handleAuthChange}
+                          onLoginStarted={handleLoginStarted}
+                          onLoginComplete={openBrowserHome}
+                          onStartSession={openStartSession}
+                          isWebviewLoggedIn={isAuthLoggedIn}
+                          onGotoLogin={() => setMainViewMode("browser")}
+                        />
+                      )}
+                      {activeTab === "sessions" && (
+                        <SessionsPage onOpenInBrowser={openInBrowser} />
+                      )}
+                      <div
+                        style={{
+                          display: activeTab === "mcp" ? "contents" : "none",
+                        }}
+                      >
+                        <MCPSettings isOpen={activeTab === "mcp"} />
+                      </div>
+                      {activeTab === "settings" && <SettingsPage />}
+                      {activeTab === "dependencies" && <DependenciesPage />}
+                      {activeTab === "permissions" && <PermissionsPage />}
+                      {activeTab === "logs" && <LogViewer />}
+                      {activeTab === "about" && <AboutPage />}
                     </div>
-                    {activeTab === "settings" && <SettingsPage />}
-                    {activeTab === "dependencies" && <DependenciesPage />}
-                    {activeTab === "permissions" && <PermissionsPage />}
-                    {activeTab === "logs" && <LogViewer />}
-                    {activeTab === "about" && <AboutPage />}
                   </div>
                 </div>
-              </div>
               </Modal>
             </div>
           </div>
