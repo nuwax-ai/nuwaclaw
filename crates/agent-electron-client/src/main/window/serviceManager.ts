@@ -737,6 +737,25 @@ export function createServiceManager(ctx: ServiceManagerContext) {
       log.error("[ServiceManager] FileServer start failed:", e);
     }
 
+    // 4.5 启动 ComputerServer（必须先于 Lanproxy：隧道健康检查是云端经隧道转发到
+    //     本地 agent 端口（如 60006）；若 ComputerServer 尚未监听，探测必然 refused →
+    //     lanproxy 假失败并触发 3 次完整重试（最坏 30s+），启动既慢又报"代理服务未启动"。
+    //     幂等：已在运行直接 success。原编排位于 processHandlers 包装层最后一步，故
+    //     托盘"重启服务"等直接调本函数的路径此前完全缺失 ComputerServer 编排。）
+    try {
+      const { startComputerServer } =
+        await import("../services/computerServer");
+      const { agent: agentPort } = getConfiguredPorts();
+      results.computerServer = await startComputerServer(agentPort);
+      log.info(
+        "[ServiceManager] ComputerServer started:",
+        results.computerServer,
+      );
+    } catch (e) {
+      results.computerServer = { success: false, error: String(e) };
+      log.error("[ServiceManager] ComputerServer start failed:", e);
+    }
+
     // 5. 启动 Lanproxy
     try {
       const clientKey = readSetting("auth.saved_key") as string | null;

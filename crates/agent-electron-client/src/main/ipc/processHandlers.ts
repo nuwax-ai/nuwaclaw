@@ -116,9 +116,10 @@ export async function stopAllServicesNow(): Promise<{
 /**
  * 重启全部本地服务（best-effort：复用 settings 中已有 reg 产物）。
  * 供 services:restartAll IPC 与桥 auth:persistToken（登录成功）共用。
+ * ComputerServer 的启动编排在 serviceManager.restartAllServices 内部（先于 lanproxy，
+ * 隧道健康检查依赖其监听 agent 端口）；此处仅负责重启前先停旧 ComputerServer。
  * 注意：lanproxy 强依赖 reg 的 configKey/serverHost/serverPort；若 settings 缺失，
  * serviceManager 内部会跳过 lanproxy 并 warn，其余服务照常启动。
- * 完整的「登录即自动起 lanproxy」待 Phase 3 后端 reg 支持 token 鉴权后实现。
  */
 export async function restartAllServicesNow(): Promise<{
   success: boolean;
@@ -145,17 +146,6 @@ export async function restartAllServicesNow(): Promise<{
   const results: Record<string, { success: boolean; error?: string }> = {
     ...base.results,
   };
-
-  // 补充 processHandlers 特有步骤：Computer Server
-  try {
-    const { startComputerServer } = await import("../services/computerServer");
-    const { agent: agentPort } = getConfiguredPorts();
-    results.computerServer = await startComputerServer(agentPort);
-    log.info("[Services] ComputerServer started:", results.computerServer);
-  } catch (e) {
-    results.computerServer = { success: false, error: String(e) };
-    log.error("[Services] ComputerServer start failed:", e);
-  }
 
   syncTrayStatusFromContext(ctx);
   log.info("[Services] All services restart complete:", results);
