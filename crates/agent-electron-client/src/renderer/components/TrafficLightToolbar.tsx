@@ -5,7 +5,8 @@
  * 1) 顶部全宽 10px 窄拖拽带（-webkit-app-region:drag）——唯一承接窗口拖拽的区域，
  *    mac 避开红绿灯；工具栏主体不再整层 drag，否则会拦截 webview 顶部元素的点击。
  * 2) 工具栏主体（pointer-events:none 事件穿透）：mac 左侧留出 80px 避让原生红绿灯
- *    （{16,16}）；其右紧跟工具 icon 组：收起/展开二级菜单 | 设置 | 后退 | 前进 | 刷新。
+ *    （{16,16}）；其右紧跟工具 icon 组：收起/展开二级菜单 | 设置 | 后退 | 前进 | 刷新
+ *    （Win/Linux 最左先放 nuwax 应用图标，再接工具 icon 组）。
  *    右侧渲染新版本更新入口（updateEntry，仅当检测到新版本时由 App.tsx 注入
  *    icon/下载进度；Agent 运行状态不再展示）；
  *    Win/Linux 自绘最小化/最大化/关闭按钮（Windows 标题栏样式贴死右上角，
@@ -26,6 +27,12 @@ import {
   RightOutlined,
   ReloadOutlined,
   SettingOutlined,
+  // Win/Linux 窗口三键图标：统一用 antd SVG 图标（同 1em 视觉框、笔画一致），
+  // 替代 Unicode 字形（–/□/✕ 同字号下视觉大小不齐，三键看起来不等大）
+  LineOutlined,
+  BorderOutlined,
+  CopyOutlined,
+  CloseOutlined,
 } from "@ant-design/icons";
 
 /** macOS 用 navigator.platform 判定（渲染器无 process.platform）。 */
@@ -148,6 +155,22 @@ const TrafficLightToolbar: React.FC<TrafficLightToolbarProps> = ({
             ...NO_DRAG,
           }}
         >
+          {/* Win/Linux：最左放 nuwax 应用图标（Windows 标题栏惯例；
+              与 index.html favicon 同源 public/icon.png）；
+              mac 左上被原生红绿灯占据，不放 */}
+          {!isMac && (
+            <img
+              src="/icon.png"
+              alt="Nuwax"
+              draggable={false}
+              style={{
+                width: 18,
+                height: 18,
+                marginRight: 6,
+                ...NO_DRAG,
+              }}
+            />
+          )}
           {iconBtn(
             menuCollapsed ? "展开二级菜单" : "收起二级菜单",
             false,
@@ -196,13 +219,17 @@ const TrafficLightToolbar: React.FC<TrafficLightToolbarProps> = ({
             }}
           >
             <CtrlButton title="最小化" onClick={onMin}>
-              &#8211;
+              <LineOutlined style={{ fontSize: 16 }} />
             </CtrlButton>
             <CtrlButton title={maximized ? "还原" : "最大化"} onClick={onMax}>
-              {maximized ? "⧉" : "□"}
+              {maximized ? (
+                <CopyOutlined style={{ fontSize: 16 }} />
+              ) : (
+                <BorderOutlined style={{ fontSize: 16 }} />
+              )}
             </CtrlButton>
             <CtrlButton title="关闭" danger onClick={onClose}>
-              &#10005;
+              <CloseOutlined style={{ fontSize: 16 }} />
             </CtrlButton>
           </div>
         )}
@@ -225,13 +252,10 @@ const CtrlButton: React.FC<{
     className={`toolbar-ctrl-btn${danger ? " toolbar-ctrl-btn--danger" : ""}`}
     style={{
       width: 46, // Windows 标题栏三键标准尺寸（46×32）
-      height: 32,
+      height: 36,
       border: "none",
-      background: "transparent",
-      // 文字色走变量：暗色主题/女娲米白下均随壳主题（关闭键保持红）
-      color: danger ? "#ff5f57" : "var(--color-text-secondary, #555)",
-      fontSize: 13,
-      lineHeight: "32px",
+      // 注意不写 background / color / font-size：inline 优先级高于 CSS 类规则，
+      // 会压掉 hover 底色、关闭键 hover 白字与 index.css 的图标字号（16px）
       cursor: "pointer",
       ...NO_DRAG,
     }}

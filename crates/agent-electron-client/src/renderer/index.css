@@ -243,26 +243,36 @@ body {
 /* Windows 标题栏样式：贴死右上角、方角实底，不做悬浮装饰 */
 .toolbar-ctrl-group {
   /* 背景走变量：女娲主题推送（nuwax:theme-changed）时随米白调色板，暗色回落壳自身色 */
-  background: var(--color-bg-container, #ffffff);
+  /* background: var(--color-bg-container, #ffffff); */
+  /* border-radius: 0 0 0 8px ; */
   overflow: hidden; /* 裁切子键 hover 底色，贴合方角 */
 }
 
 .toolbar-ctrl-btn {
+  /* 默认透明底（组容器提供整体底色）。必须写在类里而非组件 inline style——
+     inline 优先级高于 :hover 类规则，会把 hover 底色整个压掉 */
+  background: transparent;
+  /* 文字色走变量：暗色主题/女娲米白下均随壳主题 */
+  color: var(--color-text-secondary, #555);
   transition: background-color 0.15s ease, color 0.15s ease;
 }
 
+/* 关闭键默认与其他两键同色（不标红），仅 hover 时换 Windows 惯例红底白字 */
+
 .toolbar-ctrl-btn:hover {
   /* 固定深色叠层而非主题 hover token：女娲菜单 hover 色在米白底上差异过小
-     （#F3F4F6 vs #F0F1F5）不可见；窗口三键按 Windows 惯例需清晰 hover */
-  background: rgba(0, 0, 0, 0.07);
+     （#F3F4F6 vs #F0F1F5）不可见；窗口三键按 Windows 惯例需清晰可见的加深 hover */
+  background: rgba(0, 0, 0, 0.09);
 }
 
 [data-theme='dark'] .toolbar-ctrl-btn:hover {
-  background: rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.12);
 }
 
-/* 关闭键 hover 沿用 Windows 惯例红底白字 */
-.toolbar-ctrl-btn--danger:hover {
+/* 关闭键 hover 沿用 Windows 惯例红底白字（亮/暗主题一致；
+   暗色选择器一并列出以盖过上方 [data-theme='dark'] 叠层规则） */
+.toolbar-ctrl-btn--danger:hover,
+[data-theme='dark'] .toolbar-ctrl-btn--danger:hover {
   background: #e81123;
   color: #fff;
 }
