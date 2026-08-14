@@ -204,7 +204,7 @@ body {
 
 .app-sider {
   width: 140px;
-  background: var(--color-bg-sider);
+  /* background: var(--color-bg-sider); */
   overflow-y: auto;
   flex-shrink: 0;
   border-right: 1px solid var(--color-border);
@@ -217,7 +217,7 @@ body {
 }
 
 .app-sider .ant-menu {
-  border-right: 0;
+  border-inline-end:none !important;
 }
 
 .app-content {
