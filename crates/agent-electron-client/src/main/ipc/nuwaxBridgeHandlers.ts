@@ -9,6 +9,9 @@
  *     clear(≈登出 + 401 失效) → 停止全部本地服务。
  * - native:saveImage
  *     右键另存图片：系统保存对话框 + net.fetch（走 defaultSession，携带登录态 cookie）写盘。
+ * - nuwax:theme-sync
+ *     nuwax 女娲主题状态推送（{ active, 调色板 }）→ 转发 nuwax:theme-changed 给壳
+ *     renderer，壳给自己的 antd tokens / CSS 变量叠加同套米白调色板（原生 UI 统一）。
  *
  * 桥前端：preload/webviewPerfBridge.ts（注入到所有 http/https webview guest）。
  * 注册入口：ipc/index.ts 的 registerAllHandlers。
@@ -44,6 +47,18 @@ function tokenKey(scope: string): string {
 }
 
 export function registerNuwaxBridgeHandlers(ctx: HandlerContext): void {
+  // ---- theme：nuwax 女娲主题 → 壳原生 UI 统一 ----
+  // nuwax 主题生效/让位时推送 { active, 调色板 }，转发给壳 renderer 叠加/回落
+  // （antd tokens + CSS 变量）。fire-and-forget（send），无返回值语义。
+  ipcMain.on("nuwax:theme-sync", (_event, payload: unknown) => {
+    const safe =
+      payload && typeof payload === "object"
+        ? (payload as Record<string, unknown>)
+        : null;
+    if (!safe || typeof safe.active !== "boolean") return;
+    ctx.getMainWindow()?.webContents.send("nuwax:theme-changed", safe);
+  });
+
   // ---- auth：ACCESS_TOKEN 双向同步 ----
   ipcMain.handle("auth:getToken", (event) => {
     const scope = resolveSenderOrigin(event);

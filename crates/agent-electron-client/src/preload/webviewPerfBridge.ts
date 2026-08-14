@@ -141,9 +141,23 @@ const events = {
   },
 };
 
+/**
+ * theme 命名空间：nuwax → 壳的主题同步（guest→host）。
+ * 女娲主题生效/让位时 nuwax 推送 { active, 调色板 }，主进程转发给壳 renderer
+ * （nuwax:theme-changed），壳给自己的 antd tokens / CSS 变量叠加同套米白调色板，
+ * 实现原生 UI（设置弹窗等）与 nuwax 统一。fire-and-forget，不等待结果。
+ */
+const theme = {
+  /** 推送主题状态给壳。 */
+  syncTheme(payload: Record<string, unknown>): void {
+    ipcRenderer.send("nuwax:theme-sync", payload);
+  },
+};
+
 contextBridge.exposeInMainWorld("NuwaClawBridge", {
   perf,
   auth,
   native,
   events,
+  theme,
 });

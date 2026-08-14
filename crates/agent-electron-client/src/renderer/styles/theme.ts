@@ -264,3 +264,59 @@ export const darkTheme: ThemeConfig = {
 
 // 兼容旧代码
 export const appTheme = lightTheme;
+
+// ============================================
+// nuwax 女娲主题叠加（原生侧统一效果）
+// ============================================
+
+/**
+ * nuwax 推送的主题状态（guest→host 桥转发，payload 协议见 nuwax 侧
+ * global.d.ts 的 ShellThemePayload）。active=false 表示让位，壳回落自身主题。
+ */
+export interface ShellThemePayload {
+  active: boolean;
+  primary?: string;
+  bgContent?: string;
+  bgMenu?: string;
+  bgElevated?: string;
+  border?: string;
+  borderSecondary?: string;
+  bgItemHover?: string;
+}
+
+/**
+ * 把 nuwax 女娲主题调色板叠加到壳的浅色主题上：原生 UI（客户端配置弹窗等）
+ * 与 nuwax webview 统一米白效果。仅覆盖颜色 token，布局/字体/圆角沿用壳配置；
+ * 由 App.tsx 在收到 nuwax:theme-changed 且非深色模式时调用（女娲主题是亮色体系，
+ * nuwax 切深色会推 active=false，壳自然回落）。
+ */
+export function applyShellTheme(
+  base: ThemeConfig,
+  p: ShellThemePayload,
+): ThemeConfig {
+  const tokenOverride: Record<string, string> = {};
+  if (p.primary) {
+    tokenOverride.colorPrimary = p.primary;
+    tokenOverride.colorInfo = p.primary;
+  }
+  if (p.bgContent) {
+    tokenOverride.colorBgContainer = p.bgContent;
+    tokenOverride.colorBgElevated = p.bgContent;
+    tokenOverride.colorBgLayout = p.bgContent;
+  }
+  if (p.border) tokenOverride.colorBorder = p.border;
+  if (p.borderSecondary) tokenOverride.colorBorderSecondary = p.borderSecondary;
+
+  return {
+    ...base,
+    token: { ...base.token, ...tokenOverride },
+    components: {
+      ...base.components,
+      Menu: {
+        ...(base.components?.Menu ?? {}),
+        ...(p.bgElevated ? { itemSelectedBg: p.bgElevated } : {}),
+        ...(p.primary ? { itemSelectedColor: p.primary } : {}),
+      },
+    },
+  };
+}

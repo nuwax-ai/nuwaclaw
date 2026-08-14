@@ -274,8 +274,9 @@ body {
 }
 
 .app-sider .ant-menu-light .ant-menu-item:hover {
-  background: #F3F4F6;
-  color: #18181b;
+  /* 悬停底色走变量：女娲主题同步（nuwax:theme-changed）时可被米白调色板覆盖 */
+  background: var(--color-bg-hover, #f3f4f6);
+  color: var(--color-text);
 }
 
 .app-sider .ant-menu-light .ant-menu-item .anticon {

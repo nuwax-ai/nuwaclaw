@@ -72,7 +72,12 @@ import MCPSettings from "./components/settings/MCPSettings";
 import { ModeNavIcon } from "./components/icons/ModeNavIcon";
 import { createLogger } from "./services/utils/rendererLog";
 import styles from "./styles/components/App.module.css";
-import { lightTheme, darkTheme } from "./styles/theme";
+import {
+  lightTheme,
+  darkTheme,
+  applyShellTheme,
+  type ShellThemePayload,
+} from "./styles/theme";
 import { FEATURES } from "@shared/featureFlags";
 
 // 主题类型
@@ -219,10 +224,67 @@ function App() {
     return themeMode === "dark";
   }, [themeMode, systemIsDark]);
 
-  const currentTheme = useMemo(
-    () => (isDarkMode ? darkTheme : lightTheme),
-    [isDarkMode],
-  );
+  // ============================================
+  // nuwax 女娲主题 → 壳原生 UI 统一
+  // ============================================
+  // nuwax 是主题唯一真实源：女娲主题生效/让位时经桥推送（nuwax:theme-sync →
+  // main 转发 nuwax:theme-changed）。active 时壳给自己的 antd tokens 叠加同套
+  // 米白调色板（设置弹窗等原生 UI 与 webview 统一），并同步 CSS 变量供
+  // index.css 侧（.app-sider/.app-content/body 底色）消费；让位即整体回落。
+  const [shellTheme, setShellTheme] = useState<ShellThemePayload | null>(null);
+
+  useEffect(() => {
+    const onNuwaxThemeChanged = (payload: unknown) => {
+      if (payload && typeof payload === "object" && "active" in payload) {
+        setShellTheme(payload as ShellThemePayload);
+      }
+    };
+    window.electronAPI?.on("nuwax:theme-changed", onNuwaxThemeChanged as any);
+    return () => {
+      window.electronAPI?.off(
+        "nuwax:theme-changed",
+        onNuwaxThemeChanged as any,
+      );
+    };
+  }, []);
+
+  // CSS 变量叠加（inline 优先级高于 index.css 的亮/暗定义，removeProperty 即回落）。
+  // 与 antd tokens 同步加暗色守卫：壳深色时不叠加，避免米白变量染坏暗色 UI。
+  useEffect(() => {
+    const root = document.documentElement;
+    const active = shellTheme?.active === true && !isDarkMode;
+    const vars: Array<[string, string | undefined]> = [
+      ["--color-primary", active ? shellTheme?.primary : undefined],
+      ["--color-bg-layout", active ? shellTheme?.bgContent : undefined],
+      ["--color-bg-container", active ? shellTheme?.bgContent : undefined],
+      ["--color-bg-elevated", active ? shellTheme?.bgContent : undefined],
+      ["--color-bg-sider", active ? shellTheme?.bgMenu : undefined],
+      ["--color-bg-section", active ? shellTheme?.bgContent : undefined],
+      [
+        "--color-bg-section-header",
+        active ? shellTheme?.bgElevated : undefined,
+      ],
+      ["--color-border", active ? shellTheme?.border : undefined],
+      [
+        "--color-border-secondary",
+        active ? shellTheme?.borderSecondary : undefined,
+      ],
+      ["--color-bg-hover", active ? shellTheme?.bgItemHover : undefined],
+      ["--color-divider", active ? shellTheme?.borderSecondary : undefined],
+    ];
+    vars.forEach(([name, value]) => {
+      if (value) root.style.setProperty(name, value);
+      else root.style.removeProperty(name);
+    });
+  }, [shellTheme, isDarkMode]);
+
+  const currentTheme = useMemo(() => {
+    const base = isDarkMode ? darkTheme : lightTheme;
+    // 女娲主题是亮色体系：仅在壳非深色且 nuwax 报告 active 时叠加
+    return !isDarkMode && shellTheme?.active
+      ? applyShellTheme(base, shellTheme)
+      : base;
+  }, [isDarkMode, shellTheme]);
 
   // ============================================
   // i18n 语言状态（响应式，供 Context 下发）
@@ -1564,7 +1626,7 @@ function App() {
                   header: {
                     padding: "10px 16px",
                     marginBottom: "0",
-                    borderBottom: "1px solid #e5e7eb",
+                    borderBottom: "1px solid var(--color-border)",
                   },
                   // 固定尺寸 800×600：外壳不滚，左菜单/右内容在固定高度容器内各自滚动
                   body: {
