@@ -45,6 +45,8 @@ const NO_DRAG = { WebkitAppRegion: "no-drag" } as any;
 export interface TrafficLightToolbarProps {
   /** 二级菜单收起态（决定收起/展开 icon 与 tooltip）。 */
   menuCollapsed: boolean;
+  /** 当前页是否存在可收起的二级菜单（nuwax 经桥推送；无则隐藏收起按钮）。 */
+  menuAvailable: boolean;
   /** webview 后退能力（false 时禁用后退按钮）。 */
   canGoBack: boolean;
   /** webview 前进能力（false 时禁用前进按钮）。 */
@@ -54,12 +56,15 @@ export interface TrafficLightToolbarProps {
   onForward: () => void;
   onReload: () => void;
   onOpenSettings: () => void;
+  /** 服务状态指示器（非绿色时由 App.tsx 注入颜色点，点击打开设置弹窗；全绿不渲染）。 */
+  statusEntry?: React.ReactNode;
   /** 新版本更新入口（仅当检测到新版本时注入：下载 icon / 下载中百分比 / 待安装；其余不渲染）。 */
   updateEntry?: React.ReactNode;
 }
 
 const TrafficLightToolbar: React.FC<TrafficLightToolbarProps> = ({
   menuCollapsed,
+  menuAvailable,
   canGoBack,
   canGoForward,
   onToggleMenu,
@@ -67,6 +72,7 @@ const TrafficLightToolbar: React.FC<TrafficLightToolbarProps> = ({
   onForward,
   onReload,
   onOpenSettings,
+  statusEntry,
   updateEntry,
 }) => {
   // Win/Linux 最大化状态（自绘按钮图标）；mac 用原生红绿灯不渲染按钮
@@ -171,16 +177,20 @@ const TrafficLightToolbar: React.FC<TrafficLightToolbarProps> = ({
               }}
             />
           )}
-          {iconBtn(
-            menuCollapsed ? "展开二级菜单" : "收起二级菜单",
-            false,
-            onToggleMenu,
-            menuCollapsed ? <MenuUnfoldOutlined /> : <MenuFoldOutlined />,
-          )}
+          {/* 收起/展开二级菜单：仅当 nuwax 报告当前页存在二级菜单时渲染（无则隐藏） */}
+          {menuAvailable &&
+            iconBtn(
+              menuCollapsed ? "展开二级菜单" : "收起二级菜单",
+              false,
+              onToggleMenu,
+              menuCollapsed ? <MenuUnfoldOutlined /> : <MenuFoldOutlined />,
+            )}
           {iconBtn("设置", false, onOpenSettings, <SettingOutlined />)}
           {iconBtn("后退", !canGoBack, onBack, <LeftOutlined />)}
           {iconBtn("前进", !canGoForward, onForward, <RightOutlined />)}
           {iconBtn("刷新", false, onReload, <ReloadOutlined />)}
+          {/* 服务状态指示器：非绿色时由 App.tsx 注入（点击打开设置弹窗），全绿不渲染 */}
+          {statusEntry}
         </div>
 
         {/* 中间留白：拖拽手柄 */}

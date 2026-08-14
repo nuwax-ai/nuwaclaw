@@ -251,6 +251,25 @@ function App() {
     };
   }, []);
 
+  // nuwax 布局状态 → 工具栏收起按钮显隐：当前页无二级菜单时按钮无意义，隐藏。
+  // 默认 false（隐藏）——nuwax 布局挂载后推送真实值；/Login 等无布局页不推或推 false。
+  const [secondMenuAvailable, setSecondMenuAvailable] = useState(false);
+
+  useEffect(() => {
+    const onNuwaxLayoutChanged = (payload: {
+      secondMenuAvailable?: boolean;
+    }) => {
+      setSecondMenuAvailable(payload?.secondMenuAvailable === true);
+    };
+    window.electronAPI?.on("nuwax:layout-changed", onNuwaxLayoutChanged as any);
+    return () => {
+      window.electronAPI?.off(
+        "nuwax:layout-changed",
+        onNuwaxLayoutChanged as any,
+      );
+    };
+  }, []);
+
   // CSS 变量叠加（inline 优先级高于 index.css 的亮/暗定义，removeProperty 即回落）。
   // 与 antd tokens 同步加暗色守卫：壳深色时不叠加，避免米白变量染坏暗色 UI。
   useEffect(() => {
@@ -1413,6 +1432,7 @@ function App() {
                 后退/前进/刷新/收起二级菜单/设置由工具栏承载（见 TrafficLightToolbar，浮于 webview 之上）。 */}
             <TrafficLightToolbar
               menuCollapsed={secondMenuCollapsed}
+              menuAvailable={secondMenuAvailable}
               canGoBack={canGoBack}
               canGoForward={canGoForward}
               onToggleMenu={handleToggleMenu}
@@ -1420,6 +1440,37 @@ function App() {
               onForward={handleToolbarForward}
               onReload={handleToolbarReload}
               onOpenSettings={handleOpenSettings}
+              statusEntry={
+                // 服务状态指示器：非绿色（有服务 error→红 / 未全跑→橙）时渲染颜色点，
+                // 点击打开设置弹窗并落到 client tab（服务列表页）；全绿或未知（空）不渲染。
+                services.length > 0 && !services.every((s) => s.running) ? (
+                  <Tooltip title="服务状态异常，点击查看" mouseEnterDelay={0.7}>
+                    <Button
+                      type="text"
+                      size="small"
+                      aria-label="服务状态"
+                      onClick={() => {
+                        setActiveTab("client");
+                        setSettingsModalOpen(true);
+                      }}
+                      style={{ ...({ WebkitAppRegion: "no-drag" } as any) }}
+                    >
+                      <span
+                        style={{
+                          width: 8,
+                          height: 8,
+                          borderRadius: "50%",
+                          display: "inline-block",
+                          // 有服务报错→红；否则（未全跑）→橙
+                          background: services.some((s) => s.error)
+                            ? "#EF4444"
+                            : "#F59E0B",
+                        }}
+                      />
+                    </Button>
+                  </Tooltip>
+                ) : undefined
+              }
               updateEntry={
                 // 新版本入口（仅有新版本时渲染）：可用→绿底下载 icon（点击下载，
                 // 不支持自动更新时跳 releases 页）；下载中→蓝底进度；已下载→橙底安装 icon。

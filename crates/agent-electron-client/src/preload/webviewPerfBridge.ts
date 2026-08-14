@@ -121,6 +121,14 @@ const native = {
   ): Promise<{ success: boolean; path?: string; error?: string }> {
     return ipcRenderer.invoke("native:saveImage", { url, filename });
   },
+  /**
+   * 新开独立窗口打开 nuwax 页面（智能体详情/工作流/我的电脑等全屏页）。
+   * 新窗口带系统标题栏（无沉浸式工具栏浮层，页面零遮挡），注入同一 webview
+   * 桥 preload（isNuwaClaw/主题/避让等桥能力一致）。path 为 nuwax 站内相对路径。
+   */
+  openWindow(path: string): Promise<{ success: boolean; error?: string }> {
+    return ipcRenderer.invoke("native:openWindow", { path });
+  },
 };
 
 /**
@@ -154,10 +162,23 @@ const theme = {
   },
 };
 
+/**
+ * layout 命名空间：nuwax → 壳的布局状态同步（guest→host）。
+ * 如「当前页是否存在可收起的二级菜单」→ 主进程转发（nuwax:layout-changed）给壳
+ * renderer，工具栏据此显隐收起按钮。fire-and-forget。
+ */
+const layout = {
+  /** 告知壳当前页是否有二级菜单可收起。 */
+  setSecondMenuAvailable(available: boolean): void {
+    ipcRenderer.send("nuwax:layout-sync", { secondMenuAvailable: !!available });
+  },
+};
+
 contextBridge.exposeInMainWorld("NuwaClawBridge", {
   perf,
   auth,
   native,
   events,
   theme,
+  layout,
 });
