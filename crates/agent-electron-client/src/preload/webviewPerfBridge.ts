@@ -172,6 +172,10 @@ const layout = {
   setSecondMenuAvailable(available: boolean): void {
     ipcRenderer.send("nuwax:layout-sync", { secondMenuAvailable: !!available });
   },
+  /** 同步二级菜单真实收起态（壳工具栏 icon 以此为准，修 reload 后失同步）。 */
+  setSecondMenuCollapsed(collapsed: boolean): void {
+    ipcRenderer.send("nuwax:layout-sync", { secondMenuCollapsed: !!collapsed });
+  },
 };
 
 contextBridge.exposeInMainWorld("NuwaClawBridge", {

@@ -69,16 +69,24 @@ export function registerNuwaxBridgeHandlers(ctx: HandlerContext): void {
     ctx.getMainWindow()?.webContents.send("nuwax:theme-changed", safe);
   });
 
-  // ---- layout：nuwax 布局状态 → 壳（如二级菜单存在性，工具栏据此显隐收起按钮） ----
+  // ---- layout：nuwax 布局状态 → 壳（工具栏收起按钮显隐/icon 态） ----
+  // secondMenuAvailable：当前页是否有二级菜单（无则隐藏收起按钮）。
+  // secondMenuCollapsed：二级菜单真实收起态（壳 icon 以此为准，修 reload 失同步）。
   ipcMain.on("nuwax:layout-sync", (_event, payload: unknown) => {
     const safe =
       payload && typeof payload === "object"
         ? (payload as Record<string, unknown>)
         : null;
-    if (!safe || typeof safe.secondMenuAvailable !== "boolean") return;
-    ctx.getMainWindow()?.webContents.send("nuwax:layout-changed", {
-      secondMenuAvailable: safe.secondMenuAvailable,
-    });
+    if (!safe) return;
+    const forward: Record<string, unknown> = {};
+    if (typeof safe.secondMenuAvailable === "boolean") {
+      forward.secondMenuAvailable = safe.secondMenuAvailable;
+    }
+    if (typeof safe.secondMenuCollapsed === "boolean") {
+      forward.secondMenuCollapsed = safe.secondMenuCollapsed;
+    }
+    if (Object.keys(forward).length === 0) return;
+    ctx.getMainWindow()?.webContents.send("nuwax:layout-changed", forward);
   });
 
   // ---- auth：ACCESS_TOKEN 双向同步 ----

@@ -255,21 +255,6 @@ function App() {
   // 默认 false（隐藏）——nuwax 布局挂载后推送真实值；/Login 等无布局页不推或推 false。
   const [secondMenuAvailable, setSecondMenuAvailable] = useState(false);
 
-  useEffect(() => {
-    const onNuwaxLayoutChanged = (payload: {
-      secondMenuAvailable?: boolean;
-    }) => {
-      setSecondMenuAvailable(payload?.secondMenuAvailable === true);
-    };
-    window.electronAPI?.on("nuwax:layout-changed", onNuwaxLayoutChanged as any);
-    return () => {
-      window.electronAPI?.off(
-        "nuwax:layout-changed",
-        onNuwaxLayoutChanged as any,
-      );
-    };
-  }, []);
-
   // CSS 变量叠加（inline 优先级高于 index.css 的亮/暗定义，removeProperty 即回落）。
   // 与 antd tokens 同步加暗色守卫：壳深色时不叠加，避免米白变量染坏暗色 UI。
   useEffect(() => {
@@ -451,6 +436,30 @@ function App() {
   const [canGoForward, setCanGoForward] = useState(false);
   // 二级菜单收起态（与 nuwax setIsSecondMenuCollapsed 同步；桌面端唯一触发源是工具栏）
   const [secondMenuCollapsed, setSecondMenuCollapsed] = useState(false);
+
+  // nuwax 布局状态监听：secondMenuAvailable（按钮显隐）+ secondMenuCollapsed
+  //（真实收起态，推送为准）：webview reload 后本地态不重置、reload 瞬间的
+  // toggle 命令也可能丢失，nuwax 推送值校正失同步。
+  useEffect(() => {
+    const onNuwaxLayoutChanged = (payload: {
+      secondMenuAvailable?: boolean;
+      secondMenuCollapsed?: boolean;
+    }) => {
+      if (payload?.secondMenuAvailable !== undefined) {
+        setSecondMenuAvailable(payload.secondMenuAvailable === true);
+      }
+      if (payload?.secondMenuCollapsed !== undefined) {
+        setSecondMenuCollapsed(payload.secondMenuCollapsed === true);
+      }
+    };
+    window.electronAPI?.on("nuwax:layout-changed", onNuwaxLayoutChanged as any);
+    return () => {
+      window.electronAPI?.off(
+        "nuwax:layout-changed",
+        onNuwaxLayoutChanged as any,
+      );
+    };
+  }, []);
   // 系统配置浮层（替代原 mainViewMode=config 整页切换，沉浸式下不打断 webview）
   const [settingsModalOpen, setSettingsModalOpen] = useState(false);
   /** 是否已登录（有 config_key）；未登录时不展示平台切换 */
