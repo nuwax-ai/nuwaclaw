@@ -13,7 +13,7 @@ import {
   Badge,
   Spin,
   Button,
-  Segmented,
+  Modal,
   notification,
   message,
 } from "antd";
@@ -59,7 +59,10 @@ import LogViewer from "./components/pages/LogViewer";
 import PermissionsPage from "./components/pages/PermissionsPage";
 import SessionsPage from "./components/pages/SessionsPage";
 import { type BrowserTarget } from "./components/pages/BrowserHomePage";
-import NuwaxHostWebview from "./components/pages/NuwaxHostWebview";
+import NuwaxHostWebview, {
+  type NuwaxHostWebviewHandle,
+} from "./components/pages/NuwaxHostWebview";
+import TrafficLightToolbar from "./components/TrafficLightToolbar";
 import MCPSettings from "./components/settings/MCPSettings";
 import { ModeNavIcon } from "./components/icons/ModeNavIcon";
 import { createLogger } from "./services/utils/rendererLog";
@@ -353,6 +356,14 @@ function App() {
   });
   const [browserOpenKey, setBrowserOpenKey] = useState(0);
   const browserReloadRef = useRef<(() => void) | null>(null);
+  // 沉浸式工具栏所需状态
+  const webviewRef = useRef<NuwaxHostWebviewHandle>(null);
+  const [canGoBack, setCanGoBack] = useState(false);
+  const [canGoForward, setCanGoForward] = useState(false);
+  // 二级菜单收起态（与 nuwax setIsSecondMenuCollapsed 同步；桌面端唯一触发源是工具栏）
+  const [secondMenuCollapsed, setSecondMenuCollapsed] = useState(false);
+  // 系统配置浮层（替代原 mainViewMode=config 整页切换，沉浸式下不打断 webview）
+  const [settingsModalOpen, setSettingsModalOpen] = useState(false);
   /** 是否已登录（有 config_key）；未登录时不展示平台切换 */
   const [isAuthLoggedIn, setIsAuthLoggedIn] = useState(false);
   const [username, setUsername] = useState<string>("");
@@ -550,6 +561,36 @@ function App() {
   const handleBrowserRefresh = useCallback(() => {
     setBrowserOpenKey((k) => k + 1);
   }, []);
+
+  // webview 导航能力变化上报（供工具栏后退/前进按钮启用态）
+  const handleNavStateChange = useCallback(
+    (state: { canGoBack: boolean; canGoForward: boolean }) => {
+      setCanGoBack(state.canGoBack);
+      setCanGoForward(state.canGoForward);
+    },
+    [],
+  );
+  // 工具栏：收起/展开二级菜单（翻转本地态 + 下发命令到 nuwax）
+  const handleToggleMenu = useCallback(() => {
+    setSecondMenuCollapsed((prev) => {
+      const next = !prev;
+      webviewRef.current?.sendHostCommand({
+        type: "toggle-second-menu",
+        collapsed: next,
+      });
+      return next;
+    });
+  }, []);
+  const handleToolbarBack = useCallback(() => webviewRef.current?.goBack(), []);
+  const handleToolbarForward = useCallback(
+    () => webviewRef.current?.goForward(),
+    [],
+  );
+  const handleToolbarReload = useCallback(
+    () => webviewRef.current?.reload(),
+    [],
+  );
+  const handleOpenSettings = useCallback(() => setSettingsModalOpen(true), []);
 
   // ============================================
   // 子组件登录/注销后刷新顶部栏用户名与平台 Tab
@@ -1069,8 +1110,8 @@ function App() {
     // 监听设置菜单
     const handleSettings = () => {
       console.log("[App] Received menu:settings event");
-      setMainViewMode("config");
       setActiveTab("settings");
+      setSettingsModalOpen(true);
     };
     window.electronAPI.on("menu:settings", handleSettings);
     cleanupHandlers.push(() =>
@@ -1080,8 +1121,8 @@ function App() {
     // 监听依赖管理菜单
     const handleDependencies = () => {
       console.log("[App] Received menu:dependencies event");
-      setMainViewMode("config");
       setActiveTab("dependencies");
+      setSettingsModalOpen(true);
     };
     window.electronAPI.on("menu:dependencies", handleDependencies);
     cleanupHandlers.push(() =>
@@ -1091,8 +1132,8 @@ function App() {
     // 监听 MCP 设置菜单
     const handleMcpSettings = () => {
       console.log("[App] Received menu:mcp-settings event");
-      setMainViewMode("config");
       setActiveTab("settings");
+      setSettingsModalOpen(true);
     };
     window.electronAPI.on("menu:mcp-settings", handleMcpSettings);
     cleanupHandlers.push(() =>
@@ -1297,191 +1338,128 @@ function App() {
         >
           <div className="app-container">
             {/* 顶部栏：Logo + 模式切换 + 浏览器刷新 + 用户状态 + 升级提示 */}
-            <div className="app-header">
-              {/* mac 左侧留出 80px 避让原生红绿灯（位于 {16,16}），与 NuwaxHostWebview
-                  顶部拖拽条 left:isMac?80:0 约定一致；Win/Linux 顶栏左侧无系统控件，不需避让。
-                  headerLeft 同时承载 logo（未登录）与 Segmented 首页/配置（已登录·config 模式可见）。 */}
-              <div
-                className={styles.headerLeft}
-                style={{ paddingLeft: isMacOS ? 80 : 0 }}
-              >
-                {!isAuthLoggedIn ? (
-                  <div
-                    className="app-header-logo"
-                    role="button"
-                    tabIndex={0}
-                    title={t("Claw.App.modeBrowser")}
-                    onClick={() => setMainViewMode("browser")}
-                    onKeyDown={(e) =>
-                      (e.key === "Enter" || e.key === " ") &&
-                      setMainViewMode("browser")
+            {/* 顶栏撤除：沉浸式 webview 顶到窗口上沿。原顶栏的 Segmented 模式切换与账号登录态
+                移除；Agent 运行状态 + 更新标签迁入工具栏 rightSlot；后退/前进/刷新/收起二级菜单/
+                设置由工具栏承载（见 TrafficLightToolbar，浮于 webview 之上）。 */}
+            <TrafficLightToolbar
+              menuCollapsed={secondMenuCollapsed}
+              canGoBack={canGoBack}
+              canGoForward={canGoForward}
+              onToggleMenu={handleToggleMenu}
+              onBack={handleToolbarBack}
+              onForward={handleToolbarForward}
+              onReload={handleToolbarReload}
+              onOpenSettings={handleOpenSettings}
+              rightSlot={
+                <>
+                  <Badge
+                    status={badge.status}
+                    className={
+                      agentStatus === "idle" || agentStatus === "busy"
+                        ? styles.badgeIdle
+                        : undefined
                     }
-                    style={{ cursor: "pointer" }}
-                  >
-                    <img
-                      src="./32x32.png"
-                      alt=""
-                      style={{ width: 16, height: 16 }}
-                    />
-                    <span className="app-header-title">{APP_DISPLAY_NAME}</span>
-                  </div>
-                ) : (
-                  <div className={styles.headerModeTabs}>
-                    <Segmented
-                      className={styles.headerModeSegmented}
-                      value={mainViewMode}
-                      onChange={(value) =>
-                        setMainViewMode(value as MainViewMode)
-                      }
-                      options={[
-                        {
-                          value: "browser",
-                          label: (
-                            <span className={styles.headerModeSegmentedLabel}>
-                              <ModeNavIcon name="home" />
-                              {t("Claw.App.modeBrowser")}
-                            </span>
-                          ),
-                        },
-                        {
-                          value: "config",
-                          label: (
-                            <span className={styles.headerModeSegmentedLabel}>
-                              <ModeNavIcon name="settings" />
-                              {t("Claw.App.modeConfig")}
-                            </span>
-                          ),
-                        },
-                      ]}
-                    />
-                    {mainViewMode === "browser" && (
-                      <Button
-                        size="small"
-                        className={styles.headerRefreshBtn}
-                        icon={<ReloadOutlined />}
-                        onClick={handleBrowserRefresh}
-                      >
-                        {t("Claw.App.refresh")}
-                      </Button>
-                    )}
-                  </div>
-                )}
-              </div>
-              <div className={styles.headerRight}>
-                {isAuthLoggedIn ? (
-                  <span className={styles.username}>
-                    {username || computerName || t("Claw.App.loggedIn")}
-                  </span>
-                ) : (
-                  <span className={styles.username}>
-                    {t("Claw.App.notLoggedIn")}
-                  </span>
-                )}
-                <Badge
-                  status={badge.status}
-                  className={
-                    agentStatus === "idle" || agentStatus === "busy"
-                      ? styles.badgeIdle
-                      : undefined
-                  }
-                  text={
-                    <span className={styles.badgeText}>{t(badge.textKey)}</span>
-                  }
-                />
-                {updateState.status === "available" && (
-                  <span
-                    className="app-header-update-tag app-header-update-tag--available"
-                    role="button"
-                    tabIndex={0}
-                    onClick={async () => {
-                      if (updateState.canAutoUpdate === false) {
-                        await window.electronAPI?.app?.openReleasesPage?.();
-                        return;
-                      }
-                      try {
-                        setUpdateState((prev) => ({
-                          ...prev,
-                          status: "downloading",
-                          progress: undefined,
-                        }));
-                        const res =
-                          await window.electronAPI?.app?.downloadUpdate?.();
-                        if (!res || !res.success) {
-                          message.error(
-                            res?.error || t("Claw.About.downloadFailed"),
-                          );
+                    text={
+                      <span className={styles.badgeText}>
+                        {t(badge.textKey)}
+                      </span>
+                    }
+                  />
+                  {updateState.status === "available" && (
+                    <span
+                      className="app-header-update-tag app-header-update-tag--available"
+                      role="button"
+                      tabIndex={0}
+                      onClick={async () => {
+                        if (updateState.canAutoUpdate === false) {
+                          await window.electronAPI?.app?.openReleasesPage?.();
+                          return;
+                        }
+                        try {
+                          setUpdateState((prev) => ({
+                            ...prev,
+                            status: "downloading",
+                            progress: undefined,
+                          }));
+                          const res =
+                            await window.electronAPI?.app?.downloadUpdate?.();
+                          if (!res || !res.success) {
+                            message.error(
+                              res?.error || t("Claw.About.downloadFailed"),
+                            );
+                            setUpdateState((prev) => ({
+                              ...prev,
+                              status: "available",
+                            }));
+                          }
+                        } catch {
+                          message.error(t("Claw.About.downloadFailed"));
                           setUpdateState((prev) => ({
                             ...prev,
                             status: "available",
                           }));
                         }
-                      } catch {
-                        message.error(t("Claw.About.downloadFailed"));
-                        setUpdateState((prev) => ({
-                          ...prev,
-                          status: "available",
-                        }));
+                      }}
+                      onKeyDown={(e) =>
+                        (e.key === "Enter" || e.key === " ") &&
+                        (e.target as HTMLElement).click()
                       }
-                    }}
-                    onKeyDown={(e) =>
-                      (e.key === "Enter" || e.key === " ") &&
-                      (e.target as HTMLElement).click()
-                    }
-                  >
-                    {t("Claw.App.UpdateTag.update")}
-                  </span>
-                )}
-                {updateState.status === "downloading" && (
-                  <span className="app-header-update-tag app-header-update-tag--downloading">
-                    {t("Claw.App.UpdateTag.downloading", {
-                      percent: Math.round(
-                        updateState.progress?.percent ?? headerSimulatedPercent,
-                      ),
-                    })}
-                  </span>
-                )}
-                {updateState.status === "downloaded" && (
-                  <span
-                    className="app-header-update-tag app-header-update-tag--install"
-                    role="button"
-                    tabIndex={0}
-                    onClick={async () => {
-                      try {
-                        const res =
-                          await window.electronAPI?.app?.installUpdate?.();
-                        if (res && !res.success) {
-                          message.error(
-                            res.error || t("Claw.About.installFailed"),
-                          );
+                    >
+                      {t("Claw.App.UpdateTag.update")}
+                    </span>
+                  )}
+                  {updateState.status === "downloading" && (
+                    <span className="app-header-update-tag app-header-update-tag--downloading">
+                      {t("Claw.App.UpdateTag.downloading", {
+                        percent: Math.round(
+                          updateState.progress?.percent ??
+                            headerSimulatedPercent,
+                        ),
+                      })}
+                    </span>
+                  )}
+                  {updateState.status === "downloaded" && (
+                    <span
+                      className="app-header-update-tag app-header-update-tag--install"
+                      role="button"
+                      tabIndex={0}
+                      onClick={async () => {
+                        try {
+                          const res =
+                            await window.electronAPI?.app?.installUpdate?.();
+                          if (res && !res.success) {
+                            message.error(
+                              res.error || t("Claw.About.installFailed"),
+                            );
+                          }
+                        } catch {
+                          message.error(t("Claw.About.installFailed"));
                         }
-                      } catch {
-                        message.error(t("Claw.About.installFailed"));
+                      }}
+                      onKeyDown={(e) =>
+                        (e.key === "Enter" || e.key === " ") &&
+                        (e.target as HTMLElement).click()
                       }
-                    }}
-                    onKeyDown={(e) =>
-                      (e.key === "Enter" || e.key === " ") &&
-                      (e.target as HTMLElement).click()
-                    }
-                  >
-                    {t("Claw.About.installUpdate")}
-                  </span>
-                )}
-              </div>
-            </div>
+                    >
+                      {t("Claw.About.installUpdate")}
+                    </span>
+                  )}
+                </>
+              }
+            />
 
             {/* 主体部分：平台 webview 常驻挂载，切换时仅隐藏不重载 */}
             <div className="app-body">
               <div
                 className={`app-content app-content-fullwidth ${styles.platformPane}`}
                 style={{
-                  display: mainViewMode === "browser" ? "flex" : "none",
-                  // 顶栏常驻：browser 模式下 webview 让出顶部 48px（= .app-header 高度），
-                  // 使「首页/配置」切换 + 账号状态 + 刷新按钮始终可见（用户定：保留顶栏，
-                  // 核心是首页 tab 时刷新按钮可用）。不再覆盖 app-header；
-                  // z-index 1000 仅用于高于 configPane 等同级层。
+                  display: "flex",
+                  // 沉浸式：撤除顶栏后 webview 顶到窗口上沿（top:0）整窗满屏；
+                  // 工具栏（TrafficLightToolbar）作为独立浮层覆盖顶部，不占文档流。
+                  // z-index 1000（高于设置 Modal 同级层）；工具栏 z-index 1100 更高。
                   // （app-container/app-body 无 transform，fixed 定位不被祖先捕获。）
                   position: "fixed",
-                  top: 48,
+                  top: 0,
                   left: 0,
                   right: 0,
                   bottom: 0,
@@ -1496,14 +1474,49 @@ function App() {
                     flexDirection: "column",
                   }}
                 >
-                  <NuwaxHostWebview reloadKey={browserOpenKey} />
+                  <NuwaxHostWebview
+                    ref={webviewRef}
+                    reloadKey={browserOpenKey}
+                    onNavStateChange={handleNavStateChange}
+                  />
                 </div>
               </div>
 
+              {/* 系统配置浮层：原 configPane 整页切换 → antd Modal，沉浸式下不打断 webview */}
+              <Modal
+                open={settingsModalOpen}
+                onCancel={() => setSettingsModalOpen(false)}
+                footer={null}
+                centered
+                width={800}
+                title="客户端配置"
+                styles={{
+                  // 四周外边距收紧
+                  content: { padding: "0" },
+                  header: {
+                    padding: "10px 16px",
+                    borderBottom: "1px solid #e5e7eb",
+                  },
+                  // 固定尺寸 800×600：外壳不滚，左菜单/右内容在固定高度容器内各自滚动
+                  body: {
+                    height: 600,
+                    boxSizing: "border-box",
+                    overflow: "hidden",
+                  },
+                  // 遮罩：玻璃模糊（低不透明度，透出背景）
+                  mask: {
+                    background: "rgba(0, 0, 0, 0.3)",
+                    backdropFilter: "blur(10px)",
+                    WebkitBackdropFilter: "blur(10px)",
+                  },
+                }}
+                destroyOnHidden
+              >
               <div
                 className={styles.configPane}
                 style={{
-                  display: mainViewMode === "config" ? "flex" : "none",
+                  display: "flex",
+                  height: "100%", // 撑满 body 固定高度，左菜单/右内容各自内部滚动
                 }}
               >
                 <div
@@ -1570,6 +1583,7 @@ function App() {
                   </div>
                 </div>
               </div>
+              </Modal>
             </div>
           </div>
         </ThemeContext.Provider>

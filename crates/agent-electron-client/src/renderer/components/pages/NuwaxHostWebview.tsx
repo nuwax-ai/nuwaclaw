@@ -1,26 +1,28 @@
 /**
- * NuwaxHostWebview - 客户端主窗口宿主组件。
+ * NuwaxHostWebview - 客户端主窗口宿主组件（沉浸式）。
  *
- * 全屏嵌入 nuwax PC 站点（含登录页），作为客户端主界面。
+ * 全屏嵌入 nuwax PC 站点（含登录页），作为客户端主界面。webview 占满整窗（含顶部），
+ * 顶部覆盖层（红绿灯后工具栏 TrafficLightToolbar）由 App.tsx 渲染，承载窗口拖拽、
+ * webview 导航（后退/前进/刷新）、二级菜单收起、设置入口与账号/更新状态。
  *
- * 与 BrowserHomePage 的关键区别：
- * - 不依赖 nuwaclaw sandbox 登录：直接从 step1_config.serverHost 解析 nuwax 根 URL，
- *   鉴权完全交给 nuwax 自身 /Login 页 + NuwaClawBridge.auth（ACCESS_TOKEN 双向同步，重启免登）。
- * - 沉浸式无边框：webview 占满整窗（含顶部），顶部叠一条透明拖拽条；Win/Linux 自绘窗口控制按钮，
- *   mac 沿用原生红绿灯（main.ts titleBarStyle:"hidden"）。
+ * 本组件通过 forwardRef 暴露 webview 导航与宿主命令下发能力，并经 onNavStateChange
+ * 上报 canGoBack/canGoForward 供工具栏按钮启用态。鉴权交给 nuwax 自身 /Login +
+ * NuwaClawBridge.auth（ACCESS_TOKEN 双向同步，重启免登）。
+ *
+ * 沉浸式：mac 沿用原生红绿灯（main.ts titleBarStyle:"hidden"）；Win/Linux 窗口控制
+ * 由 TrafficLightToolbar 自绘（不再在此组件渲染）。
  */
-import React, { useEffect, useRef, useState } from "react";
+import React, {
+  useEffect,
+  useRef,
+  useState,
+  useImperativeHandle,
+  forwardRef,
+} from "react";
 import { APP_DISPLAY_NAME, DEFAULT_SERVER_HOST } from "@shared/constants";
 import { normalizeServerHost } from "../../services/core/auth";
 import { buildHomeUrl } from "../../services/utils/sessionUrl";
 import { logger } from "../../services/utils/logService";
-
-/** macOS 用 navigator.platform 判定（渲染器无 process.platform）。 */
-const isMac = /mac/i.test(navigator.platform);
-
-/** -webkit-app-region 需在 renderer DOM 设置；为 Electron 专属键，React CSSProperties 未内置，用 any 规避告警。 */
-const DRAG = { WebkitAppRegion: "drag" } as any;
-const NO_DRAG = { WebkitAppRegion: "no-drag" } as any;
 
 /**
  * 开发联调时加载的本地 nuwax dev server。
@@ -29,15 +31,33 @@ const NO_DRAG = { WebkitAppRegion: "no-drag" } as any;
  */
 const NUWAX_DEV_HOST = "http://localhost:3000";
 
-export interface NuwaxHostWebviewProps {
-  /** 递增时强制 reload webview（供外部刷新按钮调用）。 */
-  reloadKey?: number;
+/** 暴露给 App.tsx 的 webview 控制句柄（工具栏 icon 经此调用）。 */
+export interface NuwaxHostWebviewHandle {
+  goBack: () => void;
+  goForward: () => void;
+  reload: () => void;
+  canGoBack: () => boolean;
+  canGoForward: () => boolean;
+  /** 下发宿主命令到 nuwax（经 webviewPerfBridge 的 nuwax:host-command 通道）。 */
+  sendHostCommand: (payload: unknown) => void;
 }
 
-function NuwaxHostWebview({ reloadKey = 0 }: NuwaxHostWebviewProps) {
+export interface NuwaxHostWebviewProps {
+  /** 递增时强制 reload webview（兼容旧刷新入口；工具栏刷新优先走 handle.reload()）。 */
+  reloadKey?: number;
+  /** webview 导航能力变化上报（canGoBack/canGoForward），供工具栏按钮启用态。 */
+  onNavStateChange?: (state: {
+    canGoBack: boolean;
+    canGoForward: boolean;
+  }) => void;
+}
+
+const NuwaxHostWebview = forwardRef<
+  NuwaxHostWebviewHandle,
+  NuwaxHostWebviewProps
+>(function NuwaxHostWebview({ reloadKey = 0, onNavStateChange }, ref) {
   const [url, setUrl] = useState("");
   const [ua, setUa] = useState<string | undefined>();
-  const [maximized, setMaximized] = useState(false);
   const webviewRef = useRef<HTMLElement | null>(null);
 
   // 自定义 UA：保留 女娲 Nuwax/<version> 标识，便于 nuwax 侧识别客户端环境
@@ -56,14 +76,13 @@ function NuwaxHostWebview({ reloadKey = 0 }: NuwaxHostWebviewProps) {
         const step1 = (await window.electronAPI?.settings.get(
           "step1_config",
         )) as { serverHost?: string } | null;
-        // 开发联调（vite dev）：优先加载本地 nuwax dev server(localhost:3000)，
-        // 便于实时调试 nuwax 前端改动；生产加载 step1_config.serverHost / DEFAULT_SERVER_HOST。
+        // 开发联调（vite dev）：优先加载本地 nuwax dev server(localhost:3000)；
+        // 生产加载 step1_config.serverHost / DEFAULT_SERVER_HOST。
         const rawHost = import.meta.env.DEV
           ? NUWAX_DEV_HOST
           : step1?.serverHost || DEFAULT_SERVER_HOST;
         const domain = normalizeServerHost(rawHost);
         const finalUrl = buildHomeUrl(domain);
-        // 打印实际加载地址，便于联调排查（devtools console / ~/.nuwaclaw/logs/latest.log）。
         logger.info(
           "[NuwaxHostWebview] resolved webview url",
           "NuwaxHostWebview",
@@ -88,26 +107,43 @@ function NuwaxHostWebview({ reloadKey = 0 }: NuwaxHostWebviewProps) {
     };
   }, []);
 
-  // 最大化状态（Win/Linux 自绘按钮图标）；窗口尺寸变化时重查
+  // 绑定 webview 导航事件，上报 canGoBack/canGoForward（供工具栏按钮启用态）
   useEffect(() => {
+    const wv = webviewRef.current as any;
+    if (!wv?.addEventListener) return;
     const sync = () =>
-      window.electronAPI?.window
-        .isMaximized?.()
-        .then(setMaximized)
-        .catch(() => {});
-    sync();
-    window.addEventListener("resize", sync);
-    return () => window.removeEventListener("resize", sync);
-  }, []);
+      onNavStateChange?.({
+        canGoBack: !!wv.canGoBack?.(),
+        canGoForward: !!wv.canGoForward?.(),
+      });
+    wv.addEventListener("dom-ready", sync);
+    wv.addEventListener("did-navigate", sync);
+    wv.addEventListener("did-navigate-in-page", sync);
+    return () => {
+      wv.removeEventListener?.("dom-ready", sync);
+      wv.removeEventListener?.("did-navigate", sync);
+      wv.removeEventListener?.("did-navigate-in-page", sync);
+    };
+  }, [url, onNavStateChange]);
 
-  // 外部 reloadKey 变化时重载 webview
+  // 外部 reloadKey 变化时重载 webview（兼容旧刷新入口）
   useEffect(() => {
     if (reloadKey > 0) (webviewRef.current as any)?.reload?.();
   }, [reloadKey]);
 
-  const onMin = () => window.electronAPI?.window.minimize();
-  const onMax = () => window.electronAPI?.window.maximize();
-  const onClose = () => window.electronAPI?.window.close();
+  useImperativeHandle(
+    ref,
+    () => ({
+      goBack: () => (webviewRef.current as any)?.goBack?.(),
+      goForward: () => (webviewRef.current as any)?.goForward?.(),
+      reload: () => (webviewRef.current as any)?.reload?.(),
+      canGoBack: () => !!(webviewRef.current as any)?.canGoBack?.(),
+      canGoForward: () => !!(webviewRef.current as any)?.canGoForward?.(),
+      sendHostCommand: (payload: unknown) =>
+        (webviewRef.current as any)?.send?.("nuwax:host-command", payload),
+    }),
+    [],
+  );
 
   return (
     <div
@@ -132,74 +168,8 @@ function NuwaxHostWebview({ reloadKey = 0 }: NuwaxHostWebviewProps) {
           border: "none",
         }}
       />
-
-      {/* 顶部透明拖拽条（沉浸式）：webview 内容顶到窗口上沿，此处仅作拖拽手柄。
-          mac 左侧留出 80px 避让原生红绿灯（原生灯位于 web 内容之上，但仍预留以免干扰）。 */}
-      <div
-        style={{
-          position: "absolute",
-          top: 0,
-          left: isMac ? 80 : 0,
-          right: 0,
-          height: 28,
-          zIndex: 10,
-          ...DRAG,
-        }}
-      />
-
-      {/* Win/Linux 自绘窗口控制按钮（mac 用原生红绿灯，不渲染） */}
-      {!isMac && (
-        <div
-          style={{
-            position: "absolute",
-            top: 0,
-            right: 0,
-            height: 28,
-            display: "flex",
-            alignItems: "center",
-            zIndex: 11,
-            ...NO_DRAG,
-          }}
-        >
-          <CtrlButton title="最小化" onClick={onMin}>
-            &#8211;
-          </CtrlButton>
-          <CtrlButton title={maximized ? "还原" : "最大化"} onClick={onMax}>
-            {maximized ? "⧉" : "□"}
-          </CtrlButton>
-          <CtrlButton title="关闭" onClick={onClose} danger>
-            &#10005;
-          </CtrlButton>
-        </div>
-      )}
     </div>
   );
-}
-
-const CtrlButton: React.FC<{
-  title: string;
-  onClick: () => void;
-  danger?: boolean;
-  children: React.ReactNode;
-}> = ({ title, onClick, danger, children }) => (
-  <button
-    aria-label={title}
-    title={title}
-    onClick={onClick}
-    style={{
-      width: 40,
-      height: 28,
-      border: "none",
-      background: "transparent",
-      color: danger ? "#ff5f57" : "#555",
-      fontSize: 13,
-      lineHeight: "28px",
-      cursor: "pointer",
-      ...NO_DRAG,
-    }}
-  >
-    {children}
-  </button>
-);
+});
 
 export default NuwaxHostWebview;

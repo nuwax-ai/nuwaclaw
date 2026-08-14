@@ -123,8 +123,27 @@ const native = {
   },
 };
 
+/**
+ * events 命名空间：宿主→nuwax 入站命令通道。
+ * nuwaclaw 工具栏等通过 <webview>.send('nuwax:host-command', payload) 下发，
+ * 此处 ipcRenderer.on 接收并转发给 nuwax 注册的回调（contextBridge 保证回调在 guest
+ * 上下文执行，从而能操作 nuwax 的 React/model 状态）。payload 协议见 nuwax 侧
+ * global.d.ts 的 HostCommand。
+ */
+let hostCommandHandler: ((payload: unknown) => void) | null = null;
+ipcRenderer.on("nuwax:host-command", (_e, payload: unknown) => {
+  hostCommandHandler?.(payload);
+});
+const events = {
+  /** 注册/注销宿主命令回调（传 null 注销）。 */
+  onHostCommand(cb: ((payload: unknown) => void) | null): void {
+    hostCommandHandler = cb;
+  },
+};
+
 contextBridge.exposeInMainWorld("NuwaClawBridge", {
   perf,
   auth,
   native,
+  events,
 });
