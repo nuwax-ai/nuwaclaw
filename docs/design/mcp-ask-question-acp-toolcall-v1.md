@@ -25,7 +25,7 @@ Ask/question 与 ACP 权限审批是两条独立链路：
 | ACP 权限审批 | `message_type="acpRequestPermission"` + `sub_type="request_permission"`         | Backend 转发 `permission_resolve_request` 到 `/computer/notify-resolved` |
 | MCP Ask      | `messageType="agentSessionUpdate"` + `subType="tool_call"` / `tool_call_update` | 前端发送普通聊天消息                                                     |
 
-权限审批字段格式以 `docs/permission-request-handler-design.md` 为唯一来源。MCP Ask 不复用 `permission_resolve_request`、`Selected`、`Cancelled` 等权限审批回执字段。
+权限审批字段格式以 `docs/design/permission-request-handler-design.md` 为唯一来源。MCP Ask 不复用 `permission_resolve_request`、`Selected`、`Cancelled` 等权限审批回执字段。
 
 ## 3. 端到端流程
 

@@ -278,5 +278,5 @@ sandbox-exec -f /tmp/test-seatbelt-strict.sb /bin/sh -c '/sbin/shutdown -h now 2
 - `crates/agent-electron-client/scripts/mcp/sandboxed-bash-security.mjs`
 - `crates/agent-electron-client/tests/sandbox-integration/macos-seatbelt.integration.test.ts`
 - `crates/agent-electron-client/tests/sandbox-integration/shared-integration-utils.ts`
-- `docs/sandbox-whitelist-blacklist-plan.md`
-- `docs/sandbox-matrix.generated.md`
+- `docs/sandbox/sandbox-whitelist-blacklist-plan.md`
+- `docs/sandbox/sandbox-matrix.generated.md`

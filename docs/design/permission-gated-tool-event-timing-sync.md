@@ -271,6 +271,6 @@ fn normalize_permission_gated_interactive_tool_update(
 
 ## 10. 与现有协议文档关系
 
-- ACP Permission 数据契约仍以 `docs/permission-request-handler-design.md` 为准。
+- ACP Permission 数据契约仍以 `docs/design/permission-request-handler-design.md` 为准。
 - 具体业务工具的数据契约仍以各自协议文档为准。
 - 本文只定义 permission-gated tool event 的下发时序原则。

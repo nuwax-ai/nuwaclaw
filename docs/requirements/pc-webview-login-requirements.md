@@ -1,7 +1,7 @@
 # PC 客户端 · nuwax webview 登录统一 · 功能需求描述（FRD）
 
 > **用途**：功能回溯。记录本次改造每项功能的「为什么做、需求是什么、关键设计决策、落在哪些代码、由哪条验收覆盖」，供日后追溯需求来源与决策依据。
-> **配对文档**：[`qa-checklist-pc-webview-login.md`](./qa-checklist-pc-webview-login.md)（验收清单·操作步骤）。
+> **配对文档**：[`qa-checklist-pc-webview-login.md`](../qa/qa-checklist-pc-webview-login.md)（验收清单·操作步骤）。
 > **范围**：跨双端——nuwaclaw 壳（主体，§1 各 FR）+ nuwax webview（bridge 调用方，`feat/chatkit-adapter`，**实现详述见 §7**）。回溯时两端一并查阅。
 > **日期**：2026-08-12 ｜ **仓库**：nuwaclaw（主体）+ nuwax（bridge 钩子，`feat/chatkit-adapter`） ｜ **状态**：Phase 1/2 已落地（未提交），Phase 3 后端阻塞。
 > **关联 Plan**：`~/.claude/plans/pc-5-nuwaclaw-electron-rust-acp-moonlit-kettle.md`

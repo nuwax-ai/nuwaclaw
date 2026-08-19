@@ -530,7 +530,7 @@ interface ACPProgressUpdate {
 
 - [harness-monorepo](https://github.com/dongdada29/harness-monorepo)
 - [Anthropic: Effective Harnesses](https://www.anthropic.com/engineering/effective-harnesses-for-long-running-agents)
-- [nuwaclaw sandbox](./sandbox/)
+- [nuwaclaw sandbox](../sandbox/)
 
 ---
 

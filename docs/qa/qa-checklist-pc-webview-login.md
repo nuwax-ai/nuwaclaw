@@ -4,7 +4,7 @@
 >
 > **日期**：2026-08-12 ｜ **仓库**：nuwaclaw（改动主体）+ nuwax（bridge 钩子，feat/chatkit-adapter 分支） ｜ **状态**：验收中（未提交）
 >
-> **配对文档**：[`pc-webview-login-requirements.md`](./pc-webview-login-requirements.md)（功能需求描述·回溯）。
+> **配对文档**：[`pc-webview-login-requirements.md`](../requirements/pc-webview-login-requirements.md)（功能需求描述·回溯）。
 > **关联 Plan**：`~/.claude/plans/pc-5-nuwaclaw-electron-rust-acp-moonlit-kettle.md`
 
 ---

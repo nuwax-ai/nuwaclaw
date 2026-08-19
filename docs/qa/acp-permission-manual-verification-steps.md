@@ -2,7 +2,7 @@
 
 更新时间：2026-05-27
 
-本文档记录本地可复现的提测验收步骤。权限审批字段格式以 `docs/permission-request-handler-design.md` 为唯一来源；MCP Ask 字段格式见 `docs/mcp-ask-question-acp-toolcall-v1.md`。
+本文档记录本地可复现的提测验收步骤。权限审批字段格式以 `docs/design/permission-request-handler-design.md` 为唯一来源；MCP Ask 字段格式见 `docs/design/mcp-ask-question-acp-toolcall-v1.md`。
 
 ## 1. 启动服务
 

@@ -4,7 +4,7 @@
 
 本文记录 NuwaClaw 对 RCoder permission request handler 协议的落地方式。
 
-字段格式以 `docs/permission-request-handler-design.md` 为唯一来源。本文只说明 NuwaClaw 侧适配边界，不重新定义协议。
+字段格式以 `docs/design/permission-request-handler-design.md` 为唯一来源。本文只说明 NuwaClaw 侧适配边界，不重新定义协议。
 
 ## 支持范围
 

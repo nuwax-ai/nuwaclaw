@@ -9,7 +9,7 @@
 1. ACP permission：`ask` 模式下工具调用暂停，前端展示审批卡片，用户选择后经 RCoder `permission_resolve_request` 回执，Agent 继续或拒绝。
 2. MCP Ask/question：Agent 调用 `nuwax_ask_question`，前端从标准 `tool_call` 事件渲染表单，用户答案作为下一条普通聊天消息回流。
 
-权限审批字段格式以 `docs/permission-request-handler-design.md` 为唯一来源；MCP Ask 字段格式以 `docs/mcp-ask-question-acp-toolcall-v1.md` 为唯一来源。
+权限审批字段格式以 `docs/design/permission-request-handler-design.md` 为唯一来源；MCP Ask 字段格式以 `docs/design/mcp-ask-question-acp-toolcall-v1.md` 为唯一来源。
 
 ## 覆盖仓库
 
