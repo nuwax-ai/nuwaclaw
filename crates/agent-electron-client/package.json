@@ -186,28 +186,32 @@
         "from": "resources/uv/bin",
         "to": "uv/bin",
         "filter": [
-          "**/*"
+          "**/*",
+          "!**/*.bak*"
         ]
       },
       {
         "from": "resources/ripgrep/bin",
         "to": "ripgrep/bin",
         "filter": [
-          "**/*"
+          "**/*",
+          "!**/*.bak*"
         ]
       },
       {
         "from": "resources/lanproxy",
         "to": "lanproxy",
         "filter": [
-          "**/*"
+          "**/*",
+          "!**/*.bak*"
         ]
       },
       {
         "from": "resources/ttyd",
         "to": "ttyd",
         "filter": [
-          "**/*"
+          "**/*",
+          "!**/*.bak*"
         ]
       },
       {
@@ -235,14 +239,16 @@
         "filter": [
           "**/*",
           "!.cache",
-          "!.cache/**"
+          "!.cache/**",
+          "!**/*.bak*"
         ]
       },
       {
         "from": "resources/nuwax-mcp-stdio-proxy",
         "to": "nuwax-mcp-stdio-proxy",
         "filter": [
-          "**/*"
+          "**/*",
+          "!**/*.bak*"
         ]
       },
       {
@@ -251,7 +257,8 @@
         "filter": [
           "**/*.mjs",
           "dist/**",
-          ".bundle-version"
+          ".bundle-version",
+          "!**/*.bak*"
         ]
       },
       {
@@ -260,21 +267,24 @@
         "filter": [
           "**/*.mjs",
           "dist/**",
-          ".bundle-version"
+          ".bundle-version",
+          "!**/*.bak*"
         ]
       },
       {
         "from": "resources/sandbox-runtime",
         "to": "sandbox-runtime",
         "filter": [
-          "**/*"
+          "**/*",
+          "!**/*.bak*"
         ]
       },
       {
         "from": "resources/agent-gui-server",
         "to": "agent-gui-server",
         "filter": [
-          "**/*"
+          "**/*",
+          "!**/*.bak*"
         ]
       },
       {
@@ -283,21 +293,24 @@
         "filter": [
           "**/*",
           "!*.cache",
-          "!.cache/**"
+          "!.cache/**",
+          "!**/*.bak*"
         ]
       },
       {
         "from": "resources/nuwax-file-server",
         "to": "nuwax-file-server",
         "filter": [
-          "**/*"
+          "**/*",
+          "!**/*.bak*"
         ]
       },
       {
         "from": "resources/claude-code-acp-ts",
         "to": "claude-code-acp-ts",
         "filter": [
-          "**/*"
+          "**/*",
+          "!**/*.bak*"
         ]
       },
       {
@@ -306,7 +319,8 @@
         "filter": [
           "**/*",
           "!*.cache",
-          "!.cache/**"
+          "!.cache/**",
+          "!**/*.bak*"
         ]
       }
     ],
@@ -382,21 +396,24 @@
           "from": "resources/git",
           "to": "git",
           "filter": [
-            "**/*"
+            "**/*",
+            "!**/*.bak*"
           ]
         },
         {
           "from": "resources/windows-mcp",
           "to": "windows-mcp",
           "filter": [
-            "**/*"
+            "**/*",
+            "!**/*.bak*"
           ]
         },
         {
           "from": "resources/sandbox-helper",
           "to": "sandbox-helper",
           "filter": [
-            "**/*.exe"
+            "**/*.exe",
+            "!**/*.bak*"
           ]
         }
       ]
