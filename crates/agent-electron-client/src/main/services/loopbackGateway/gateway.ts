@@ -156,15 +156,32 @@ function proxyRequest(
     },
   );
   upstream.on("error", (err) => {
-    if (!res.headersSent) {
-      res.writeHead(502, { "content-type": "application/json; charset=utf-8" });
-    }
-    res.end(
-      JSON.stringify({
-        error: "bad gateway",
-        detail: String(err?.message ?? err),
-      }),
+    const detail =
+      `${(err as NodeJS.ErrnoException)?.code ?? ""} ${err?.message ?? ""}`.trim();
+    log.warn(
+      `[LoopbackGateway] upstream unreachable: ${target.origin} ${detail}`,
     );
+    if (res.headersSent) {
+      res.end();
+      return;
+    }
+    // 页面请求回可读引导页（裸 JSON 对用户不可读）；API/非 HTML 请求保持 JSON。
+    const wantsHtml = String(req.headers.accept ?? "").includes("text/html");
+    if (wantsHtml) {
+      res.writeHead(502, { "content-type": "text/html; charset=utf-8" });
+      res.end(
+        `<!DOCTYPE html><html lang="zh-CN"><head><meta charset="utf-8"><title>目标不可达</title></head>` +
+          `<body style="font-family:-apple-system,'PingFang SC',sans-serif;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;background:#f5f5f5">` +
+          `<div style="max-width:520px;padding:32px;background:#fff;border-radius:10px;box-shadow:0 4px 16px rgba(0,0,0,.08)">` +
+          `<h2 style="margin:0 0 12px;font-size:16px;color:#1f2937">nuwax 目标站点不可达</h2>` +
+          `<p style="margin:0 0 8px;font-size:13px;color:#6b7280">网关已就绪（127.0.0.1），但反代目标 <b>${target.origin}</b> 连接失败${detail ? `（${detail}）` : ""}。</p>` +
+          `<p style="margin:0;font-size:13px;color:#6b7280">开发模式请先启动 nuwax dev server（localhost:3000），或设置 <code>NUWAX_LOOPBACK_TARGET</code> 指向可用环境后重启客户端。</p>` +
+          `</div></body></html>`,
+      );
+    } else {
+      res.writeHead(502, { "content-type": "application/json; charset=utf-8" });
+      res.end(JSON.stringify({ error: "bad gateway", detail }));
+    }
   });
   req.pipe(upstream);
 }
