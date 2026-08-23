@@ -76,11 +76,21 @@ const NuwaxHostWebview = forwardRef<
         const step1 = (await window.electronAPI?.settings.get(
           "step1_config",
         )) as { serverHost?: string } | null;
+        // Loopback Gateway 形态（阶段一，step1_config.nuwaxLoadMode/env 开关）：
+        // enabled 时经网关 origin 同源加载（登录态/Cookie 与回环 origin 绑定，
+        // 跨域类问题从根上消失）；未启用回落 serverHost 直连（现状不变）。
+        const loopback = (await window.electronAPI?.settings.get(
+          "nuwax.loopback",
+        )) as { enabled?: boolean; origin?: string | null } | null;
         // 开发联调（vite dev）：优先加载本地 nuwax dev server(localhost:3000)；
         // 生产加载 step1_config.serverHost / DEFAULT_SERVER_HOST。
         const rawHost = import.meta.env.DEV
-          ? NUWAX_DEV_HOST
-          : step1?.serverHost || DEFAULT_SERVER_HOST;
+          ? loopback?.enabled && loopback.origin
+            ? loopback.origin
+            : NUWAX_DEV_HOST
+          : loopback?.enabled && loopback.origin
+            ? loopback.origin
+            : step1?.serverHost || DEFAULT_SERVER_HOST;
         const domain = normalizeServerHost(rawHost);
         const finalUrl = buildHomeUrl(domain);
         logger.info(
@@ -88,6 +98,7 @@ const NuwaxHostWebview = forwardRef<
           "NuwaxHostWebview",
           {
             dev: import.meta.env.DEV,
+            loopback: loopback?.enabled ? loopback.origin : null,
             step1ServerHost: step1?.serverHost ?? null,
             rawHost,
             url: finalUrl,

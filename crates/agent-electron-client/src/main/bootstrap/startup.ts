@@ -46,6 +46,20 @@ export async function runStartupTasks(): Promise<void> {
     });
   }
 
+  // Loopback Gateway（阶段一默认 direct——不启用时仅清运行时键后静默返回；
+  // step1_config.nuwaxLoadMode='gateway' 或 env NUWAX_LOOPBACK=1 启用）。
+  // best-effort：失败不阻断启动（direct 形态始终可用）。
+  {
+    const { ensureLoopbackGateway } =
+      await import("../services/loopbackGateway");
+    await ensureLoopbackGateway().then((handle) => {
+      if (handle)
+        log.info(
+          `[Init] Loopback gateway listening on ${handle.origin} (nuwax via loopback)`,
+        );
+    });
+  }
+
   // 启动 ttyd Web 终端服务（仅回环监听）。
   // serviceManager 已在 registerAllHandlers → registerProcessHandlers 中创建，
   // 通过 getServiceManager() 复用其 startTtyd（含端口清理与 binary 缺失降级）。

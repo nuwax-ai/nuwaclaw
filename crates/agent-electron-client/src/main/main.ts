@@ -669,6 +669,14 @@ app.on("before-quit", (e) => {
     try {
       await cleanupAllProcesses();
     } finally {
+      // Loopback Gateway 收尾（幂等；未启用时为 no-op）
+      try {
+        const { stopLoopbackGateway } =
+          await import("./services/loopbackGateway");
+        await stopLoopbackGateway();
+      } catch (e) {
+        log.warn("[App] Loopback gateway stop failed (ignored):", e);
+      }
       const elapsed = Date.now() - start;
       if (elapsed > CLEANUP_TIMEOUT) {
         log.warn(

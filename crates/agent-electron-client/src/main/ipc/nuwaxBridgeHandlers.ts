@@ -37,7 +37,7 @@ import {
 } from "./processHandlers";
 
 /** nuwax ACCESS_TOKEN 存储键前缀，按来源 origin 分域，避免污染 sandbox ticket。 */
-const NUWAX_TOKEN_KEY_PREFIX = "nuwax.accessToken.";
+export const NUWAX_TOKEN_KEY_PREFIX = "nuwax.accessToken.";
 
 /** 从 IPC 调用方（webview guest）解析来源 origin 作为 token 存储作用域。 */
 function resolveSenderOrigin(event: IpcMainInvokeEvent): string {
@@ -92,7 +92,47 @@ export function registerNuwaxBridgeHandlers(ctx: HandlerContext): void {
   // ---- auth：ACCESS_TOKEN 双向同步 ----
   ipcMain.handle("auth:getToken", (event) => {
     const scope = resolveSenderOrigin(event);
-    const value = readSetting(tokenKey(scope));
+    let value = readSetting(tokenKey(scope));
+    // 跨 origin 回退链（loopback gateway 形态切换的免重登迁移）：
+    // token 按页面 origin 落键，direct↔gateway 切换后 origin 变化导致首查为空——
+    // 依次回退 serverHost origin / 网关 origin 名下的存量 token，命中即回写
+    // 当前 origin 键，双向切换都不需要重新登录。
+    if (typeof value !== "string" || !value) {
+      const candidates: string[] = [];
+      try {
+        const step1 = readSetting("step1_config") as {
+          serverHost?: string;
+        } | null;
+        if (step1?.serverHost) {
+          const raw = step1.serverHost.trim().replace(/\/+$/, "");
+          const host = /^[a-z][a-z0-9+.-]*:\/\//i.test(raw)
+            ? raw
+            : `https://${raw}`;
+          candidates.push(new URL(host).origin);
+        }
+        const loopback = readSetting("nuwax.loopback") as {
+          enabled?: boolean;
+          origin?: string | null;
+        } | null;
+        if (loopback?.enabled && loopback.origin)
+          candidates.push(loopback.origin);
+      } catch {
+        /* 配置异常时跳过回退 */
+      }
+      for (const candidate of candidates) {
+        if (candidate === scope) continue;
+        const fallback = readSetting(tokenKey(candidate));
+        if (typeof fallback === "string" && fallback) {
+          value = fallback;
+          writeSetting(tokenKey(scope), fallback);
+          log.info("[NuwaxBridge] auth:getToken origin 迁移回退命中", {
+            from: candidate,
+            to: scope,
+          });
+          break;
+        }
+      }
+    }
     const loggedIn = typeof value === "string" && !!value;
     log.debug("[NuwaxBridge] auth:getToken", { scope, hasToken: loggedIn });
 
