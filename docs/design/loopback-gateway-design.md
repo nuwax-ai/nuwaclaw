@@ -79,7 +79,7 @@ sender origin 键（空）→ serverHost origin 键 → 网关 origin 键
 | `NUWAX_LOOPBACK_TARGET` | env | 透明反代 dev=`localhost:3000`；dist 形态=`serverHost` | 反代目标 / 后端 origin 覆盖 |
 | `nuwax.loopback` | settings 运行时键 | `{enabled:false, origin:null}` | 启动后写 `{enabled:true, origin, mode:'dist'/'proxy'}`；NuwaxHostWebview 解析 URL 时读取 |
 
-**形态优先级**：dist（本地 nuwax 托管）＞ 透明反代（远程目标）＞ 本地目标直连跳过。
+**形态优先级（dev 自动判定）**：nuwax dev server（localhost:3000，原开发的调试直连便利）**在线** → webview 直连；**不在线且 dist 就绪** → dist 形态（子模块本地 nuwax，`make electron-dev` 随时可见完整客户端；TCP 探测 600ms）；远程目标 → 透明反代。`NUWAX_LOOPBACK_DIST=1` 强制 dist（跳过探测）。
 
 **dist 目录解析**：dev = 仓库根 `nuwax/dist`（子模块）；打包 = `process.resourcesPath/nuwax-dist`（electron-builder extraResources 已配）。子模块未初始化时 `ensureLoopbackGateway` 报错回落（non-fatal）。
 

@@ -11,6 +11,7 @@
 import { app, session } from "electron";
 import log from "electron-log";
 import * as fs from "fs";
+import * as net from "net";
 import * as path from "path";
 import { readSetting, writeSetting } from "../../db";
 import { DEFAULT_SERVER_HOST } from "@shared/constants";
@@ -111,9 +112,36 @@ function isLocalTarget(origin: string): boolean {
   }
 }
 
+/** TCP 可达性探测（dev：nuwax dev server 在线与否决定直连还是回落 dist）。 */
+function isOriginReachable(origin: string, timeoutMs = 600): Promise<boolean> {
+  return new Promise((resolve) => {
+    try {
+      const url = new URL(origin);
+      const sock = net.connect(
+        { port: Number(url.port) || 80, host: url.hostname },
+        () => {
+          sock.destroy();
+          resolve(true);
+        },
+      );
+      sock.setTimeout(timeoutMs, () => {
+        sock.destroy();
+        resolve(false);
+      });
+      sock.on("error", () => {
+        sock.destroy();
+        resolve(false);
+      });
+    } catch {
+      resolve(false);
+    }
+  });
+}
+
 /** 幂等启动：未启用时清运行时键并静默返回。失败仅告警，不阻断客户端启动。
- *  形态优先级：dist 模式（本地 nuwax dist 托管，DSH Desktop 形态）＞ 透明反代；
- *  透明反代遇本地 dev server 目标跳过（webview 直连，见 isLocalTarget）。 */
+ *  形态优先级（dev 语义）：nuwax dev server 在线 → webview 直连（原始 dev 体验）；
+ *  不在线且 dist 就绪 → dist 形态（子模块本地 nuwax，make electron-dev 随时可见
+ *  完整客户端）；远程目标 → 透明反代。 */
 export async function ensureLoopbackGateway(): Promise<
   LoopbackGatewayHandle | undefined
 > {
@@ -122,15 +150,32 @@ export async function ensureLoopbackGateway(): Promise<
     writeSetting(LOOPBACK_RUNTIME_KEY, { enabled: false, origin: null });
     return undefined;
   }
-  const distMode = isDistModeEnabled();
+  let distMode = isDistModeEnabled();
   const backendOrigin = resolveBackendOrigin();
-  const targetOrigin = distMode ? backendOrigin : resolveTargetOrigin();
+  let targetOrigin = distMode ? backendOrigin : resolveTargetOrigin();
   if (!distMode && isLocalTarget(targetOrigin)) {
-    log.info(
-      `[LoopbackGateway] 目标为本地 dev server（${targetOrigin}），跳过网关——webview 直连`,
-    );
-    writeSetting(LOOPBACK_RUNTIME_KEY, { enabled: false, origin: null });
-    return undefined;
+    if (await isOriginReachable(targetOrigin)) {
+      log.info(
+        `[LoopbackGateway] 目标为本地 dev server（${targetOrigin}），跳过网关——webview 直连`,
+      );
+      writeSetting(LOOPBACK_RUNTIME_KEY, { enabled: false, origin: null });
+      return undefined;
+    }
+    if (distDirAvailable()) {
+      // nuwax dev server 不在线：回落 dist 形态（显式 NUWAX_LOOPBACK_DIST 已在
+      // 上方 isDistModeEnabled 命中；此处覆盖 dev 缺省目标为 dist）。
+      distMode = true;
+      targetOrigin = backendOrigin;
+      log.info(
+        `[LoopbackGateway] 本地 dev server 不在线，回落 dist 形态（子模块本地 nuwax）`,
+      );
+    } else {
+      log.info(
+        `[LoopbackGateway] 目标为本地 dev server（${targetOrigin}）且不在线、dist 未就绪——webview 直连（等待 nuwax dev server）`,
+      );
+      writeSetting(LOOPBACK_RUNTIME_KEY, { enabled: false, origin: null });
+      return undefined;
+    }
   }
   const step1 = readSetting("step1_config") as Step1GatewayFields | null;
   // 端口校验：配置值可能与服务端口族冲突（如误填 ttyd 默认口 60009——会反把
