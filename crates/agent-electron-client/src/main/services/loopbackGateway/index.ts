@@ -65,12 +65,31 @@ function serverHostTokenProvider(): () => string | null {
   };
 }
 
+/** 本地目标判定：目标是本地 dev server 时无需网关（本地源不存在云端域绑定问题，
+ *  直连即得原始 dev 体验——HMR 等不经代理层）。 */
+function isLocalTarget(origin: string): boolean {
+  try {
+    const host = new URL(origin).hostname;
+    return host === "localhost" || host === "127.0.0.1" || host === "::1";
+  } catch {
+    return false;
+  }
+}
+
 /** 幂等启动：未启用时清运行时键并静默返回。失败仅告警，不阻断客户端启动。 */
 export async function ensureLoopbackGateway(): Promise<
   LoopbackGatewayHandle | undefined
 > {
   if (running) return running;
   if (!isLoopbackGatewayEnabled()) {
+    writeSetting(LOOPBACK_RUNTIME_KEY, { enabled: false, origin: null });
+    return undefined;
+  }
+  const targetOrigin = resolveTargetOrigin();
+  if (isLocalTarget(targetOrigin)) {
+    log.info(
+      `[LoopbackGateway] 目标为本地 dev server（${targetOrigin}），跳过网关——webview 直连`,
+    );
     writeSetting(LOOPBACK_RUNTIME_KEY, { enabled: false, origin: null });
     return undefined;
   }
@@ -99,7 +118,7 @@ export async function ensureLoopbackGateway(): Promise<
   }
   try {
     running = await startLoopbackGateway({
-      targetOrigin: resolveTargetOrigin(),
+      targetOrigin,
       fixedPort,
       getAccessToken: serverHostTokenProvider(),
     });

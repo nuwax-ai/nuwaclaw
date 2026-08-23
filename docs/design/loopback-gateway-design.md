@@ -78,7 +78,7 @@ sender origin 键（空）→ serverHost origin 键 → 网关 origin 键
 | `NUWAX_LOOPBACK_TARGET` | env | dev=`localhost:3000`；prod=`step1_config.serverHost` | 网关反代目标覆盖 |
 | `nuwax.loopback` | settings 运行时键 | `{enabled:false, origin:null}` | 网关启动后写 `{enabled:true, origin}`；NuwaxHostWebview 解析 URL 时读取，renderer 免新 IPC 面 |
 
-**dev 启动链路**：`make electron-dev` → `npm run dev` → `dotenv -e .env.development -- electron .`。`.env.development` 已含 `NUWAX_LOOPBACK=1`，故 **dev 默认走 loopback**（目标缺省 nuwax dev server `localhost:3000`；要指生产：shell 给 `NUWAX_LOOPBACK_TARGET=https://agent.nuwax.com`，dotenv 不覆盖已存在的 shell env）。
+**dev 启动链路**：`make electron-dev` → `npm run dev` → `dotenv -e .env.development -- electron .`。`.env.development` 已含 `NUWAX_LOOPBACK=1`，但**仅当目标是远程环境时网关介入**：dev 缺省目标 `localhost:3000`（nuwax dev server）本身是本地源，`ensureLoopbackGateway` 判定后自动跳过网关、webview 直连（保留原始 dev 体验，HMR 不经代理层）；要经网关加载远程环境时给 `NUWAX_LOOPBACK_TARGET=https://agent.nuwax.com`（dotenv 不覆盖已存在的 shell env）。
 
 ## 6. 端口纪律与校验
 
