@@ -178,6 +178,10 @@
     ],
     "extraResources": [
       {
+        "from": "../../nuwax/dist",
+        "to": "nuwax-dist"
+      },
+      {
         "from": "src/shared/locales",
         "to": "locales",
         "filter": [

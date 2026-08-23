@@ -1,6 +1,6 @@
 # Loopback Gateway —— nuwax 经回环网关同源加载（阶段一）
 
-> 状态：**已落地**（commit `cbd42450` + `b5a63681`）。最后更新：2026-08-24。
+> 状态：**已落地**（阶段一 `cbd42450`/`b5a63681`/`b67b5781` + 阶段二 dist 供给）。最后更新：2026-08-24。
 >
 > 来源：nuwaclaw-desktop 薄壳原型已实证方案的回流。原型仓库 `workspace/nuwax-desktop`（loopback 网关 + 编译消费 + smoke 体系）验证了「nuwax 以回环 origin 加载」的全链路可行性，本方案将其吸收回正主。
 
@@ -41,7 +41,7 @@
                                        prod=step1_config.serverHost）
 ```
 
-阶段一为**全站透明反代**（无本地路由表、不依赖本地 nuwax dist）；「我的电脑」等 `/api/computer/*` 仍走云端隧道路由（与 direct 形态一致）。本地 dist 供给（distDir）属阶段二。
+阶段一为**全站透明反代**（无本地路由表）；阶段二新增 **dist 形态**（DSH Desktop 同款，nuwax-desktop 原型回流）：网关托管仓库根 `nuwax/` 子模块（`feat/pc-client-bridge`，dist 随分支入库免构建）的本地 dist——静态托管 + SPA 深链回退 + `/api` `/computer` `/devcomputer` 前缀反代 serverHost；并注册**后端绝对 URL 归一**（`webRequest.onBeforeRequest` 将 serverHost origin 重定向回网关 origin，免 CORS、顺带享注入）。「我的电脑」等 `/api/computer/*` 仍走云端隧道路由（与 direct 形态一致）。两形态按开关自动选择（见 §5）。
 
 ## 3. 代理语义明细
 
@@ -72,11 +72,16 @@ sender origin 键（空）→ serverHost origin 键 → 网关 origin 键
 
 | 配置 | 位置 | 缺省 | 说明 |
 |------|------|------|------|
-| `nuwaxLoadMode` | `step1_config`（Step1Config 类型） | `'direct'` | `'gateway'` 启用网关形态；不配置 = 现状直连，零行为变化 |
+| `nuwaxLoadMode` | `step1_config`（Step1Config 类型） | `'direct'` | `'gateway'` 且 dist 就绪 → **dist 形态**；不配置 = 现状直连，零行为变化 |
 | `gatewayPort` | `step1_config` | `46800` | 见 §6 端口校验 |
-| `NUWAX_LOOPBACK=1` | env | — | 强制启用（开发验收 / `.env.development`） |
-| `NUWAX_LOOPBACK_TARGET` | env | dev=`localhost:3000`；prod=`step1_config.serverHost` | 网关反代目标覆盖 |
-| `nuwax.loopback` | settings 运行时键 | `{enabled:false, origin:null}` | 网关启动后写 `{enabled:true, origin}`；NuwaxHostWebview 解析 URL 时读取，renderer 免新 IPC 面 |
+| `NUWAX_LOOPBACK=1` | env | — | 透明反代形态（目标本地 dev server 时自动跳过、webview 直连） |
+| `NUWAX_LOOPBACK_DIST=1` | env | — | 强制 dist 形态（dev 验收） |
+| `NUWAX_LOOPBACK_TARGET` | env | 透明反代 dev=`localhost:3000`；dist 形态=`serverHost` | 反代目标 / 后端 origin 覆盖 |
+| `nuwax.loopback` | settings 运行时键 | `{enabled:false, origin:null}` | 启动后写 `{enabled:true, origin, mode:'dist'/'proxy'}`；NuwaxHostWebview 解析 URL 时读取 |
+
+**形态优先级**：dist（本地 nuwax 托管）＞ 透明反代（远程目标）＞ 本地目标直连跳过。
+
+**dist 目录解析**：dev = 仓库根 `nuwax/dist`（子模块）；打包 = `process.resourcesPath/nuwax-dist`（electron-builder extraResources 已配）。子模块未初始化时 `ensureLoopbackGateway` 报错回落（non-fatal）。
 
 **dev 启动链路**：`make electron-dev` → `npm run dev` → `dotenv -e .env.development -- electron .`。`.env.development` 已含 `NUWAX_LOOPBACK=1`，但**仅当目标是远程环境时网关介入**：dev 缺省目标 `localhost:3000`（nuwax dev server）本身是本地源，`ensureLoopbackGateway` 判定后自动跳过网关、webview 直连（保留原始 dev 体验，HMR 不经代理层）；要经网关加载远程环境时给 `NUWAX_LOOPBACK_TARGET=https://agent.nuwax.com`（dotenv 不覆盖已存在的 shell env）。
 
@@ -90,8 +95,8 @@ sender origin 键（空）→ serverHost origin 键 → 网关 origin 键
 
 | 文件 | 角色 |
 |------|------|
-| `src/main/services/loopbackGateway/gateway.ts` | 反代核心（纯 node:http，无 Electron 依赖，可离线测试） |
-| `src/main/services/loopbackGateway/index.ts` | 编排：开关判定 / 目标解析 / 端口校验 / `nuwax.loopback` 运行时键 / 幂等 start-stop-status |
+| `src/main/services/loopbackGateway/gateway.ts` | 反代核心 + dist 静态托管（纯 node:http/https/fs，可离线测试） |
+| `src/main/services/loopbackGateway/index.ts` | 编排：形态判定（dist/透明） / 目录与后端解析 / 端口校验 / 绝对 URL 归一注册 / `nuwax.loopback` 运行时键 / 幂等 start-stop-status |
 | `src/main/services/loopbackGateway/gateway.test.ts` | vitest 9 断言（§8） |
 | `src/main/bootstrap/startup.ts` | `runStartupTasks` 内 best-effort 启动（失败仅告警不阻断） |
 | `src/main/main.ts` | `before-quit` 收尾停网关 |
@@ -124,8 +129,8 @@ make electron-dev        # .env.development 已带 NUWAX_LOOPBACK=1
 
 ## 9. 已知边界与后续阶段
 
-- **绝对 URL 归一（观测项，1.5 候选）**：nuwax 对 fileProxyUrl 等返回**绝对**后端地址时，页面 fetch 仍会从回环 origin 直连后端域（CORS 同旧）。原型已实现 `webRequest.onBeforeRequest` 重定向归一（backendOrigin → 网关 origin），若网关形态下文件预览跨域复现，按同款增量移植。
-- **阶段二**：本地 nuwax dist 供给（distDir 静态托管，脱离对部署域的强依赖）；默认形态切 gateway（存量登录态靠 §4 回退链无感迁移）；设置中心增加形态开关 UI。
+- **绝对 URL 归一**：dist 形态已实现（`webRequest.onBeforeRequest` 将 serverHost origin 重定向回网关 origin）。第三方域（OSS 直链等）不在归一名单——img 标签不受 CORS 管，按需参照 nuwax-desktop 的 proxyOrigins 扩展。
+- **阶段二（dist 供给已落地）**：剩余项——默认形态切 gateway（存量登录态靠 §4 回退链无感迁移）；设置中心增加形态开关 UI。
 - **阶段三**：renderer 瘦身（登录页/ClientPage 退役，仅保留 TrafficLightToolbar + webview 宿主），形态对齐 nuwaclaw-desktop 薄壳。
 - nuwax-desktop 原型的 `gateway.ts` WS 级联只挂了 `close`（本方案已修为三事件）——**建议回补原型同款修复**。
 

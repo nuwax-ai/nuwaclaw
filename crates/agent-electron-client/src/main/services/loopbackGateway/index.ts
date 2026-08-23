@@ -8,8 +8,10 @@
  * origin 加载 nuwax。Bearer 注入源 = serverHost origin 名下的存量 token
  * （nuwax.accessToken.<origin>，与 nuwaxBridgeHandlers 同键空间）。
  */
-import { app } from "electron";
+import { app, session } from "electron";
 import log from "electron-log";
+import * as fs from "fs";
+import * as path from "path";
 import { readSetting, writeSetting } from "../../db";
 import { DEFAULT_SERVER_HOST } from "@shared/constants";
 import { NUWAX_TOKEN_KEY_PREFIX } from "../../ipc/nuwaxBridgeHandlers";
@@ -39,12 +41,21 @@ export function isLoopbackGatewayEnabled(): boolean {
   return step1?.nuwaxLoadMode === "gateway";
 }
 
-/** 目标 origin：dev（未打包）联调 localhost:3000（NUWAX_LOOPBACK_TARGET 可覆盖）；
- *  生产反代 step1_config.serverHost / DEFAULT_SERVER_HOST。 */
+/** 透明反代目标 origin：dev（未打包）联调 localhost:3000（NUWAX_LOOPBACK_TARGET
+ *  可覆盖）；生产反代 step1_config.serverHost / DEFAULT_SERVER_HOST。 */
 function resolveTargetOrigin(): string {
   if (!app.isPackaged) {
     return process.env.NUWAX_LOOPBACK_TARGET || DEV_TARGET;
   }
+  return resolveBackendOrigin();
+}
+
+/** 后端 origin（dist 模式的 /api 反代目标与 Bearer 源）：一律真实后端
+ *  （serverHost / DEFAULT_SERVER_HOST，NUWAX_LOOPBACK_TARGET 可覆盖）——
+ *  dev 缺省的 localhost:3000 是 nuwax dev server，不是 API 后端。 */
+function resolveBackendOrigin(): string {
+  if (process.env.NUWAX_LOOPBACK_TARGET)
+    return process.env.NUWAX_LOOPBACK_TARGET;
   const step1 = readSetting("step1_config") as Step1GatewayFields | null;
   const raw = (step1?.serverHost || DEFAULT_SERVER_HOST)
     .trim()
@@ -52,11 +63,35 @@ function resolveTargetOrigin(): string {
   return /^[a-z][a-z0-9+.-]*:\/\//i.test(raw) ? raw : `https://${raw}`;
 }
 
+/** dist 目录解析：dev = 仓库根 nuwax/dist（子模块）；打包 = resources/nuwax-dist。 */
+export function resolveNuwaxDistDir(): string {
+  if (app.isPackaged) {
+    return path.join(process.resourcesPath, "nuwax-dist");
+  }
+  // dev：app path = crates/agent-electron-client → 仓库根/nuwax/dist
+  return path.resolve(app.getAppPath(), "..", "..", "nuwax", "dist");
+}
+
+function distDirAvailable(): boolean {
+  try {
+    return fs.existsSync(path.join(resolveNuwaxDistDir(), "index.html"));
+  } catch {
+    return false;
+  }
+}
+
+/** dist 模式开关：显式 env（dev 验收）或 nuwaxLoadMode='gateway' 且 dist 就绪。 */
+function isDistModeEnabled(): boolean {
+  if (process.env.NUWAX_LOOPBACK_DIST === "1") return true;
+  const step1 = readSetting("step1_config") as Step1GatewayFields | null;
+  return step1?.nuwaxLoadMode === "gateway" && distDirAvailable();
+}
+
 /** serverHost origin 名下的 nuwax token（网关 Bearer 代注源）。 */
-function serverHostTokenProvider(): () => string | null {
+function serverHostTokenProvider(backendOrigin: string): () => string | null {
   return () => {
     try {
-      const origin = new URL(resolveTargetOrigin()).origin;
+      const origin = new URL(backendOrigin).origin;
       const value = readSetting(`${NUWAX_TOKEN_KEY_PREFIX}${origin}`);
       return typeof value === "string" && value ? value : null;
     } catch {
@@ -76,7 +111,9 @@ function isLocalTarget(origin: string): boolean {
   }
 }
 
-/** 幂等启动：未启用时清运行时键并静默返回。失败仅告警，不阻断客户端启动。 */
+/** 幂等启动：未启用时清运行时键并静默返回。失败仅告警，不阻断客户端启动。
+ *  形态优先级：dist 模式（本地 nuwax dist 托管，DSH Desktop 形态）＞ 透明反代；
+ *  透明反代遇本地 dev server 目标跳过（webview 直连，见 isLocalTarget）。 */
 export async function ensureLoopbackGateway(): Promise<
   LoopbackGatewayHandle | undefined
 > {
@@ -85,8 +122,10 @@ export async function ensureLoopbackGateway(): Promise<
     writeSetting(LOOPBACK_RUNTIME_KEY, { enabled: false, origin: null });
     return undefined;
   }
-  const targetOrigin = resolveTargetOrigin();
-  if (isLocalTarget(targetOrigin)) {
+  const distMode = isDistModeEnabled();
+  const backendOrigin = resolveBackendOrigin();
+  const targetOrigin = distMode ? backendOrigin : resolveTargetOrigin();
+  if (!distMode && isLocalTarget(targetOrigin)) {
     log.info(
       `[LoopbackGateway] 目标为本地 dev server（${targetOrigin}），跳过网关——webview 直连`,
     );
@@ -119,12 +158,17 @@ export async function ensureLoopbackGateway(): Promise<
   try {
     running = await startLoopbackGateway({
       targetOrigin,
+      distDir: distMode ? resolveNuwaxDistDir() : undefined,
       fixedPort,
-      getAccessToken: serverHostTokenProvider(),
+      getAccessToken: serverHostTokenProvider(backendOrigin),
     });
+    if (distMode) {
+      startAbsoluteUrlNormalization(running.origin, backendOrigin);
+    }
     writeSetting(LOOPBACK_RUNTIME_KEY, {
       enabled: true,
       origin: running.origin,
+      mode: running.mode,
     });
     return running;
   } catch (e) {
@@ -134,17 +178,67 @@ export async function ensureLoopbackGateway(): Promise<
   }
 }
 
+/** 绝对 URL 归一（dist 模式）：nuwax 返回的后端绝对地址（fileProxyUrl 等）在页面
+ *  fetch 时从回环 origin 直连后端域会撞 CORS——请求层重定向回网关 origin（同源，
+ *  顺带享 Bearer/x-client-type 注入）。nuwax-desktop 已实证同款方案。 */
+let normalizationActive = false;
+function startAbsoluteUrlNormalization(
+  gatewayOrigin: string,
+  backendOrigin: string,
+): void {
+  try {
+    const backend = new URL(backendOrigin);
+    session.defaultSession.webRequest.onBeforeRequest(
+      { urls: ["http://*/*", "https://*/*"] },
+      (details, callback) => {
+        const url = details.url;
+        if (url.startsWith(`${backend.origin}/`)) {
+          callback({
+            redirectURL: gatewayOrigin + url.slice(backend.origin.length),
+          });
+          return;
+        }
+        callback({});
+      },
+    );
+    normalizationActive = true;
+    log.info(
+      `[LoopbackGateway] 绝对 URL 归一 → ${gatewayOrigin}（${backend.origin}）`,
+    );
+  } catch (e) {
+    log.warn("[LoopbackGateway] 绝对 URL 归一注册失败:", e);
+  }
+}
+
+function stopAbsoluteUrlNormalization(): void {
+  if (!normalizationActive) return;
+  try {
+    session.defaultSession.webRequest.onBeforeRequest(
+      null as never,
+      null as never,
+    );
+  } catch {
+    /* 旧版签名差异时忽略（退出路径） */
+  }
+  normalizationActive = false;
+}
+
 export async function stopLoopbackGateway(): Promise<void> {
   if (!running) return;
   const handle = running;
   running = undefined;
+  stopAbsoluteUrlNormalization();
   await handle.close();
   writeSetting(LOOPBACK_RUNTIME_KEY, { enabled: false, origin: null });
   log.info("[LoopbackGateway] stopped");
 }
 
-export function loopbackGatewayStatus(): { running: boolean; origin?: string } {
+export function loopbackGatewayStatus(): {
+  running: boolean;
+  origin?: string;
+  mode?: "dist" | "proxy";
+} {
   return running
-    ? { running: true, origin: running.origin }
+    ? { running: true, origin: running.origin, mode: running.mode }
     : { running: false };
 }

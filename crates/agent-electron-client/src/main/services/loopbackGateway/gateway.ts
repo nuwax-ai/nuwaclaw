@@ -21,6 +21,9 @@
  */
 import http from "node:http";
 import https from "node:https";
+import * as fs from "node:fs";
+import * as fsp from "node:fs/promises";
+import * as nodePath from "node:path";
 import log from "electron-log";
 
 /** 逐跳头：转发时剥掉，由本层连接语义自行决定。 */
@@ -36,8 +39,14 @@ const HOP_BY_HOP = new Set([
 ]);
 
 export interface LoopbackGatewayOptions {
-  /** 反代目标 origin（如 https://agent.nuwax.com；dev 联调为 http://localhost:3000）。 */
+  /** 远程透明反代目标 origin（如 https://agent.nuwax.com；dev 联调 localhost:3000）。
+   *  dist 模式下作为后端反代目标（/api 等前缀命中时）。 */
   targetOrigin: string;
+  /** 本地 dist 托管目录（DSH Desktop 形态）：提供时进入 dist 模式——
+   *  静态托管 + SPA 回退 + backendPrefixes 反代 targetOrigin。 */
+  distDir?: string;
+  /** dist 模式下反代到 targetOrigin 的路径前缀（缺省 /api /computer /devcomputer）。 */
+  backendPrefixes?: string[];
   /** 固定端口（origin 稳定的关键）；缺省 46800。占用时回退随机端口。 */
   fixedPort?: number;
   /** 登录态出站注入源：页面带不了 Authorization 的请求（iframe 导航 / raw fetch）
@@ -50,6 +59,8 @@ export interface LoopbackGatewayOptions {
 export interface LoopbackGatewayHandle {
   port: number;
   origin: string;
+  /** 实际形态：'dist'（本地 dist 托管）| 'proxy'（远程透明反代）。 */
+  mode: "dist" | "proxy";
   close(): Promise<void>;
 }
 
@@ -264,7 +275,90 @@ function proxyUpgrade(
   upstream.end(head);
 }
 
-/** 起网关：全站透明反代（无本地路由表——阶段一目标 origin 即 nuwax 站点本体）。 */
+/* ---------------- dist 模式静态托管（移植自 nuwax-desktop 已实证实现） ---------------- */
+
+const MIME: Record<string, string> = {
+  ".html": "text/html; charset=utf-8",
+  ".js": "text/javascript; charset=utf-8",
+  ".mjs": "text/javascript; charset=utf-8",
+  ".css": "text/css; charset=utf-8",
+  ".json": "application/json; charset=utf-8",
+  ".svg": "image/svg+xml",
+  ".png": "image/png",
+  ".jpg": "image/jpeg",
+  ".jpeg": "image/jpeg",
+  ".gif": "image/gif",
+  ".webp": "image/webp",
+  ".ico": "image/x-icon",
+  ".woff": "font/woff",
+  ".woff2": "font/woff2",
+  ".ttf": "font/ttf",
+  ".map": "application/json; charset=utf-8",
+  ".txt": "text/plain; charset=utf-8",
+  ".wasm": "application/wasm",
+};
+
+function mimeOf(file: string): string {
+  return (
+    MIME[nodePath.extname(file).toLowerCase()] ?? "application/octet-stream"
+  );
+}
+
+/** 带 hash 的静态资源可长缓存；index.html 永不缓存（发版即生效）。 */
+function cacheControlOf(urlPath: string): string {
+  if (urlPath.endsWith("/index.html") || urlPath === "/") return "no-cache";
+  return /-[0-9a-f]{8,}\.(js|css|woff2?|png|jpg|jpeg|gif|webp|svg)$/i.test(
+    urlPath,
+  ) || /\.[0-9a-f]{8,}\./i.test(urlPath)
+    ? "public, max-age=31536000, immutable"
+    : "no-cache";
+}
+
+/** 解码 pathname 并限制在 distDir 内，杜绝路径穿越。 */
+function safeDistPath(distDir: string, urlPath: string): string | null {
+  let decoded: string;
+  try {
+    decoded = decodeURIComponent(urlPath.split("?")[0].split("#")[0]);
+  } catch {
+    return null;
+  }
+  const resolved = nodePath.resolve(
+    distDir,
+    `.${nodePath.posix.normalize(`/${decoded}`)}`,
+  );
+  if (resolved !== distDir && !resolved.startsWith(distDir + nodePath.sep))
+    return null;
+  return resolved;
+}
+
+function sendFile(
+  res: http.ServerResponse,
+  file: string,
+  urlPath: string,
+  head: boolean,
+): void {
+  fs.readFile(file, (err, data) => {
+    if (err) {
+      res.writeHead(404, { "content-type": "text/plain; charset=utf-8" });
+      res.end("not found");
+      return;
+    }
+    res.writeHead(200, {
+      "content-type": mimeOf(file),
+      "cache-control": cacheControlOf(urlPath),
+    });
+    res.end(head ? undefined : data);
+  });
+}
+
+/** 末段无扩展名视为路由深链（/home/chat/1/2、/Login 等），回退 index.html。 */
+function isSpaFallbackCandidate(urlPath: string): boolean {
+  const clean = urlPath.split("?")[0].split("#")[0];
+  const last = clean.split("/").pop() ?? "";
+  return !last.includes(".");
+}
+
+/** 起网关：dist 模式（本地静态托管 + 后端前缀反代）或全站透明反代。 */
 export async function startLoopbackGateway(
   opts: LoopbackGatewayOptions,
 ): Promise<LoopbackGatewayHandle> {
@@ -273,9 +367,63 @@ export async function startLoopbackGateway(
     getAccessToken: opts.getAccessToken,
     clientTypeHeader: opts.clientTypeHeader ?? "nuwaclaw",
   };
+  const DEFAULT_BACKEND_PREFIXES = ["/api", "/computer", "/devcomputer"];
+  const distDir = opts.distDir ? nodePath.resolve(opts.distDir) : undefined;
+  const backendPrefixes = opts.backendPrefixes ?? DEFAULT_BACKEND_PREFIXES;
+  if (distDir) {
+    await fsp
+      .access(nodePath.join(distDir, "index.html"))
+      .then(undefined, () => {
+        throw new Error(
+          `LoopbackGateway: dist 目录缺少 index.html：${distDir}（子模块未初始化或未带 dist，先 git submodule update --init）`,
+        );
+      });
+  }
 
   return await new Promise((resolve) => {
     const server = http.createServer((req, res) => {
+      const urlPath = req.url ?? "/";
+      if (distDir) {
+        // dist 模式：后端前缀（/api /computer /devcomputer …）反代云端，其余静态托管。
+        const hitBackend = backendPrefixes.some(
+          (p) =>
+            urlPath === p ||
+            urlPath.startsWith(`${p}/`) ||
+            urlPath.startsWith(`${p}?`),
+        );
+        if (!hitBackend) {
+          const file = safeDistPath(distDir, urlPath);
+          if (file) {
+            fs.stat(file, (err, stat) => {
+              if (!err && stat.isFile()) {
+                sendFile(res, file, urlPath, req.method === "HEAD");
+                return;
+              }
+              // 静态未命中：SPA 深链回 index.html，其余 404。
+              if (
+                (req.method === "GET" || req.method === "HEAD") &&
+                isSpaFallbackCandidate(urlPath)
+              ) {
+                sendFile(
+                  res,
+                  nodePath.join(distDir, "index.html"),
+                  "/index.html",
+                  req.method === "HEAD",
+                );
+              } else {
+                res.writeHead(404, {
+                  "content-type": "text/plain; charset=utf-8",
+                });
+                res.end("not found");
+              }
+            });
+            return;
+          }
+          res.writeHead(404, { "content-type": "text/plain; charset=utf-8" });
+          res.end("not found");
+          return;
+        }
+      }
       proxyRequest(req, res, target, ctx);
     });
     server.on("upgrade", (req, socket, head) => {
@@ -293,10 +441,13 @@ export async function startLoopbackGateway(
             `[LoopbackGateway] 固定端口 ${fixedPort} 被占用，回退随机端口 ${actual}——本次会话登录态不与既往续接`,
           );
         }
-        log.info(`[LoopbackGateway] listening ${origin} → ${target.origin}`);
+        log.info(
+          `[LoopbackGateway] listening ${origin} mode=${distDir ? "dist" : "proxy"}${distDir ? ` dist=${distDir}` : ""} → ${target.origin}`,
+        );
         resolve({
           port: actual,
           origin,
+          mode: distDir ? "dist" : "proxy",
           close: () =>
             new Promise<void>((done) => {
               server.close(() => done());

@@ -14,6 +14,9 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
 import http from "node:http";
 import net from "node:net";
+import * as fs from "node:fs";
+import * as os from "node:os";
+import * as path from "node:path";
 
 vi.mock("electron-log", () => ({
   default: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
@@ -300,5 +303,51 @@ describe("loopback gateway（透明反代）", () => {
     gateways.push(gw2);
     expect(gw2.port).not.toBe(gw1.port);
     expect(gw2.port).toBeGreaterThan(0);
+  });
+
+  it("dist 模式：本地静态托管 + SPA 回退 + 后端前缀反代", async () => {
+    const up = await startUpstream((req, res, cap) => {
+      cap.apiPath = req.url;
+      cap.auth = req.headers.authorization;
+      res.writeHead(200, { "content-type": "application/json" });
+      res.end('{"code":0}');
+    });
+    const distDir = fs.mkdtempSync(path.join(os.tmpdir(), "gw-dist-"));
+    fs.writeFileSync(path.join(distDir, "index.html"), "<html>HOME</html>");
+    fs.mkdirSync(path.join(distDir, "static"));
+    fs.writeFileSync(
+      path.join(distDir, "static", "a.880437de.js"),
+      "console.log(1)",
+    );
+    const gw = await startLoopbackGateway({
+      targetOrigin: up.origin,
+      distDir,
+      getAccessToken: () => "TK",
+      clientTypeHeader: "nuwaclaw",
+    });
+    gateways.push(gw);
+    expect(gw.mode).toBe("dist");
+    // 静态：首页 no-cache；带 hash 资源长缓存
+    const home = await fetch(`${gw.origin}/`);
+    expect(await home.text()).toContain("HOME");
+    expect(home.headers.get("cache-control")).toBe("no-cache");
+    const asset = await fetch(`${gw.origin}/static/a.880437de.js`);
+    expect(asset.headers.get("cache-control")).toContain("immutable");
+    // SPA 深链回 index.html；带扩展名未命中 404
+    const deep = await fetch(`${gw.origin}/home/chat/1/2`);
+    expect(await deep.text()).toContain("HOME");
+    const missing = await fetch(`${gw.origin}/nope.xyz`);
+    expect(missing.status).toBe(404);
+    // 后端前缀反代：/api 与 /computer 走上游并注入 Bearer
+    const api = await fetch(`${gw.origin}/api/user/info`);
+    expect(await api.json()).toEqual({ code: 0 });
+    expect(up.captured.apiPath).toBe("/api/user/info");
+    expect(up.captured.auth).toBe("Bearer TK");
+    await fetch(`${gw.origin}/computer/terminal/x/ws`);
+    expect(up.captured.apiPath).toBe("/computer/terminal/x/ws");
+    // 路径穿越拒绝
+    const escape = await fetch(`${gw.origin}/..%2f..%2fetc%2fpasswd`);
+    expect([403, 404]).toContain(escape.status);
+    fs.rmSync(distDir, { recursive: true, force: true });
   });
 });
