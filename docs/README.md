@@ -26,6 +26,7 @@
 | `ADMIN-SERVER-API.md` | Admin Server API（集成在 Computer Server 60006） | 2026-04-07 |
 | `HARNESS-BUSINESS.md` | Harness 业务场景方案 v3.0 | 2026-03-23 |
 | `HARNESS-UPGRADE.md` | Harness 方案升级计划 v2.0 | 2026-03-23 |
+| `loopback-gateway-design.md` | Loopback Gateway：nuwax 经回环网关同源加载（阶段一已落地；**代理语义/配置面/登录态迁移/端口纪律的唯一权威来源**） | 2026-08-24 |
 
 ## requirements/
 
