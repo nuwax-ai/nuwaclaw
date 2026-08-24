@@ -206,6 +206,12 @@ function App() {
   // 初始化向导状态
   // ============================================
   const [isSetupComplete, setIsSetupComplete] = useState<boolean | null>(null);
+  // 启动服务门禁：null=等待中（大 loading）；ok:false=失败屏（可重试）；ok:true 才挂 webview
+  const [servicesGate, setServicesGate] = useState<{
+    ok: boolean;
+    detail?: string[];
+    elapsedMs?: number;
+  } | null>(null);
   const setupJustCompleted = useRef(false);
   // 内存变量：标记服务是否由登录流程启动（不持久化）
   const loginStartedRef = useRef(false);
@@ -248,6 +254,27 @@ function App() {
         "nuwax:theme-changed",
         onNuwaxThemeChanged as any,
       );
+    };
+  }, []);
+
+  // 启动服务门禁：核心服务 ready 前停在启动 loading（不挂 webview，杜绝页面
+  // 首屏 API 抢跑的「服务连接失败」弹窗）。先读缓存（事件可能早于 renderer
+  // 挂载已发），再监听后续推送；失败屏的重试经 waitForReady 重跑门禁。
+  useEffect(() => {
+    void window.electronAPI?.services
+      ?.readyState()
+      .then((s) => {
+        if (s) setServicesGate(s as { ok: boolean; detail?: string[] });
+      })
+      .catch(() => {});
+    const onServicesReady = (payload: unknown) => {
+      if (payload && typeof payload === "object" && "ok" in payload) {
+        setServicesGate(payload as { ok: boolean; detail?: string[] });
+      }
+    };
+    window.electronAPI?.on("services:ready", onServicesReady as any);
+    return () => {
+      window.electronAPI?.off("services:ready", onServicesReady as any);
     };
   }, []);
 
@@ -1420,6 +1447,53 @@ function App() {
               await restartAllServices();
             }}
           />
+        </ConfigProvider>
+      </I18nContext.Provider>
+    );
+  }
+
+  // ============================================
+  // 渲染：启动服务门禁——核心服务 ready 前不挂 nuwax webview
+  // ============================================
+  if (!servicesGate || !servicesGate.ok) {
+    return (
+      <I18nContext.Provider value={i18nContextValue}>
+        <ConfigProvider theme={currentTheme}>
+          <div className="app-loading">
+            {servicesGate && !servicesGate.ok ? (
+              <>
+                <div
+                  className="app-loading-text"
+                  style={{ fontSize: 16, fontWeight: 600 }}
+                >
+                  本地服务启动失败
+                </div>
+                <div
+                  className="app-loading-text"
+                  style={{ maxWidth: 420, textAlign: "center", marginTop: 8 }}
+                >
+                  未就绪：{(servicesGate.detail ?? []).join("、")}
+                </div>
+                <Button
+                  type="primary"
+                  style={{ marginTop: 16 }}
+                  onClick={() => {
+                    setServicesGate(null);
+                    void window.electronAPI?.services?.waitForReady();
+                  }}
+                >
+                  重试
+                </Button>
+              </>
+            ) : (
+              <>
+                <Spin size="large" />
+                <div className="app-loading-text" style={{ marginTop: 4 }}>
+                  正在启动本地服务…
+                </div>
+              </>
+            )}
+          </div>
         </ConfigProvider>
       </I18nContext.Provider>
     );

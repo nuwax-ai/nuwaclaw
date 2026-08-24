@@ -597,6 +597,27 @@ app.whenReady().then(async () => {
   initWebviewPolicy(() => mainWindow);
 
   createWindow();
+  // 启动服务门禁：核心服务 ready 前壳层停在 loading（renderer 监听 services:ready）。
+  {
+    let gateResult: unknown = null;
+    const sendGate = (r: unknown): void => {
+      mainWindow?.webContents.send("services:ready", r);
+    };
+    const runGate = (): void => {
+      void (async () => {
+        const { runServicesGate } = await import("./services/servicesGate");
+        const r = await runServicesGate();
+        gateResult = r;
+        sendGate(r);
+      })();
+    };
+    ipcMain.handle("services:readyState", () => gateResult);
+    ipcMain.handle("services:waitForReady", () => {
+      runGate();
+      return null;
+    });
+    runGate();
+  }
   // 诊断探针（NUWAX_AVOID_PROBE=1）：guest 的避让判定输入真值（桥/platform/菜单 paddingTop）
   if (process.env.NUWAX_AVOID_PROBE === "1") {
     const probe = (): void => {
@@ -609,11 +630,14 @@ app.whenReady().then(async () => {
               bridge: typeof window.NuwaClawBridge !== 'undefined',
               shellSticky: (() => { try { return sessionStorage.getItem('nuwax:shell-window'); } catch { return 'na'; } })(),
               pad36: [...document.querySelectorAll('*')].filter(el => getComputedStyle(el).paddingTop === '36px').length,
-              margin44: [...document.querySelectorAll('*')].filter(el => getComputedStyle(el).marginTop === '44px').length,
-              menuPadTop: (() => {
-                const el = document.querySelector('#mobile-menu-container');
-                return el ? getComputedStyle(el).paddingTop : 'no-menu';
-              })(),
+              themePrimary: getComputedStyle(document.documentElement).getPropertyValue('--xagi-color-primary').trim(),
+              themeBg: getComputedStyle(document.documentElement).getPropertyValue('--xagi-layout-bg-primary').trim(),
+              lsUser: !!localStorage.getItem('xagi-user-theme-config'),
+              lsUserColor: (() => { try { return JSON.parse(localStorage.getItem('xagi-user-theme-config') || '{}').selectedThemeColor ?? null; } catch { return 'parse-err'; } })(),
+              lsGlobalColor: (() => { try { return JSON.parse(localStorage.getItem('xagi-global-settings') || '{}').primaryColor ?? null; } catch { return 'parse-err'; } })(),
+              lsTenantTpl: (() => { try { return !!JSON.parse(localStorage.getItem('TENANT_CONFIG_INFO') || '{}').templateConfig; } catch { return 'parse-err'; } })(),
+              shellPrimary: getComputedStyle(document.documentElement).getPropertyValue('--color-primary').trim(),
+              shellBg: getComputedStyle(document.documentElement).getPropertyValue('--color-bg-layout').trim(),
             }))()`,
           )
           .then((r: unknown) => log.info("[AvoidProbe]", JSON.stringify(r)))

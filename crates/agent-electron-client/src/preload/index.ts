@@ -276,6 +276,10 @@ contextBridge.exposeInMainWorld("electronAPI", {
   services: {
     restartAll: () => ipcRenderer.invoke("services:restartAll"),
     stopAll: () => ipcRenderer.invoke("services:stopAll"),
+    /** 启动服务门禁：已就绪结果缓存（null=仍在等待）。 */
+    readyState: () => ipcRenderer.invoke("services:readyState"),
+    /** 手动重跑门禁（错误屏的重试按钮）。 */
+    waitForReady: () => ipcRenderer.invoke("services:waitForReady"),
   },
 
   // Tray status sync
@@ -584,6 +588,7 @@ contextBridge.exposeInMainWorld("electronAPI", {
       "nuwax:authChanged",
       "nuwax:theme-changed",
       "nuwax:layout-changed",
+      "services:ready",
     ];
     if (validChannels.includes(channel)) {
       const wrapper = (_: unknown, ...args: unknown[]) => callback(...args);
