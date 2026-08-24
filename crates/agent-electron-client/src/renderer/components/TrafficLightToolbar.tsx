@@ -147,8 +147,14 @@ const TrafficLightToolbar: React.FC<TrafficLightToolbarProps> = ({
           // Win/Linux 右上角被贴角的窗口控制三键（46×3=138px）占据，
           // 容器留出对应右内边距，防止更新入口等流内元素被其覆盖
           paddingRight: isMac ? 4 : 142,
-          // 容器事件穿透：中间大片区域不拦截鼠标，仅左右子块可交互
-          pointerEvents: "none",
+          // 整条可拖拽窗口 + 双击切换最大化：沉浸避让已让空顶带（菜单 TOP36/
+          // page-container TOP+8/详情页 TOOLBAR48），覆盖页面不再挡内容点击；
+          // 可交互子块（icon 组/更新入口）以 no-drag 豁免。
+          ...DRAG,
+          onDoubleClick: () => {
+            // window:maximize 主进程侧已实现最大化/还原切换
+            void window.electronAPI?.window?.maximize?.().catch?.(() => {});
+          },
         }}
       >
         {/* 左侧工具 icon 组 */}

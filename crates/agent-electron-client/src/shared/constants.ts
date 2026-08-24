@@ -92,6 +92,8 @@ export const DEFAULT_ANTHROPIC_API_URL = "https://api.anthropic.com";
 
 /** 默认后端服务器地址 */
 export const DEFAULT_SERVER_HOST = "https://agent.nuwax.com";
+/** 测试环境预置域（回环形态「测试环境」下拉项对应的后端）。 */
+export const TEST_SERVER_HOST = "https://testagent.xspaceagi.com";
 
 // ==================== AI 默认配置 ====================
 

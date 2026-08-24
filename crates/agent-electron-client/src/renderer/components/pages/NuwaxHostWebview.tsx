@@ -70,7 +70,18 @@ const NuwaxHostWebview = forwardRef<
       .catch(() => {});
   }, []);
 
-  // 解析 nuwax 根 URL（不依赖 nuwaclaw 登录态）
+  // 解析 nuwax 根 URL（不依赖 nuwaclaw 登录态）；配置变更（形态/后端/域名切换）
+  // 经 nuwax:loopback-changed 重解析——webview src 变更即加载新目标。
+  useEffect(() => {
+    const onLoopbackChanged = () => setUrl("");
+    window.electronAPI?.on("nuwax:loopback-changed", onLoopbackChanged as any);
+    return () => {
+      window.electronAPI?.off(
+        "nuwax:loopback-changed",
+        onLoopbackChanged as any,
+      );
+    };
+  }, []);
   useEffect(() => {
     let cancelled = false;
     (async () => {
@@ -118,7 +129,8 @@ const NuwaxHostWebview = forwardRef<
     return () => {
       cancelled = true;
     };
-  }, []);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [url === ""]);
 
   // 绑定 webview 导航事件，上报 canGoBack/canGoForward（供工具栏按钮启用态）
   useEffect(() => {

@@ -133,6 +133,11 @@ export async function restartAllServicesNow(): Promise<{
   }
   log.info("[Services] Restarting all services...");
   try {
+    // loopback 网关随配置刷新（形态/后端/域名可能已变），完成后通知 renderer
+    // 重解析 webview URL（refreshLoopbackGateway 内部处理 direct 停用场景）。
+    const { refreshLoopbackGateway } =
+      await import("../services/loopbackGateway");
+    await refreshLoopbackGateway();
     const { stopComputerServer } = await import("../services/computerServer");
     await stopComputerServer();
     await clearServicePort(

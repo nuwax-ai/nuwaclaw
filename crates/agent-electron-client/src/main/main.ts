@@ -517,11 +517,18 @@ app.whenReady().then(async () => {
   session.defaultSession.webRequest.onBeforeSendHeaders(
     { urls: ["http://*/*", "https://*/*"] },
     (details, callback) => {
-      const origin =
-        details.requestHeaders["Origin"] ||
-        details.requestHeaders["origin"] ||
-        "";
-      if (/^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?/i.test(origin)) {
+      // 跳过维度 = 请求「目标」是回环（网关/dev server）——网关对云端方向已自行
+      // 注入 x-client-type，不重复；目标为云端的请求无论发起方（webview/壳
+      // renderer）一律注入（FR-03：后端仅凭该头在登录响应返回 token）。
+      let targetLocal = false;
+      try {
+        const host = new URL(details.url).hostname;
+        targetLocal =
+          host === "localhost" || host === "127.0.0.1" || host === "::1";
+      } catch {
+        targetLocal = false;
+      }
+      if (targetLocal) {
         callback({ requestHeaders: details.requestHeaders });
         return;
       }

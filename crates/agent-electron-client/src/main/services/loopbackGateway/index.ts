@@ -318,3 +318,21 @@ export function loopbackGatewayStatus(): {
     ? { running: true, origin: running.origin, mode: running.mode }
     : { running: false };
 }
+
+/**
+ * 配置变更后的网关刷新（settings 保存/restartAll 钩子调用）：
+ * 停掉在跑实例 → 按当前配置重确保（direct 即停、gateway/dist 重起）→
+ * 通知 renderer 重解析 webview URL（形态/后端/域名可能已变）。
+ */
+export async function refreshLoopbackGateway(): Promise<void> {
+  await stopLoopbackGateway();
+  await ensureLoopbackGateway();
+  try {
+    const { BrowserWindow } = require("electron") as typeof import("electron");
+    const win = BrowserWindow.getAllWindows()[0];
+    const loopback = readSetting(LOOPBACK_RUNTIME_KEY);
+    win?.webContents.send("nuwax:loopback-changed", loopback);
+  } catch {
+    /* 窗口不存在时忽略 */
+  }
+}

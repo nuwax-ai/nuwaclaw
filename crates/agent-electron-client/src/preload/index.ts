@@ -589,6 +589,7 @@ contextBridge.exposeInMainWorld("electronAPI", {
       "nuwax:theme-changed",
       "nuwax:layout-changed",
       "nuwax:open-same-window",
+      "nuwax:loopback-changed",
       "services:ready",
     ];
     if (validChannels.includes(channel)) {

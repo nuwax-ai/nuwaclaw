@@ -33,7 +33,11 @@ import {
   ReloadOutlined,
   ExperimentOutlined,
 } from "@ant-design/icons";
-import { APP_DISPLAY_NAME, APP_DATA_DIR_NAME } from "@shared/constants";
+import {
+  APP_DISPLAY_NAME,
+  APP_DATA_DIR_NAME,
+  TEST_SERVER_HOST,
+} from "@shared/constants";
 import {
   setupService,
   Step1Config,
@@ -156,8 +160,19 @@ export default function SettingsPage() {
     setLoading(true);
     try {
       const config = await setupService.getStep1Config();
-      form.setFieldsValue(config);
-      setOriginalConfig(config);
+      // nuwax 加载形态派生字段：环境下拉按 serverHost 反推（缺省正式）
+      const enriched = {
+        ...config,
+        nuwaxLoadMode:
+          (config as Record<string, unknown>).nuwaxLoadMode ?? "direct",
+        serverEnv:
+          config.serverHost?.trim().replace(/\/+$/, "") ===
+          TEST_SERVER_HOST.replace(/\/+$/, "")
+            ? "test"
+            : "prod",
+      };
+      form.setFieldsValue(enriched);
+      setOriginalConfig(enriched);
       if (IS_DEV) {
         const agentConfig = (await window.electronAPI?.settings.get(
           "agent_config",
@@ -323,7 +338,17 @@ export default function SettingsPage() {
           setSaving(true);
           try {
             const existing = await setupService.getStep1Config();
-            await setupService.saveStep1Config({ ...existing, ...values });
+            // 回环形态：后端由环境下拉决定（正式=DEFAULT / 测试=TEST，缺省正式）；
+            // 直连形态：serverHost 用填写的域名
+            const patch = { ...values };
+            if (patch.nuwaxLoadMode === "gateway") {
+              patch.serverHost =
+                patch.serverEnv === "test"
+                  ? TEST_SERVER_HOST
+                  : DEFAULT_SERVER_HOST;
+            }
+            delete patch.serverEnv;
+            await setupService.saveStep1Config({ ...existing, ...patch });
             setOriginalConfig(values);
             setEditing(false);
             message.success(t(I18N_KEYS.Toast.SUCCESS.CONFIG_SAVED));
@@ -812,6 +837,70 @@ export default function SettingsPage() {
                       )
                     }
                   />
+                </Form.Item>
+                <Form.Item label="nuwax 加载形态（保存并重启服务后生效）">
+                  <Space
+                    direction="vertical"
+                    size={4}
+                    style={{ width: "100%" }}
+                  >
+                    <Form.Item name="nuwaxLoadMode" noStyle>
+                      <Select
+                        size="small"
+                        options={[
+                          {
+                            value: "direct",
+                            label: "直连 webview（自由填写域名）",
+                          },
+                          {
+                            value: "gateway",
+                            label: "回环网关（本地 dist + 后端反代）",
+                          },
+                        ]}
+                      />
+                    </Form.Item>
+                    <Form.Item
+                      noStyle
+                      shouldUpdate={(a, b) =>
+                        a.nuwaxLoadMode !== b.nuwaxLoadMode
+                      }
+                    >
+                      {({ getFieldValue }) =>
+                        getFieldValue("nuwaxLoadMode") === "gateway" ? (
+                          <Form.Item
+                            name="serverEnv"
+                            noStyle
+                            rules={[{ required: true, message: "选择环境" }]}
+                          >
+                            <Select
+                              size="small"
+                              options={[
+                                {
+                                  value: "prod",
+                                  label: "正式环境（agent.nuwax.com）",
+                                },
+                                {
+                                  value: "test",
+                                  label: "测试环境（testagent.xspaceagi.com）",
+                                },
+                              ]}
+                            />
+                          </Form.Item>
+                        ) : (
+                          <Form.Item
+                            name="serverHost"
+                            noStyle
+                            rules={[{ required: true, message: "填写域名" }]}
+                          >
+                            <Input
+                              size="small"
+                              placeholder="如 agent.nuwax.com（自动补 https://）"
+                            />
+                          </Form.Item>
+                        )
+                      }
+                    </Form.Item>
+                  </Space>
                 </Form.Item>
               </Form>
 
