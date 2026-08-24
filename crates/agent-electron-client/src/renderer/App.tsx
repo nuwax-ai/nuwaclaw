@@ -1840,6 +1840,7 @@ function App() {
                       {activeTab === "client" && (
                         <ClientPage
                           onNavigate={(tab) => setActiveTab(tab as TabKey)}
+                          isWebviewLoggedIn={isAuthLoggedIn}
                           services={services}
                           servicesLoading={servicesLoading}
                           startingServices={startingServices}
