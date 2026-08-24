@@ -907,6 +907,7 @@ export default function SettingsPage() {
             </div>
             <div className={styles.sectionBody}>
               <Form layout="vertical" size="small">
+                <Space direction="vertical" size={4} style={{ width: "100%" }}>
                 <div
                   style={{
                     fontSize: 12,
