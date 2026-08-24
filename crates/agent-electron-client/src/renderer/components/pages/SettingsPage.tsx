@@ -933,13 +933,6 @@ export default function SettingsPage() {
                 }
               >
                 <Form.Item
-                  name="loopbackEnabled"
-                  label="本地化加速"
-                  valuePropName="checked"
-                >
-                  <Switch size="small" />
-                </Form.Item>
-                <Form.Item
                   name="serverDomain"
                   label="域名"
                   rules={[{ required: true, message: "填写域名" }]}
@@ -952,6 +945,13 @@ export default function SettingsPage() {
                     ]}
                     placeholder="如 agent.nuwax.com"
                   />
+                </Form.Item>
+                <Form.Item
+                  name="loopbackEnabled"
+                  label="本地化加速"
+                  valuePropName="checked"
+                >
+                  <Switch size="small" />
                 </Form.Item>
               </Form>
               <div
