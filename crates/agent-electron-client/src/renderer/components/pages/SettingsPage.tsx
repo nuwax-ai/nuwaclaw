@@ -838,27 +838,6 @@ export default function SettingsPage() {
                     }
                   />
                 </Form.Item>
-                <Form.Item label="nuwax 加载形态（保存并重启服务后生效）">
-                  <Space
-                    direction="vertical"
-                    size={4}
-                    style={{ width: "100%" }}
-                  >
-                    <Form.Item name="nuwaxLoadMode" noStyle>
-                      <Select
-                        size="small"
-                        options={[
-                          {
-                            value: "direct",
-                            label: "直连 webview（自由填写域名）",
-                          },
-                          {
-                            value: "gateway",
-                            label: "回环网关（本地 dist + 后端反代）",
-                          },
-                        ]}
-                      />
-                    </Form.Item>
                     <Form.Item
                       noStyle
                       shouldUpdate={(a, b) =>
@@ -916,6 +895,51 @@ export default function SettingsPage() {
                 </div>
               )}
             </div>
+
+          <div className={styles.section}>
+            <div className={styles.servicesHeader}>
+              <div className={styles.servicesHeaderLeft}>
+                <SettingOutlined
+                  style={{ fontSize: 14, color: "var(--color-text-secondary)" }}
+                />
+                <span className={styles.sectionTitle}>nuwax 企业/个人</span>
+              </div>
+            </div>
+            <div className={styles.sectionBody}>
+              <Form layout="vertical" size="small">
+                <div
+                  style={{
+                    fontSize: 12,
+                    color: "var(--color-text-tertiary)",
+                    marginBottom: 8,
+                  }}
+                >
+                  企业版=回环网关（本地 nuwax + 后端反代，环境可选正式/测试）；
+                  个人版=直连 webview（自由填写域名）。保存并重启服务后生效。
+                </div>
+                
+  <Space
+                      direction="vertical"
+                      size={4}
+                      style={{ width: "100%" }}
+                    >
+                      <Form.Item name="nuwaxLoadMode" noStyle>
+                        <Select
+                          size="small"
+                          options={[
+                            {
+                              value: "direct",
+                              label: "直连 webview（自由填写域名）",
+                            },
+                            {
+                              value: "gateway",
+                              label: "回环网关（本地 dist + 后端反代）",
+                            },
+                          ]}
+                        />
+              </Form>
+            </div>
+          </div>
           </div>
 
           {/* 系统设置 */}
