@@ -88,13 +88,24 @@ function isDistModeEnabled(): boolean {
   return step1?.nuwaxLoadMode === "gateway" && distDirAvailable();
 }
 
-/** serverHost origin 名下的 nuwax token（网关 Bearer 代注源）。 */
+/** 网关 Bearer 代注源：跨候选键取 token（backend origin 键优先，网关 origin 键
+ *  兜底）——与 nuwaxBridgeHandlers 的 nuwaxTokenScopes 同一候选空间；persistToken
+ *  双写后两键恒新，兜底覆盖「直连时代存量 + 网关形态新登录」的过渡期。 */
 function serverHostTokenProvider(backendOrigin: string): () => string | null {
   return () => {
     try {
-      const origin = new URL(backendOrigin).origin;
-      const value = readSetting(`${NUWAX_TOKEN_KEY_PREFIX}${origin}`);
-      return typeof value === "string" && value ? value : null;
+      const candidates = [new URL(backendOrigin).origin];
+      const loopback = readSetting(LOOPBACK_RUNTIME_KEY) as {
+        enabled?: boolean;
+        origin?: string | null;
+      } | null;
+      if (loopback?.enabled && loopback.origin)
+        candidates.push(loopback.origin);
+      for (const scope of [...new Set(candidates)]) {
+        const value = readSetting(`${NUWAX_TOKEN_KEY_PREFIX}${scope}`);
+        if (typeof value === "string" && value) return value;
+      }
+      return null;
     } catch {
       return null;
     }

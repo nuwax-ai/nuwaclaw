@@ -166,6 +166,10 @@ function proxyRequest(
       res.on("close", () => upstreamRes.destroy());
     },
   );
+  // 客户端在响应到达前断开：立即中止未完成的 upstream 请求（destroy ClientRequest
+  // 安全）。原先只在响应回调里挂 res close→upstreamRes.destroy，早退时序下
+  // upstream 会继续等到自身超时——半开累积。
+  res.on("close", () => upstream.destroy());
   upstream.on("error", (err) => {
     const detail =
       `${(err as NodeJS.ErrnoException)?.code ?? ""} ${err?.message ?? ""}`.trim();
@@ -225,6 +229,11 @@ function proxyUpgrade(
     path: req.url,
     headers,
   });
+  // 客户端在 101 到达前断开（刷新终端/noVNC 页面正踩此窗口）：升级回调内部
+  // 再挂监听已错过事件——这里创建后立即挂才能覆盖早退时序。
+  const abortUpstream = () => upstream.destroy();
+  socket.on("end", abortUpstream);
+  socket.on("close", abortUpstream);
   const writeRawHead = (
     statusCode: number,
     statusMessage: string,

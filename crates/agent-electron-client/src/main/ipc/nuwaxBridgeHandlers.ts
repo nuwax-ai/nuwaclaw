@@ -53,6 +53,37 @@ function tokenKey(scope: string): string {
   return `${NUWAX_TOKEN_KEY_PREFIX}${scope}`;
 }
 
+/**
+ * 跨 origin 候选作用域统一视图（sender → serverHost origin → 网关 origin）。
+ * token 按 origin 分键存储，direct↔gateway 两形态共存期内多个键都可能被读到——
+ * getToken 回退 / persistToken 双写 / clear 全清 / 网关 Bearer 代注源必须共享
+ * 同一份候选集合，否则出现「写 A 读 B」的键空间分裂（网关形态新登录代注不注入、
+ * 登出被回退链复活过期 token）。
+ */
+export function nuwaxTokenScopes(senderScope: string): string[] {
+  const scopes = [senderScope];
+  try {
+    const step1 = readSetting("step1_config") as {
+      serverHost?: string;
+    } | null;
+    if (step1?.serverHost) {
+      const raw = step1.serverHost.trim().replace(/\/+$/, "");
+      const host = /^[a-z][a-z0-9+.-]*:\/\//i.test(raw)
+        ? raw
+        : `https://${raw}`;
+      scopes.push(new URL(host).origin);
+    }
+    const loopback = readSetting("nuwax.loopback") as {
+      enabled?: boolean;
+      origin?: string | null;
+    } | null;
+    if (loopback?.enabled && loopback.origin) scopes.push(loopback.origin);
+  } catch {
+    /* 配置异常时退化为仅 sender */
+  }
+  return [...new Set(scopes)];
+}
+
 /** 桌面独立窗口注册表：持引用防 GC，closed 时清理。 */
 const shellWindows = new Set<BrowserWindow>();
 
@@ -92,35 +123,12 @@ export function registerNuwaxBridgeHandlers(ctx: HandlerContext): void {
   // ---- auth：ACCESS_TOKEN 双向同步 ----
   ipcMain.handle("auth:getToken", (event) => {
     const scope = resolveSenderOrigin(event);
-    let value = readSetting(tokenKey(scope));
-    // 跨 origin 回退链（loopback gateway 形态切换的免重登迁移）：
-    // token 按页面 origin 落键，direct↔gateway 切换后 origin 变化导致首查为空——
-    // 依次回退 serverHost origin / 网关 origin 名下的存量 token，命中即回写
-    // 当前 origin 键，双向切换都不需要重新登录。
+    // 跨 origin 回退链（nuwaxTokenScopes 统一视图）：direct↔gateway 切换后
+    // sender 键为空时依次回退其余候选键，命中即回写——双向切换免重登。
+    const scopes = nuwaxTokenScopes(scope);
+    let value = readSetting(tokenKey(scopes[0]));
     if (typeof value !== "string" || !value) {
-      const candidates: string[] = [];
-      try {
-        const step1 = readSetting("step1_config") as {
-          serverHost?: string;
-        } | null;
-        if (step1?.serverHost) {
-          const raw = step1.serverHost.trim().replace(/\/+$/, "");
-          const host = /^[a-z][a-z0-9+.-]*:\/\//i.test(raw)
-            ? raw
-            : `https://${raw}`;
-          candidates.push(new URL(host).origin);
-        }
-        const loopback = readSetting("nuwax.loopback") as {
-          enabled?: boolean;
-          origin?: string | null;
-        } | null;
-        if (loopback?.enabled && loopback.origin)
-          candidates.push(loopback.origin);
-      } catch {
-        /* 配置异常时跳过回退 */
-      }
-      for (const candidate of candidates) {
-        if (candidate === scope) continue;
+      for (const candidate of scopes.slice(1)) {
         const fallback = readSetting(tokenKey(candidate));
         if (typeof fallback === "string" && fallback) {
           value = fallback;
@@ -158,8 +166,11 @@ export function registerNuwaxBridgeHandlers(ctx: HandlerContext): void {
   ipcMain.handle("auth:persistToken", (event, token: unknown) => {
     const scope = resolveSenderOrigin(event);
     if (typeof token !== "string" || !token) return false;
-    writeSetting(tokenKey(scope), token);
-    log.info("[NuwaxBridge] auth:persistToken saved", { scope });
+    // 双写全部候选键（sender + serverHost + 网关）：网关 Bearer 代注源读
+    // serverHost/网关键，单写 sender 会让代注拿到空/陈旧 token（键空间分裂修复）。
+    const scopes = nuwaxTokenScopes(scope);
+    for (const s of scopes) writeSetting(tokenKey(s), token);
+    log.info("[NuwaxBridge] auth:persistToken saved", { scopes });
 
     // 登录成功联动：best-effort 启动本地服务。仅在「当前无核心服务运行」时触发，
     // 避免已登录态下（如 token 刷新）重复 restart 打断在跑的会话。
@@ -184,8 +195,11 @@ export function registerNuwaxBridgeHandlers(ctx: HandlerContext): void {
 
   ipcMain.handle("auth:clear", async (event) => {
     const scope = resolveSenderOrigin(event);
-    writeSetting(tokenKey(scope), null);
-    log.info("[NuwaxBridge] auth:clear", { scope });
+    // 全清候选键：单清 sender 键时，getToken 回退链会从 serverHost/网关键把
+    // 过期 token「复活」——登出/401 后陷入 复活→401→clear 死循环（键空间分裂修复）。
+    const scopes = nuwaxTokenScopes(scope);
+    for (const s of scopes) writeSetting(tokenKey(s), null);
+    log.info("[NuwaxBridge] auth:clear", { scopes });
 
     // 登出 / token 失效（401）联动：停止全部本地服务。
     // 用户定：登出与失效都停服务。await 以确保重定向回 /Login 前服务确停；

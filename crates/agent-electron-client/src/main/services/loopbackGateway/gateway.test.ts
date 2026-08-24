@@ -350,4 +350,44 @@ describe("loopback gateway（透明反代）", () => {
     expect([403, 404]).toContain(escape.status);
     fs.rmSync(distDir, { recursive: true, force: true });
   });
+
+  it("WS 早退级联：客户端在 101 到达前断开，upstream 请求立即中止", async () => {
+    // 上游刻意延迟 101（拉开早退窗口）；客户端发出握手后立刻 destroy——
+    // 若 abort 监听晚挂（在 upgrade 回调内），此窗口的断开事件永久丢失。
+    let upstreamSocketClosed = false;
+    const up = await startUpstream(() => undefined);
+    up.server.on("upgrade", (_req, socket) => {
+      socket.on("close", () => {
+        upstreamSocketClosed = true;
+      });
+      socket.on("end", () => {
+        upstreamSocketClosed = true;
+      });
+      setTimeout(() => {
+        try {
+          socket.write(
+            "HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: x\r\n\r\n",
+          );
+        } catch {
+          /* 已被级联销毁 */
+        }
+      }, 120);
+    });
+    const gw = await startLoopbackGateway({
+      targetOrigin: up.origin,
+      getAccessToken: () => null,
+      clientTypeHeader: "",
+    });
+    gateways.push(gw);
+    // 裸 socket 发出握手，30ms 后 destroy（确保握手已转发、上游已建连，
+    // 但仍早于上游 120ms 延迟的 101——早退窗口内）
+    const sock = net.connect(gw.port, "127.0.0.1");
+    sock.write(
+      `GET /ws-early-exit HTTP/1.1\r\nHost: 127.0.0.1:${gw.port}\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Key: k\r\nSec-WebSocket-Version: 13\r\n\r\n`,
+    );
+    await new Promise((r) => setTimeout(r, 30));
+    sock.destroy();
+    await new Promise((r) => setTimeout(r, 500));
+    expect(upstreamSocketClosed).toBe(true);
+  });
 });
