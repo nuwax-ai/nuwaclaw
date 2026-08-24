@@ -6,6 +6,7 @@ import {
   ipcMain,
   nativeImage,
   session,
+  webContents,
 } from "electron";
 import * as path from "path";
 import * as fs from "fs";
@@ -596,6 +597,32 @@ app.whenReady().then(async () => {
   initWebviewPolicy(() => mainWindow);
 
   createWindow();
+  // 诊断探针（NUWAX_AVOID_PROBE=1）：guest 的避让判定输入真值（桥/platform/菜单 paddingTop）
+  if (process.env.NUWAX_AVOID_PROBE === "1") {
+    const probe = (): void => {
+      for (const wc of webContents.getAllWebContents()) {
+        if (!wc.getURL().startsWith("http://")) continue;
+        void wc
+          .executeJavaScript(
+            `(() => ({
+              url: location.href.slice(0, 80),
+              bridge: typeof window.NuwaClawBridge !== 'undefined',
+              shellSticky: (() => { try { return sessionStorage.getItem('nuwax:shell-window'); } catch { return 'na'; } })(),
+              pad36: [...document.querySelectorAll('*')].filter(el => getComputedStyle(el).paddingTop === '36px').length,
+              margin44: [...document.querySelectorAll('*')].filter(el => getComputedStyle(el).marginTop === '44px').length,
+              menuPadTop: (() => {
+                const el = document.querySelector('#mobile-menu-container');
+                return el ? getComputedStyle(el).paddingTop : 'no-menu';
+              })(),
+            }))()`,
+          )
+          .then((r: unknown) => log.info("[AvoidProbe]", JSON.stringify(r)))
+          .catch(() => {});
+      }
+    };
+    setTimeout(probe, 15000);
+    setTimeout(probe, 40000);
+  }
   if (pendingSecondInstanceFocus && mainWindow) {
     pendingSecondInstanceFocus = false;
     mainWindow.show();
