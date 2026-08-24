@@ -913,14 +913,14 @@ export default function SettingsPage() {
               <Form form={nuwaxForm} layout="vertical" size="small">
                 <Form.Item
                   name="loopbackEnabled"
-                  label="本地化加速（开=本地 nuwax + loopback 网关；关=直连远端）"
+                  label="本地化加速"
                   valuePropName="checked"
                 >
                   <Switch size="small" />
                 </Form.Item>
                 <Form.Item
                   name="serverDomain"
-                  label="域名（即登录 domain；建议 agent.nuwax.com / testagent.xspaceagi.com，可自由填写）"
+                  label="域名"
                   rules={[{ required: true, message: "填写域名" }]}
                 >
                   <AutoComplete
@@ -929,7 +929,7 @@ export default function SettingsPage() {
                       { value: "agent.nuwax.com" },
                       { value: "testagent.xspaceagi.com" },
                     ]}
-                    placeholder="如 agent.nuwax.com（自动补 https://）"
+                    placeholder="如 agent.nuwax.com"
                   />
                 </Form.Item>
               </Form>
@@ -940,8 +940,7 @@ export default function SettingsPage() {
                   color: "var(--color-text-tertiary)",
                 }}
               >
-                域名与登录时的 domain 同源（serverHost）：加速开启时作为后端反代
-                目标，关闭时 webview 直连该域名。保存后自动重启服务生效。
+                开启后页面本地加载更快。修改后保存即生效。
               </div>
             </div>
           </div>
