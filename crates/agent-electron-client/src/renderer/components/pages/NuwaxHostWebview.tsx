@@ -70,6 +70,20 @@ const NuwaxHostWebview = forwardRef<
       .catch(() => {});
   }, []);
 
+  // 调试：F12 / Cmd+Opt+I 打开 webview 页面的 DevTools（样式排查主入口）
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (
+        e.key === "F12" ||
+        (e.metaKey && e.altKey && e.key.toLowerCase() === "i")
+      ) {
+        (webviewRef.current as any)?.openDevTools?.();
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
+
   // 解析 nuwax 根 URL（不依赖 nuwaclaw 登录态）；配置变更（形态/后端/域名切换）
   // 经 nuwax:loopback-changed 重解析——webview src 变更即加载新目标。
   useEffect(() => {
