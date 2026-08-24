@@ -8,7 +8,7 @@
  * origin 加载 nuwax。Bearer 注入源 = serverHost origin 名下的存量 token
  * （nuwax.accessToken.<origin>，与 nuwaxBridgeHandlers 同键空间）。
  */
-import { app, session } from "electron";
+import { app, session, webContents } from "electron";
 import log from "electron-log";
 import * as fs from "fs";
 import * as net from "net";
@@ -248,7 +248,27 @@ function startAbsoluteUrlNormalization(
       { urls: ["http://*/*", "https://*/*"] },
       (details, callback) => {
         const url = details.url;
-        if (url.startsWith(`${backend.origin}/`)) {
+        if (!url.startsWith(`${backend.origin}/`)) {
+          callback({});
+          return;
+        }
+        // 仅 webview guest（发起页 origin = 网关 origin）的绝对 URL 归一。
+        // 壳 renderer（vite origin）直连后端的 API 不归一——壳 API 域名与后端
+        // 同域时全量误伤：重定向进网关后后端回 ACAO=后端域 ≠ 壳 origin，
+        // preflight 直接被 CORS 拦死（i18n/sandbox reg 等全挂）。
+        let fromGuest = false;
+        try {
+          const wc = details.webContentsId
+            ? webContents.fromId(details.webContentsId)
+            : null;
+          fromGuest =
+            !!wc &&
+            typeof wc.getURL() === "string" &&
+            wc.getURL().startsWith(gatewayOrigin);
+        } catch {
+          /* webContents 可能已销毁——按非 guest 放行 */
+        }
+        if (fromGuest) {
           callback({
             redirectURL: gatewayOrigin + url.slice(backend.origin.length),
           });
