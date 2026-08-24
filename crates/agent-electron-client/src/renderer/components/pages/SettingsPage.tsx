@@ -7,7 +7,7 @@
  * - 系统设置（主题、开机自启动、日志目录）
  */
 
-import React, { useState, useEffect, useCallback, Suspense } from "react";
+import React, { useState, useEffect, useCallback, Suspense, useRef } from "react";
 import {
   Button,
   Form,
@@ -159,6 +159,8 @@ export default function SettingsPage() {
   // ========== 加载服务配置 ==========
   const [nuwaxForm] = Form.useForm();
   const [savingNuwaxLoad, setSavingNuwaxLoad] = useState(false);
+  const [nuwaxDirty, setNuwaxDirty] = useState(false);
+  const nuwaxOriginalRef = useRef<Record<string, unknown> | null>(null);
 
   // 本地化加速独立保存：开关映射 nuwaxLoadMode、域名归一 serverHost → 重启生效
   const handleSaveNuwaxLoad = async () => {
@@ -177,6 +179,7 @@ export default function SettingsPage() {
       };
       await setupService.saveStep1Config({ ...existing, ...patch });
       await window.electronAPI?.services?.restartAll?.();
+      setNuwaxDirty(false);
       message.success(t(I18N_KEYS.Toast.SUCCESS.CONFIG_SAVED));
     } catch {
       /* 校验失败/保存异常静默（校验提示由 Form 呈现） */
@@ -203,6 +206,11 @@ export default function SettingsPage() {
       };
       form.setFieldsValue(enriched);
       nuwaxForm.setFieldsValue(enriched);
+      nuwaxOriginalRef.current = {
+        loopbackEnabled: enriched.loopbackEnabled,
+        serverDomain: enriched.serverDomain,
+      };
+      setNuwaxDirty(false);
       setOriginalConfig(enriched);
       if (IS_DEV) {
         const agentConfig = (await window.electronAPI?.settings.get(
@@ -903,6 +911,7 @@ export default function SettingsPage() {
                   type="primary"
                   icon={<SaveOutlined />}
                   loading={savingNuwaxLoad}
+                  disabled={!nuwaxDirty}
                   onClick={handleSaveNuwaxLoad}
                 >
                   {t("Claw.Settings.saveConfig.save")}
@@ -910,7 +919,19 @@ export default function SettingsPage() {
               </div>
             </div>
             <div className={styles.sectionBody}>
-              <Form form={nuwaxForm} layout="vertical" size="small">
+              <Form
+                form={nuwaxForm}
+                layout="vertical"
+                size="small"
+                onValuesChange={(_, vals) =>
+                  setNuwaxDirty(
+                    JSON.stringify({
+                      loopbackEnabled: vals.loopbackEnabled,
+                      serverDomain: vals.serverDomain,
+                    }) !== JSON.stringify(nuwaxOriginalRef.current),
+                  )
+                }
+              >
                 <Form.Item
                   name="loopbackEnabled"
                   label="本地化加速"
