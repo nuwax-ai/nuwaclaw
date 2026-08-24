@@ -37,9 +37,11 @@ let running: LoopbackGatewayHandle | undefined;
 
 /** 网关是否处于启用态（step1 配置或 env 强制）。 */
 export function isLoopbackGatewayEnabled(): boolean {
-  if (process.env.NUWAX_LOOPBACK === "1") return true;
+  // 显式配置优先（设置里「本地化加速」开关落此键）；env 仅作未配置时的缺省
   const step1 = readSetting("step1_config") as Step1GatewayFields | null;
-  return step1?.nuwaxLoadMode === "gateway";
+  if (step1?.nuwaxLoadMode)
+    return step1.nuwaxLoadMode === "gateway";
+  return process.env.NUWAX_LOOPBACK === "1";
 }
 
 /** 透明反代目标 origin：dev（未打包）联调 localhost:3000（NUWAX_LOOPBACK_TARGET
