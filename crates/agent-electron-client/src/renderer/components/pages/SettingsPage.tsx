@@ -921,8 +921,11 @@ export default function SettingsPage() {
             <div className={styles.sectionBody}>
               <Form
                 form={nuwaxForm}
-                layout="vertical"
+                layout="horizontal"
                 size="small"
+                colon={false}
+                labelCol={{ flex: "auto" }}
+                wrapperCol={{ flex: "none" }}
                 onValuesChange={(_, vals) =>
                   setNuwaxDirty(
                     JSON.stringify({
@@ -933,13 +936,7 @@ export default function SettingsPage() {
                 }
               >
                 <Form.Item
-                  name="loopbackEnabled"
-                  label="本地化加速"
-                  valuePropName="checked"
-                >
-                  <Switch size="small" />
-                </Form.Item>
-                <Form.Item
+                  style={{ marginBottom: 0 }}
                   name="serverDomain"
                   label="域名"
                   rules={[{ required: true, message: "填写域名" }]}
@@ -953,6 +950,15 @@ export default function SettingsPage() {
                     placeholder="如 agent.nuwax.com"
                   />
                 </Form.Item>
+                <Form.Item
+                  style={{ marginBottom: 12 }}
+                  name="loopbackEnabled"
+                  label="本地化加速"
+                  valuePropName="checked"
+                >
+                  <Switch size="small" />
+                </Form.Item>
+                
               </Form>
               <div
                 style={{
