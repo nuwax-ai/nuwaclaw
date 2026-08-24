@@ -14,6 +14,7 @@ import {
   Row,
   Col,
   Input,
+  AutoComplete,
   InputNumber,
   Select,
   Slider,
@@ -159,23 +160,21 @@ export default function SettingsPage() {
   const [nuwaxForm] = Form.useForm();
   const [savingNuwaxLoad, setSavingNuwaxLoad] = useState(false);
 
-  // nuwax 企业/个人独立保存：环境映射域名 → 写 step1_config → 重启服务生效
+  // 本地化加速独立保存：开关映射 nuwaxLoadMode、域名归一 serverHost → 重启生效
   const handleSaveNuwaxLoad = async () => {
     try {
       const values = await nuwaxForm.validateFields();
       setSavingNuwaxLoad(true);
       const existing = await setupService.getStep1Config();
+      const domain = String(values.serverDomain || "")
+        .trim()
+        .replace(/\/+$/, "");
       const patch: Record<string, unknown> = {
-        nuwaxLoadMode: values.nuwaxLoadMode,
+        nuwaxLoadMode: values.loopbackEnabled ? "gateway" : "direct",
+        serverHost: /^[a-z][a-z0-9+.-]*:\/\//i.test(domain)
+          ? domain
+          : `https://${domain}`,
       };
-      if (values.nuwaxLoadMode === "gateway") {
-        patch.serverHost =
-          values.serverEnv === "test"
-            ? TEST_SERVER_HOST
-            : DEFAULT_SERVER_HOST;
-      } else {
-        patch.serverHost = values.serverHost;
-      }
       await setupService.saveStep1Config({ ...existing, ...patch });
       await window.electronAPI?.services?.restartAll?.();
       message.success(t(I18N_KEYS.Toast.SUCCESS.CONFIG_SAVED));
@@ -190,16 +189,17 @@ export default function SettingsPage() {
     setLoading(true);
     try {
       const config = await setupService.getStep1Config();
-      // nuwax 加载形态派生字段：环境下拉按 serverHost 反推（缺省正式）
+      // 本地化加速派生字段：开关按 nuwaxLoadMode 反推；域名=serverHost 去协议
+      //（登录 domain 同源——登录流程改域会回写 serverHost，此处自然跟随）
       const enriched = {
         ...config,
-        nuwaxLoadMode:
-          (config as Record<string, unknown>).nuwaxLoadMode ?? "direct",
-        serverEnv:
-          config.serverHost?.trim().replace(/\/+$/, "") ===
-          TEST_SERVER_HOST.replace(/\/+$/, "")
-            ? "test"
-            : "prod",
+        loopbackEnabled:
+          ((config as Record<string, unknown>).nuwaxLoadMode ?? "direct") ===
+          "gateway",
+        serverDomain: (config.serverHost || "")
+          .trim()
+          .replace(/^https?:\/\//, "")
+          .replace(/\/+$/, ""),
       };
       form.setFieldsValue(enriched);
       nuwaxForm.setFieldsValue(enriched);
@@ -885,7 +885,7 @@ export default function SettingsPage() {
             </div>
           </div>
 
-          {/* nuwax 企业/个人（独立区块：承载形态与目标环境） */}
+          {/* 本地化加速（独立区块：加速开关 + 登录域名，域名即 serverHost） */}
           <div className={styles.section}>
             <div className={styles.servicesHeader}>
               <div className={styles.servicesHeaderLeft}>
@@ -895,7 +895,7 @@ export default function SettingsPage() {
                     color: "var(--color-text-secondary)",
                   }}
                 />
-                <span className={styles.sectionTitle}>nuwax 企业/个人</span>
+                <span className={styles.sectionTitle}>本地化加速</span>
               </div>
               <div className={styles.servicesHeaderActions}>
                 <Button
@@ -911,59 +911,26 @@ export default function SettingsPage() {
             </div>
             <div className={styles.sectionBody}>
               <Form form={nuwaxForm} layout="vertical" size="small">
-                <Form.Item name="nuwaxLoadMode" label="承载形态">
-                  <Select
-                    size="small"
-                    options={[
-                      {
-                        value: "direct",
-                        label: "企业版（直连 webview，自由填写域名）",
-                      },
-                      {
-                        value: "gateway",
-                        label: "个人版（回环网关，固定域名，本地 dist + 后端反代）",
-                      },
-                    ]}
-                  />
+                <Form.Item
+                  name="loopbackEnabled"
+                  label="本地化加速（开=本地 nuwax + loopback 网关；关=直连远端）"
+                  valuePropName="checked"
+                >
+                  <Switch size="small" />
                 </Form.Item>
                 <Form.Item
-                  noStyle
-                  shouldUpdate={(a, b) => a.nuwaxLoadMode !== b.nuwaxLoadMode}
+                  name="serverDomain"
+                  label="域名（即登录 domain；建议 agent.nuwax.com / testagent.xspaceagi.com，可自由填写）"
+                  rules={[{ required: true, message: "填写域名" }]}
                 >
-                  {({ getFieldValue }) =>
-                    getFieldValue("nuwaxLoadMode") === "gateway" ? (
-                      <Form.Item
-                        name="serverEnv"
-                        label="环境（个人版；正式环境固定 agent.nuwax.com）"
-                        rules={[{ required: true, message: "选择环境" }]}
-                      >
-                        <Select
-                          size="small"
-                          options={[
-                            {
-                              value: "prod",
-                              label: "正式环境（agent.nuwax.com）",
-                            },
-                            {
-                              value: "test",
-                              label: "测试环境（testagent.xspaceagi.com）",
-                            },
-                          ]}
-                        />
-                      </Form.Item>
-                    ) : (
-                      <Form.Item
-                        name="serverHost"
-                        label="域名（企业版）"
-                        rules={[{ required: true, message: "填写域名" }]}
-                      >
-                        <Input
-                          size="small"
-                          placeholder="如 agent.nuwax.com（自动补 https://）"
-                        />
-                      </Form.Item>
-                    )
-                  }
+                  <AutoComplete
+                    size="small"
+                    options={[
+                      { value: "agent.nuwax.com" },
+                      { value: "testagent.xspaceagi.com" },
+                    ]}
+                    placeholder="如 agent.nuwax.com（自动补 https://）"
+                  />
                 </Form.Item>
               </Form>
               <div
@@ -973,8 +940,8 @@ export default function SettingsPage() {
                   color: "var(--color-text-tertiary)",
                 }}
               >
-                保存后自动重启服务并切换 nuwax 加载目标（个人=固定域名走回环：正式/
-                测试环境切换；企业=填写域名直连 webview）。
+                域名与登录时的 domain 同源（serverHost）：加速开启时作为后端反代
+                目标，关闭时 webview 直连该域名。保存后自动重启服务生效。
               </div>
             </div>
           </div>
