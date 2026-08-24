@@ -39,6 +39,8 @@ export interface Step1Config {
   nuwaxLoadMode?: "direct" | "gateway";
   /** loopback 网关固定端口（缺省 46800；占用时回退随机并告警）。 */
   gatewayPort?: number;
+  /** 二级页承载：same-window（默认，主 webview 同窗导航）| new-window（独立窗口）。 */
+  secondaryPages?: "same-window" | "new-window";
 }
 
 export interface AuthUserInfo {

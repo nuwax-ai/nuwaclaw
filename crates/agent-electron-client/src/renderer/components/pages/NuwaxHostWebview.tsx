@@ -40,6 +40,8 @@ export interface NuwaxHostWebviewHandle {
   canGoForward: () => boolean;
   /** 下发宿主命令到 nuwax（经 webviewPerfBridge 的 nuwax:host-command 通道）。 */
   sendHostCommand: (payload: unknown) => void;
+  /** 同窗导航（二级页承载）：主 webview 加载目标 URL。 */
+  navigate: (url: string) => void;
 }
 
 export interface NuwaxHostWebviewProps {
@@ -152,6 +154,7 @@ const NuwaxHostWebview = forwardRef<
       canGoForward: () => !!(webviewRef.current as any)?.canGoForward?.(),
       sendHostCommand: (payload: unknown) =>
         (webviewRef.current as any)?.send?.("nuwax:host-command", payload),
+      navigate: (url: string) => (webviewRef.current as any)?.loadURL?.(url),
     }),
     [],
   );

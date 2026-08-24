@@ -240,6 +240,21 @@ export function registerNuwaxBridgeHandlers(ctx: HandlerContext): void {
         if (target.origin !== new URL(base).origin) {
           return { success: false, error: "cross-origin blocked" };
         }
+        // 二级页承载：same-window（默认）= 主 webview 内同窗导航（沉浸式避让，
+        // 见 nuwax 侧 header-area/page-container 退让）；new-window = 独立窗口
+        // （系统标题栏零遮挡，_shell=1 恢复浏览器式布局）。
+        const step1 = readSetting("step1_config") as {
+          secondaryPages?: "same-window" | "new-window";
+        } | null;
+        if (step1?.secondaryPages !== "new-window") {
+          ctx.getMainWindow()?.webContents.send("nuwax:open-same-window", {
+            url: target.href,
+          });
+          log.info("[NuwaxBridge] native:openWindow same-window", {
+            path: raw,
+          });
+          return { success: true };
+        }
         // 独立窗口标记（nuwax 据此恢复浏览器式布局：显示 logo/收起按钮、不避让）
         target.searchParams.set("_shell", "1");
       } else {

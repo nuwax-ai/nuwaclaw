@@ -278,6 +278,25 @@ function App() {
     };
   }, []);
 
+  // 二级页同窗承载（默认形态）：nuwax 经 native:openWindow 请求打开的站内页
+  //（智能体编排/工作流详情/网页应用开发详情等）由主 webview 原地导航——沉浸式
+  // 避让生效（header-area/page-container 退让），不再新开独立窗口。
+  useEffect(() => {
+    const onOpenSameWindow = (payload: unknown) => {
+      const url = (payload as { url?: string } | null)?.url;
+      if (typeof url === "string" && url) {
+        nuwaxHostRef.current?.navigate(url);
+      }
+    };
+    window.electronAPI?.on("nuwax:open-same-window", onOpenSameWindow as any);
+    return () => {
+      window.electronAPI?.off(
+        "nuwax:open-same-window",
+        onOpenSameWindow as any,
+      );
+    };
+  }, []);
+
   // nuwax 布局状态 → 工具栏收起按钮显隐：当前页无二级菜单时按钮无意义，隐藏。
   // 默认 false（隐藏）——nuwax 布局挂载后推送真实值；/Login 等无布局页不推或推 false。
   const [secondMenuAvailable, setSecondMenuAvailable] = useState(false);
