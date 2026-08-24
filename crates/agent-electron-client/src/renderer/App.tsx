@@ -618,8 +618,10 @@ function App() {
     // isAuthLoggedIn 以 nuwax webview token 为唯一真实源（由 main 推送的 nuwax:authChanged
     // 事件驱动，见下方监听器），此处不再用 configKey 覆盖——否则 nuwaclaw configKey 残留会让
     // 顶栏显示「伪已登录」，与 webview 实际未登录不一致。用户定：以 webview 状态为最优先。
-    // 此处 loggedIn(基于 configKey) 仅用于决定 username 显示来源与默认 tab。
-    const loggedIn = await isLoggedIn();
+    // 此处 loggedIn 决定 username 显示与默认 tab：以 nuwax webview 登录态
+    //（isAuthLoggedIn，nuwax:authChanged 驱动）为最优先——configKey 仅在
+    // webview 尚未上报（冷启动早期）时兜底，修「设置里显示未登录不同步」。
+    const loggedIn = isAuthLoggedIn || (await isLoggedIn());
 
     if (!loggedIn) {
       setUsername("");
@@ -635,7 +637,7 @@ function App() {
         user.displayName || user.username || t("Claw.App.defaultUsername"),
       );
     }
-  }, []);
+  }, [isAuthLoggedIn]);
 
   // ============================================
   // 初始化主界面（setup 完成后执行）
