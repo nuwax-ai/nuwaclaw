@@ -917,11 +917,11 @@ export default function SettingsPage() {
                     options={[
                       {
                         value: "direct",
-                        label: "个人版（直连 webview，自由域名）",
+                        label: "企业版（直连 webview，自由填写域名）",
                       },
                       {
                         value: "gateway",
-                        label: "企业版（回环网关，本地 dist + 后端反代）",
+                        label: "个人版（回环网关，固定域名，本地 dist + 后端反代）",
                       },
                     ]}
                   />
@@ -934,7 +934,7 @@ export default function SettingsPage() {
                     getFieldValue("nuwaxLoadMode") === "gateway" ? (
                       <Form.Item
                         name="serverEnv"
-                        label="环境（企业版）"
+                        label="环境（个人版；正式环境固定 agent.nuwax.com）"
                         rules={[{ required: true, message: "选择环境" }]}
                       >
                         <Select
@@ -954,7 +954,7 @@ export default function SettingsPage() {
                     ) : (
                       <Form.Item
                         name="serverHost"
-                        label="域名（个人版）"
+                        label="域名（企业版）"
                         rules={[{ required: true, message: "填写域名" }]}
                       >
                         <Input
@@ -973,8 +973,8 @@ export default function SettingsPage() {
                   color: "var(--color-text-tertiary)",
                 }}
               >
-                保存后自动重启服务并切换 nuwax 加载目标（企业=正式/测试环境，
-                个人=填写域名直连）。
+                保存后自动重启服务并切换 nuwax 加载目标（个人=固定域名走回环：正式/
+                测试环境切换；企业=填写域名直连 webview）。
               </div>
             </div>
           </div>
