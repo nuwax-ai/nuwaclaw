@@ -285,7 +285,7 @@ function App() {
     const onOpenSameWindow = (payload: unknown) => {
       const url = (payload as { url?: string } | null)?.url;
       if (typeof url === "string" && url) {
-        nuwaxHostRef.current?.navigate(url);
+        webviewRef.current?.navigate(url);
       }
     };
     window.electronAPI?.on("nuwax:open-same-window", onOpenSameWindow as any);
