@@ -4,5 +4,7 @@ export CI=true
 pnpm exec lint-staged
 
 # 运行 Electron 客户端单元测试
+# （filter 用 crate 包名 @nuwax-ai/nuwaclaw——目录名 agent-electron-client 匹配不到
+#   任何 workspace 项目，pnpm 静默跳过会让这步形同虚设）
 echo "🧪 Running Electron unit tests..."
-pnpm --filter agent-electron-client run test:run
+pnpm --filter @nuwax-ai/nuwaclaw run test:run
