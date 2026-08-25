@@ -158,15 +158,21 @@ function setupWindowOpen(): void {
       );
 
       // Webview captures keyboard events — they don't bubble to the host page.
-      // Intercept Ctrl/Cmd+Shift+I here to open webview DevTools.
+      // Intercept DevTools shortcuts here (toggle), matching the shell-side
+      // NuwaxHostWebview handler: F12 / Ctrl+Cmd+Shift+I / Cmd+Opt+I.
+      // 沉浸形态下焦点几乎总在 webview 里，这里才是实际生效的主调试入口。
       webContents.on("before-input-event", (event, input) => {
-        if (
-          input.type === "keyDown" &&
-          input.shift &&
-          (input.control || input.meta) &&
-          input.key.toLowerCase() === "i"
-        ) {
-          event.preventDefault();
+        if (input.type !== "keyDown") return;
+        const key = input.key.toLowerCase();
+        const isDevToolsShortcut =
+          key === "f12" ||
+          ((input.control || input.meta) && input.shift && key === "i") ||
+          (input.meta && input.alt && key === "i");
+        if (!isDevToolsShortcut) return;
+        event.preventDefault();
+        if (webContents.isDevToolsOpened()) {
+          webContents.closeDevTools();
+        } else {
           webContents.openDevTools();
         }
       });

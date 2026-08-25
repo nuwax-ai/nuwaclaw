@@ -1851,7 +1851,6 @@ function App() {
                           onLoginStarted={handleLoginStarted}
                           onLoginComplete={openBrowserHome}
                           onStartSession={openStartSession}
-                          isWebviewLoggedIn={isAuthLoggedIn}
                           onGotoLogin={() => setMainViewMode("browser")}
                         />
                       )}

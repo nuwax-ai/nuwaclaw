@@ -34,11 +34,7 @@ import {
   ReloadOutlined,
   ExperimentOutlined,
 } from "@ant-design/icons";
-import {
-  APP_DISPLAY_NAME,
-  APP_DATA_DIR_NAME,
-  TEST_SERVER_HOST,
-} from "@shared/constants";
+import { APP_DISPLAY_NAME, APP_DATA_DIR_NAME } from "@shared/constants";
 import {
   setupService,
   Step1Config,
@@ -164,9 +160,15 @@ export default function SettingsPage() {
 
   // 本地化加速独立保存：开关映射 nuwaxLoadMode、域名归一 serverHost → 重启生效
   const handleSaveNuwaxLoad = async () => {
+    let values;
     try {
-      const values = await nuwaxForm.validateFields();
-      setSavingNuwaxLoad(true);
+      values = await nuwaxForm.validateFields();
+    } catch {
+      /* 校验失败：提示由 Form 自身呈现 */
+      return;
+    }
+    setSavingNuwaxLoad(true);
+    try {
       const existing = await setupService.getStep1Config();
       const domain = String(values.serverDomain || "")
         .trim()
@@ -182,7 +184,8 @@ export default function SettingsPage() {
       setNuwaxDirty(false);
       message.success(t(I18N_KEYS.Toast.SUCCESS.CONFIG_SAVED));
     } catch {
-      /* 校验失败/保存异常静默（校验提示由 Form 呈现） */
+      // 真实失败（保存/重启）必须可见——静默会让用户误以为已生效
+      message.error(t(I18N_KEYS.Toast.ERROR.CONFIG_SAVE_FAILED));
     } finally {
       setSavingNuwaxLoad(false);
     }
@@ -377,16 +380,9 @@ export default function SettingsPage() {
           setSaving(true);
           try {
             const existing = await setupService.getStep1Config();
-            // 回环形态：后端由环境下拉决定（正式=DEFAULT / 测试=TEST，缺省正式）；
-            // 直连形态：serverHost 用填写的域名
+            // nuwax 加载形态与域名的映射由「本地化加速」区块独立保存
+            // （handleSaveNuwaxLoad），服务配置保存不再触碰这两项
             const patch = { ...values };
-            if (patch.nuwaxLoadMode === "gateway") {
-              patch.serverHost =
-                patch.serverEnv === "test"
-                  ? TEST_SERVER_HOST
-                  : DEFAULT_SERVER_HOST;
-            }
-            delete patch.serverEnv;
             await setupService.saveStep1Config({ ...existing, ...patch });
             setOriginalConfig(values);
             setEditing(false);

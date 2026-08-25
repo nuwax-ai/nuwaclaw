@@ -324,12 +324,19 @@ export function loopbackGatewayStatus(): {
 /**
  * 配置变更后的网关刷新（settings 保存/restartAll 钩子调用）：
  * 停掉在跑实例 → 按当前配置重确保（direct 即停、gateway/dist 重起）→
- * 通知 renderer 重解析 webview URL（形态/后端/域名可能已变）。
+ * 运行时键实际变化才通知 renderer 重解析 webview URL（形态/后端/域名已变）。
+ * 无变化不广播：webview 收到后会 setUrl("") 硬重载——闪白且丢失页面内状态，
+ * 登录成功等场景（direct→direct 域名未变）不应触发。
  */
 export async function refreshLoopbackGateway(): Promise<void> {
+  const before = JSON.stringify(readSetting(LOOPBACK_RUNTIME_KEY) ?? null);
   await stopLoopbackGateway();
   await ensureLoopbackGateway();
+  const after = JSON.stringify(readSetting(LOOPBACK_RUNTIME_KEY) ?? null);
+  if (before === after) return;
   try {
+    // 函数内 require 避免模块加载期与 electron 的循环依赖（主进程既有惯例）
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
     const { BrowserWindow } = require("electron") as typeof import("electron");
     const win = BrowserWindow.getAllWindows()[0];
     const loopback = readSetting(LOOPBACK_RUNTIME_KEY);

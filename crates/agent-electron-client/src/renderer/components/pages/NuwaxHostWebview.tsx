@@ -70,14 +70,21 @@ const NuwaxHostWebview = forwardRef<
       .catch(() => {});
   }, []);
 
-  // 调试：F12 / Cmd+Opt+I 打开 webview 页面的 DevTools（样式排查主入口）
+  // 调试：F12 / Cmd+Opt+I 开关 webview 页面的 DevTools（样式排查主入口）。
+  // 仅壳窗口持有焦点时生效——guest 聚焦时由主进程 webviewPolicy 的
+  // before-input-event 拦截同款快捷键（toggle），两侧行为一致。
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (
         e.key === "F12" ||
         (e.metaKey && e.altKey && e.key.toLowerCase() === "i")
       ) {
-        (webviewRef.current as any)?.openDevTools?.();
+        const webview = webviewRef.current as any;
+        if (webview?.isDevToolsOpened?.()) {
+          webview?.closeDevTools?.();
+        } else {
+          webview?.openDevTools?.();
+        }
       }
     };
     window.addEventListener("keydown", onKey);
