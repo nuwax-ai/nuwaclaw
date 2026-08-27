@@ -166,6 +166,43 @@ describe("loopbackGateway runtime key carries backend", () => {
       backend: "https://b.example.com",
     });
   });
+
+  it("notifies renderer when the loopback toggle flips (direct ↔ gateway, same domain)", async () => {
+    // 开关切换：域名不变但 enabled/origin 翻转——键必变 → 通知 → webview 重载
+    mocks.store.set("step1_config", {
+      nuwaxLoadMode: "direct",
+      serverHost: "https://a.example.com",
+    });
+    const mod = await importFresh();
+    await mod.ensureLoopbackGateway();
+    expect(mocks.sendSpy).not.toHaveBeenCalled();
+
+    // direct → gateway
+    mocks.store.set("step1_config", {
+      nuwaxLoadMode: "gateway",
+      serverHost: "https://a.example.com",
+    });
+    await mod.refreshLoopbackGateway();
+    expect(mocks.sendSpy).toHaveBeenCalledTimes(1);
+    expect(mocks.store.get("nuwax.loopback")).toMatchObject({
+      enabled: true,
+      origin: "http://127.0.0.1:46800",
+      backend: "https://a.example.com",
+    });
+
+    // gateway → direct
+    mocks.sendSpy.mockClear();
+    mocks.store.set("step1_config", {
+      nuwaxLoadMode: "direct",
+      serverHost: "https://a.example.com",
+    });
+    await mod.refreshLoopbackGateway();
+    expect(mocks.sendSpy).toHaveBeenCalledTimes(1);
+    expect(mocks.store.get("nuwax.loopback")).toMatchObject({
+      enabled: false,
+      backend: "https://a.example.com",
+    });
+  });
 });
 
 describe("syncWebviewOverrideFromEnv (NUWAX_WEBVIEW_ORIGIN)", () => {
