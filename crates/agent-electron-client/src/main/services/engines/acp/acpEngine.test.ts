@@ -1973,6 +1973,213 @@ describe("AcpEngine.chat session restore", () => {
   });
 });
 
+describe("AcpEngine plan mode", () => {
+  const PLAN_MODES = {
+    currentModeId: "build",
+    availableModes: [
+      { id: "build", name: "build" },
+      { id: "plan", name: "plan" },
+    ],
+  };
+
+  function buildPlanEngine(opts: {
+    modes?: unknown;
+    configOptions?: unknown;
+    setSessionMode?: ReturnType<typeof vi.fn>;
+    setSessionConfigOption?: ReturnType<typeof vi.fn>;
+  }) {
+    const engine = new AcpEngine("nuwaxcode");
+    const loadSession = vi.fn().mockResolvedValue({
+      modes: opts.modes ?? PLAN_MODES,
+      configOptions: opts.configOptions,
+    });
+    (engine as any).config = {
+      engine: "nuwaxcode",
+      workspaceDir: "/workspace/project",
+      mcpServers: {},
+    };
+    (engine as any).agentCapabilities = { loadSession: true };
+    (engine as any).acpConnection = {
+      loadSession,
+      newSession: vi.fn(),
+      prompt: vi.fn().mockResolvedValue({ stopReason: "end_turn" }),
+      cancel: vi.fn(),
+      setSessionMode: opts.setSessionMode ?? vi.fn().mockResolvedValue({}),
+      setSessionConfigOption: opts.setSessionConfigOption,
+    };
+    return { engine, loadSession };
+  }
+
+  it("plan 档：引擎广告 plan mode 时下发 setSessionMode", async () => {
+    const setSessionMode = vi.fn().mockResolvedValue({});
+    const { engine } = buildPlanEngine({ setSessionMode });
+
+    const result = await engine.chat({
+      user_id: "u1",
+      project_id: "proj-1",
+      session_id: "ses_plan1",
+      prompt: "plan this feature",
+      request_id: "req-plan-1",
+      agent_config: { agent_server: { agent_mode: "plan" } },
+    });
+
+    expect(setSessionMode).toHaveBeenCalledWith({
+      sessionId: "ses_plan1",
+      modeId: "plan",
+    });
+    // plan 档本地审批策略强制折算为 ask
+    expect((engine as any).permissions.getEffectiveMode("ses_plan1")).toBe(
+      "ask",
+    );
+    expect(result.success).toBe(true);
+  });
+
+  it("plan 档：set_mode 失败时 fallback mode config option，prompt 不中断", async () => {
+    const setSessionMode = vi
+      .fn()
+      .mockRejectedValue(
+        Object.assign(new Error("Method not found"), { code: -32601 }),
+      );
+    const setSessionConfigOption = vi
+      .fn()
+      .mockResolvedValue({ configOptions: [] });
+    const { engine } = buildPlanEngine({
+      setSessionMode,
+      setSessionConfigOption,
+    });
+
+    const result = await engine.chat({
+      user_id: "u1",
+      project_id: "proj-1",
+      session_id: "ses_plan2",
+      prompt: "plan this feature",
+      agent_config: { agent_server: { agent_mode: "plan" } },
+    });
+
+    expect(setSessionConfigOption).toHaveBeenCalledWith({
+      sessionId: "ses_plan2",
+      configId: "mode",
+      value: "plan",
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it("plan 档：nuwaxcode 无 modes 字段时从 mode config option 推导并下发", async () => {
+    const setSessionMode = vi.fn().mockResolvedValue({});
+    const { engine } = buildPlanEngine({
+      modes: null,
+      configOptions: [
+        {
+          id: "mode",
+          type: "select",
+          currentValue: "build",
+          options: [
+            { value: "build", name: "build" },
+            { value: "plan", name: "plan" },
+          ],
+        },
+      ],
+      setSessionMode,
+    });
+
+    await engine.chat({
+      user_id: "u1",
+      project_id: "proj-1",
+      session_id: "ses_plan3",
+      prompt: "plan this feature",
+      agent_config: { agent_server: { agent_mode: "plan" } },
+    });
+
+    expect(setSessionMode).toHaveBeenCalledWith({
+      sessionId: "ses_plan3",
+      modeId: "plan",
+    });
+  });
+
+  it("plan 档：引擎无 plan mode 时跳过下发，prompt 照常", async () => {
+    const setSessionMode = vi.fn().mockResolvedValue({});
+    const { engine } = buildPlanEngine({
+      modes: {
+        currentModeId: "agent",
+        availableModes: [{ id: "read-only" }, { id: "agent" }],
+      },
+      setSessionMode,
+    });
+
+    const result = await engine.chat({
+      user_id: "u1",
+      project_id: "proj-1",
+      session_id: "ses_plan4",
+      prompt: "plan this feature",
+      agent_config: { agent_server: { agent_mode: "plan" } },
+    });
+
+    expect(setSessionMode).not.toHaveBeenCalled();
+    expect(result.success).toBe(true);
+  });
+
+  it("退出 plan：恢复会话初始 mode，避免 plan 跨请求泄漏", async () => {
+    const setSessionMode = vi.fn().mockResolvedValue({});
+    const { engine } = buildPlanEngine({ setSessionMode });
+
+    await engine.chat({
+      user_id: "u1",
+      project_id: "proj-1",
+      session_id: "ses_plan5",
+      prompt: "plan this feature",
+      agent_config: { agent_server: { agent_mode: "plan" } },
+    });
+    await engine.chat({
+      user_id: "u1",
+      project_id: "proj-1",
+      session_id: "ses_plan5",
+      prompt: "now implement",
+      agent_config: { agent_server: { agent_mode: "yolo" } },
+    });
+
+    const calls = setSessionMode.mock.calls.map((c) => c[0]);
+    expect(calls).toContainEqual({ sessionId: "ses_plan5", modeId: "plan" });
+    expect(calls).toContainEqual({ sessionId: "ses_plan5", modeId: "build" });
+    expect((engine as any).permissions.getEffectiveMode("ses_plan5")).toBe(
+      "yolo",
+    );
+  });
+
+  it("current_mode_update：引擎侧退出 plan 后本地镜像同步，重复 plan 请求不重复下发", async () => {
+    const setSessionMode = vi.fn().mockResolvedValue({});
+    const { engine } = buildPlanEngine({ setSessionMode });
+
+    await engine.chat({
+      user_id: "u1",
+      project_id: "proj-1",
+      session_id: "ses_plan6",
+      prompt: "plan this feature",
+      agent_config: { agent_server: { agent_mode: "plan" } },
+    });
+    // ExitPlanMode 批准 → 引擎切回 build 并广播 current_mode_update
+    (engine as any).handleAcpSessionUpdate("ses_plan6", {
+      sessionUpdate: "current_mode_update",
+      currentModeId: "build",
+    });
+    await engine.chat({
+      user_id: "u1",
+      project_id: "proj-1",
+      session_id: "ses_plan6",
+      prompt: "plan again",
+      agent_config: { agent_server: { agent_mode: "plan" } },
+    });
+
+    const planCalls = setSessionMode.mock.calls.filter(
+      (c) => c[0].modeId === "plan",
+    );
+    // 镜像先被 current_mode_update 重置为 build，第二次 plan 请求才会再次下发
+    expect(planCalls).toHaveLength(2);
+    expect((engine as any).sessions.get("ses_plan6").acpEngineModeId).toBe(
+      "plan",
+    );
+  });
+});
+
 describe("AcpEngine isolated HOME destroy", () => {
   afterEach(() => {
     if (fs.existsSync(mockAppDataDir)) {

@@ -7,6 +7,7 @@
  */
 
 import log from "electron-log";
+import { normalizePlanEntries } from "@nuwax-ai/agent-kit";
 import type {
   AcpSessionUpdate,
   AcpAgentMessageChunk,
@@ -14,6 +15,8 @@ import type {
   AcpToolCall,
   AcpToolCallUpdate,
   AcpSessionInfoUpdate,
+  AcpPlanUpdate,
+  AcpCurrentModeUpdate,
 } from "./acpClient";
 import { safeStringify } from "../utils/safeStringify";
 
@@ -122,6 +125,53 @@ export function mapAcpUpdateToEvents(
     case "usage_update": {
       log.info(`${logTag} 📊 Usage update:`, safeStringify(update));
       return { events: [] };
+    }
+
+    case "plan":
+    case "plan_update": {
+      // spec：客户端必须全量替换当前计划；entries 规范化共享自 agent-kit
+      const u = update as AcpPlanUpdate;
+      return {
+        events: [
+          {
+            event: "message.part.updated",
+            payload: {
+              sessionId: acpSessionId,
+              type: "plan",
+              entries: normalizePlanEntries(u.entries),
+            },
+          },
+        ],
+      };
+    }
+
+    case "plan_removed": {
+      return {
+        events: [
+          {
+            event: "message.part.removed",
+            payload: {
+              sessionId: acpSessionId,
+              type: "plan",
+            },
+          },
+        ],
+      };
+    }
+
+    case "current_mode_update": {
+      const u = update as AcpCurrentModeUpdate;
+      return {
+        events: [
+          {
+            event: "session.updated",
+            payload: {
+              sessionId: acpSessionId,
+              modeId: u.currentModeId ?? u.modeId ?? null,
+            },
+          },
+        ],
+      };
     }
 
     default: {

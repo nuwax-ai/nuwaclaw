@@ -48,6 +48,7 @@ import {
   resolveAcpBinary,
   type AcpClientSideConnection,
   type AcpClientHandler,
+  type AcpCurrentModeUpdate,
   type AcpSessionUpdate,
   type AcpPermissionRequest,
   type AcpPermissionResponse,
@@ -109,6 +110,14 @@ import { APP_DATA_DIR_NAME } from "../../constants";
 import { perfEmitter } from "../perf/perfEmitter";
 import { firstTokenTrace } from "../perf/firstTokenTrace";
 import { resolveEffectiveMode, type AcpMode } from "@shared/types/acpMode";
+import {
+  buildClientCapabilities,
+  resolveEngineModeInfo,
+  syncBusinessModeToEngine,
+  type ConfigOptionLike,
+  type EngineModeInfo,
+  type SessionModeStateLike,
+} from "@nuwax-ai/agent-kit";
 import {
   approvalInterventionService,
   isComputerPermissionResolveRequest,
@@ -175,8 +184,12 @@ interface AcpSession {
   resumedModeState?: { currentModeId?: string } | null;
   /** session/load|resume 返回的当前模型，chat 同步后继续作为运行时 hint 使用 */
   resumedModelId?: string | null;
-  /** 上次与本地权限协调器对齐的 agent_mode（ask/yolo），不是引擎 ACP session mode */
+  /** 上次与本地权限协调器对齐的 agent_mode（ask/yolo/plan），不是引擎 ACP session mode */
   acpCurrentModeId?: AcpMode;
+  /** 引擎可 operable 的 ACP session mode（modes 字段或 mode config option 发现） */
+  engineModes?: EngineModeInfo | null;
+  /** 引擎当前 ACP session mode id（发现 / set_mode 成功 / current_mode_update 时更新） */
+  acpEngineModeId?: string | null;
   /** 上次与 ACP Agent 对齐的 model（仅运行时跟踪，不做持久化） */
   acpCurrentModelId?: string | null;
 }
@@ -224,31 +237,94 @@ export class AcpEngine extends EventEmitter {
   }
 
   /**
-   * 将业务侧 agent_mode（ask/yolo）同步到本地权限协调器。
+   * 将业务侧 agent_mode（ask/yolo/plan）同步到本地权限协调器。
    *
    * 注意：不要与 ACP `session/set_mode` 搞混。
    * - agent_mode：控制本端对 `session/request_permission` 的审批策略
-   *   （ask 弹窗 / yolo 自动放行），见 permissionCoordinator
-   * - 引擎 ACP session mode：由 Agent 自行默认（如 claude 的 default/auto/plan），
-   *   调用时保持引擎默认，不把 ask/yolo 当成 modeId 下发（OpenCode 无此 mode，
-   *   claude 也不认 ask/yolo）
+   *   （ask 弹窗 / yolo 自动放行 / plan 强制折算为 ask——ExitPlanMode、
+   *   plan_exit 类确认必须人工放行），见 permissionCoordinator
+   * - 引擎 ACP session mode：仅当业务请求为 plan 时经
+   *   syncEngineSessionModeForChat 下发 set_mode；ask/yolo 保持引擎默认
+   *   （不把 ask/yolo 当 modeId 下发，OpenCode 无此 mode，claude 也不认）
    */
   private syncSessionModeForChat(
     acpSessionId: string,
     targetMode: AcpMode,
   ): void {
     const session = this.sessions.get(acpSessionId);
+    const permissionMode: "ask" | "yolo" =
+      targetMode === "plan" ? "ask" : targetMode;
     const previous = this.permissions.getEffectiveMode(acpSessionId);
-    this.setEffectiveMode(acpSessionId, targetMode);
+    this.setEffectiveMode(acpSessionId, permissionMode);
     if (session) {
       // 仅跟踪本地权限 mode，不是引擎 ACP mode
       session.acpCurrentModeId = targetMode;
     }
-    if (previous !== targetMode) {
+    if (previous !== permissionMode) {
       log.info(
-        `${this.logTag} agent_mode for permission: ${previous} → ${targetMode} (no ACP session/set_mode)`,
+        `${this.logTag} agent_mode for permission: ${previous} → ${permissionMode}` +
+          `${targetMode === "plan" ? " (plan forces ask)" : ""} (local approval only)`,
       );
     }
+  }
+
+  /**
+   * 引擎侧 ACP session mode 同步（业务 plan 档）。
+   *
+   * 语义共享自 agent-kit syncBusinessModeToEngine（nuwa-cli 逐 prompt 同步
+   * 同一份实现）：plan 时若引擎广告了 plan 类 mode 则下发 set_mode
+   * （Method-not-found 时 fallback mode config option）；ask/yolo 保持引擎
+   * 默认，仅当引擎仍处于 plan 时恢复初始 mode，避免 plan 跨请求泄漏。
+   * 失败仅告警不阻断 prompt（plan 是增强能力，非前置条件）。
+   * 引擎侧自发切换（ExitPlanMode 批准）经 current_mode_update 更新
+   * acpEngineModeId，此处据此去重。
+   */
+  private async syncEngineSessionModeForChat(
+    acpSessionId: string,
+    desiredMode: AcpMode,
+  ): Promise<void> {
+    const session = this.sessions.get(acpSessionId);
+    const connection = this.acpConnection;
+    if (!session || !connection) return;
+
+    const result = await syncBusinessModeToEngine({
+      sessionId: acpSessionId,
+      desired: desiredMode,
+      info: session.engineModes ?? {
+        availableModes: [],
+        currentModeId: null,
+        source: "none",
+      },
+      currentModeId: session.acpEngineModeId ?? null,
+      connection,
+    });
+
+    if (
+      result.outcome &&
+      result.outcome.status === "unsupported" &&
+      desiredMode === "plan"
+    ) {
+      // 引擎无 plan mode：常态降级（如 codex 只读/执行档），info 级即可
+      log.info(
+        `${this.logTag} plan requested but engine advertises no plan mode; keeping engine default`,
+      );
+    } else if (result.outcome && result.outcome.status === "failed") {
+      log.warn(
+        `${this.logTag} engine session mode sync (${desiredMode}) failed: ${result.outcome.reason}; continuing with engine default`,
+      );
+    } else if (
+      result.currentModeId &&
+      result.currentModeId !== (session.acpEngineModeId ?? null)
+    ) {
+      const via =
+        result.outcome?.status === "applied"
+          ? ` (via ${result.outcome.via})`
+          : "";
+      log.info(
+        `${this.logTag} engine session mode → ${result.currentModeId}${via}`,
+      );
+    }
+    session.acpEngineModeId = result.currentModeId;
   }
 
   /**
@@ -338,16 +414,29 @@ export class AcpEngine extends EventEmitter {
   }
 
   /**
-   * 引擎 session/new|load|resume 返回的 modes 是 Agent 自己的 ACP session mode
-   * （如 default/auto/plan），与业务 agent_mode（ask/yolo）无关，禁止写入本地权限 mode。
+   * 缓存引擎 session/new|load|resume 广告的 ACP session mode（modes 字段，
+   * 或 nuwaxcode 形态的 mode config option——共享自 agent-kit
+   * resolveEngineModeInfo）。引擎 mode（default/build/plan…）只用于
+   * syncEngineSessionModeForChat 的 plan 下发与恢复，禁止写入本地权限 mode。
    */
   private applyAcpModeFromRpc(
-    _session: AcpSession,
-    _modes: { currentModeId?: string } | null | undefined,
+    session: AcpSession,
+    modes: unknown,
+    configOptions?: unknown,
   ): void {
-    // no-op：权限 mode 只由 chat 请求的 agent_mode → syncSessionModeForChat 设置
-    void _session;
-    void _modes;
+    const info = resolveEngineModeInfo({
+      modes: (modes ?? null) as SessionModeStateLike | null,
+      configOptions: (configOptions ?? null) as ConfigOptionLike[] | null,
+    });
+    session.engineModes = info;
+    if (info.currentModeId) {
+      session.acpEngineModeId = info.currentModeId;
+    }
+    log.info(
+      `${this.logTag} engine session modes (${info.source}): ` +
+        `${info.availableModes.map((mode) => mode.id).join(", ") || "(none)"}` +
+        `, current=${info.currentModeId ?? "(unknown)"}`,
+    );
   }
 
   private activePromptSessions = new Set<string>();
@@ -800,9 +889,9 @@ export class AcpEngine extends EventEmitter {
       const acp = await loadAcpSdk();
       const initResult = await connection.initialize({
         protocolVersion: acp.PROTOCOL_VERSION,
-        clientCapabilities: {
-          terminal: true, // Enable ACP Terminal API (terminal/create, etc.)
-        },
+        // terminal: ACP Terminal API（terminal/create 等）
+        // plan: 实验能力，声明后 Agent 才会下发 plan_update / plan_removed
+        clientCapabilities: buildClientCapabilities({ terminal: true }),
       });
       await this.authenticateCodexWithEnv(connection, config, spawnEnv);
 
@@ -1033,7 +1122,11 @@ export class AcpEngine extends EventEmitter {
     session.lastActivity = Date.now();
     session.resumedModeState = resumeResult.modes ?? null;
     session.resumedModelId = parseAcpCurrentModelId(resumeResult.configOptions);
-    this.applyAcpModeFromRpc(session, resumeResult.modes ?? null);
+    this.applyAcpModeFromRpc(
+      session,
+      resumeResult.modes ?? null,
+      resumeResult.configOptions,
+    );
     if (session.resumedModelId) {
       session.acpCurrentModelId = session.resumedModelId;
     }
@@ -1131,7 +1224,8 @@ export class AcpEngine extends EventEmitter {
     session.resumedModelId = parseAcpCurrentModelId(loadResult.configOptions);
     this.applyAcpModeFromRpc(
       session,
-      loadResult.modes as { currentModeId?: string } | null | undefined,
+      loadResult.modes,
+      loadResult.configOptions,
     );
     if (session.resumedModelId) {
       session.acpCurrentModelId = session.resumedModelId;
@@ -1200,7 +1294,8 @@ export class AcpEngine extends EventEmitter {
     const timer = perfEmitter.start();
     let acpResult: {
       sessionId: string;
-      modes?: { currentModeId?: string } | null;
+      modes?: unknown;
+      configOptions?: unknown;
     };
     this.pendingNewSessionRegistration = true;
     try {
@@ -1257,7 +1352,7 @@ export class AcpEngine extends EventEmitter {
     session.mcpServerCount = mcpServers.length;
     session.lastActivity = Date.now();
     if (session.status === undefined) session.status = "idle";
-    this.applyAcpModeFromRpc(session, acpResult.modes ?? null);
+    this.applyAcpModeFromRpc(session, acpResult.modes, acpResult.configOptions);
     this.sessions.set(sessionId, session);
 
     log.info(`${this.logTag} Session created`, {
@@ -2007,13 +2102,17 @@ export class AcpEngine extends EventEmitter {
       }
 
       if (session.acpSessionId) {
-        // agent_mode → 本地权限审批；不调用 ACP session/set_mode（引擎保持默认 mode）
+        // agent_mode → 本地权限审批；plan 档额外下发引擎侧 set_mode
         this.syncSessionModeForChat(session.acpSessionId, effectiveMode);
         const targetModelId = resolveTargetModelForChat(request, this.config);
         await this.syncSessionModelForChat(
           session.acpSessionId,
           targetModelId,
           session.resumedModelId ?? session.acpCurrentModelId ?? null,
+        );
+        await this.syncEngineSessionModeForChat(
+          session.acpSessionId,
+          effectiveMode,
         );
         session.resumedModeState = null;
         session.resumedModelId = null;
@@ -2401,6 +2500,19 @@ export class AcpEngine extends EventEmitter {
       data: normalizedUpdate,
       timestamp: new Date().toISOString(),
     } satisfies UnifiedSessionMessage);
+
+    // 引擎侧自发模式变化（如 ExitPlanMode 批准后切回执行模式）：
+    // 更新本地镜像，供下一次 syncEngineSessionModeForChat 去重
+    if (normalizedUpdate.sessionUpdate === "current_mode_update") {
+      const modeUpdate = normalizedUpdate as AcpCurrentModeUpdate;
+      const modeId = modeUpdate.currentModeId ?? modeUpdate.modeId;
+      if (typeof modeId === "string" && modeId !== session.acpEngineModeId) {
+        log.info(
+          `${this.logTag} engine session mode changed: ${session.acpEngineModeId ?? "(unknown)"} → ${modeId}`,
+        );
+        session.acpEngineModeId = modeId;
+      }
+    }
 
     // ACP update → 内部事件映射见 acpUpdateMapper.ts
     const mapped = mapAcpUpdateToEvents(

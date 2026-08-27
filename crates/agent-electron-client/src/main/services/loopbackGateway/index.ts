@@ -27,6 +27,32 @@ const DEV_TARGET = "http://localhost:3000";
 /** 运行时键（renderer 读；enabled=false 时同时用于清理残留）。 */
 export const LOOPBACK_RUNTIME_KEY = "nuwax.loopback";
 
+/**
+ * 调试覆盖前端域名（.env / 启动 env `NUWAX_WEBVIEW_ORIGIN`）→ 运行时键。
+ * 设置时 webview 强制加载该前端源（如本地 nuwax dev server）；**后端域不受
+ * 影响**，仍按 serverHost 前后端一体语义解析（§6）。未设置清键 = 前后端同域。
+ * renderer（nodeIntegration 关闭读不到 env）经 settings 读此键。
+ */
+export const WEBVIEW_OVERRIDE_KEY = "nuwax.webviewOverride";
+
+export function syncWebviewOverrideFromEnv(): void {
+  const raw = (process.env.NUWAX_WEBVIEW_ORIGIN || "")
+    .trim()
+    .replace(/\/+$/, "");
+  const origin =
+    raw && /^[a-z][a-z0-9+.-]*:\/\//i.test(raw)
+      ? raw
+      : raw
+        ? `https://${raw}`
+        : null;
+  writeSetting(WEBVIEW_OVERRIDE_KEY, { origin });
+  if (origin) {
+    log.info(
+      `[WebviewOverride] NUWAX_WEBVIEW_ORIGIN 生效：webview 将加载 ${origin}（后端域不变）`,
+    );
+  }
+}
+
 interface Step1GatewayFields {
   nuwaxLoadMode?: "direct" | "gateway";
   gatewayPort?: number;
@@ -39,8 +65,7 @@ let running: LoopbackGatewayHandle | undefined;
 export function isLoopbackGatewayEnabled(): boolean {
   // 显式配置优先（设置里「本地化加速」开关落此键）；env 仅作未配置时的缺省
   const step1 = readSetting("step1_config") as Step1GatewayFields | null;
-  if (step1?.nuwaxLoadMode)
-    return step1.nuwaxLoadMode === "gateway";
+  if (step1?.nuwaxLoadMode) return step1.nuwaxLoadMode === "gateway";
   return process.env.NUWAX_LOOPBACK === "1";
 }
 
@@ -227,6 +252,10 @@ export async function ensureLoopbackGateway(): Promise<
       enabled: true,
       origin: running.origin,
       mode: running.mode,
+      // 后端域随键落库：refreshLoopbackGateway 以此做变更检测——仅域名变化
+      // （网关 origin/形态不变）也能触发 renderer 重载 webview。serverHost 是
+      // 前后端一体域名（见设计文档 §6），域名变更=后端已换，页面必须重载。
+      backend: backendOrigin,
     });
     return running;
   } catch (e) {
@@ -335,9 +364,9 @@ export async function refreshLoopbackGateway(): Promise<void> {
   const after = JSON.stringify(readSetting(LOOPBACK_RUNTIME_KEY) ?? null);
   if (before === after) return;
   try {
-    // 函数内 require 避免模块加载期与 electron 的循环依赖（主进程既有惯例）
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const { BrowserWindow } = require("electron") as typeof import("electron");
+    // 动态 import 避免模块加载期与 electron 的循环依赖（主进程既有惯例）；
+    // 相比 require 在 ESM（单测）环境下同样可用
+    const { BrowserWindow } = await import("electron");
     const win = BrowserWindow.getAllWindows()[0];
     const loopback = readSetting(LOOPBACK_RUNTIME_KEY);
     win?.webContents.send("nuwax:loopback-changed", loopback);

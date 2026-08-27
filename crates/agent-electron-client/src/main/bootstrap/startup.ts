@@ -50,8 +50,10 @@ export async function runStartupTasks(): Promise<void> {
   // step1_config.nuwaxLoadMode='gateway' 或 env NUWAX_LOOPBACK=1 启用）。
   // best-effort：失败不阻断启动（direct 形态始终可用）。
   {
-    const { ensureLoopbackGateway } =
+    const { ensureLoopbackGateway, syncWebviewOverrideFromEnv } =
       await import("../services/loopbackGateway");
+    // 调试覆盖前端域名（env → 运行时键，renderer 读）先于 webview 首次解析
+    syncWebviewOverrideFromEnv();
     await ensureLoopbackGateway().then((handle) => {
       if (handle)
         log.info(

@@ -116,15 +116,23 @@ const NuwaxHostWebview = forwardRef<
         const loopback = (await window.electronAPI?.settings.get(
           "nuwax.loopback",
         )) as { enabled?: boolean; origin?: string | null } | null;
+        // 调试覆盖前端域名（env NUWAX_WEBVIEW_ORIGIN → 主进程启动时写键）：
+        // 显式调试意图，优先级最高；后端域仍按 serverHost（前后端一体），
+        // 不受影响——不要为切前端去改 serverHost。
+        const override = (await window.electronAPI?.settings.get(
+          "nuwax.webviewOverride",
+        )) as { origin?: string | null } | null;
         // 开发联调（vite dev）：优先加载本地 nuwax dev server(localhost:3000)；
         // 生产加载 step1_config.serverHost / DEFAULT_SERVER_HOST。
-        const rawHost = import.meta.env.DEV
-          ? loopback?.enabled && loopback.origin
-            ? loopback.origin
-            : NUWAX_DEV_HOST
-          : loopback?.enabled && loopback.origin
-            ? loopback.origin
-            : step1?.serverHost || DEFAULT_SERVER_HOST;
+        const rawHost = override?.origin
+          ? override.origin
+          : import.meta.env.DEV
+            ? loopback?.enabled && loopback.origin
+              ? loopback.origin
+              : NUWAX_DEV_HOST
+            : loopback?.enabled && loopback.origin
+              ? loopback.origin
+              : step1?.serverHost || DEFAULT_SERVER_HOST;
         const domain = normalizeServerHost(rawHost);
         const finalUrl = buildHomeUrl(domain);
         logger.info(
@@ -132,6 +140,7 @@ const NuwaxHostWebview = forwardRef<
           "NuwaxHostWebview",
           {
             dev: import.meta.env.DEV,
+            override: override?.origin ?? null,
             loopback: loopback?.enabled ? loopback.origin : null,
             step1ServerHost: step1?.serverHost ?? null,
             rawHost,

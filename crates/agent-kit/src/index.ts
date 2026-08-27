@@ -131,3 +131,16 @@ export * from "./mcpAskToolUpdate.js";
 // tool_approval_rules + notify-resolved protocol + pending state machine).
 // See ./permissions/index.ts.
 export * from "./permissions/index.js";
+
+// ACP session-mode negotiation (discovery via `modes` field or `mode` config
+// option, plan-mode resolution, best-effort apply with config-option
+// fallback). Shared by nuwa-cli & nuwaclaw. See ./sessionMode.ts.
+export * from "./sessionMode.js";
+
+// ACP session-update classification (plan family + current_mode_update) with
+// lenient PlanEntry normalization. See ./sessionUpdate.ts.
+export * from "./sessionUpdate.js";
+
+// initialize-time clientCapabilities assembly (terminal + experimental plan).
+// See ./clientCapabilities.ts.
+export * from "./clientCapabilities.js";

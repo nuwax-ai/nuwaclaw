@@ -114,7 +114,7 @@ describe("devcomputer reload + load SSE hygiene", () => {
 
     expect(result.success).toBe(true);
     expect(loadSession).toHaveBeenCalled();
-    // agent_mode 只驱动本地权限审批，不调用 ACP session/set_mode
+    // ask/yolo 档只驱动本地权限审批，不调用 ACP session/set_mode（仅 plan 档下发）
     expect(setSessionMode).not.toHaveBeenCalled();
     expect((engine as any).permissions.getEffectiveMode(sessionId)).toBe("ask");
     expect(getSseEventBufferSize(sessionId)).toBe(0);

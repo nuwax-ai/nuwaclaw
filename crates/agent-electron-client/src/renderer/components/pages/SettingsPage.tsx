@@ -7,7 +7,13 @@
  * - 系统设置（主题、开机自启动、日志目录）
  */
 
-import React, { useState, useEffect, useCallback, Suspense, useRef } from "react";
+import React, {
+  useState,
+  useEffect,
+  useCallback,
+  Suspense,
+  useRef,
+} from "react";
 import {
   Button,
   Form,
@@ -47,9 +53,7 @@ import {
   MODEL_OPTIONS,
   STORAGE_KEYS,
   I18N_KEYS,
-  DEFAULT_AI_ENGINE,
 } from "@shared/constants";
-import type { AgentEngineType } from "@shared/types/electron";
 import { FEATURES } from "@shared/featureFlags";
 import {
   t,
@@ -146,48 +150,31 @@ export default function SettingsPage() {
   const [guiMcpSaving, setGuiMcpSaving] = useState(false);
   const [guiMcpEnabled, setGuiMcpEnabled] = useState<boolean | null>(null);
 
-  // Dev: agent engine type
-  const [devEngineType, setDevEngineType] = useState<string>(DEFAULT_AI_ENGINE);
-
   // 使用表单中的 workspaceDir 作为"系统模块"的展示源，确保编辑保存后展示保持实时一致。
   const workspaceDir = Form.useWatch("workspaceDir", form) || "";
 
   // ========== 加载服务配置 ==========
-  const [nuwaxForm] = Form.useForm();
-  const [savingNuwaxLoad, setSavingNuwaxLoad] = useState(false);
-  const [nuwaxDirty, setNuwaxDirty] = useState(false);
-  const nuwaxOriginalRef = useRef<Record<string, unknown> | null>(null);
+  // 本地化加速（「系统」区块开关，即点即存）：映射 nuwaxLoadMode → 保存后重启生效
+  //（服务域名 serverHost 归「服务配置」区块管理——前后端一体语义）
+  const [loopbackEnabled, setLoopbackEnabled] = useState(false);
+  const [loopbackApplying, setLoopbackApplying] = useState(false);
 
-  // 本地化加速独立保存：开关映射 nuwaxLoadMode、域名归一 serverHost → 重启生效
-  const handleSaveNuwaxLoad = async () => {
-    let values;
-    try {
-      values = await nuwaxForm.validateFields();
-    } catch {
-      /* 校验失败：提示由 Form 自身呈现 */
-      return;
-    }
-    setSavingNuwaxLoad(true);
+  const handleLoopbackChange = async (checked: boolean) => {
+    setLoopbackApplying(true);
     try {
       const existing = await setupService.getStep1Config();
-      const domain = String(values.serverDomain || "")
-        .trim()
-        .replace(/\/+$/, "");
-      const patch: Record<string, unknown> = {
-        nuwaxLoadMode: values.loopbackEnabled ? "gateway" : "direct",
-        serverHost: /^[a-z][a-z0-9+.-]*:\/\//i.test(domain)
-          ? domain
-          : `https://${domain}`,
-      };
-      await setupService.saveStep1Config({ ...existing, ...patch });
+      await setupService.saveStep1Config({
+        ...existing,
+        nuwaxLoadMode: checked ? "gateway" : "direct",
+      });
       await window.electronAPI?.services?.restartAll?.();
-      setNuwaxDirty(false);
+      setLoopbackEnabled(checked);
       message.success(t(I18N_KEYS.Toast.SUCCESS.CONFIG_SAVED));
     } catch {
-      // 真实失败（保存/重启）必须可见——静默会让用户误以为已生效
+      // 失败必须可见且状态不落定——静默会让用户误以为已生效
       message.error(t(I18N_KEYS.Toast.ERROR.CONFIG_SAVE_FAILED));
     } finally {
-      setSavingNuwaxLoad(false);
+      setLoopbackApplying(false);
     }
   };
 
@@ -195,32 +182,17 @@ export default function SettingsPage() {
     setLoading(true);
     try {
       const config = await setupService.getStep1Config();
-      // 本地化加速派生字段：开关按 nuwaxLoadMode 反推；域名=serverHost 去协议
-      //（登录 domain 同源——登录流程改域会回写 serverHost，此处自然跟随）
+      // 本地化加速状态按 nuwaxLoadMode 反推（服务域名 serverHost 归「服务配置」
+      // 表单原样带协议展示；登录流程改域会回写，此处自然跟随）
+      const loopbackOn =
+        ((config as Record<string, unknown>).nuwaxLoadMode ?? "direct") ===
+        "gateway";
       const enriched = {
         ...config,
-        loopbackEnabled:
-          ((config as Record<string, unknown>).nuwaxLoadMode ?? "direct") ===
-          "gateway",
-        serverDomain: (config.serverHost || "")
-          .trim()
-          .replace(/^https?:\/\//, "")
-          .replace(/\/+$/, ""),
       };
       form.setFieldsValue(enriched);
-      nuwaxForm.setFieldsValue(enriched);
-      nuwaxOriginalRef.current = {
-        loopbackEnabled: enriched.loopbackEnabled,
-        serverDomain: enriched.serverDomain,
-      };
-      setNuwaxDirty(false);
+      setLoopbackEnabled(loopbackOn);
       setOriginalConfig(enriched);
-      if (IS_DEV) {
-        const agentConfig = (await window.electronAPI?.settings.get(
-          "agent_config",
-        )) as { type?: string } | null;
-        setDevEngineType(agentConfig?.type || DEFAULT_AI_ENGINE);
-      }
     } catch (error) {
       console.error("Failed to load config:", error);
       message.error(t(I18N_KEYS.Toast.ERROR.LOAD_FAILED));
@@ -380,11 +352,25 @@ export default function SettingsPage() {
           setSaving(true);
           try {
             const existing = await setupService.getStep1Config();
-            // nuwax 加载形态与域名的映射由「本地化加速」区块独立保存
-            // （handleSaveNuwaxLoad），服务配置保存不再触碰这两项
             const patch = { ...values };
+            // 服务域名协议归一：支持带 http(s)://，未含默认补 https://
+            //（与登录域/lanproxy 探针的后端域解析同式，见 loopback 设计文档 §6）
+            if (typeof patch.serverHost === "string") {
+              const host = patch.serverHost.trim().replace(/\/+$/, "");
+              patch.serverHost = /^[a-z][a-z0-9+.-]*:\/\//i.test(host)
+                ? host
+                : `https://${host}`;
+            }
             await setupService.saveStep1Config({ ...existing, ...patch });
-            setOriginalConfig(values);
+            // 域名变更影响 reg / lanproxy / webview 解析，随保存重启服务
+            //（与本地化加速保存同语义；serverHost 前后端一体）
+            if (
+              (existing as { serverHost?: string }).serverHost !==
+              patch.serverHost
+            ) {
+              await window.electronAPI?.services?.restartAll?.();
+            }
+            setOriginalConfig({ ...values, serverHost: patch.serverHost });
             setEditing(false);
             message.success(t(I18N_KEYS.Toast.SUCCESS.CONFIG_SAVED));
           } catch (error) {
@@ -717,54 +703,17 @@ export default function SettingsPage() {
                 disabled={!editing}
                 size="small"
               >
-                {IS_DEV && (
-                  <Form.Item
-                    label={
-                      <Space>
-                        <ExperimentOutlined />
-                        <span>Agent Engine (Dev)</span>
-                      </Space>
-                    }
-                  >
-                    <Select
-                      value={devEngineType}
-                      disabled={!editing}
-                      onChange={async (v) => {
-                        setDevEngineType(v);
-                        const agentConfig =
-                          (await window.electronAPI?.settings.get(
-                            "agent_config",
-                          )) as Record<string, unknown> | null;
-                        await window.electronAPI?.settings.set("agent_config", {
-                          ...(agentConfig || {}),
-                          type: v,
-                        });
-                        try {
-                          await window.electronAPI?.services.restartAll();
-                          message.success(
-                            "Engine switched & services restarted",
-                          );
-                        } catch (e) {
-                          message.error("Restart failed: " + String(e));
-                        }
-                      }}
-                      options={[
-                        {
-                          value: "claude-code",
-                          label: "Claude Code (ACP) — Anthropic",
-                        },
-                        {
-                          value: "nuwaxcode",
-                          label: "nuwaxcode (ACP) — OpenAI",
-                        },
-                        {
-                          value: "codex",
-                          label: "Codex CLI (ACP) — OpenAI",
-                        },
-                      ]}
-                    />
-                  </Form.Item>
-                )}
+                <Form.Item
+                  name="serverHost"
+                  label="服务域名"
+                  rules={[{ required: true, message: "填写服务域名" }]}
+                >
+                  <AutoComplete
+                    size="small"
+                    options={[{ value: "https://agent.nuwax.com" }]}
+                    placeholder="如 agent.nuwax.com"
+                  />
+                </Form.Item>
                 <Row gutter={16}>
                   <Col span={12}>
                     <Form.Item
@@ -889,79 +838,6 @@ export default function SettingsPage() {
             </div>
           </div>
 
-          {/* 本地化加速（独立区块：加速开关 + 登录域名，域名即 serverHost） */}
-          <div className={styles.section}>
-            <div className={styles.servicesHeader}>
-              <div className={styles.servicesHeaderLeft}>
-                <SettingOutlined
-                  style={{
-                    fontSize: 14,
-                    color: "var(--color-text-secondary)",
-                  }}
-                />
-                <span className={styles.sectionTitle}>本地化加速</span>
-              </div>
-              <div className={styles.servicesHeaderActions}>
-                <Button
-                  size="small"
-                  type="primary"
-                  icon={<SaveOutlined />}
-                  loading={savingNuwaxLoad}
-                  disabled={!nuwaxDirty}
-                  onClick={handleSaveNuwaxLoad}
-                >
-                  {t("Claw.Settings.saveConfig.save")}
-                </Button>
-              </div>
-            </div>
-            <div className={styles.sectionBody}>
-              <Form
-                form={nuwaxForm}
-                layout="vertical"
-                size="small"
-                onValuesChange={(_, vals) =>
-                  setNuwaxDirty(
-                    JSON.stringify({
-                      loopbackEnabled: vals.loopbackEnabled,
-                      serverDomain: vals.serverDomain,
-                    }) !== JSON.stringify(nuwaxOriginalRef.current),
-                  )
-                }
-              >
-                <Form.Item
-                  name="serverDomain"
-                  label="域名"
-                  rules={[{ required: true, message: "填写域名" }]}
-                >
-                  <AutoComplete
-                    size="small"
-                    options={[
-                      { value: "agent.nuwax.com" },
-                      { value: "testagent.xspaceagi.com" },
-                    ]}
-                    placeholder="如 agent.nuwax.com"
-                  />
-                </Form.Item>
-                <Form.Item
-                  name="loopbackEnabled"
-                  label="本地化加速"
-                  valuePropName="checked"
-                >
-                  <Switch size="small" />
-                </Form.Item>
-              </Form>
-              <div
-                style={{
-                  marginTop: 8,
-                  fontSize: 12,
-                  color: "var(--color-text-tertiary)",
-                }}
-              >
-                开启后页面本地加载更快。修改后保存即生效。
-              </div>
-            </div>
-          </div>
-
           {/* 系统设置 */}
           <div className={styles.section}>
             <div className={styles.sectionHeader}>
@@ -995,6 +871,24 @@ export default function SettingsPage() {
                   checked={autolaunchEnabled}
                   onChange={handleAutolaunchChange}
                   loading={autolaunchLoading}
+                />
+              </div>
+
+              {/* 本地化加速（loopback 网关同源加载；服务域名在「服务配置」区块） */}
+              <div className={styles.serviceRow}>
+                <div className={styles.serviceInfo}>
+                  <div>
+                    <span className={styles.serviceLabel}>本地化加速</span>
+                    <div className={styles.serviceDescription}>
+                      页面经本地网关同源加载（更快且免跨域）。服务域名在「服务配置」区块修改，切换后自动重启服务。
+                    </div>
+                  </div>
+                </div>
+                <Switch
+                  size="small"
+                  checked={loopbackEnabled}
+                  onChange={handleLoopbackChange}
+                  loading={loopbackApplying}
                 />
               </div>
 
@@ -1089,7 +983,7 @@ export default function SettingsPage() {
                       style={{
                         fontFamily:
                           "ui-monospace, SFMono-Regular, Menlo, monospace",
-                        maxWidth: 280,
+                        maxWidth: "100%",
                         overflow: "hidden",
                         textOverflow: "ellipsis",
                         whiteSpace: "nowrap",
@@ -1116,7 +1010,7 @@ export default function SettingsPage() {
                       style={{
                         fontFamily:
                           "ui-monospace, SFMono-Regular, Menlo, monospace",
-                        maxWidth: 280,
+                        maxWidth: "100%",
                         overflow: "hidden",
                         textOverflow: "ellipsis",
                         whiteSpace: "nowrap",

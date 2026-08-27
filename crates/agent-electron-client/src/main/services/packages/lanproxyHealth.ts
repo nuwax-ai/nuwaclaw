@@ -113,12 +113,27 @@ export async function waitForLanproxyTunnel(
         return false;
       }
       if (res.ok) {
-        const envelope = (await res.json()) as {
+        let envelope: {
           code?: string;
           success?: boolean;
           message?: string;
           data?: { online?: boolean };
         };
+        try {
+          envelope = (await res.json()) as typeof envelope;
+        } catch {
+          // 200 但非 JSON（典型：探针目标被带偏到前端 SPA 的 HTML fallback，
+          // serverHost 违反前后端一体不变量时的形态）——重试无意义，快失败
+          log.warn(
+            "[LanproxyHealth] Tunnel health endpoint returned non-JSON (fast-fail)",
+            {
+              status: res.status,
+              contentType: res.headers.get("content-type"),
+              url,
+            },
+          );
+          return false;
+        }
         // 轮询过程用 debug，避免启动期刷屏；就绪时由调用方打 info
         log.debug("[LanproxyHealth] Tunnel health poll", {
           status: res.status,
@@ -248,8 +263,11 @@ export async function probeLanproxyAfterStart(
   if (!online) {
     return {
       healthy: false,
+      // 带上探测目标：探针被带偏（如 serverHost 误设为前端域）时日志一眼定位
       error:
-        "Lanproxy tunnel health check timed out or endpoint unavailable (private backends may omit /api/sandbox/config/health)",
+        `Lanproxy tunnel health check timed out or endpoint unavailable ` +
+        `(domain=${domain}, configKey=${configKey}; ` +
+        `private backends may omit /api/sandbox/config/health)`,
     };
   }
   return { healthy: true };

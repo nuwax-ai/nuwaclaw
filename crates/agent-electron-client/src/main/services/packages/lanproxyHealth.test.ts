@@ -210,6 +210,30 @@ describe("waitForLanproxyTunnel", () => {
     expect(Date.now() - started).toBeLessThan(2000);
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
+
+  it("fast-fails when 200 returns non-JSON (probe aimed at an SPA fallback)", async () => {
+    // 场景：serverHost 被误设为前端域，探针打到 SPA 的 HTML fallback（200 + text/html）
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue({
+      ok: true,
+      status: 200,
+      headers: new Headers({ "content-type": "text/html" }),
+      json: async () => {
+        throw new SyntaxError("Unexpected token '<'");
+      },
+    } as unknown as Response);
+
+    const started = Date.now();
+    const ok = await waitForLanproxyTunnel(
+      "http://localhost:3000",
+      "config-key",
+      10_000,
+      500,
+    );
+    expect(ok).toBe(false);
+    // 快失败：不重试至超时（旧行为是静默吞掉解析错误轮询满 10s）
+    expect(Date.now() - started).toBeLessThan(2000);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
 });
 
 describe("checkLanproxyHealth", () => {
@@ -295,5 +319,30 @@ describe("probeLanproxyAfterStart", () => {
     // stabilizeMs=0：单测跳过 1s 稳定窗口
     const result = await probeLanproxyAfterStart(1234, "key", 0);
     expect(result).toEqual({ healthy: true });
+  });
+
+  it("includes the probed domain and configKey in the failure message", async () => {
+    vi.spyOn(process, "kill").mockReturnValue(true);
+    mockReadSetting.mockImplementation((key: string) => {
+      if (key === "step1_config") {
+        // serverHost 违反前后端一体不变量：被设成了前端域
+        return { serverHost: "http://localhost:3000" };
+      }
+      return null;
+    });
+    vi.spyOn(globalThis, "fetch").mockResolvedValue({
+      ok: true,
+      status: 200,
+      headers: new Headers({ "content-type": "text/html" }),
+      json: async () => {
+        throw new SyntaxError("Unexpected token '<'");
+      },
+    } as unknown as Response);
+
+    const result = await probeLanproxyAfterStart(1234, "cfg-123", 0);
+    expect(result.healthy).toBe(false);
+    // 报错带上探测目标——带偏场景一眼定位（此前是笼统的 timed out）
+    expect(result.error).toContain("domain=http://localhost:3000");
+    expect(result.error).toContain("configKey=cfg-123");
   });
 });

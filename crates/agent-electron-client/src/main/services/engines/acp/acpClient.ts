@@ -235,7 +235,12 @@ export interface AcpClientSideConnection {
     cwd: string;
     mcpServers: Array<AcpMcpServer>;
     _meta?: { [key: string]: unknown } | null;
-  }): Promise<{ sessionId: string }>;
+  }): Promise<{
+    sessionId: string;
+    /** Agents MAY advertise modes / config options (claude-code, nuwaxcode). */
+    modes?: unknown;
+    configOptions?: unknown;
+  }>;
 
   /** Restores session context without replaying history (chat fallback when loadSession is unavailable). */
   resumeSession?(params: {
@@ -366,6 +371,9 @@ export type AcpSessionUpdate =
   | AcpToolCallUpdate
   | AcpSessionInfoUpdate
   | AcpUsageUpdate
+  | AcpPlanUpdate
+  | AcpPlanRemoved
+  | AcpCurrentModeUpdate
   | { sessionUpdate: string; [key: string]: unknown };
 
 export interface AcpAgentMessageChunk {
@@ -410,6 +418,32 @@ export interface AcpSessionInfoUpdate {
 
 export interface AcpUsageUpdate {
   sessionUpdate: "usage_update";
+  [key: string]: unknown;
+}
+
+/** plan / plan_update：客户端必须全量替换当前计划（spec 要求每次携带完整 entries） */
+export interface AcpPlanUpdate {
+  sessionUpdate: "plan" | "plan_update";
+  entries?: Array<{
+    content?: string;
+    priority?: string;
+    status?: string;
+    [key: string]: unknown;
+  }>;
+  [key: string]: unknown;
+}
+
+export interface AcpPlanRemoved {
+  sessionUpdate: "plan_removed";
+  [key: string]: unknown;
+}
+
+/** 引擎侧模式变化（如 ExitPlanMode 批准后切换回执行模式）。字段为 SDK 的 currentModeId */
+export interface AcpCurrentModeUpdate {
+  sessionUpdate: "current_mode_update";
+  currentModeId?: string;
+  /** 兼容防御：不合规范的 agent 可能用 modeId */
+  modeId?: string;
   [key: string]: unknown;
 }
 

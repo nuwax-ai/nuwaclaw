@@ -107,3 +107,4 @@ crates/gateway-server/.env
 
 .kilo/
 tmp/
+.zcode/
