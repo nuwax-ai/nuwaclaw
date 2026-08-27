@@ -46,6 +46,23 @@ export async function runStartupTasks(): Promise<void> {
     });
   }
 
+  // 启动诊断：打印 .env 加载的关键调试变量，验证 dotenv 链路是否通
+  {
+    const debugEnvs = [
+      "NUWAX_LOOPBACK",
+      "NUWAX_LOOPBACK_DIST",
+      "NUWAX_LOOPBACK_TARGET",
+      "NUWAX_WEBVIEW_ORIGIN",
+      "NUWACLAW_FORCE_ENGINE",
+      "INJECT_GUI_MCP",
+      "NODE_ENV",
+    ];
+    const loaded = Object.fromEntries(
+      debugEnvs.map((k) => [k, process.env[k] ?? null]),
+    );
+    log.info("[Init] Dev env vars:", JSON.stringify(loaded));
+  }
+
   // Loopback Gateway（阶段一默认 direct——不启用时仅清运行时键后静默返回；
   // step1_config.nuwaxLoadMode='gateway' 或 env NUWAX_LOOPBACK=1 启用）。
   // best-effort：失败不阻断启动（direct 形态始终可用）。
