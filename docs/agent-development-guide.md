@@ -1,0 +1,231 @@
+# AGENTS.md - Agent Development Guide
+
+## Project Overview
+
+This is the **Nuwax Agent** desktop application - a multi-engine AI assistant that works around the clock.
+
+### Core Features
+
+- **Multi-Agent Engine**: Supports claude-code and nuwaxcode
+- **Cross-Platform**: Windows, macOS, Linux
+- **Local Execution**: Runs locally with sandbox option
+- **IM Integration**: Control via Telegram, Discord, DingTalk, Feishu
+- **Persistent Memory**: Remembers user preferences
+
+---
+
+## Architecture
+
+### Process Model
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                    Electron Main Process                      │
+├─────────────────────────────────────────────────────────────┤
+│  - Window lifecycle                                         │
+│  - SQLite persistence                                      │
+│  - Engine Manager (claude-code/nuwaxcode)                  │
+│  - IM Gateways (Telegram/Discord/DingTalk/Feishu)         │
+│  - 40+ IPC handlers                                        │
+│  - Context isolation enabled, node integration disabled     │
+└─────────────────────────────────────────────────────────────┘
+                              │
+                              │ IPC
+                              ▼
+┌─────────────────────────────────────────────────────────────┐
+│                  Electron Renderer Process                   │
+├─────────────────────────────────────────────────────────────┤
+│  - React 18 + Redux Toolkit                                │
+│  - UI and business logic                                   │
+│  - Communicates via IPC only                               │
+└─────────────────────────────────────────────────────────────┘
+```
+
+---
+
+## Services
+
+### Core Services
+
+| Service | File | Description |
+|---------|------|-------------|
+| **Unified Agent** | `unifiedAgent.ts` | SDK-based agent lifecycle, MCP injection |
+| **Engine Manager** | `engineManager.ts` | Agent engine lifecycle |
+| **Shell Environment** | `shellEnv.ts` | Cross-platform shell |
+| **Workspace Manager** | `workspaceManager.ts` | Session workspaces |
+| **Dependencies** | `dependencies.ts` | Package management |
+| **MCP** | `mcp.ts` | MCP server management |
+| **Setup** | `setup.ts` | Setup wizard & auth |
+| **File Server** | `fileServer.ts` | Local file service |
+| **Lanproxy** | `lanproxy.ts` | Intranet penetration |
+| **Skills** | `skills.ts` | Skills sync |
+| **IM** | `im.ts` | Instant messaging |
+| **Scheduler** | `scheduler.ts` | Task scheduling |
+| **Permissions** | `permissions.ts` | Permission control |
+
+### Components
+
+| Component | Description |
+|-----------|-------------|
+| `SetupWizard.tsx` | 3-step setup wizard |
+| `SettingsPage.tsx` | Settings UI |
+| `AgentSettings.tsx` | Agent configuration |
+| `MCPSettings.tsx` | MCP management |
+| `LanproxySettings.tsx` | Lanproxy config |
+| `SkillsSync.tsx` | Skills sync UI |
+| `IMSettings.tsx` | IM configuration |
+| `TaskSettings.tsx` | Task settings |
+
+---
+
+## Agent Engines
+
+### Supported Engines
+
+| Engine | Command | Description |
+|--------|---------|-------------|
+| **claude-code** | `claude-code --sACP` | Default recommended |
+| **nuwaxcode** | `nuwaxcode serve --stdio` | Alternative |
+
+### Engine Isolation
+
+Each engine runs in an isolated environment with **bundled dev toolchain** injected via `getAppEnv()`:
+
+```typescript
+{
+  NUWACLAW_RUNTIME: '1',  // agent signal: skip env archaeology
+  PATH: '<bundled node/pnpm/uv/rg first, then system>',
+  PNPM_HOME: '~/.nuwaclaw/pnpm/global',
+  UV_TOOL_BIN_DIR: '~/.nuwaclaw/uv/tools/bin',
+  NODE_PATH: '~/.nuwaclaw/node_modules',
+
+  // Isolated home (Git Bash login shells read .bash_profile with full bundled PATH)
+  HOME: '/tmp/nuwax-agent-run-xxx',
+  XDG_CONFIG_HOME: '/tmp/.../.config',
+  CLAUDE_CONFIG_DIR: '/tmp/.../.claude',
+  NUWAXCODE_CONFIG_DIR: '/tmp/.../.nuwaxcode',
+  ANTHROPIC_API_KEY: 'xxx',
+  ANTHROPIC_BASE_URL: 'xxx',
+}
+```
+
+**Development agents** running inside NuWaClaw (even with sandbox disabled): when `NUWACLAW_RUNTIME=1`, use `pnpm` / `node` / `uv` / toolkit scripts directly — do not probe `which node` or manually construct paths.
+
+Data root directory: `~/.nuwaclaw/` (not `~/.nuwax-agent/` in older docs).
+
+---
+
+## Dependencies
+
+### Required Dependencies
+
+| Dependency | Type | Description |
+|------------|------|-------------|
+| **uv** | bundled | Python package manager (>=0.5.0), shipped in extraResources |
+| **nuwax-file-server** | npm-local | File service |
+| **nuwaxcode** | npm-local | Agent engine |
+| **@nuwax-ai/mcp-proxy-ts** | npm-local | MCP protocol aggregation proxy |
+
+### Installation Locations
+
+```
+~/.nuwax-agent/
+├── engines/           # Agent engines
+├── workspaces/       # Session workspaces
+├── node_modules/    # Local npm packages
+│   ├── .bin/        # Executable symlinks (injected into PATH)
+│   └── mcp-servers/ # MCP servers (isolated)
+├── bin/              # App binaries
+├── logs/             # Application logs
+└── nuwax-agent.db   # SQLite database
+```
+
+> **Note**: All data is stored under `~/.nuwax-agent/`. The Electron `app.getPath('userData')` path is NOT used.
+
+---
+
+## Session & Workspace
+
+### Rule
+
+- **One Session = One Workspace**
+- Workspace directory is **user-specified**
+- Each session has independent configuration
+
+### Workflow
+
+```
+User creates session
+    │
+    └── Specify workspace directory
+        │
+        └── Validate directory
+            │
+            └── Save to config
+                │
+                └── Engine uses this directory
+```
+
+---
+
+## Development
+
+### Commands
+
+```bash
+# Install dependencies
+npm install
+
+# Development
+npm run electron:dev
+
+# Build
+npm run build
+
+# Package
+npm run dist:mac    # macOS
+npm run dist:win    # Windows
+npm run dist:linux  # Linux
+```
+
+### Project Structure
+
+```
+nuwax-agent/
+├── crates/
+│   ├── agent-electron-client/  # Electron client
+│   ├── agent-gui-server/       # GUI agent server (Node.js)
+│   └── @nuwax-ai/mcp-proxy-ts/  # MCP proxy (Node.js)
+│
+├── docs/                      # Documentation
+├── scripts/                   # Build scripts
+└── CHANGELOG.md              # Version history
+```
+
+---
+
+## Key Files
+
+- `src/main/main.ts` - Electron main process
+- `src/main/preload.ts` - Preload script
+- `src/App.tsx` - React root
+- `src/services/` - All services
+- `src/components/` - All components
+
+---
+
+## API Keys
+
+Store sensitive configuration in SQLite, not in code:
+
+- `anthropic_api_key` - Claude API key
+- `default_model` - Default model
+- `server_host` - Backend server
+
+---
+
+*Last updated: 2026-02-23*
+
+---
+
+> 迁移说明：本文原为仓库根部的 CLAUDE.md/AGENTS.md（两份逐字节重复）。2026-08-27 按 AI Native SDLC Playbook「CLAUDE.md 保持一页」纪律降级为详细参考指南，根部入口只保留一页地图并指向本文件。内容自此在此单源维护。

@@ -1,0 +1,18 @@
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Read|Edit|Write|MultiEdit|NotebookEdit|Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node .claude/hooks/guard-paths.mjs"
+          }
+        ]
+      }
+    ]
+  },
+  "permissions": {
+    "deny": ["Read(**/.env)", "Read(**/.env.*)", "Read(**/*.pem)", "Read(**/*.pfx)", "Read(**/*.p12)"]
+  }
+}
