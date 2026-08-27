@@ -139,6 +139,33 @@ describe("loopbackGateway runtime key carries backend", () => {
 
     expect(mocks.sendSpy).not.toHaveBeenCalled();
   });
+
+  it("notifies renderer on domain change in DIRECT mode too (backend in disabled key)", async () => {
+    mocks.store.set("step1_config", {
+      nuwaxLoadMode: "direct",
+      serverHost: "https://a.example.com",
+    });
+    const mod = await importFresh();
+    await mod.ensureLoopbackGateway();
+    expect(mocks.sendSpy).not.toHaveBeenCalled();
+    // direct 模式下 backend 仍随键携带——域名变更可触发 webview 重载
+    expect(mocks.store.get("nuwax.loopback")).toMatchObject({
+      enabled: false,
+      backend: "https://a.example.com",
+    });
+
+    mocks.store.set("step1_config", {
+      nuwaxLoadMode: "direct",
+      serverHost: "https://b.example.com",
+    });
+    await mod.refreshLoopbackGateway();
+
+    expect(mocks.sendSpy).toHaveBeenCalledTimes(1);
+    expect(mocks.store.get("nuwax.loopback")).toMatchObject({
+      enabled: false,
+      backend: "https://b.example.com",
+    });
+  });
 });
 
 describe("syncWebviewOverrideFromEnv (NUWAX_WEBVIEW_ORIGIN)", () => {

@@ -185,7 +185,12 @@ export async function ensureLoopbackGateway(): Promise<
 > {
   if (running) return running;
   if (!isLoopbackGatewayEnabled()) {
-    writeSetting(LOOPBACK_RUNTIME_KEY, { enabled: false, origin: null });
+    // backend 随键携带：direct 模式下域名变更也触发 renderer 重载 webview
+    writeSetting(LOOPBACK_RUNTIME_KEY, {
+      enabled: false,
+      origin: null,
+      backend: resolveBackendOrigin(),
+    });
     return undefined;
   }
   let distMode = isDistModeEnabled();
@@ -196,7 +201,11 @@ export async function ensureLoopbackGateway(): Promise<
       log.info(
         `[LoopbackGateway] 目标为本地 dev server（${targetOrigin}），跳过网关——webview 直连`,
       );
-      writeSetting(LOOPBACK_RUNTIME_KEY, { enabled: false, origin: null });
+      writeSetting(LOOPBACK_RUNTIME_KEY, {
+        enabled: false,
+        origin: null,
+        backend: resolveBackendOrigin(),
+      });
       return undefined;
     }
     if (distDirAvailable()) {
@@ -211,7 +220,11 @@ export async function ensureLoopbackGateway(): Promise<
       log.info(
         `[LoopbackGateway] 目标为本地 dev server（${targetOrigin}）且不在线、dist 未就绪——webview 直连（等待 nuwax dev server）`,
       );
-      writeSetting(LOOPBACK_RUNTIME_KEY, { enabled: false, origin: null });
+      writeSetting(LOOPBACK_RUNTIME_KEY, {
+        enabled: false,
+        origin: null,
+        backend: resolveBackendOrigin(),
+      });
       return undefined;
     }
   }
@@ -260,7 +273,11 @@ export async function ensureLoopbackGateway(): Promise<
     return running;
   } catch (e) {
     log.warn("[LoopbackGateway] start failed (non-fatal):", e);
-    writeSetting(LOOPBACK_RUNTIME_KEY, { enabled: false, origin: null });
+    writeSetting(LOOPBACK_RUNTIME_KEY, {
+      enabled: false,
+      origin: null,
+      backend: resolveBackendOrigin(),
+    });
     return undefined;
   }
 }
