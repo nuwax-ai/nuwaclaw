@@ -202,6 +202,22 @@ export class AcpPermissionCoordinator {
     // ④ agent_mode 默认行为
     const effectiveMode = this.getEffectiveMode(acpSessionId);
 
+    // switch_mode（ExitPlanMode）永不走 yolo 默认放行：退出 plan 是会话档位跃迁，
+    // 必须人工点头。否则 plan 会话内一次新 chat 的档位同步（业务档 yolo）即可无声
+    // 拆除审批保护，且自动选中的首个 allow_always 恰为 bypassPermissions（实测见
+    // 2026-08-28 会话 881850d4：第二次 ExitPlanMode 4ms 内自动批准并切 bypass）。
+    // 显式 tool_approval_rules 配置的 allow（③）不受此限——那是有意的平台级规则。
+    if (
+      params.toolCall.kind === "switch_mode" &&
+      effectiveMode === "yolo" &&
+      ruleAction !== "ask"
+    ) {
+      log.info(
+        `${this.logTag} switch_mode (ExitPlanMode) forces manual approval despite yolo mode: tool=${params.toolCall.title}`,
+      );
+      return { kind: "ask" };
+    }
+
     // ruleAction === "ask" 时强制走审批流程，忽略 yolo 默认放行
     if (effectiveMode === "yolo" && ruleAction !== "ask") {
       const strictWriteMode = strictEnabled && strictCheck.isWriteRequest;

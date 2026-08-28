@@ -88,6 +88,30 @@ describe("AcpPermissionCoordinator.evaluate", () => {
     });
   });
 
+  it("yolo 档下 switch_mode（ExitPlanMode）强制人工审批，不自动选 bypassPermissions", () => {
+    const c = new AcpPermissionCoordinator("[test]");
+    const decision = c.evaluate(
+      makeRequest({
+        kind: "switch_mode",
+        title: "Ready to code?",
+        options: [
+          {
+            optionId: "bypassPermissions",
+            kind: "allow_always",
+            name: "Yes, and bypass permissions",
+          },
+          {
+            optionId: "plan",
+            kind: "reject_once",
+            name: "No, keep planning",
+          },
+        ],
+      }),
+      makeCtx(),
+    );
+    expect(decision).toEqual({ kind: "ask" });
+  });
+
   it("ask 模式返回 ask", () => {
     const c = new AcpPermissionCoordinator("[test]");
     c.setEffectiveMode(SESSION, "ask");
@@ -187,6 +211,31 @@ describe("AcpPermissionCoordinator.evaluate", () => {
       c.setSessionApprovalRules(SESSION, [{ patterns: ["*"], action: "ask" }]);
       const decision = c.evaluate(makeRequest(), makeCtx());
       expect(decision).toEqual({ kind: "ask" });
+    });
+
+    it("显式 allow 规则命中时 switch_mode 仍放行（平台级有意配置，绕过档位保护）", () => {
+      const c = new AcpPermissionCoordinator("[test]");
+      c.setSessionApprovalRules(SESSION, [{ patterns: ["*"], action: "allow" }]);
+      const decision = c.evaluate(
+        makeRequest({
+          kind: "switch_mode",
+          title: "Ready to code?",
+          options: [
+            {
+              optionId: "bypassPermissions",
+              kind: "allow_always",
+              name: "Yes, and bypass permissions",
+            },
+            { optionId: "plan", kind: "reject_once", name: "No, keep planning" },
+          ],
+        }),
+        makeCtx(),
+      );
+      expect(decision).toEqual({
+        kind: "select",
+        optionId: "bypassPermissions",
+        reason: "tool_approval_rules_allow",
+      });
     });
 
     it("规则未命中时回落 agent_mode 默认行为", () => {
