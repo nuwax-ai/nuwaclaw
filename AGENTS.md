@@ -47,3 +47,9 @@ git tag electron-v{x.y.z}  && git push origin electron-v{x.y.z}      # stable：
 - 秘钥拦截由 `.claude/hooks/guard-paths.mjs` 强制（PreToolUse，exit 2 = 拒绝）：`.env*`（example 豁免）、`*.pem/key`、`*credential*` 等，含 Bash 打印类命令；openssl 构建树（`.ttyd-build/`）的测试证书已豁免防误报。
 - ⚠️ 已知政策隐患：`crates/agent-electron-client/.env.production` 目前被 git 跟踪。动它前确认里面没有真实凭证，清理须走人工评审而非顺手提交。
 - 规则文件自身（本文件 = 唯一正文，`CLAUDE.md` 只是 @ 指针，docs/ 指南为详细层）按代码评审流程改动即可，无额外锁。
+
+### 非 Claude Code agent 兼容
+
+- 本文件、`templates/`、`REVIEW.md`、skills 正文全是纯 markdown：codex / opencode / cursor 等**直接读即可**；需要某条流程时让 agent `cat .claude/skills/<name>/SKILL.md` 照做。
+- 强制机制差异：PreToolUse hooks（guard-paths / plan-gate）仅 Claude Code 执行；但本仓地板层在三仓里最厚——husky pre-commit 全量 electron 套件 + pr.yml CI 对所有 agent 一视同仁，护栏下沉时优先扩这两处而非另起炉灶。
+- verifier 等价物：任何 agent 跑 `npm run test:electron` 按 verifier 的报告格式贴结论即可，不必有子代理机制。
