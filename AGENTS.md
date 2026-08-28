@@ -1,7 +1,7 @@
 # Nuwaclaw 客户端 · Agent 速览
 
 > 一页入口。详细开发指南（架构图/进程模型/IPC/引擎细节）见 **[docs/agent-development-guide.md](docs/agent-development-guide.md)**，需要时再读，不必全文加载。
-> 本文件与 `AGENTS.md` 内容保持同步——改其中一份必须同步另一份；正文单源在 docs/。
+> 单一事实源：**本文件是正文**；根 `CLAUDE.md` 仅一行 `@AGENTS.md` 导入。改规则只动这里+docs/，勿再复制出第二份。
 
 ## 项目一句话
 
@@ -12,12 +12,21 @@
 ```bash
 pnpm install                                   # 根安装（postinstall 会先构建 @nuwax-ai/agent-kit）
 npm run test:electron                          # 全量测试（= 进 electron crate 跑 vitest run）
-cd crates/agent-electron-client && npm run dev        # 本地开发（vite + electron 双进程）
+make electron-dev                              # ⭐ 本地调试启动（自动 electron-prepare + prepare:all + 清 vite 缓存——调试别绕过它直接 npm run dev）
 cd crates/agent-electron-client && npm run build       # 生产构建（main esbuild + renderer vite）
-cd crates/agent-electron-client && npm run test:run   # 仅测试
 cd crates/windows-sandbox-helper && cargo check       # Rust 面检查
-make sidecar-download-all                      # 外置依赖 sidecar（见 Makefile help）
+make help                                      # 其余目标速查（sidecar-* 等）
 ```
+
+## 发布（打 tag 即打包，GitHub Actions 全平台）
+
+```bash
+git tag prerelease-v{x.y.z} && git push origin prerelease-v{x.y.z}   # beta：Draft Release → 同步阿里云 OSS → 更新 beta/latest.json
+git tag electron-v{x.y.z}  && git push origin electron-v{x.y.z}      # stable：正式版 GitHub Release
+```
+
+- **beta 前置两件事缺一不发**：nuwaxcode GitHub Release 已就绪（如 v1.2.1）、`release-notes/prerelease-v{x.y.z}.md` 备好。
+- **tag 空间隔离**：Electron 客户端独占 `electron-v*` / `prerelease-v*`，不与 Tauri 客户端共用裸 `v*`（见 release-electron.yml 头注）。
 
 ## 目录地图
 
@@ -33,6 +42,8 @@ make sidecar-download-all                      # 外置依赖 sidecar（见 Make
 ## 工作纪律
 
 - Claude **同一处错两次**，纠正写进本文件。
+- 需求→规格→计划走 skills 链：`requirement-analysis`（产出 `templates/intent.md` → `plans/*-intent.md`）→ `grill-with-docs`（→ `specs/<slug>.md`）→ Plan mode（→ `plans/*-plan.md`）才动 src；PR 评审对照根目录 `REVIEW.md` 五遍清单。
+- 源码首改会被 `.claude/hooks/plan-gate.mjs` 追问一次计划工件（同会话只问一次；`NUWACLAW_SKIP_PLAN_GATE=1` 可停用）。
 - 秘钥拦截由 `.claude/hooks/guard-paths.mjs` 强制（PreToolUse，exit 2 = 拒绝）：`.env*`（example 豁免）、`*.pem/key`、`*credential*` 等，含 Bash 打印类命令；openssl 构建树（`.ttyd-build/`）的测试证书已豁免防误报。
 - ⚠️ 已知政策隐患：`crates/agent-electron-client/.env.production` 目前被 git 跟踪。动它前确认里面没有真实凭证，清理须走人工评审而非顺手提交。
-- 规则文件自身（本文件/AGENTS.md/docs 指南）按代码评审流程改动即可，无额外锁。
+- 规则文件自身（本文件 = 唯一正文，`CLAUDE.md` 只是 @ 指针，docs/ 指南为详细层）按代码评审流程改动即可，无额外锁。
