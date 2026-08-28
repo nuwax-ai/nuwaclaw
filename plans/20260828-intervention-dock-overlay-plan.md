@@ -28,5 +28,5 @@
 
 ## 后续项
 
-- 遮罩 aria 语义（role/aria-modal + 焦点管理评估）
+- ~~遮罩 aria 语义（role/aria-modal + 焦点管理评估）~~ → 已完成（nuwax a8c32f05c / 主仓 11166750）：role=dialog + aria-modal + aria-label（五语言）+ useInterventionDialogFocus（焦点入卡、Tab 循环、关闭还原），组件测试 5/5、门禁 328/328
 - E2E `verify:conversation` 合入前可选
