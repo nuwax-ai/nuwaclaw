@@ -2218,3 +2218,148 @@ describe("AcpEngine isolated HOME destroy", () => {
     expect(fs.existsSync(ephemeralHome)).toBe(false);
   });
 });
+
+describe("AcpEngine switch_mode 批准后 ACP 生效确认", () => {
+  const PLAN_REQUEST = {
+    toolCall: {
+      toolCallId: "tc-exit-plan",
+      kind: "switch_mode",
+      title: "实施计划",
+      status: "pending",
+    },
+    options: [
+      { optionId: "auto", kind: "allow_always", name: 'Yes, and use "auto"' },
+      { optionId: "acceptEdits", kind: "allow_always", name: "Yes, auto-accept" },
+      { optionId: "default", kind: "allow_once", name: "Yes, manually approve" },
+      { optionId: "plan", kind: "reject_once", name: "No, keep planning" },
+    ],
+  };
+
+  function setupPlanSession() {
+    const { engine, sessionId, session } = setupEngine("claude-code");
+    (session as any).engineModes = {
+      availableModes: [{ id: "default" }, { id: "plan" }],
+      currentModeId: "default",
+      source: "modes",
+    };
+    (session as any).acpEngineModeId = "plan";
+    const acpConnection = (engine as any).acpConnection;
+    acpConnection.setSessionMode = vi.fn().mockResolvedValue({});
+    // 缩短确认窗口（默认 1500ms）
+    (engine as any).planExitConfirmWindowMs = 60;
+    (engine as any).planExitConfirmPollMs = 10;
+    (engine as any).setEffectiveMode(sessionId, "ask");
+    return { engine, sessionId, setSessionMode: acpConnection.setSessionMode };
+  }
+
+  it("引擎自发 current_mode_update 退出 plan：确认日志路径，不重复 set_mode", async () => {
+    const { engine, sessionId, setSessionMode } = setupPlanSession();
+    const responsePromise = (engine as any).handlePermissionRequest({
+      sessionId,
+      ...PLAN_REQUEST,
+    });
+
+    (engine as any).resolvePermissionIntervention({
+      permission_resolve_request: {
+        request_permission_response: {
+          outcome: { Selected: { option_id: "default" } },
+        },
+        session_id: sessionId,
+        tool_call_id: "tc-exit-plan",
+      },
+    });
+
+    // 引擎自切（claude 批准后广播 current_mode_update）→ 镜像离开 plan
+    (engine as any).handleAcpSessionUpdate(sessionId, {
+      sessionUpdate: "current_mode_update",
+      currentModeId: "default",
+    });
+
+    await expect(responsePromise).resolves.toEqual({
+      outcome: { outcome: "selected", optionId: "default" },
+    });
+    // 等过确认窗口：镜像已离开 plan → 不应触发兜底 set_mode
+    await new Promise((resolve) => setTimeout(resolve, 150));
+    expect(setSessionMode).not.toHaveBeenCalled();
+  });
+
+  it("引擎无自发信号：超时后主动 set_mode 恢复初始档", async () => {
+    const { engine, sessionId, setSessionMode } = setupPlanSession();
+    const responsePromise = (engine as any).handlePermissionRequest({
+      sessionId,
+      ...PLAN_REQUEST,
+    });
+
+    (engine as any).resolvePermissionIntervention({
+      permission_resolve_request: {
+        request_permission_response: {
+          outcome: { Selected: { option_id: "default" } },
+        },
+        session_id: sessionId,
+        tool_call_id: "tc-exit-plan",
+      },
+    });
+
+    await expect(responsePromise).resolves.toEqual({
+      outcome: { outcome: "selected", optionId: "default" },
+    });
+    // 无 current_mode_update → 窗口超时后兜底恢复进入 plan 前的初始档
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    expect(setSessionMode).toHaveBeenCalledWith({
+      sessionId,
+      modeId: "default",
+    });
+    expect((engine as any).sessions.get(sessionId).acpEngineModeId).toBe(
+      "default",
+    );
+  });
+
+  it("拒绝（继续完善计划）与非 switch_mode 批准不触发确认逻辑", async () => {
+    const { engine, sessionId, setSessionMode } = setupPlanSession();
+
+    // 拒绝：留在 plan
+    const rejectPromise = (engine as any).handlePermissionRequest({
+      sessionId,
+      ...PLAN_REQUEST,
+    });
+    (engine as any).resolvePermissionIntervention({
+      permission_resolve_request: {
+        request_permission_response: {
+          outcome: { Selected: { option_id: "plan" } },
+        },
+        session_id: sessionId,
+        tool_call_id: "tc-exit-plan",
+      },
+    });
+    await rejectPromise;
+
+    // 非 switch_mode 批准
+    const editPromise = (engine as any).handlePermissionRequest({
+      sessionId,
+      toolCall: {
+        toolCallId: "tc-edit",
+        kind: "edit",
+        title: "Edit file",
+      },
+      options: [
+        { optionId: "allow-once", kind: "allow_once", name: "allow once" },
+        { optionId: "reject-once", kind: "reject_once", name: "reject" },
+      ],
+    });
+    (engine as any).resolvePermissionIntervention({
+      permission_resolve_request: {
+        request_permission_response: {
+          outcome: { Selected: { option_id: "allow-once" } },
+        },
+        session_id: sessionId,
+        tool_call_id: "tc-edit",
+      },
+    });
+    await editPromise;
+
+    await new Promise((resolve) => setTimeout(resolve, 150));
+    expect(setSessionMode).not.toHaveBeenCalled();
+    // 拒绝后引擎仍处 plan
+    expect((engine as any).sessions.get(sessionId).acpEngineModeId).toBe("plan");
+  });
+});

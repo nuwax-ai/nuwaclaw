@@ -111,8 +111,10 @@ import { perfEmitter } from "../perf/perfEmitter";
 import { firstTokenTrace } from "../perf/firstTokenTrace";
 import { resolveEffectiveMode, type AcpMode } from "@shared/types/acpMode";
 import {
+  applySessionMode,
   buildClientCapabilities,
   resolveEngineModeInfo,
+  resolvePlanModeId,
   syncBusinessModeToEngine,
   type ConfigOptionLike,
   type EngineModeInfo,
@@ -2644,7 +2646,95 @@ export class AcpEngine extends EventEmitter {
       timestamp: new Date().toISOString(),
     });
 
+    // switch_mode（ExitPlanMode）批准后确认引擎确实退出 plan（ACP 生效确认）：
+    // claude 类引擎批准后自切并广播 current_mode_update（等待镜像离开 plan 即确认）；
+    // 仅存状态的引擎（如 deepagents）无自发信号，短窗超时后主动 set_mode 恢复
+    // 进入 plan 前的初始引擎档。fire-and-forget，不阻塞审批响应。
+    if (params.toolCall.kind === "switch_mode") {
+      void acpResponsePromise
+        .then((response) => {
+          if (response.outcome.outcome !== "selected") {
+            return undefined;
+          }
+          const selectedOptionId = response.outcome.optionId;
+          const selected = params.options.find(
+            (option) => option.optionId === selectedOptionId,
+          );
+          if (!selected || selected.kind.startsWith("reject")) {
+            return undefined;
+          }
+          return this.confirmPlanExitAfterApproval(acpSessionId, params);
+        })
+        .catch(() => {});
+    }
+
     return acpResponsePromise;
+  }
+
+  /** 批准后确认窗口：镜像离开 plan 的轮询参数（单测可缩短） */
+  private planExitConfirmWindowMs = 1500;
+  private planExitConfirmPollMs = 100;
+
+  /**
+   * switch_mode 批准后的引擎退出确认。绝不在窗口内与引擎自切并行 set_mode——
+   * 仅当超时未见 current_mode_update 时才兜底恢复，避免覆盖用户选择的批准档。
+   */
+  private async confirmPlanExitAfterApproval(
+    acpSessionId: string,
+    request: AcpPermissionRequest,
+  ): Promise<void> {
+    const session = this.sessions.get(acpSessionId);
+    if (!session) {
+      return;
+    }
+    const planModeId = resolvePlanModeId(
+      session.engineModes?.availableModes ?? [],
+    );
+    if (!planModeId) {
+      return;
+    }
+
+    const deadline = Date.now() + this.planExitConfirmWindowMs;
+    while (Date.now() < deadline) {
+      if (session.acpEngineModeId !== planModeId) {
+        log.info(
+          `${this.logTag} engine plan exit confirmed via current_mode_update: ${session.acpEngineModeId} (tool=${request.toolCall.title ?? ""})`,
+        );
+        return;
+      }
+      await new Promise((resolve) =>
+        setTimeout(resolve, this.planExitConfirmPollMs),
+      );
+    }
+
+    const initialModeId = session.engineModes?.currentModeId;
+    const restoreId =
+      initialModeId && initialModeId !== planModeId
+        ? initialModeId
+        : (session.engineModes?.availableModes.find(
+            (mode) => mode.id !== planModeId,
+          )?.id ?? null);
+    if (!restoreId || !this.acpConnection) {
+      log.warn(
+        `${this.logTag} engine still in plan after approval but no restore target available (tool=${request.toolCall.title ?? ""})`,
+      );
+      return;
+    }
+    const outcome = await applySessionMode({
+      sessionId: acpSessionId,
+      modeId: restoreId,
+      connection: this.acpConnection,
+    });
+    if (outcome.status === "applied") {
+      session.acpEngineModeId = restoreId;
+      log.info(
+        `${this.logTag} engine still in plan after approval; forced restore to ${restoreId} (via ${outcome.via})`,
+      );
+    } else {
+      log.warn(
+        `${this.logTag} engine plan exit restore failed: ${outcome.status} (${outcome.reason})`,
+      );
+    }
   }
 
   resolvePermissionIntervention(

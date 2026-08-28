@@ -119,6 +119,12 @@ RFD/v2 将 `plan_update` 定义为 `{plan: {id, type: "items"|"file"|"markdown",
 
 `switch_mode` 类 request_permission 走既有 `handlePermissionRequest` → 决策链（MCP-ask 拒绝 → strict 守卫 → tool_approval_rules → ask/yolo）→ `acpRequestPermission` SSE → nuwax `AcpPermissionCard`。plan 会话因本地折算为 ask，必弹审批。
 
+**ExitPlanMode 审批简化与生效确认（2026-08-28）**：
+
+- nuwax 卡片对 `switch_mode` 折叠为**单「批准」项**（规范 yes optionId 优先 `allow_once`，与 ask 语义一致）+ **计划修订输入框**——修订文本提交 = 应答「继续完善计划」（reject 项）+ 文本经 MCP-Ask resume 先例作为新消息发出（业务档保持 plan，agent 继续修订）。
+- 批准后业务档位回写：nuwax 在切 plan 时 stash 切换前档位（`nuwax_agent_mode_cache.previousModes`），批准后回写 previousMode（无记录按选项语义/ask 兜底）——防"批准完下一轮 chat 又把引擎推回 plan"。
+- nuwaclaw 主进程批准点**ACP 生效确认**（`confirmPlanExitAfterApproval`）：switch_mode 批准响应后等 `current_mode_update` 镜像离开 plan（短窗 1.5s）即确认；超时（deepagents 类不自切引擎）主动 `applySessionMode` 恢复进入 plan 前的初始引擎档（`engineModes.currentModeId`）。绝不在窗口内与引擎自切并行 set_mode。
+
 ---
 
 ## 5. nuwax 子模块（UI，随 nuwaclaw pin bump 发布）
