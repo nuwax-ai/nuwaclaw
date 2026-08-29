@@ -115,24 +115,88 @@ RFD/v2 将 `plan_update` 定义为 `{plan: {id, type: "items"|"file"|"markdown",
 - 新增 4 个 case：`plan`/`plan_update` → `message.part.updated {type:"plan", entries}`（经 `normalizePlanEntries`，全量替换语义）；`plan_removed` → `message.part.removed`；`current_mode_update` → `session.updated {modeId}`。
 - `AcpClientSideConnection.newSession` 返回类型放宽为可携带 `modes` / `configOptions`（SDK 实际透传完整 RPC 结果）；新增本地类型 `AcpPlanUpdate` / `AcpPlanRemoved` / `AcpCurrentModeUpdate`（`currentModeId` 为主、`modeId` 防御）。
 
-### 4.4 权限链路（复用，零新面）
+### 4.4 ExitPlanMode 完整生命周期（2026-08-28 定稿）
 
 `switch_mode` 类 request_permission 走既有 `handlePermissionRequest` → 决策链（MCP-ask 拒绝 → strict 守卫 → tool_approval_rules → ask/yolo）→ `acpRequestPermission` SSE → nuwax `AcpPermissionCard`。plan 会话因本地折算为 ask，必弹审批。
 
-**ExitPlanMode 审批简化与生效确认（2026-08-28）**：
+#### 时序总览
 
-- nuwax 卡片对 `switch_mode` 折叠为**单「批准」项**（规范 yes optionId 优先 `allow_once`，与 ask 语义一致）+ **计划修订输入框**——修订文本提交 = 应答「继续完善计划」（reject 项）+ 文本经 MCP-Ask resume 先例作为新消息发出（业务档保持 plan，agent 继续修订）。
-- 批准后业务档位回写：nuwax 在切 plan 时 stash 切换前档位（`nuwax_agent_mode_cache.previousModes`），批准后回写 previousMode（无记录按选项语义/ask 兜底）——防"批准完下一轮 chat 又把引擎推回 plan"。
-- nuwaclaw 主进程批准点**ACP 生效确认**（`confirmPlanExitAfterApproval`）：switch_mode 批准响应后等 `current_mode_update` 镜像离开 plan（短窗 1.5s）即确认；超时（deepagents 类不自切引擎）主动 `applySessionMode` 恢复进入 plan 前的初始引擎档（`engineModes.currentModeId`）。绝不在窗口内与引擎自切并行 set_mode。
+```
+用户切 plan 档                    nuwax 前端
+  │ setAgentMode('plan')          │ stash previousMode = 切换前档位
+  │                               │（nuwax_agent_mode_cache.previousModes）
+  ▼
+chat 请求（agent_mode=plan）       nuwaclaw 主进程
+  │ syncSessionModeForChat        │ 本地审批折算为 ask
+  │ syncEngineSessionModeForChat  │ 引擎下发 set_mode("plan")
+  ▼
+引擎进入 plan 模式                 agent（claude/nuwaxcode/...）
+  │ TodoWrite → plan 条目         │ 全量 PlanEntry 经 SSE 透传
+  ▼
+模型调 ExitPlanMode               agent
+  │ request_permission            │ kind=switch_mode, options=default/acceptEdits/
+  ▼                               │   auto/plan(≈keep planning)
+nuwax 审批卡（简化视图）            nuwax 前端
+  │ ┌─────────────────────────┐  │
+  │ │ 1  批准，退出计划模式    │  │  ← 单「批准」项
+  │ │    并开始实施。          │  │
+  │ │ [如需修改计划，请输入…]  │  │  ← 修订输入框
+  │ │         [忽略]  [确认]  │  │
+  │ └─────────────────────────┘  │
+  ▼
+用户操作（三选一）                 nuwax → nuwaclaw → agent
+  │
+  ├─ ① 点批准/空文字确认
+  │    → 应答 allow_once optionId（claude 的 default=手动审批编辑）
+  │    → 业务档位回写 previousMode（无记录按选项语义/ask 兜底）
+  │    → 主进程 confirmPlanExitAfterApproval：
+  │        等 current_mode_update 镜像离开 plan（claude 自切，~1.5s）
+  │        超时 → 主动 applySessionMode 恢复初始引擎档（deepagents 类）
+  │    → toast "Agent 引擎模式已切换"
+  │
+  ├─ ② 输入修订文字 + 确认
+  │    → 应答 reject 项（plan=继续完善计划）
+  │    → 文本作为新聊天消息发出（MCP-Ask resume 先例）
+  │    → 业务档位保持 plan，agent 在 plan 模式修订计划
+  │
+  └─ ③ 忽略/Esc
+       → 应答 reject 项，无消息发出，留在 plan
+```
+
+#### 代码落点
+
+| 层 | 文件 | 要点 |
+|---|---|---|
+| nuwax 卡片 | `AcpPermissionCard/index.tsx` | `isSwitchMode` 时折叠为单批准项（`approveOption` 优先 `allow_once`）+ 修订输入框（`revisionText` state）；`handlePlanSubmit`：有文字 → reject + `extras.revisionText`；空文字 → allow_once |
+| nuwax 响应层 | `useAgentInterventionLayer.ts` | `setAgentMode('plan')` 时 `writeAgentModeCache(mode, agentId, {previousMode: 切换前})`；`handleRespondAcpPermission` 增加 `extras` 参数：`revisionText` → `onSendMessage(text)`（MCP-Ask resume 先例）；`syncAgentModeFromSwitchMode` 批准时 `apply(previousMode ?? 选项语义 ?? 'ask')` |
+| nuwax 缓存 | `useAgentInterventionLayer.ts` | `AgentModeCacheObject` 新增 `previousModes: Record<agentId, AgentMode>`；`readAgentModePreviousMode(agentId)` 导出读取；切离 plan 清除记录 |
+| nuwax 透传链 | `DockPanel.tsx` + `AgentInterventionChatLayer/index.tsx` | `onRespondAcpPermission` 签名增加第三参数 `extras?: AcpPermissionRespondExtras`（`{revisionText?: string}`），逐层透传 |
+| nuwaclaw 确认 | `acpEngine.ts` `confirmPlanExitAfterApproval` | fire-and-forget，挂在 `handlePermissionRequest` 的 `acpResponsePromise.then()` 上；planExitConfirmWindowMs=1500 / planExitConfirmPollMs=100（单测可缩短） |
+| nuwaclaw 镜像 | `acpEngine.ts` `handleAcpSessionUpdate` | `current_mode_update` → `session.acpEngineModeId` 更新（`currentModeId ?? modeId` 双读） |
+
+#### 关键设计决策
+
+1. **修订文本走消息通道**（权限协议线上只传 option_id，文本不走该协议）——复用 MCP-Ask 的 resume 先例：`respondMcpAsk → onSendMessage(text)`，新消息自然带当前业务档 plan 下发，agent 收到后在 plan 模式继续修订。不扩展 computer/notify-resolved 协议。
+
+2. **previousMode 优先于选项语义**——用户"切 plan 前是 yolo"批准后应回 yolo（而不是硬编码回 ask）；只有无记录（旧版缓存/初始即 plan）才按选项语义折算（default→ask 等），最终兜底 ask。
+
+3. **批准点生效确认不等下一轮 chat**——`confirmPlanExitAfterApproval` 在权限响应后立即启动：
+   - **claude 引擎自切**：批准后 adapter 自己 `setPermissionMode` + 广播 `current_mode_update` → 客户端镜像更新 → 确认即完成（不发 set_mode）。
+   - **仅存状态引擎**（deepagents 类 set_mode 只存变量）：无自发 `current_mode_update` → 窗口超时 → 主动 `applySessionMode` 恢复 `engineModes.currentModeId`（进入 plan 前缓存的初始引擎档，兜底首个非 plan 档）。
+   - **绝不并行 set_mode**：窗口内只等不发，避免覆盖引擎自切（如用户在 claude 选项里选了 acceptEdits/auto 而非 default）。
+
+4. **下一轮 chat 的 syncEngineSessionModeForChat 兜底保留**——与批准点确认互补（若确认路径因连接闪断失败，下一轮 chat 仍会按业务档位重新对齐引擎档）。
 
 ---
 
 ## 5. nuwax 子模块（UI，随 nuwaclaw pin bump 发布）
 
 - **三档切换**：`AgentIntervention/types/acpIntervention.ts` `AgentMode = 'ask' | 'yolo' | 'plan'`；`useAgentInterventionLayer` 的 `isAgentMode` 接受 plan（缓存 key `nuwax_agent_mode_cache` 向后兼容）；两处输入组件（`components/ChatInputHome` 与 `UnifiedChatSession/.../ChatInputHomeIndependent`）的 `AGENT_MODE_OPTIONS` / i18n 映射加 plan 档；5 个语言包新增 `agentModePlan(Desc)` 与 `PC.Pages.AppDevChat.agentModeChanged`。
+- **previousMode stash**（`useAgentInterventionLayer.ts`）：切到 plan 时在 `nuwax_agent_mode_cache` 的 `previousModes[agentId]` 记录切换前档位；切离 plan / 批准退出后清除——批准回写时读 `readAgentModePreviousMode(agentId)` 优先于选项语义。
+- **ExitPlanMode 审批简化**（`AcpPermissionCard/index.tsx`，2026-08-28）：`toolCall.kind==='switch_mode'` 时折叠为单「批准」项（`approveOption` 优先 `allow_once`）+ 修订输入框（`Input.TextArea`）；有文字提交 = 应答 reject 项 + `extras.revisionText`（响应层经 `onSendMessage` 发新消息）；空文字/点批准项 = 应答 `allow_once` optionId。响应链路（DockPanel → ChatLayer → useAgentInterventionLayer）增加 `extras` 参数透传。
 - **PLAN 数据对齐**（`hooks/useAppDevChat.ts` + `types/interfaces/appDev.ts`）：枚举新增 `PLAN_UPDATE` / `PLAN_REMOVED` / `CURRENT_MODE_UPDATE`；`plan`/`plan_update` → `upsertPlanBlock`（同 planId 全量替换）；`plan_removed` → `removePlanBlocks`；`current_mode_update` → antd toast（双读字段）。
 - **markdown 块语义**（`pages/AppDev/utils/markdownProcess.ts`）：`upsertPlanBlock` 按 planId 解码替换旧 `<appdev-plan>` 块（TodoWrite 高频全量更新不再堆叠卡片）、`removePlanBlocks` 清空。
-- **渲染**：`PlanProcess` 组件渲染 pending/in_progress/completed（`failed` 保留为 legacy 数据兼容，ACP 路径不再产生）。
+- **渲染**：`PlanProcess` 组件渲染 pending/in_progress/completed（`failed` 保留为 legacy 数据兼容，ACP 路径不再产生）；`MarkdownCustomPlanDoc` 组件渲染 switch_mode 权限卡附带的计划文档内容。
 
 ---
 
