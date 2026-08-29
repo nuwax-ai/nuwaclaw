@@ -1,6 +1,16 @@
 # Git 提交无 TTY；pnpm 依赖检查可能触发 install 并询问是否清理 node_modules
 export CI=true
 
+# nuwa-sdlc-kit v1.1.0 · 秘钥地板（agent 无关强制；与 guard-paths 同规，样例 samples/pre-commit.secrets.sh）
+EXEMPT='(\.example|\.sample|\.template)$|^(node_modules|dist|target|buildtrees|vcpkg_installed|\.ttyd-build)/'
+PATTERN='(^|/)\.env(\.[^/]+)?$|\.pem$|\.key$|\.(pfx|p12)$|(^|/)id_(rsa|ed25519|ecdsa)$|[Cc]redential|[Ss]ecrets?\.(json|ya?ml|txt)$'
+hits="$(git diff --cached --name-only --diff-filter=ACMR 2>/dev/null | grep -Ev "$EXEMPT" | grep -E "$PATTERN" || true)"
+if [ -n "$hits" ]; then
+  echo "❌ [nuwa-sdlc-kit] 疑似秘钥文件被暂存，提交被拒（人工评审后绕过：git commit --no-verify）：" >&2
+  echo "$hits" >&2
+  exit 1
+fi
+
 pnpm exec lint-staged
 
 # 运行 Electron 客户端单元测试

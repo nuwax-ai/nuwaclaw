@@ -1,0 +1,10 @@
+{
+  "name": "nuwaclaw",
+  "srcPaths": ["crates/[^/]+/src/"],
+  "plansDirs": ["plans", "specs"],
+  "protectedWrite": [],
+  "envPrefix": "NUWACLAW",
+  "test": "pnpm --filter @nuwax-ai/nuwaclaw run test:run",
+  "buildNoiseExempt": [".ttyd-build"],
+  "grillExtra": []
+}

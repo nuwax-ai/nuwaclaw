@@ -18,10 +18,25 @@
             "command": "node .claude/hooks/plan-gate.mjs"
           }
         ]
+      },
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node .claude/hooks/deploy-gate.mjs"
+          }
+        ]
       }
     ]
   },
   "permissions": {
-    "deny": ["Read(**/.env)", "Read(**/.env.*)", "Read(**/*.pem)", "Read(**/*.pfx)", "Read(**/*.p12)"]
+    "deny": [
+      "Read(**/.env)",
+      "Read(**/.env.*)",
+      "Read(**/*.pem)",
+      "Read(**/*.pfx)",
+      "Read(**/*.p12)"
+    ]
   }
 }
