@@ -69,3 +69,8 @@
    - P2 工具终态合并：`collectProcessingByKey` 改为三层合并（componentExecutedList 基底 → processingList 覆盖 → finalResult.componentExecuteResults 终态覆盖/补齐），finalResult 在场时残余 EXECUTING 判 FAILED（对齐 reconcileFinalMessageState 规则）——原实现仅在 processingList 全空时读历史列表。
    - P2 无障碍与加载态：装饰图标（chevron/类别/状态/运行点）补 aria-hidden；高级配置逐类 Select 用 label 包裹 + aria-label；三个 Segmented 补 aria-label；V2 懒加载 Suspense fallback 由 null 改为 role="status" 加载占位。
    - 测试：新增 10 个反例用例（去重/角色过滤/终态合并/无障碍），修正 dual-line 中固化旧行为的断言；test:conversation 392/392 全绿。
+
+2. **评审加固（code-reviewer 二轮，子模块 58c09b2cf + dist f36cd068d）**：
+   - P1：ChatContentArea 增加本地 `V2RendererLoadBoundary`——懒加载 chunk 拉取失败（发版后旧 hash/弱网）时 V2 内部 ErrorBoundary 尚未加载、异常会冒泡卸载整棵 React 树；本地 boundary 以 V1 ChatView 列表为 fallback，补齐「禁止白屏」规格的最后一层（新增 chunk 失败回退测试）。
+   - 边界：终态/状态参考消息（terminalStatus/RunOver/操作栏）改取最后一条 ASSISTANT 角色消息，轮末跟随 SYSTEM 不再遮蔽真实终态；运行态轮末瞬时跟随 SYSTEM 时实时回答区回退扫描候选正文段；工具计数按 executeId 字段去重 + 轨迹节点 React key 加序号防撞。
+   - test:conversation 394/394 全绿。
