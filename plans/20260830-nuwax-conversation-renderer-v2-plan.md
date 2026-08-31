@@ -62,3 +62,10 @@
 ## 偏离记录
 
 （实现中偏离原计划的，逐条补记：原因 + 与哪个 commit 同步更新。）
+
+1. **验收返工（codex 验收 P1/P2，子模块返工 commit 见 gitlink）**：
+   - P1 最终回答重复入轨迹：`finalResult.outputText` 存在时补做「与末段正文同源判定」（归一化后任一方向包含），同源段不再生成 narration——原实现直接置空 answerRef 导致最终结论在过程说明与回答区双现。
+   - P1 最终回答角色泄漏：回答候选收紧为 ASSISTANT × CHAT/ANSWER（缺省视为 CHAT）；SYSTEM/FUNCTION 消息只产 context 节点并提前返回，不再进入段解析与回答扫描。
+   - P2 工具终态合并：`collectProcessingByKey` 改为三层合并（componentExecutedList 基底 → processingList 覆盖 → finalResult.componentExecuteResults 终态覆盖/补齐），finalResult 在场时残余 EXECUTING 判 FAILED（对齐 reconcileFinalMessageState 规则）——原实现仅在 processingList 全空时读历史列表。
+   - P2 无障碍与加载态：装饰图标（chevron/类别/状态/运行点）补 aria-hidden；高级配置逐类 Select 用 label 包裹 + aria-label；三个 Segmented 补 aria-label；V2 懒加载 Suspense fallback 由 null 改为 role="status" 加载占位。
+   - 测试：新增 10 个反例用例（去重/角色过滤/终态合并/无障碍），修正 dual-line 中固化旧行为的断言；test:conversation 392/392 全绿。
