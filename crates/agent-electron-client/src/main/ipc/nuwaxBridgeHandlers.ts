@@ -24,7 +24,7 @@
  * 注册入口：ipc/index.ts 的 registerAllHandlers。
  */
 import { ipcMain, dialog, net, BrowserWindow } from "electron";
-import type { IpcMainInvokeEvent } from "electron";
+import type { IpcMainInvokeEvent, OpenDialogOptions } from "electron";
 import * as fs from "fs";
 import * as path from "path";
 import log from "electron-log";
@@ -88,6 +88,21 @@ export function nuwaxTokenScopes(senderScope: string): string[] {
 const shellWindows = new Set<BrowserWindow>();
 
 export function registerNuwaxBridgeHandlers(ctx: HandlerContext): void {
+  // localFiles 仅保留宿主原生目录选择器：返回绝对路径，数据面由 nuwax 走
+  // file-server（customTargetDir）HTTP 通道，主进程不做持久化与文件操作。
+  ipcMain.handle("localFiles:pickDirectory", async () => {
+    const win = ctx.getMainWindow();
+    const options: OpenDialogOptions = {
+      properties: ["openDirectory", "multiSelections"],
+    };
+    const result = win
+      ? await dialog.showOpenDialog(win, options)
+      : await dialog.showOpenDialog(options);
+    return result.canceled
+      ? { canceled: true, paths: [] as string[] }
+      : { canceled: false, paths: result.filePaths };
+  });
+
   // ---- theme：nuwax 女娲主题 → 壳原生 UI 统一 ----
   // nuwax 主题生效/让位时推送 { active, 调色板 }，转发给壳 renderer 叠加/回落
   // （antd tokens + CSS 变量）。fire-and-forget（send），无返回值语义。

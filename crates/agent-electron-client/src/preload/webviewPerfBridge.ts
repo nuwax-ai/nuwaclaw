@@ -132,6 +132,16 @@ const native = {
 };
 
 /**
+ * localFiles 命名空间：宿主原生目录选择器。
+ * 仅返回所选目录的绝对路径；文件数据面由 nuwax 走 file-server（customTargetDir）。
+ */
+const localFiles = {
+  pickDirectory(): Promise<{ canceled: boolean; paths: string[] }> {
+    return ipcRenderer.invoke("localFiles:pickDirectory");
+  },
+};
+
+/**
  * events 命名空间：宿主→nuwax 入站命令通道。
  * nuwaclaw 工具栏等通过 <webview>.send('nuwax:host-command', payload) 下发，
  * 此处 ipcRenderer.on 接收并转发给 nuwax 注册的回调（contextBridge 保证回调在 guest
@@ -182,6 +192,7 @@ contextBridge.exposeInMainWorld("NuwaClawBridge", {
   perf,
   auth,
   native,
+  localFiles,
   events,
   theme,
   layout,
