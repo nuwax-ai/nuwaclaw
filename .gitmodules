@@ -1,4 +1,4 @@
 [submodule "nuwax"]
 	path = nuwax
-	url = https://github.com/nuwax-ai/nuwax.git
+	url = https://git.yichamao.com/agent-platform/nuwax.git
 	branch = feat/pc-client-bridge
