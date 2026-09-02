@@ -256,7 +256,7 @@
   "Claw.Client.startFailed": "Failed to start",
   "Claw.Client.loginFirstToStart": "Please log in first before starting services",
   "Claw.Client.loginInNuwax": "Not logged in",
-  "Claw.Client.loginInNuwaxHint": "Please log in via the nuwax main window",
+  "Claw.Client.loginInNuwaxHint": "Please log in via the Nuwax main window",
   "Claw.Client.gotoLogin": "Go to login",
   "Claw.Client.missingDeps": "Missing dependencies detected. Please install them first.",
   "Claw.Client.allServicesRunning": "All auto-start services are already running",

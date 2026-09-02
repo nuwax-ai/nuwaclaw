@@ -256,7 +256,7 @@
   "Claw.Client.startFailed": "啟動失敗",
   "Claw.Client.loginFirstToStart": "請先登錄後再啟動服務",
   "Claw.Client.loginInNuwax": "未登入",
-  "Claw.Client.loginInNuwaxHint": "請在 nuwax 主視窗完成登入",
+  "Claw.Client.loginInNuwaxHint": "請在女娲 Nuwax 主視窗完成登入",
   "Claw.Client.gotoLogin": "前往登入",
   "Claw.Client.missingDeps": "存在缺失依賴，請先安裝",
   "Claw.Client.allServicesRunning": "所有可自動啟動的服務已在運行",
