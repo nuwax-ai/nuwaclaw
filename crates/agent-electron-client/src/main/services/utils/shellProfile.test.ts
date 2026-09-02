@@ -27,12 +27,6 @@ describe("shellProfile", () => {
 
   describe("windowsPathToPosix", () => {
     it("should convert Windows paths to POSIX format on Windows", () => {
-      if (!isWindows()) {
-        // On non-Windows, paths are returned unchanged
-        expect(windowsPathToPosix("C:\\foo\\bar")).toBe("C:\\foo\\bar");
-        return;
-      }
-
       expect(windowsPathToPosix("C:\\foo\\bar")).toBe("/c/foo/bar");
       expect(windowsPathToPosix("D:\\Program Files\\Tool")).toBe(
         "/d/Program Files/Tool",
@@ -43,11 +37,6 @@ describe("shellProfile", () => {
     });
 
     it("should handle lowercase drive letters", () => {
-      if (!isWindows()) {
-        expect(windowsPathToPosix("c:\\foo")).toBe("c:\\foo");
-        return;
-      }
-
       expect(windowsPathToPosix("c:\\foo")).toBe("/c/foo");
       expect(windowsPathToPosix("d:\\tools")).toBe("/d/tools");
     });
@@ -130,16 +119,6 @@ describe("shellProfile", () => {
     });
 
     it("should convert Windows paths to POSIX format", () => {
-      if (!isWindows()) {
-        writeShellProfiles(tempDir, ["C:\\tools\\bin"]);
-        const bashProfile = fs.readFileSync(
-          path.join(tempDir, ".bash_profile"),
-          "utf-8",
-        );
-        expect(bashProfile).toBe('export PATH="C:\\tools\\bin:$PATH"\n');
-        return;
-      }
-
       writeShellProfiles(tempDir, ["C:\\tools\\ripgrep\\bin"]);
       const bashProfile = fs.readFileSync(
         path.join(tempDir, ".bash_profile"),

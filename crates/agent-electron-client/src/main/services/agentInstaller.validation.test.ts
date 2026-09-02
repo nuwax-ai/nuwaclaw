@@ -15,7 +15,8 @@ vi.mock("electron-log", () => ({
   },
 }));
 
-vi.mock("./system/appPaths", () => ({
+vi.mock("./system/appPaths", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("./system/appPaths")>()),
   getAppDataDir: () => "/tmp/nuwaclaw-test",
 }));
 

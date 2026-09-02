@@ -30,7 +30,8 @@ const WINDOWS_INTERPRETER_NAMES = new Set([
 ]);
 
 function bashExecutableName(filePath: string): string {
-  return path
+  const pathApi = /^[A-Za-z]:[\\/]/.test(filePath) ? path.win32 : path;
+  return pathApi
     .basename(filePath)
     .toLowerCase()
     .replace(/\.exe$/, "");
@@ -94,7 +95,7 @@ export function quoteBashWord(word: string): string {
   if (/^[A-Za-z0-9_./:@%+,=-]+$/.test(word)) {
     return word;
   }
-  return `'${word.replace(/'/g, `'\"'\"'`)}'`;
+  return `'${word.replace(/'/g, `'"'"'`)}'`;
 }
 
 /**
@@ -142,8 +143,8 @@ export function wrapWindowsCommandWithGitBash(
 
   if (isGitBashInvocation(command, args)) {
     const sameBash =
-      path.resolve(command).toLowerCase() ===
-      path.resolve(bashPath).toLowerCase();
+      path.win32.normalize(command).toLowerCase() ===
+      path.win32.normalize(bashPath).toLowerCase();
     if (sameBash) {
       return { command, args, gitBashWrapped: false };
     }

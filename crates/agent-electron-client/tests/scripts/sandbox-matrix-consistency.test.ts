@@ -12,7 +12,7 @@ const testFileDir = path.dirname(fileURLToPath(import.meta.url));
 const projectRoot = path.resolve(testFileDir, "..", "..");
 const repoRoot = path.resolve(projectRoot, "..", "..");
 
-const docsDir = path.join(repoRoot, "docs");
+const docsDir = path.join(repoRoot, "docs", "sandbox");
 const jsonPath = path.join(docsDir, "sandbox-matrix.generated.json");
 const mdPath = path.join(docsDir, "sandbox-matrix.generated.md");
 
@@ -47,4 +47,3 @@ describe("sandbox matrix artifact consistency", () => {
     expect(normalizeEol(baselineMd)).toBe(normalizeEol(generatedMd));
   });
 });
-

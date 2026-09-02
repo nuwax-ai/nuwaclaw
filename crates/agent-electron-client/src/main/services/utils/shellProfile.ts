@@ -26,7 +26,7 @@ export { collectBundledDevPathEntries, isBundledPathSegment };
  * Convert a Windows path to POSIX format for use in shell scripts.
  */
 export function windowsPathToPosix(windowsPath: string): string {
-  if (!isWindows()) {
+  if (!/^[A-Za-z]:[\\/]/.test(windowsPath)) {
     return windowsPath;
   }
   return windowsPath
@@ -51,7 +51,7 @@ if [[ "$PATH" == *$'\\n'* || "$PATH" == Creating* ]]; then
   _nuwaclaw_IFS=:
   for _nuwaclaw_seg in $PATH; do
     case "$_nuwaclaw_seg" in
-      /*|[A-Za-z]:/*) _nuwaclaw_clean_path="\${_nuwaclaw_clean_path:+\$_nuwaclaw_clean_path:}$_nuwaclaw_seg" ;;
+      /*|[A-Za-z]:/*) _nuwaclaw_clean_path="\${_nuwaclaw_clean_path:+$_nuwaclaw_clean_path:}$_nuwaclaw_seg" ;;
     esac
   done
   PATH="$_nuwaclaw_clean_path"

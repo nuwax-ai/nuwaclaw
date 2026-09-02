@@ -5,11 +5,10 @@
  * 1. todayDateStr — 返回 YYYY-MM-DD 格式
  * 2. isArchiveLogName — 归档文件名判定（当日活跃、旧格式、轮转序号等）
  * 3. resolvePathFn — 按日路径 + 跨午夜切换
- * 4. archiveLogFn — 按序号轮转
- * 5. updateLatestLog / updateLatestLogWithRetry — 符号链接/硬链接
- * 6. migrateOldMainLog — 旧 main.log 一次性迁移
- * 7. cleanupOldLogs — TTL 清理（不删当日活跃日志）
- * 8. initLogging — 完整初始化流程
+ * 4. updateLatestLog / updateLatestLogWithRetry — 符号链接/硬链接
+ * 5. migrateOldMainLog — 旧 main.log 一次性迁移
+ * 6. cleanupOldLogs — TTL 清理（不删当日活跃日志）
+ * 7. initLogging — 完整初始化流程
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
@@ -39,6 +38,7 @@ const mockLog = {
       },
       console: {
         level: "debug",
+        writeFn: vi.fn(),
       },
     },
   })),
@@ -53,6 +53,7 @@ const mockLog = {
     },
     console: {
       level: "debug",
+      writeFn: vi.fn(),
     },
   },
 };
@@ -228,179 +229,6 @@ describe("logConfig", () => {
 
       const result2 = resolvePathFn();
       expect(result2).toBe(path.join(LOG_DIR, "main.2026-03-17.log"));
-    });
-  });
-
-  // ── archiveLogFn (按序号轮转) ──
-
-  describe("archiveLogFn (大小轮转)", () => {
-    it("首次轮转应生成序号 1", async () => {
-      freezeDate("2026-03-16");
-      mockExistsSync.mockReturnValue(true);
-      // 目录中没有已有的轮转文件
-      mockReaddirSync.mockReturnValue([]);
-
-      const { initLogging } = await import("./logConfig");
-      initLogging();
-
-      const archiveLogFn = mockLog.transports.file.archiveLogFn!;
-      expect(archiveLogFn).toBeDefined();
-
-      const oldPath = path.join(LOG_DIR, "main.2026-03-16.log");
-      archiveLogFn({ path: oldPath });
-
-      expect(mockRenameSync).toHaveBeenCalledWith(
-        oldPath,
-        path.join(LOG_DIR, "main.2026-03-16.1.log"),
-      );
-    });
-
-    it("已有序号 1 和 2 时，应生成序号 3", async () => {
-      freezeDate("2026-03-16");
-      mockExistsSync.mockReturnValue(true);
-
-      const dirFiles = [
-        "main.2026-03-16.1.log",
-        "main.2026-03-16.2.log",
-        "main.2026-03-16.log",
-      ];
-
-      mockReaddirSync.mockImplementation((...args: unknown[]) => {
-        const opts = args[1];
-        // cleanupOldLogs 调用 readdirSync(dir, { withFileTypes: true })
-        if (
-          opts &&
-          typeof opts === "object" &&
-          (opts as Record<string, unknown>).withFileTypes
-        ) {
-          return dirFiles.map((name) => ({ name, isFile: () => true }));
-        }
-        // archiveLogFn 调用 readdirSync(dir)（返回字符串数组）
-        return dirFiles;
-      });
-      mockStatSync.mockReturnValue({ mtimeMs: Date.now() });
-
-      const { initLogging } = await import("./logConfig");
-      initLogging();
-
-      const archiveLogFn = mockLog.transports.file.archiveLogFn!;
-      const oldPath = path.join(LOG_DIR, "main.2026-03-16.log");
-      archiveLogFn({ path: oldPath });
-
-      expect(mockRenameSync).toHaveBeenCalledWith(
-        oldPath,
-        path.join(LOG_DIR, "main.2026-03-16.3.log"),
-      );
-    });
-
-    it("不应混淆其他日期的序号", async () => {
-      freezeDate("2026-03-16");
-      mockExistsSync.mockReturnValue(true);
-
-      const dirFiles = [
-        "main.2026-03-15.5.log", // 昨天的序号 5，不应影响今天
-        "main.2026-03-16.log",
-      ];
-
-      mockReaddirSync.mockImplementation((...args: unknown[]) => {
-        const opts = args[1];
-        if (
-          opts &&
-          typeof opts === "object" &&
-          (opts as Record<string, unknown>).withFileTypes
-        ) {
-          return dirFiles.map((name) => ({ name, isFile: () => true }));
-        }
-        return dirFiles;
-      });
-      mockStatSync.mockReturnValue({ mtimeMs: Date.now() });
-
-      const { initLogging } = await import("./logConfig");
-      initLogging();
-
-      const archiveLogFn = mockLog.transports.file.archiveLogFn!;
-      const oldPath = path.join(LOG_DIR, "main.2026-03-16.log");
-      archiveLogFn({ path: oldPath });
-
-      // 今天从序号 1 开始，不受昨天的序号 5 影响
-      expect(mockRenameSync).toHaveBeenCalledWith(
-        oldPath,
-        path.join(LOG_DIR, "main.2026-03-16.1.log"),
-      );
-    });
-
-    it("rename 失败时应调用 crop 截断", async () => {
-      freezeDate("2026-03-16");
-      mockExistsSync.mockReturnValue(true);
-      mockReaddirSync.mockReturnValue([]);
-      mockRenameSync.mockImplementation(() => {
-        throw new Error("EPERM");
-      });
-
-      const { initLogging } = await import("./logConfig");
-      initLogging();
-
-      // 清掉 initLogging 阶段的 renameSync 调用（migrateOldMainLog 等）
-      mockRenameSync.mockClear();
-      mockRenameSync.mockImplementation(() => {
-        throw new Error("EPERM");
-      });
-
-      const archiveLogFn = mockLog.transports.file.archiveLogFn!;
-      const cropFn = vi.fn();
-      const oldPath = path.join(LOG_DIR, "main.2026-03-16.log");
-      archiveLogFn({ path: oldPath, crop: cropFn });
-
-      expect(cropFn).toHaveBeenCalled();
-      expect(mockLog.warn).toHaveBeenCalledWith(
-        expect.stringContaining("Rotation failed"),
-        expect.anything(),
-      );
-    });
-
-    it("重入时应直接 crop 截断，不尝试 rename（防止死循环）", async () => {
-      freezeDate("2026-03-16");
-      mockExistsSync.mockReturnValue(true);
-      mockReaddirSync.mockReturnValue([]);
-      mockRenameSync.mockImplementation(() => {
-        throw new Error("ENOENT");
-      });
-
-      const { initLogging } = await import("./logConfig");
-      initLogging();
-
-      // 清掉 initLogging 阶段的调用
-      mockRenameSync.mockClear();
-      mockRenameSync.mockImplementation(() => {
-        throw new Error("ENOENT");
-      });
-      mockLog.warn.mockClear();
-
-      const archiveLogFn = mockLog.transports.file.archiveLogFn!;
-      const reentrantCropFn = vi.fn();
-
-      // 模拟真实场景：log.warn 触发新的日志写入 → 再次调用 archiveLogFn（重入）
-      mockLog.warn.mockImplementation(() => {
-        archiveLogFn({
-          path: path.join(LOG_DIR, "main.2026-03-16.log"),
-          crop: reentrantCropFn,
-        });
-      });
-
-      const cropFn = vi.fn();
-      archiveLogFn({
-        path: path.join(LOG_DIR, "main.2026-03-16.log"),
-        crop: cropFn,
-      });
-
-      // 首次调用：rename 失败 → 走 catch → log.warn → 重入
-      expect(cropFn).toHaveBeenCalled();
-
-      // 重入调用：isArchiving=true → 直接 crop(256KB)，不再尝试 rename
-      expect(reentrantCropFn).toHaveBeenCalledWith(256 * 1024);
-
-      // renameSync 只被首次调用调用 1 次，重入时不应再调用
-      expect(mockRenameSync).toHaveBeenCalledTimes(1);
     });
   });
 

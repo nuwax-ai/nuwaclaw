@@ -86,6 +86,15 @@ vi.mock("node:crypto", () => {
   };
 });
 
+vi.mock("./mcpHostAdapterLoader", async () => {
+  // The manager test exercises the real prepared adapter through Vitest so its
+  // fs/crypto dependencies remain controllable by the mocks above.
+  // @ts-expect-error prepared JS resource intentionally has no local declaration file
+  const adapter =
+    await import("../../../../resources/mcp-proxy-ts/dist/host/rewrite.js");
+  return { loadMcpProxyHostAdapter: () => adapter };
+});
+
 // Mock dependencies（含 getUvBinPath、getNodeBinPath、getNodeBinPathWithFallback，供 mcp 内 getUvBinDir 等使用）
 vi.mock("../system/dependencies", () => ({
   getAppEnv: vi.fn(() => ({
@@ -111,7 +120,7 @@ vi.mock("./packageLocator", () => ({
   getAppPaths: vi.fn(() => ({
     nodeModules: "/mock/home/.nuwaclaw/node_modules",
   })),
-  getBundledMcpProxyDir: vi.fn(() => "/mock/resources/mcp-proxy-ts"),
+  getBundledMcpProxyDir: vi.fn(() => `${process.cwd()}/resources/mcp-proxy-ts`),
   isInstalledLocally: vi.fn(() => true),
 }));
 
@@ -150,7 +159,9 @@ describe("McpProxyManager", () => {
       getAppPaths: vi.fn(() => ({
         nodeModules: "/mock/home/.nuwaclaw/node_modules",
       })),
-      getBundledMcpProxyDir: vi.fn(() => "/mock/resources/mcp-proxy-ts"),
+      getBundledMcpProxyDir: vi.fn(
+        () => `${process.cwd()}/resources/mcp-proxy-ts`,
+      ),
       isInstalledLocally: vi.fn(() => true),
     }));
     vi.resetModules();

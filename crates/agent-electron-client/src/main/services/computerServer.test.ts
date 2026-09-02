@@ -59,7 +59,8 @@ vi.mock("electron", () => ({
     isPackaged: false,
   },
 }));
-vi.mock("./constants", () => ({
+vi.mock("./constants", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("./constants")>()),
   LOCALHOST_HOSTNAME: "127.0.0.1",
   APP_DATA_DIR_NAME: ".nuwaclaw",
   LOGS_DIR_NAME: "logs",

@@ -23,6 +23,7 @@ vi.mock("electron-log", () => ({
     info: vi.fn(),
     warn: vi.fn(),
     error: vi.fn(),
+    debug: vi.fn(),
   },
 }));
 
@@ -493,8 +494,19 @@ describe("dependencies", () => {
       }));
     });
 
+    afterEach(() => {
+      vi.doUnmock("../system/dependencyChecker");
+    });
+
     it("should serialize concurrent installNpmPackage calls", async () => {
-      const { installNpmPackage } = await import("../system/dependencies");
+      vi.doMock("../system/dependencyChecker", () => ({
+        detectNpmPackage: vi.fn().mockResolvedValue({
+          installed: true,
+          meetsRequirement: true,
+        }),
+      }));
+      const { installNpmPackage } =
+        await import("../system/dependencyInstaller");
 
       // Fire 3 installs concurrently
       const p1 = installNpmPackage("pkg-a");
@@ -528,7 +540,14 @@ describe("dependencies", () => {
     });
 
     it("should continue queue after a failed install", async () => {
-      const { installNpmPackage } = await import("../system/dependencies");
+      vi.doMock("../system/dependencyChecker", () => ({
+        detectNpmPackage: vi.fn().mockResolvedValue({
+          installed: true,
+          meetsRequirement: true,
+        }),
+      }));
+      const { installNpmPackage } =
+        await import("../system/dependencyInstaller");
 
       const p1 = installNpmPackage("fail-pkg");
       const p2 = installNpmPackage("ok-pkg");
