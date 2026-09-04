@@ -1,6 +1,7 @@
 # ACP Plan Mode 接入方案（代码事实版）
 
-> 状态：已实施（2026-08-26 ~ 2026-08-27）。
+> 状态：已实施（2026-08-26 ~ 2026-08-28），**feature flag 休眠中**（9 月版本暂不放开）。
+> nuwax 前端 `PLAN_MODE_ENABLED = false`（`AgentIntervention/types/acpIntervention.ts`）——模式选择器仅显示 ask/yolo；后端代码全量保留休眠，后续翻 flag 启用。
 > 本文以**当前代码为事实依据**梳理全链路接入方案，并逐项对照 ACP 官方规范（stable v1 schema + 规范文档 + RFD 草案）给出合规结论。
 > 涉及仓库：`nuwaclaw`（本文所在仓库，含 nuwax 子模块）、`nuwa-cli`、`nuwaxcode`、`claude-code-acp-ts`（上游零改动）、`deepagents-dev-templates/packages/deepagents-flow-ts`、`codex-acp-ts`；`agent-platform` 云后端零改动；`rcoder`（云电脑）为未来接入方，见 §12。
 
