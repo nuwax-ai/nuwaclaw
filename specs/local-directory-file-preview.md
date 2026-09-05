@@ -100,4 +100,9 @@ interface LocalFileEntry {
 
 **联调待确认**：Java 网关对 `customTargetDir`/`relativePath`/`recursive` 及 `static/search-files` 的透传（v1 intent 开放问题延续）。
 
+**联调实测结论（2026-09-05，test 环境 testagent.xspaceagi.com，云电脑 TaskAgent 会话）**：
+- ✅ `relativePath`+`recursive=false` 透传生效：单层条目返回、响应 `recursive:false` 回显正确；TaskResult 选文件逐级导航真实工作（root→子目录请求序列可见）。
+- ✅ `search-files` 已透传（此前「网关未透传」结论已过时；nuwax 前端本地过滤兜底保留无害）。
+- ❌ `customTargetDir` 在**云电脑会话**被网关显式拒绝：`4000 customTargetDir is not supported for cloud computer`（设计约束，非透传故障）；个人电脑链路（lanproxy→本机 file-server）的透传仍需 nuwaclaw 实机验证。
+
 **实施状态注记（2026-09-02 下午）**：nuwaclaw 父仓改动完成（桥收敛 + electron 全量测试 1273 用例通过）；nuwax 前端改动完成后因子模块被用户切换到 `feat-dong.0930` 分支而整体存于子模块 `stash@{0}`（含 v1 codex 实现与 v2 重写），三个新增未跟踪文件（DirectorySourceNavigator / useLocalDirectoryFiles / useWorkspaceDirectoryFiles）仍在工作树；恢复方式：切回 `feat/conversation-renderer-v2` 后 `git stash pop`。
