@@ -175,6 +175,15 @@ jobs:
           sudo gem install fpm
           echo "USE_SYSTEM_FPM=true" >> "$GITHUB_ENV"
 
+      # agent-kit 经根 package.json 的 pnpm.overrides file: 引用——install 会把它
+      # 打包成快照拷入 node_modules；必须先构建出 dist 再 install，否则快照无入口
+      - name: Build agent-kit (before install)
+        shell: bash
+        working-directory: nuwaclaw
+        run: |
+          pnpm -C crates/agent-kit install --ignore-workspace --prefer-offline
+          pnpm -C crates/agent-kit run build
+
       # pnpm install 会建立 workspace 链接，nuwax-mcp-stdio-proxy 通过 prepare 脚本自动构建
       # pnpm workspace 根在基座（nuwaclaw/）内
       - name: Install workspace dependencies
