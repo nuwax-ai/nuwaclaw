@@ -1,6 +1,6 @@
 # nuwaclaw 社区版 — Electron 客户端发布（社区产品壳编排）
 #
-# 本仓 = 社区产品壳：业务与构建系统在 nuwaclaw/ submodule（基座仓
+# 本仓 = 社区产品壳：业务与构建系统在 nuwa-electron-shell/ submodule（基座仓
 # nuwax-ai/nuwa-electron-shell 的 main 分支；2026-09-09 三层架构定型）。
 # 与商业版 nuwa-work 的 release-electron.yml 同构，差异（社区身份）：
 #   1. 不注入任何 NUWAX_* env——基座默认值即社区版行为（appId/端口/更新通道）
@@ -9,7 +9,7 @@
 #   4. checkout 用 submodules: true（非 recursive）：以 github.token 拉基座
 #      submodule（公开仓）；显式两层 init 见 Init submodules 步骤
 #   5. nuwax 前端子模块（基座内嵌，dist 随仓提交）第二层手动 init（公开可匿名拉取）
-#   6. 所有 crates/ 路径前缀 nuwaclaw/crates/；pnpm workspace 根在 nuwaclaw/
+#   6. 所有 crates/ 路径前缀 nuwa-electron-shell/crates/；pnpm workspace 根在 nuwa-electron-shell/
 #   7. Windows prepare 后显式断言沙箱 helper 产物存在
 #
 # Secrets：GH_PAT（可选）；APPLE_TEAM_ID / APPLE_SIGNING_IDENTITY / APPLE_CERTIFICATE /
@@ -117,9 +117,9 @@ jobs:
         uses: actions/checkout@v4
 
       # 显式两层 submodule init（不依赖 checkout action 内部递归 sync）：
-      # nuwaclaw → 基座仓 nuwax-ai/nuwa-electron-shell 的 main 分支（公开，
+      # nuwa-electron-shell submodule → 基座仓 nuwax-ai/nuwa-electron-shell 的 main 分支（公开，
       #   github.token 注入凭据）；nuwax → 基座内嵌前端（公开可匿名拉取）
-      - name: Init submodules (nuwaclaw + nuwax)
+      - name: Init submodules (nuwa-electron-shell + nuwax)
         shell: bash
         env:
           GH_SUBMODULE_TOKEN: ${{ github.token }}
@@ -128,20 +128,20 @@ jobs:
           # GCM 会劫持/覆盖 URL 内嵌凭据，insteadOf 亦不生效——均实测失败）
           export GH_TOKEN="${GH_SUBMODULE_TOKEN}"
           gh auth setup-git
-          git submodule update --init nuwaclaw
+          git submodule update --init nuwa-electron-shell
           # nuwax 嵌套子模块 .gitmodules 已切回 GitHub（base 422fd1b0）；此处显式
           # 覆盖保持双保险（远端公开可匿名拉取，pin 提交由 pin/nuwa-work 分支承载，
           # bump 内层 pin 时须同步快进该分支，否则 CI 匿名拉取断裂）
-          git -C nuwaclaw config submodule.nuwax.url https://github.com/nuwax-ai/nuwax.git
-          git -C nuwaclaw submodule update --init nuwax
+          git -C nuwa-electron-shell config submodule.nuwax.url https://github.com/nuwax-ai/nuwax.git
+          git -C nuwa-electron-shell submodule update --init nuwax
           git submodule status
           # 强校验：submodule update 内部重试失败时可能以 0 退出（第三次 CI 实测假绿）
-          test -d nuwaclaw/crates/agent-electron-client || { echo "::error::nuwaclaw submodule not checked out"; exit 1; }
-          test -d nuwaclaw/nuwax/dist || { echo "::error::nuwax dist missing"; exit 1; }
+          test -d nuwa-electron-shell/crates/agent-electron-client || { echo "::error::nuwa-electron-shell submodule not checked out"; exit 1; }
+          test -d nuwa-electron-shell/nuwax/dist || { echo "::error::nuwax dist missing"; exit 1; }
 
       - name: Set version in package.json
         shell: bash
-        working-directory: nuwaclaw/crates/agent-electron-client
+        working-directory: nuwa-electron-shell/crates/agent-electron-client
         run: |
           VERSION="${{ needs.prepare.outputs.version }}"
           npm pkg set version="$VERSION"
@@ -175,53 +175,53 @@ jobs:
       # 打包成快照拷入 node_modules；必须先构建出 dist 再 install，否则快照无入口
       - name: Build agent-kit (before install)
         shell: bash
-        working-directory: nuwaclaw
+        working-directory: nuwa-electron-shell
         run: |
           pnpm -C crates/agent-kit install --ignore-workspace --prefer-offline
           pnpm -C crates/agent-kit run build
 
-      # pnpm workspace 根在基座（nuwaclaw/）内
+      # pnpm workspace 根在基座（nuwa-electron-shell/）内
       - name: Install workspace dependencies
-        working-directory: nuwaclaw
+        working-directory: nuwa-electron-shell
         run: pnpm install --filter @nuwax-ai/nuwaclaw...
 
       - name: Rebuild native modules for Electron
-        working-directory: nuwaclaw/crates/agent-electron-client
+        working-directory: nuwa-electron-shell/crates/agent-electron-client
         run: npm run electron-rebuild
 
       - name: Cache bundled Node.js
         uses: actions/cache@v4
         with:
-          path: nuwaclaw/crates/agent-electron-client/resources/node
-          key: bundled-node-24-${{ matrix.platform }}-${{ matrix.arch }}-${{ hashFiles('nuwaclaw/crates/agent-electron-client/package.json') }}
+          path: nuwa-electron-shell/crates/agent-electron-client/resources/node
+          key: bundled-node-24-${{ matrix.platform }}-${{ matrix.arch }}-${{ hashFiles('nuwa-electron-shell/crates/agent-electron-client/package.json') }}
 
       - name: Cache bundled Git (Windows only)
         if: matrix.platform == 'windows-latest'
         uses: actions/cache@v4
         with:
-          path: nuwaclaw/crates/agent-electron-client/resources/git
-          key: bundled-git-2.47.1-windows-${{ hashFiles('nuwaclaw/crates/agent-electron-client/package.json') }}
+          path: nuwa-electron-shell/crates/agent-electron-client/resources/git
+          key: bundled-git-2.47.1-windows-${{ hashFiles('nuwa-electron-shell/crates/agent-electron-client/package.json') }}
 
       - name: Cache uv
         uses: actions/cache@v4
         with:
-          path: nuwaclaw/crates/agent-electron-client/resources/uv
-          key: bundled-uv-v2-${{ matrix.platform }}-${{ matrix.arch }}-${{ hashFiles('nuwaclaw/crates/agent-electron-client/scripts/prepare/prepare-uv.js') }}
+          path: nuwa-electron-shell/crates/agent-electron-client/resources/uv
+          key: bundled-uv-v2-${{ matrix.platform }}-${{ matrix.arch }}-${{ hashFiles('nuwa-electron-shell/crates/agent-electron-client/scripts/prepare/prepare-uv.js') }}
 
       - name: Cache nuwaxcode
         uses: actions/cache@v4
         with:
-          path: nuwaclaw/crates/agent-electron-client/resources/nuwaxcode
-          key: bundled-nuwaxcode-v1-${{ matrix.platform }}-${{ matrix.arch }}-${{ hashFiles('nuwaclaw/crates/agent-electron-client/scripts/prepare/prepare-nuwaxcode.js') }}
+          path: nuwa-electron-shell/crates/agent-electron-client/resources/nuwaxcode
+          key: bundled-nuwaxcode-v1-${{ matrix.platform }}-${{ matrix.arch }}-${{ hashFiles('nuwa-electron-shell/crates/agent-electron-client/scripts/prepare/prepare-nuwaxcode.js') }}
 
       - name: Cache ripgrep
         uses: actions/cache@v4
         with:
-          path: nuwaclaw/crates/agent-electron-client/resources/ripgrep
-          key: bundled-ripgrep-v1-${{ matrix.platform }}-${{ matrix.arch }}-${{ hashFiles('nuwaclaw/crates/agent-electron-client/scripts/prepare/prepare-ripgrep.js') }}
+          path: nuwa-electron-shell/crates/agent-electron-client/resources/ripgrep
+          key: bundled-ripgrep-v1-${{ matrix.platform }}-${{ matrix.arch }}-${{ hashFiles('nuwa-electron-shell/crates/agent-electron-client/scripts/prepare/prepare-ripgrep.js') }}
 
       - name: Prepare bundled resources (uv, node, git, nuwaxcode, ripgrep)
-        working-directory: nuwaclaw/crates/agent-electron-client
+        working-directory: nuwa-electron-shell/crates/agent-electron-client
         env:
           TARGET_ARCH: ${{ matrix.arch }}
           GH_TOKEN: ${{ github.token }}
@@ -232,7 +232,7 @@ jobs:
       - name: Assert sandbox helper built (Windows)
         if: runner.os == 'Windows'
         shell: bash
-        working-directory: nuwaclaw/crates/agent-electron-client
+        working-directory: nuwa-electron-shell/crates/agent-electron-client
         run: |
           if [ ! -f resources/sandbox-helper/nuwax-sandbox-helper.exe ]; then
             echo "::error::sandbox helper missing (resources/sandbox-helper/nuwax-sandbox-helper.exe) — runner rust toolchain broken?"
@@ -287,14 +287,14 @@ jobs:
 
       - name: Clean previous build artifacts
         shell: bash
-        working-directory: nuwaclaw/crates/agent-electron-client
+        working-directory: nuwa-electron-shell/crates/agent-electron-client
         run: |
           rm -rf release node_modules/.cache
           echo "Cleaned release and cache directories"
 
       - name: Build Electron app
         shell: bash
-        working-directory: nuwaclaw/crates/agent-electron-client
+        working-directory: nuwa-electron-shell/crates/agent-electron-client
         env:
           TARGET_ARCH: ${{ matrix.arch }}
           SKIP_PREPARE: "1"
@@ -317,7 +317,7 @@ jobs:
         run: |
           TAG="${{ github.ref_name }}"
           VERSION="${{ needs.prepare.outputs.version }}"
-          OUT_DIR="nuwaclaw/crates/agent-electron-client/release/${VERSION}"
+          OUT_DIR="nuwa-electron-shell/crates/agent-electron-client/release/${VERSION}"
           if [ ! -d "$OUT_DIR" ]; then
             echo "::error::Output directory not found: $OUT_DIR"
             exit 1

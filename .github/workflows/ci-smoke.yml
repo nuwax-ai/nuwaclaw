@@ -1,6 +1,6 @@
 # submodule 连通性探针（手动触发）
 #
-# 验证两层 submodule 在 CI 环境可拉取：nuwaclaw（基座仓
+# 验证两层 submodule 在 CI 环境可拉取：nuwa-electron-shell（基座仓
 # nuwax-ai/nuwa-electron-shell main 分支，走 github.token）+ nuwax（公开仓）。
 # 与 release workflow 的 Init submodules 步骤同构，在不动发布 tag 的情况下即可
 # 回归验证以下变更：
@@ -19,22 +19,22 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Init submodules (nuwaclaw + nuwax)
+      - name: Init submodules (nuwa-electron-shell + nuwax)
         shell: bash
         env:
           GH_SUBMODULE_TOKEN: ${{ github.token }}
         run: |
           export GH_TOKEN="${GH_SUBMODULE_TOKEN}"
           gh auth setup-git
-          git submodule update --init nuwaclaw
-          git -C nuwaclaw config submodule.nuwax.url https://github.com/nuwax-ai/nuwax.git
-          git -C nuwaclaw submodule update --init nuwax
+          git submodule update --init nuwa-electron-shell
+          git -C nuwa-electron-shell config submodule.nuwax.url https://github.com/nuwax-ai/nuwax.git
+          git -C nuwa-electron-shell submodule update --init nuwax
           git submodule status
-          # 勿在 nuwaclaw 内再跑 submodule status / --recursive：base 树有 vcpkg
+          # 勿在 nuwa-electron-shell 内再跑 submodule status / --recursive：base 树有 vcpkg
           # 孤儿 gitlink（无 .gitmodules 条目）会 fatal 128
 
       - name: Assert
         run: |
-          test -d nuwaclaw/crates/agent-electron-client || { echo "::error::nuwaclaw submodule not checked out"; exit 1; }
-          test -d nuwaclaw/nuwax/dist || { echo "::error::nuwax dist missing"; exit 1; }
-          echo "submodule topology OK (nuwaclaw-work@$(git -C nuwaclaw rev-parse --short HEAD), nuwax@$(git -C nuwaclaw/nuwax rev-parse --short HEAD))"
+          test -d nuwa-electron-shell/crates/agent-electron-client || { echo "::error::nuwa-electron-shell submodule not checked out"; exit 1; }
+          test -d nuwa-electron-shell/nuwax/dist || { echo "::error::nuwax dist missing"; exit 1; }
+          echo "submodule topology OK (shell@$(git -C nuwa-electron-shell rev-parse --short HEAD), nuwax@$(git -C nuwa-electron-shell/nuwax rev-parse --short HEAD))"

@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * 在基座（nuwaclaw/ submodule，基座仓 nuwa-electron-shell main 分支）内执行命令。
+ * 在基座（nuwa-electron-shell/ submodule，基座仓 nuwa-electron-shell main 分支）内执行命令。
  *
  * 社区产品壳：不注入任何 NUWAX_* env——基座默认值即社区版行为
  * （appId com.nuwax-ai.nuwaclaw / 默认端口 / 更新通道 nuwaclaw-electron）。
@@ -13,7 +13,7 @@
 const { spawnSync } = require('child_process');
 const path = require('path');
 
-const baseDir = path.join(__dirname, '..', 'nuwaclaw');
+const baseDir = path.join(__dirname, '..', 'nuwa-electron-shell');
 
 const argv = process.argv.slice(2);
 if (argv[0] !== '--' || argv.length < 2) {

@@ -1,4 +1,4 @@
-[submodule "nuwaclaw"]
-	path = nuwaclaw
+[submodule "nuwa-electron-shell"]
+	path = nuwa-electron-shell
 	url = https://github.com/nuwax-ai/nuwa-electron-shell.git
 	branch = main

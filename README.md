@@ -16,8 +16,8 @@
 
 ```bash
 git clone https://github.com/nuwax-ai/nuwaclaw.git && cd nuwaclaw
-git submodule update --init nuwaclaw          # 基座仓 nuwa-electron-shell main 分支（公开）
-git -C nuwaclaw submodule update --init nuwax # nuwax 前端（dist 随仓提交，无需构建）
+git submodule update --init nuwa-electron-shell          # 基座仓 nuwa-electron-shell main 分支（公开）
+git -C nuwa-electron-shell submodule update --init nuwax # nuwax 前端（dist 随仓提交，无需构建）
 npm run base:install   # 基座内 pnpm install --filter
 npm run base:dev       # 基座内 make electron-dev（社区默认身份，无 env 注入）
 npm run base:test      # 基座内全量 vitest
