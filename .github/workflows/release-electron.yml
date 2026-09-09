@@ -1,28 +1,22 @@
-# Electron 桌面客户端 — 正式版本发布
-# 与 Tauri 客户端完全分开：使用独立 tag 与独立 GitHub Release，不共用 v* tag。
+# nuwaclaw 社区版 — Electron 客户端发布（社区产品壳编排）
 #
-# 触发：推送 tag electron-v* → 构建并创建 Release。同步请用 workflow_dispatch 手动触发。
+# 本仓 = 社区产品壳：业务与构建系统在 nuwaclaw/ submodule（基座仓
+# nuwax-ai/nuwa-electron-shell 的 main 分支；2026-09-09 三层架构定型）。
+# 与商业版 nuwa-work 的 release-electron.yml 同构，差异（社区身份）：
+#   1. 不注入任何 NUWAX_* env——基座默认值即社区版行为（appId/端口/更新通道）
+#   2. 不覆盖 appId/productName，仅 set version
+#   3. 发布通道 nuwaclaw-electron/，产物名前缀 NuwaClaw
+#   4. checkout 用 submodules: true（非 recursive）：以 github.token 拉基座
+#      submodule（公开仓）；显式两层 init 见 Init submodules 步骤
+#   5. nuwax 前端子模块（基座内嵌，dist 随仓提交）第二层手动 init（公开可匿名拉取）
+#   6. 所有 crates/ 路径前缀 nuwaclaw/crates/；pnpm workspace 根在 nuwaclaw/
+#   7. Windows prepare 后显式断言沙箱 helper 产物存在
 #
-# 支持平台：
-#   - macOS arm64（macos-latest）
-#   - macOS x64（macos-latest, cross-compile）
-#   - Windows x64（msi）
-#   - Linux x64（AppImage + deb）
-#   - Linux arm64（AppImage + deb）
-#
-# 使用的 Secrets（可与 Tauri 共用 Apple 相关，也可单独配置）：
-#   - GH_PAT（可选）：创建 Release、上传资产（未配置时自动回退到 github.token，需 Contents: Write）
-#   - macOS 签名/公证（未配置时 Mac 构建为无签名包，用户打开会提示「已损坏」）：
-#     - APPLE_TEAM_ID / APPLE_SIGNING_IDENTITY / APPLE_CERTIFICATE（.p12 Base64）/ APPLE_CERTIFICATE_PASSWORD
-#     - 公证：APPLE_API_KEY（.p8 Base64）/ APPLE_API_KEY_ID / APPLE_ISSUER_ID
-#   - Windows：本 workflow 仅构建产物，不在 CI 内签名；签名在本地 Windows（SimplySign）手动完成
-#     详见 crates/agent-electron-client/docs/windows-signing.md
-#   - MINIO_ACCESS_KEY_ID / MINIO_SECRET_ACCESS_KEY：上传到 MinIO S3
-#   - OSS_ACCESS_KEY_ID / OSS_ACCESS_KEY_SECRET：上传 latest.json 到阿里云 OSS
-#
-# 产物目录：crates/agent-electron-client/release/${version}/（由 package.json directories.output 决定）
+# Secrets：GH_PAT（可选）；APPLE_TEAM_ID / APPLE_SIGNING_IDENTITY / APPLE_CERTIFICATE /
+#   APPLE_CERTIFICATE_PASSWORD / APPLE_API_KEY / APPLE_API_KEY_ID / APPLE_ISSUER_ID；
+#   MINIO_ACCESS_KEY_ID / MINIO_SECRET_ACCESS_KEY；OSS_ACCESS_KEY_ID / OSS_ACCESS_KEY_SECRET
 
-name: Release Electron App
+name: Release Electron App (nuwaclaw)
 
 on:
   push:
@@ -62,7 +56,7 @@ jobs:
         run: |
           VERSION="${GITHUB_REF_NAME#electron-v}"
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
-          echo "Electron release version: $VERSION"
+          echo "nuwaclaw release version: $VERSION"
 
       - name: Read release notes
         id: notes
@@ -112,7 +106,6 @@ jobs:
           - platform: ubuntu-24.04
             arch: x64
             dist_cmd: dist:linux:x64
-
           - platform: ubuntu-24.04-arm
             arch: arm64
             dist_cmd: dist:linux:arm64
@@ -123,29 +116,53 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      # 显式两层 submodule init（不依赖 checkout action 内部递归 sync）：
+      # nuwaclaw → 基座仓 nuwax-ai/nuwa-electron-shell 的 main 分支（公开，
+      #   github.token 注入凭据）；nuwax → 基座内嵌前端（公开可匿名拉取）
+      - name: Init submodules (nuwaclaw + nuwax)
+        shell: bash
+        env:
+          GH_SUBMODULE_TOKEN: ${{ github.token }}
+        run: |
+          # submodule 认证统一走 gh CLI 凭据助手（跨平台一致；Windows Git 的
+          # GCM 会劫持/覆盖 URL 内嵌凭据，insteadOf 亦不生效——均实测失败）
+          export GH_TOKEN="${GH_SUBMODULE_TOKEN}"
+          gh auth setup-git
+          git submodule update --init nuwaclaw
+          # nuwax 嵌套子模块 .gitmodules 已切回 GitHub（base 422fd1b0）；此处显式
+          # 覆盖保持双保险（远端公开可匿名拉取，pin 提交由 pin/nuwa-work 分支承载，
+          # bump 内层 pin 时须同步快进该分支，否则 CI 匿名拉取断裂）
+          git -C nuwaclaw config submodule.nuwax.url https://github.com/nuwax-ai/nuwax.git
+          git -C nuwaclaw submodule update --init nuwax
+          git submodule status
+          # 强校验：submodule update 内部重试失败时可能以 0 退出（第三次 CI 实测假绿）
+          test -d nuwaclaw/crates/agent-electron-client || { echo "::error::nuwaclaw submodule not checked out"; exit 1; }
+          test -d nuwaclaw/nuwax/dist || { echo "::error::nuwax dist missing"; exit 1; }
+
       - name: Set version in package.json
         shell: bash
-        working-directory: crates/agent-electron-client
+        working-directory: nuwaclaw/crates/agent-electron-client
         run: |
           VERSION="${{ needs.prepare.outputs.version }}"
           npm pkg set version="$VERSION"
-          echo "package.json version: $(npm pkg get version)"
+          # 社区身份：不做任何覆盖——基座默认值即社区版
+          # （appId com.nuwax-ai.nuwaclaw / 默认端口 / 更新通道 nuwaclaw-electron）
+          echo "package.json version: $(npm pkg get version), appId: $(npm pkg get build.appId)"
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: lts/*
 
-      # 安装 pnpm（用于 workspace 管理，版本由根 package.json packageManager 字段指定）
       - name: Install pnpm
         uses: pnpm/action-setup@v4
+        with:
+          version: 9.15.5
 
-      # Python 3.12+ 移除了 distutils，node-gyp（better-sqlite3 等 native 模块）依赖它；安装 setuptools 以提供 distutils
       - name: Install setuptools for node-gyp (Python 3.12+)
         shell: bash
         run: python3 -m pip install setuptools --break-system-packages 2>/dev/null || python3 -m pip install setuptools
 
-      # Linux 构建 deb/rpm 包需要 rpm 工具；arm64 runner 需要系统 fpm（内置 fpm 仅 x86）
       - name: Install Linux build tools
         if: runner.os == 'Linux'
         run: |
@@ -154,55 +171,65 @@ jobs:
           sudo gem install fpm
           echo "USE_SYSTEM_FPM=true" >> "$GITHUB_ENV"
 
-      # pnpm install 会建立 workspace 链接，nuwax-mcp-stdio-proxy 通过 prepare 脚本自动构建
+      # pnpm workspace 根在基座（nuwaclaw/）内
       - name: Install workspace dependencies
+        working-directory: nuwaclaw
         run: pnpm install --filter @nuwax-ai/nuwaclaw...
 
-      # 为 Electron 内嵌 Node 重编 better-sqlite3，避免 Linux arm64 等平台运行时 "cannot open shared object file"
       - name: Rebuild native modules for Electron
-        working-directory: crates/agent-electron-client
+        working-directory: nuwaclaw/crates/agent-electron-client
         run: npm run electron-rebuild
 
-      # 缓存内置 Node.js（所有平台）、Git（仅 Windows）、uv（所有平台）和 nuwaxcode（所有平台）
       - name: Cache bundled Node.js
         uses: actions/cache@v4
         with:
-          path: crates/agent-electron-client/resources/node
-          key: bundled-node-24-${{ matrix.platform }}-${{ matrix.arch }}-${{ hashFiles('crates/agent-electron-client/package.json') }}
+          path: nuwaclaw/crates/agent-electron-client/resources/node
+          key: bundled-node-24-${{ matrix.platform }}-${{ matrix.arch }}-${{ hashFiles('nuwaclaw/crates/agent-electron-client/package.json') }}
 
       - name: Cache bundled Git (Windows only)
         if: matrix.platform == 'windows-latest'
         uses: actions/cache@v4
         with:
-          path: crates/agent-electron-client/resources/git
-          key: bundled-git-2.47.1-windows-${{ hashFiles('crates/agent-electron-client/package.json') }}
+          path: nuwaclaw/crates/agent-electron-client/resources/git
+          key: bundled-git-2.47.1-windows-${{ hashFiles('nuwaclaw/crates/agent-electron-client/package.json') }}
 
       - name: Cache uv
         uses: actions/cache@v4
         with:
-          path: crates/agent-electron-client/resources/uv
-          key: bundled-uv-v2-${{ matrix.platform }}-${{ matrix.arch }}-${{ hashFiles('crates/agent-electron-client/scripts/prepare/prepare-uv.js') }}
+          path: nuwaclaw/crates/agent-electron-client/resources/uv
+          key: bundled-uv-v2-${{ matrix.platform }}-${{ matrix.arch }}-${{ hashFiles('nuwaclaw/crates/agent-electron-client/scripts/prepare/prepare-uv.js') }}
 
       - name: Cache nuwaxcode
         uses: actions/cache@v4
         with:
-          path: crates/agent-electron-client/resources/nuwaxcode
-          key: bundled-nuwaxcode-v1-${{ matrix.platform }}-${{ matrix.arch }}-${{ hashFiles('crates/agent-electron-client/scripts/prepare/prepare-nuwaxcode.js') }}
+          path: nuwaclaw/crates/agent-electron-client/resources/nuwaxcode
+          key: bundled-nuwaxcode-v1-${{ matrix.platform }}-${{ matrix.arch }}-${{ hashFiles('nuwaclaw/crates/agent-electron-client/scripts/prepare/prepare-nuwaxcode.js') }}
 
       - name: Cache ripgrep
         uses: actions/cache@v4
         with:
-          path: crates/agent-electron-client/resources/ripgrep
-          key: bundled-ripgrep-v1-${{ matrix.platform }}-${{ matrix.arch }}-${{ hashFiles('crates/agent-electron-client/scripts/prepare/prepare-ripgrep.js') }}
+          path: nuwaclaw/crates/agent-electron-client/resources/ripgrep
+          key: bundled-ripgrep-v1-${{ matrix.platform }}-${{ matrix.arch }}-${{ hashFiles('nuwaclaw/crates/agent-electron-client/scripts/prepare/prepare-ripgrep.js') }}
 
       - name: Prepare bundled resources (uv, node, git, nuwaxcode, ripgrep)
-        working-directory: crates/agent-electron-client
+        working-directory: nuwaclaw/crates/agent-electron-client
         env:
           TARGET_ARCH: ${{ matrix.arch }}
-          # 勿用 secrets.GITHUB_* 自定义 Secret（GitHub 禁止 GITHUB_ 前缀）；用内置 github.token
           GH_TOKEN: ${{ github.token }}
         run: npm run prepare:all
         timeout-minutes: 15
+
+      # 基座脚本在 rustc 缺失时只告警不失败——这里兜底断言，防止静默产出无沙箱 helper 的包
+      - name: Assert sandbox helper built (Windows)
+        if: runner.os == 'Windows'
+        shell: bash
+        working-directory: nuwaclaw/crates/agent-electron-client
+        run: |
+          if [ ! -f resources/sandbox-helper/nuwax-sandbox-helper.exe ]; then
+            echo "::error::sandbox helper missing (resources/sandbox-helper/nuwax-sandbox-helper.exe) — runner rust toolchain broken?"
+            exit 1
+          fi
+          echo "sandbox helper OK"
 
       # ---- macOS：导入证书并配置公证（可选） ----
       - name: Import Apple certificate (macOS)
@@ -249,29 +276,27 @@ jobs:
           echo "APPLE_API_ISSUER=$APPLE_ISSUER_ID" >> "$GITHUB_ENV"
           echo "APPLE_ISSUER_ID=$APPLE_ISSUER_ID" >> "$GITHUB_ENV"
 
-      # 若用户看到「已损坏」：请确认已配置 APPLE_CERTIFICATE / APPLE_SIGNING_IDENTITY 及公证用 APPLE_API_KEY 等，且构建日志中有签名与公证成功
-      # Windows 签名已废弃，改为本地手签方案
       - name: Clean previous build artifacts
         shell: bash
-        working-directory: crates/agent-electron-client
+        working-directory: nuwaclaw/crates/agent-electron-client
         run: |
           rm -rf release node_modules/.cache
           echo "Cleaned release and cache directories"
 
       - name: Build Electron app
         shell: bash
-        working-directory: crates/agent-electron-client
+        working-directory: nuwaclaw/crates/agent-electron-client
         env:
           TARGET_ARCH: ${{ matrix.arch }}
-          SKIP_PREPARE: "1"  # Step 14 已执行 prepare:all，避免重复（含 git clone/pull）
+          SKIP_PREPARE: "1"
           APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
           CSC_NAME: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          # 社区版：不注入 NUWAX_* env——基座默认值即社区身份
+          # （默认端口 18099/60002~60009/60173，更新通道 nuwaclaw-electron）
         run: |
           if [ "${{ runner.os }}" = "macOS" ] && [ -z "${{ secrets.APPLE_CERTIFICATE }}" ]; then
             echo "No Apple certificate, building unsigned Mac package for ${{ matrix.arch }}"
             npm run dist:mac:unsigned:${{ matrix.arch }} -- --publish never
-          elif [ "${{ runner.os }}" = "Windows" ]; then
-            npm run ${{ matrix.dist_cmd }} -- --publish never
           else
             npm run ${{ matrix.dist_cmd }} -- --publish never
           fi
@@ -283,7 +308,7 @@ jobs:
         run: |
           TAG="${{ github.ref_name }}"
           VERSION="${{ needs.prepare.outputs.version }}"
-          OUT_DIR="crates/agent-electron-client/release/${VERSION}"
+          OUT_DIR="nuwaclaw/crates/agent-electron-client/release/${VERSION}"
           if [ ! -d "$OUT_DIR" ]; then
             echo "::error::Output directory not found: $OUT_DIR"
             exit 1
@@ -296,23 +321,24 @@ jobs:
           done
 
   # ==================== 同步到 MinIO S3（构建产物）和阿里云 OSS（latest.json） ====================
-  # 手动触发：workflow_dispatch 输入 tag（如 electron-v0.8.0）
+  # 手动触发：workflow_dispatch 输入 tag（如 electron-v0.8.0）；独立入口 sync-electron-to-oss.yml
   sync-to-minio:
     name: Sync release to MinIO S3 & OSS
     if: github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     continue-on-error: true
     env:
-      # MinIO S3 配置（存放构建产物和 yml 文件）
       S3_ENDPOINT: "https://s3.nuwax.com:9443"
       S3_REGION: "us-east-1"
       S3_BUCKET: "nuwaclaw"
       S3_CDN_BASE: "https://s3.nuwax.com:9443/nuwaclaw"
-      # 阿里云 OSS 配置（仅存放 latest.json）
       OSS_ENDPOINT: "https://oss-rg-china-mainland.aliyuncs.com"
       OSS_REGION: "rg-china-mainland"
       OSS_BUCKET: "oss://nuwa-packages"
       OSS_CDN_BASE: "https://nuwa-packages.oss-rg-china-mainland.aliyuncs.com"
+      # 社区版发布通道（与客户端默认 NUWAX_UPDATE_FEED_BASE 对应；商业版用 nuwa-work-electron 隔离）
+      RELEASE_ROOT: "nuwaclaw-electron"
+      PRODUCT_PREFIX: "NuwaClaw"
       RELEASE_TAG: ${{ inputs.tag }}
       RELEASE_CHANNEL: ${{ inputs.channel || 'stable' }}
     steps:
@@ -365,21 +391,20 @@ jobs:
           CHANNEL="${RELEASE_CHANNEL}"
           if [[ "$TAG" == prerelease-v* ]]; then
             VERSION="${TAG#prerelease-v}"
-            WIN_EXE="NuwaClaw-Setup-${VERSION}-unsigned.exe"
-            WIN_MSI="NuwaClaw-${VERSION}-unsigned.msi"
+            WIN_EXE="${PRODUCT_PREFIX}-Setup-${VERSION}-unsigned.exe"
+            WIN_MSI="${PRODUCT_PREFIX}-${VERSION}-unsigned.msi"
           else
             VERSION="${TAG#electron-v}"
-            WIN_EXE="NuwaClaw.Setup.${VERSION}.exe"
-            WIN_MSI="NuwaClaw.${VERSION}.msi"
+            WIN_EXE="${PRODUCT_PREFIX}.Setup.${VERSION}.exe"
+            WIN_MSI="${PRODUCT_PREFIX}.${VERSION}.msi"
           fi
           if [[ "$TAG" == prerelease-v* ]] || [ "$CHANNEL" = "beta" ]; then
-            S3_URL_PREFIX="${S3_CDN_BASE}/nuwaclaw-electron/beta-build/${TAG}"
+            S3_URL_PREFIX="${S3_CDN_BASE}/${RELEASE_ROOT}/beta-build/${TAG}"
           else
-            S3_URL_PREFIX="${S3_CDN_BASE}/nuwaclaw-electron/${TAG}"
+            S3_URL_PREFIX="${S3_CDN_BASE}/${RELEASE_ROOT}/${TAG}"
           fi
           ASSETS_DIR="/tmp/release-assets"
 
-          # semver MVP guard: only allow numeric x.y.z
           if ! echo "$VERSION" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$'; then
             echo "::error::Invalid version '${VERSION}'. MVP only supports numeric x.y.z"
             exit 1
@@ -390,10 +415,8 @@ jobs:
             exit 1
           fi
 
-          # 删除 GitHub 自带的 yml，仅保留由 latest.json 派生的 yml
           rm -f "${ASSETS_DIR}"/*.yml
 
-          # 获取 release notes 与 pub_date
           RELEASE_JSON=$(gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json body,createdAt 2>/dev/null || echo '{}')
           NOTES=$(echo "$RELEASE_JSON" | jq -r '.body // "NuwaClaw 功能优化和问题修复。建议更新到最新版本以获得更好的体验。"' | head -c 500)
           PUB_DATE=$(echo "$RELEASE_JSON" | jq -r '.createdAt // empty')
@@ -424,21 +447,21 @@ jobs:
 
           PLATFORMS="{}"
           echo "==> Scanning release assets for platforms..."
-          add_platform "darwin-aarch64"     "NuwaClaw-${VERSION}-arm64.dmg"
-          add_platform "darwin-aarch64-zip" "NuwaClaw-${VERSION}-arm64-mac.zip"
-          add_platform "darwin-x86_64"      "NuwaClaw-${VERSION}.dmg"
-          add_platform "darwin-x86_64-zip"  "NuwaClaw-${VERSION}-mac.zip"
+          add_platform "darwin-aarch64"     "${PRODUCT_PREFIX}-${VERSION}-arm64.dmg"
+          add_platform "darwin-aarch64-zip" "${PRODUCT_PREFIX}-${VERSION}-arm64-mac.zip"
+          add_platform "darwin-x86_64"      "${PRODUCT_PREFIX}-${VERSION}.dmg"
+          add_platform "darwin-x86_64-zip"  "${PRODUCT_PREFIX}-${VERSION}-mac.zip"
           add_platform "windows-x86_64"      "$WIN_EXE"
           add_platform "windows-x86_64-nsis" "$WIN_EXE"
           add_platform "windows-x86_64-msi"  "$WIN_MSI"
-          add_platform "linux-x86_64"          "NuwaClaw-${VERSION}.AppImage"
-          add_platform "linux-x86_64-appimage" "NuwaClaw-${VERSION}.AppImage"
-          add_platform "linux-x86_64-deb"      "NuwaClaw-${VERSION}-amd64.deb"
-          add_platform "linux-x86_64-rpm"      "NuwaClaw-${VERSION}-x86_64.rpm"
-          add_platform "linux-aarch64"          "NuwaClaw-${VERSION}-arm64.AppImage"
-          add_platform "linux-aarch64-appimage" "NuwaClaw-${VERSION}-arm64.AppImage"
-          add_platform "linux-aarch64-deb"      "NuwaClaw-${VERSION}-arm64.deb"
-          add_platform "linux-aarch64-rpm"      "NuwaClaw-${VERSION}-aarch64.rpm"
+          add_platform "linux-x86_64"          "${PRODUCT_PREFIX}-${VERSION}.AppImage"
+          add_platform "linux-x86_64-appimage" "${PRODUCT_PREFIX}-${VERSION}.AppImage"
+          add_platform "linux-x86_64-deb"      "${PRODUCT_PREFIX}-${VERSION}-amd64.deb"
+          add_platform "linux-x86_64-rpm"      "${PRODUCT_PREFIX}-${VERSION}-x86_64.rpm"
+          add_platform "linux-aarch64"          "${PRODUCT_PREFIX}-${VERSION}-arm64.AppImage"
+          add_platform "linux-aarch64-appimage" "${PRODUCT_PREFIX}-${VERSION}-arm64.AppImage"
+          add_platform "linux-aarch64-deb"      "${PRODUCT_PREFIX}-${VERSION}-arm64.deb"
+          add_platform "linux-aarch64-rpm"      "${PRODUCT_PREFIX}-${VERSION}-aarch64.rpm"
 
           if [ "$(echo "$PLATFORMS" | jq 'length')" = "0" ]; then
             echo "::warning::No exact filename matches, falling back to fuzzy scan"
@@ -517,7 +540,6 @@ jobs:
           gen_yml "latest" "$WIN_KEYS"
           echo "==> Platform yml written to ${ASSETS_DIR}"
 
-          # 构建 yml 文件的完整 S3 URL（供客户端 electron-updater 直接使用）
           YML_URLS=$(jq -n \
             --arg darwin "${S3_URL_PREFIX}/latest-mac.yml" \
             --arg linux "${S3_URL_PREFIX}/latest-linux.yml" \
@@ -535,7 +557,6 @@ jobs:
           echo "==> Generated latest.json"
           echo "$LATEST_JSON" | jq .
 
-      # MinIO：完整镜像（安装包 + 派生 yml + latest.json）。OSS 仅上传 yml + latest.json，见后续 step。
       - name: Upload full release to MinIO S3 (installers, yml, latest.json)
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.MINIO_ACCESS_KEY_ID }}
@@ -544,9 +565,9 @@ jobs:
           TAG="${RELEASE_TAG}"
           CHANNEL="${RELEASE_CHANNEL}"
           if [[ "$TAG" == prerelease-v* ]] || [ "$CHANNEL" = "beta" ]; then
-            S3_PREFIX="nuwaclaw-electron/beta-build/${TAG}"
+            S3_PREFIX="${RELEASE_ROOT}/beta-build/${TAG}"
           else
-            S3_PREFIX="nuwaclaw-electron/${TAG}"
+            S3_PREFIX="${RELEASE_ROOT}/${TAG}"
           fi
 
           echo "==> MinIO: (1/3) installers and other non-yml release assets"
@@ -573,10 +594,10 @@ jobs:
           aws s3 cp /tmp/latest.json "s3://${S3_BUCKET}/${S3_PREFIX}/latest.json" \
             --endpoint-url "$S3_ENDPOINT"
           if [ "$CHANNEL" = "stable" ]; then
-            aws s3 cp /tmp/latest.json "s3://${S3_BUCKET}/nuwaclaw-electron/latest/latest.json" \
+            aws s3 cp /tmp/latest.json "s3://${S3_BUCKET}/${RELEASE_ROOT}/latest/latest.json" \
               --endpoint-url "$S3_ENDPOINT"
           else
-            aws s3 cp /tmp/latest.json "s3://${S3_BUCKET}/nuwaclaw-electron/beta/latest.json" \
+            aws s3 cp /tmp/latest.json "s3://${S3_BUCKET}/${RELEASE_ROOT}/beta/latest.json" \
               --endpoint-url "$S3_ENDPOINT"
           fi
 
@@ -585,9 +606,9 @@ jobs:
           TAG="${RELEASE_TAG}"
           CHANNEL="${RELEASE_CHANNEL}"
           if [ "$CHANNEL" = "beta" ]; then
-            VERIFY_URL="${S3_CDN_BASE}/nuwaclaw-electron/beta-build/${TAG}/latest-mac.yml"
+            VERIFY_URL="${S3_CDN_BASE}/${RELEASE_ROOT}/beta-build/${TAG}/latest-mac.yml"
           else
-            VERIFY_URL="${S3_CDN_BASE}/nuwaclaw-electron/${TAG}/latest-mac.yml"
+            VERIFY_URL="${S3_CDN_BASE}/${RELEASE_ROOT}/${TAG}/latest-mac.yml"
           fi
           HTTP_STATUS=$(curl -sS -o /dev/null -w "%{http_code}" "$VERIFY_URL")
           if [ "$HTTP_STATUS" = "200" ]; then
@@ -605,9 +626,9 @@ jobs:
           TAG="${RELEASE_TAG}"
           CHANNEL="${RELEASE_CHANNEL}"
           if [ "$CHANNEL" = "beta" ]; then
-            OSS_VERSION_PREFIX="${OSS_BUCKET}/nuwaclaw-electron/beta-build/${TAG}"
+            OSS_VERSION_PREFIX="${OSS_BUCKET}/${RELEASE_ROOT}/beta-build/${TAG}"
           else
-            OSS_VERSION_PREFIX="${OSS_BUCKET}/nuwaclaw-electron/${TAG}"
+            OSS_VERSION_PREFIX="${OSS_BUCKET}/${RELEASE_ROOT}/${TAG}"
           fi
           echo "==> Publishing yml + latest.json to OSS (no installers) for channel: ${CHANNEL}"
 
@@ -630,14 +651,14 @@ jobs:
             --access-key-secret "$OSS_ACCESS_KEY_SECRET"
 
           if [ "$CHANNEL" = "stable" ]; then
-            ossutil cp --force /tmp/latest.json "${OSS_BUCKET}/nuwaclaw-electron/latest/latest.json" \
+            ossutil cp --force /tmp/latest.json "${OSS_BUCKET}/${RELEASE_ROOT}/latest/latest.json" \
               --endpoint "$OSS_ENDPOINT" \
               --region "$OSS_REGION" \
               --access-key-id "$OSS_ACCESS_KEY_ID" \
               --access-key-secret "$OSS_ACCESS_KEY_SECRET"
             echo "==> Uploaded latest.json to stable pointer: latest/latest.json"
           else
-            ossutil cp --force /tmp/latest.json "${OSS_BUCKET}/nuwaclaw-electron/beta/latest.json" \
+            ossutil cp --force /tmp/latest.json "${OSS_BUCKET}/${RELEASE_ROOT}/beta/latest.json" \
               --endpoint "$OSS_ENDPOINT" \
               --region "$OSS_REGION" \
               --access-key-id "$OSS_ACCESS_KEY_ID" \
@@ -650,11 +671,11 @@ jobs:
           TAG="${RELEASE_TAG}"
           CHANNEL="${RELEASE_CHANNEL}"
           if [ "$CHANNEL" = "stable" ]; then
-            VERIFY_JSON_URL="${OSS_CDN_BASE}/nuwaclaw-electron/latest/latest.json"
-            VERIFY_YML_URL="${OSS_CDN_BASE}/nuwaclaw-electron/${TAG}/latest-mac.yml"
+            VERIFY_JSON_URL="${OSS_CDN_BASE}/${RELEASE_ROOT}/latest/latest.json"
+            VERIFY_YML_URL="${OSS_CDN_BASE}/${RELEASE_ROOT}/${TAG}/latest-mac.yml"
           else
-            VERIFY_JSON_URL="${OSS_CDN_BASE}/nuwaclaw-electron/beta/latest.json"
-            VERIFY_YML_URL="${OSS_CDN_BASE}/nuwaclaw-electron/beta-build/${TAG}/latest-mac.yml"
+            VERIFY_JSON_URL="${OSS_CDN_BASE}/${RELEASE_ROOT}/beta/latest.json"
+            VERIFY_YML_URL="${OSS_CDN_BASE}/${RELEASE_ROOT}/beta-build/${TAG}/latest-mac.yml"
           fi
           HTTP_JSON=$(curl -sS -o /tmp/oss-latest.json -w "%{http_code}" "$VERIFY_JSON_URL")
           if [ "$HTTP_JSON" = "200" ]; then

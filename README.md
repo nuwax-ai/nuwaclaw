@@ -7,6 +7,25 @@
 
 多引擎 AI 助手桌面客户端，基于 ACP (Agent Client Protocol) 协议，支持任何兼容 ACP 的 Agent 引擎，提供跨平台的本地 AI Agent 执行能力。
 
+> **【2026-09-09 仓库转型公告】** 本仓已转型为 **NuwaClaw 社区版产品发布壳**：
+> 全部功能模块与构建系统迁移至基座仓 [nuwax-ai/nuwa-electron-shell](https://github.com/nuwax-ai/nuwa-electron-shell)，
+> 本仓经 submodule pin 引用基座、以社区默认身份构建发布（更新通道 nuwaclaw-electron）。
+> **代码贡献与日常开发请移步基座仓**；下方产品介绍仍然有效。
+
+### 作为产品壳构建
+
+```bash
+git clone https://github.com/nuwax-ai/nuwaclaw.git && cd nuwaclaw
+git submodule update --init nuwaclaw          # 基座仓 nuwa-electron-shell main 分支（公开）
+git -C nuwaclaw submodule update --init nuwax # nuwax 前端（dist 随仓提交，无需构建）
+npm run base:install   # 基座内 pnpm install --filter
+npm run base:dev       # 基座内 make electron-dev（社区默认身份，无 env 注入）
+npm run base:test      # 基座内全量 vitest
+```
+
+发布：打 `electron-v*`（stable）/ `prerelease-v*`（beta）tag 触发 CI；基座升级时
+bump submodule pin 即可。
+
 ## 核心特性
 
 ### 多引擎支持
