@@ -152,7 +152,7 @@ jobs:
           echo "package.json version: $(npm pkg get version), appId: $(npm pkg get build.appId)"
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
           node-version: lts/*
 
