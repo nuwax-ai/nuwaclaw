@@ -1,7 +1,8 @@
 # nuwaclaw 社区版 — beta 预发布（prerelease-v* 触发，Draft Release）
-# 社区产品壳（基座仓 nuwax-ai/nuwa-electron-shell main 分支承载业务）：
+# 社区产品壳（基座仓 nuwax-ai/nuwa-electron-shell community/main 分支承载业务）：
 # 路径前缀 nuclaw/、checkout 后以 github.token 拉基座 submodule、pnpm 显式版本、
-# 沙箱 helper 断言。通道 nuwaclaw-electron/；不注入 NUWAX_* env（社区默认身份），
+# 沙箱 helper 断言（community 线基座不内嵌 nuwax 前端，无嵌套子模块）。
+# 通道 nuwaclaw-electron/；不注入 NUWAX_* env（社区默认身份），
 # 与 release-electron.yml 一致。
 
 # Electron 桌面客户端 — 预发布版本构建
@@ -118,10 +119,10 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      # 显式两层 submodule init（不依赖 checkout action 内部递归 sync）：
-      # nuwa-electron-shell submodule → 基座仓 nuwax-ai/nuwa-electron-shell 的 main 分支（公开，
-      #   github.token 注入凭据）；nuwax → 基座内嵌前端（公开可匿名拉取）
-      - name: Init submodules (nuwa-electron-shell + nuwax)
+      # 显式 submodule init（不依赖 checkout action 内部 sync）：
+      # nuwa-electron-shell submodule → 基座仓 nuwax-ai/nuwa-electron-shell（公开，
+      #   github.token 注入凭据）。community 线基座无嵌套子模块（不内嵌 nuwax 前端）
+      - name: Init submodules (nuwa-electron-shell)
         shell: bash
         env:
           GH_SUBMODULE_TOKEN: ${{ github.token }}
@@ -131,15 +132,9 @@ jobs:
           export GH_TOKEN="${GH_SUBMODULE_TOKEN}"
           gh auth setup-git
           git submodule update --init nuwa-electron-shell
-          # nuwax 嵌套子模块 .gitmodules 已切回 GitHub（base 422fd1b0）；此处显式
-          # 覆盖保持双保险（远端公开可匿名拉取，pin 提交由 pin/nuwa-work 分支承载，
-          # bump 内层 pin 时须同步快进该分支，否则 CI 匿名拉取断裂）
-          git -C nuwa-electron-shell config submodule.nuwax.url https://github.com/nuwax-ai/nuwax.git
-          git -C nuwa-electron-shell submodule update --init nuwax
           git submodule status
           # 强校验：submodule update 内部重试失败时可能以 0 退出（第三次 CI 实测假绿）
           test -d nuwa-electron-shell/crates/agent-electron-client || { echo "::error::nuwa-electron-shell submodule not checked out"; exit 1; }
-          test -d nuwa-electron-shell/nuwax/dist || { echo "::error::nuwax dist missing"; exit 1; }
 
       - name: Set version in package.json
         shell: bash
