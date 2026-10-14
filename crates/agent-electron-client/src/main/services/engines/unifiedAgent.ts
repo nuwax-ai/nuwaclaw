@@ -623,8 +623,10 @@ export class UnifiedAgentService extends EventEmitter {
       t2 = t0,
       t5 = t0;
 
-    // 引擎按 project（agent_work_dir / project_id）复用，不按 session_id 建 key。
-    // session_id 仅用于会话恢复；避免 session 轮换后重复冷启动引擎。
+    // A2：引擎按 conversationId（project_id）复用——同一常规项目下不同对话各自
+    // 独立引擎、可并行不互相抢占（见 chatEngineKey.resolveChatEngineRegistryKey）。
+    // 不按 session_id 建 key：session_id 仅用于会话恢复，避免 session 轮换后重复冷启动。
+    // agent_work_dir 仅作 cwd 推导与无 conversationId 时的回退。
     const engineKey = resolveChatEngineRegistryKey(request);
     const registryKey = this.resolveEngineKey(engineKey) || engineKey; // 引擎在 Map 中实际使用的 key
 

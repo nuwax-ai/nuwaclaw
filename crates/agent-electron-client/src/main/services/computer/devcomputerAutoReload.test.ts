@@ -162,7 +162,7 @@ describe("devcomputerAutoReload", () => {
       expect(mockStopEngine).toHaveBeenCalledWith("proj-1");
     });
 
-    it("prefers agent_work_dir candidate when both differ", async () => {
+    it("falls back to agent_work_dir candidate when project_id misses", async () => {
       mockFindEngineForStop.mockImplementation((key: string) => {
         if (key === "work-dir-a") {
           return { engine: mockEngine(), registryKey: "work-dir-a" };
@@ -177,13 +177,13 @@ describe("devcomputerAutoReload", () => {
         }),
       );
 
+      // A2：project_id 为首选但未命中时，仍回退到 agent_work_dir 候选（兼容存量引擎）
       expect(mockFindEngineForStop).toHaveBeenCalledWith("work-dir-a");
       expect(mockStopEngine).toHaveBeenCalledWith("work-dir-a");
     });
 
-    it("falls back to project_id when engine is registered under project_id only", async () => {
+    it("resolves project_id (conversationId) as primary candidate, no agent_work_dir probe", async () => {
       mockFindEngineForStop.mockImplementation((key: string) => {
-        if (key === "work-dir-a") return null;
         if (key === "proj-b") {
           return { engine: mockEngine(), registryKey: "proj-b" };
         }
@@ -197,14 +197,16 @@ describe("devcomputerAutoReload", () => {
         }),
       );
 
-      expect(mockFindEngineForStop).toHaveBeenCalledWith("work-dir-a");
+      // A2：候选以 project_id 为首，命中即停；不再回退查 agent_work_dir
       expect(mockFindEngineForStop).toHaveBeenCalledWith("proj-b");
+      expect(mockFindEngineForStop).not.toHaveBeenCalledWith("work-dir-a");
       expect(mockStopEngine).toHaveBeenCalledWith("proj-b");
     });
   });
 
   describe("resolveChatEngineKey", () => {
     it("matches ensureEngineForRequest key order", () => {
+      // A2：ensureEngineForRequest 与 resolveChatEngineKey 同源，均以 project_id 为首
       expect(
         resolveChatEngineKey(
           chatRequest({
@@ -213,7 +215,7 @@ describe("devcomputerAutoReload", () => {
             session_id: "sess-c",
           }),
         ),
-      ).toBe("work-a");
+      ).toBe("proj-b");
       expect(
         resolveChatEngineKey(
           chatRequest({ project_id: "proj-b", session_id: "sess-c" }),

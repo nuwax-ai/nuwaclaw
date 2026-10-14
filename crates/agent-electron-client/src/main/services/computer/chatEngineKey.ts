@@ -13,10 +13,10 @@ export type ChatProjectKeyInput = Pick<
 /**
  * normalProject 业务的 key 作用域前缀。
  *
- * 常规项目 id（devTargetId）与 conversationId 同为数字单段名：service_type 不进
- * key 的话，同 userId 下两个 id 空间撞号会共用同一引擎实例，但两类会话的
- * projectDir 不同层（computer-project-workspace/{u}/normalProject/{pid} vs
- * .../{u}/{pid}），后到会话会落错工作目录——前缀隔离两个 id 空间。
+ * key 主维度为 conversationId（project_id）：同一常规项目下多个对话各自独立
+ * 引擎/会话，可并行不互相抢占（cwd 仍按 agent_work_dir 共享同一工作目录，见
+ * acpSessionSetup.buildWorkDirAndProjectDir）。前缀按 service_type 给 normalProject
+ * 引擎单独作用域，与普通会话引擎隔离，并保留与历史前缀化 key 的双形态兼容。
  */
 const NORMAL_PROJECT_KEY_PREFIX = "normalProject:";
 
@@ -31,12 +31,14 @@ function scopeKeyByServiceType(
 
 /**
  * 引擎 Map 注册 key（与 unifiedAgent.ensureEngineForRequest 一致）。
- * 无可用字段时回退 "default"；normalProject 业务加作用域前缀。
+ * 主维度为 conversationId（project_id），使同一常规项目下不同对话各自独立引擎、
+ * 可并行；agent_work_dir 仅作 cwd 推导与无 conversationId 时的回退。无可用字段时
+ * 回退 "default"；normalProject 业务加作用域前缀。
  */
 export function resolveChatEngineRegistryKey(
   request: ChatProjectKeyInput,
 ): string {
-  const id = request.agent_work_dir || request.project_id || request.session_id;
+  const id = request.project_id || request.agent_work_dir || request.session_id;
   return id ? scopeKeyByServiceType(request, id) : "default";
 }
 
@@ -58,8 +60,8 @@ export function resolveChatEngineKeyCandidates(
   request: ChatProjectKeyInput,
 ): string[] {
   const ids = [
-    request.agent_work_dir,
     request.project_id,
+    request.agent_work_dir,
     request.session_id,
   ].filter(Boolean) as string[];
   const keys: string[] = [];
@@ -71,11 +73,11 @@ export function resolveChatEngineKeyCandidates(
   return keys;
 }
 
-/** projectSessionRegistry 用的 project 维度 key（normalProject 同样加前缀隔离）。 */
+/** projectSessionRegistry 用的对话维度 key（normalProject 同样加前缀隔离）。 */
 export function resolveChatProjectRegistryKey(
   request: ChatProjectKeyInput,
 ): string | undefined {
-  const id = request.agent_work_dir || request.project_id;
+  const id = request.project_id || request.agent_work_dir;
   return id ? scopeKeyByServiceType(request, id) : undefined;
 }
 
@@ -91,7 +93,7 @@ export function resolveChatProjectRegistryKey(
 export function projectRegistryKeyCandidates(
   request: ChatProjectKeyInput,
 ): string[] {
-  const ids = [request.agent_work_dir, request.project_id].filter(
+  const ids = [request.project_id, request.agent_work_dir].filter(
     Boolean,
   ) as string[];
   const keys: string[] = [];

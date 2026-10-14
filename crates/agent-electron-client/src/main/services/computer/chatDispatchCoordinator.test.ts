@@ -5,7 +5,9 @@ import {
 } from "./chatDispatchCoordinator";
 
 describe("resolveChatDispatchKey", () => {
-  it("prefers agent_work_dir then project_id", () => {
+  it("prefers project_id (conversationId) then agent_work_dir", () => {
+    // A2：派发键以 conversationId(project_id) 为首——同项目不同对话各自
+    // 独立串行/代次顶替，不互相抢占。
     expect(
       resolveChatDispatchKey({
         user_id: "u1",
@@ -13,7 +15,7 @@ describe("resolveChatDispatchKey", () => {
         project_id: "other",
         prompt: "hi",
       } as any),
-    ).toBe("1554103");
+    ).toBe("other");
     expect(
       resolveChatDispatchKey({
         user_id: "u1",
@@ -21,6 +23,14 @@ describe("resolveChatDispatchKey", () => {
         prompt: "hi",
       } as any),
     ).toBe("1554103");
+    // 无 project_id 时回退 agent_work_dir
+    expect(
+      resolveChatDispatchKey({
+        user_id: "u1",
+        agent_work_dir: "work-x",
+        prompt: "hi",
+      } as any),
+    ).toBe("work-x");
   });
 });
 

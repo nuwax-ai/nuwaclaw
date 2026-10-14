@@ -18,8 +18,8 @@ function req(
   };
 }
 
-describe("chatEngineKey", () => {
-  it("resolveChatEngineRegistryKey prefers agent_work_dir", () => {
+describe("chatEngineKey · 对话级 key（A2）", () => {
+  it("resolveChatEngineRegistryKey prefers project_id (conversationId)", () => {
     expect(
       resolveChatEngineRegistryKey(
         req({
@@ -27,6 +27,14 @@ describe("chatEngineKey", () => {
           project_id: "proj-b",
           session_id: "sess-c",
         }),
+      ),
+    ).toBe("proj-b");
+  });
+
+  it("无 project_id 时回退 agent_work_dir", () => {
+    expect(
+      resolveChatEngineRegistryKey(
+        req({ project_id: undefined, agent_work_dir: "work-a" }),
       ),
     ).toBe("work-a");
   });
@@ -43,7 +51,7 @@ describe("chatEngineKey", () => {
     ).toBeUndefined();
   });
 
-  it("resolveChatEngineKeyCandidates dedupes and preserves order", () => {
+  it("candidates 优先 project_id、去重保序", () => {
     expect(
       resolveChatEngineKeyCandidates(
         req({
@@ -52,34 +60,88 @@ describe("chatEngineKey", () => {
           session_id: "sess-c",
         }),
       ),
-    ).toEqual(["work-a", "proj-b", "sess-c"]);
+    ).toEqual(["proj-b", "work-a", "sess-c"]);
   });
 
-  it("resolveChatProjectRegistryKey ignores session_id", () => {
+  it("resolveChatProjectRegistryKey prefers project_id, ignores session_id", () => {
+    expect(
+      resolveChatProjectRegistryKey(
+        req({
+          agent_work_dir: "work-a",
+          project_id: "proj-b",
+          session_id: "sess-c",
+        }),
+      ),
+    ).toBe("proj-b");
     expect(
       resolveChatProjectRegistryKey(
         req({ agent_work_dir: "work-a", session_id: "sess-c" }),
       ),
-    ).toBe("work-a");
+    ).toBe("proj-1");
     expect(resolveChatProjectRegistryKey(req({ session_id: "sess-c" }))).toBe(
       "proj-1",
     );
   });
 });
 
-describe("chatEngineKey · normalProject 作用域隔离", () => {
-  it("同 id 不同业务（normalProject vs 普通会话）key 不同——防撞号共用引擎", () => {
-    // 常规项目 id（devTargetId）与 conversationId 同为数字单段名，撞号时
-    // 两类会话 projectDir 不同层，绝不能共用引擎实例
-    const npKey = resolveChatEngineRegistryKey(
+describe("chatEngineKey · normalProject 作用域 + 对话级隔离", () => {
+  it("normalProject 业务 key 加前缀，主维度为 conversationId", () => {
+    expect(
+      resolveChatEngineRegistryKey(
+        req({
+          project_id: "1728392",
+          agent_work_dir: "272",
+          service_type: "computer-normal-project",
+        }),
+      ),
+    ).toBe("normalProject:1728392");
+  });
+
+  it("同常规项目、不同对话 → key 不同（核心修复：可并行不共享引擎）", () => {
+    const a = resolveChatEngineRegistryKey(
       req({
-        agent_work_dir: "42",
+        project_id: "1728392",
+        agent_work_dir: "272",
         service_type: "computer-normal-project",
       }),
     );
-    const plainKey = resolveChatEngineRegistryKey(
-      req({ agent_work_dir: "42" }),
+    const b = resolveChatEngineRegistryKey(
+      req({
+        project_id: "1728395",
+        agent_work_dir: "272",
+        service_type: "computer-normal-project",
+      }),
     );
+    expect(a).toBe("normalProject:1728392");
+    expect(b).toBe("normalProject:1728395");
+    expect(a).not.toBe(b);
+  });
+
+  it("同对话（同 project_id）不同 session_id → key 一致（会话复用语义保持）", () => {
+    const a = resolveChatEngineRegistryKey(
+      req({
+        project_id: "1728392",
+        agent_work_dir: "272",
+        session_id: "conv-1",
+        service_type: "computer-normal-project",
+      }),
+    );
+    const b = resolveChatEngineRegistryKey(
+      req({
+        project_id: "1728392",
+        agent_work_dir: "272",
+        session_id: "conv-2",
+        service_type: "computer-normal-project",
+      }),
+    );
+    expect(a).toBe(b);
+  });
+
+  it("normalProject vs 普通会话同 conversationId 不撞——前缀隔离", () => {
+    const npKey = resolveChatEngineRegistryKey(
+      req({ project_id: "42", service_type: "computer-normal-project" }),
+    );
+    const plainKey = resolveChatEngineRegistryKey(req({ project_id: "42" }));
     expect(npKey).toBe("normalProject:42");
     expect(plainKey).toBe("42");
     expect(npKey).not.toBe(plainKey);
@@ -88,35 +150,17 @@ describe("chatEngineKey · normalProject 作用域隔离", () => {
   it("camelCase 旧词 normalProject 同样加前缀", () => {
     expect(
       resolveChatEngineRegistryKey(
-        req({ agent_work_dir: "42", service_type: "normalProject" }),
+        req({ project_id: "42", service_type: "normalProject" }),
       ),
     ).toBe("normalProject:42");
-  });
-
-  it("同常规项目多会话（同 service_type + 同 id）key 一致——共享引擎语义保持", () => {
-    const a = resolveChatEngineRegistryKey(
-      req({
-        agent_work_dir: "42",
-        session_id: "conv-1",
-        service_type: "computer-normal-project",
-      }),
-    );
-    const b = resolveChatEngineRegistryKey(
-      req({
-        agent_work_dir: "42",
-        session_id: "conv-2",
-        service_type: "computer-normal-project",
-      }),
-    );
-    expect(a).toBe(b);
   });
 
   it("candidates 同时给出前缀形态与原始形态（兼容存量引擎定位）", () => {
     expect(
       resolveChatEngineKeyCandidates(
         req({
-          agent_work_dir: "42",
-          project_id: undefined,
+          project_id: "42",
+          agent_work_dir: undefined,
           session_id: undefined,
           service_type: "computer-normal-project",
         }),
@@ -124,14 +168,16 @@ describe("chatEngineKey · normalProject 作用域隔离", () => {
     ).toEqual(["normalProject:42", "42"]);
   });
 
-  it("projectSessionRegistry key 同样按业务隔离", () => {
+  it("projectSessionRegistry key 按对话 + 业务隔离", () => {
     expect(
       resolveChatProjectRegistryKey(
-        req({ agent_work_dir: "42", service_type: "computer-normal-project" }),
+        req({
+          project_id: "1728392",
+          agent_work_dir: "272",
+          service_type: "computer-normal-project",
+        }),
       ),
-    ).toBe("normalProject:42");
-    expect(resolveChatProjectRegistryKey(req({ agent_work_dir: "42" }))).toBe(
-      "42",
-    );
+    ).toBe("normalProject:1728392");
+    expect(resolveChatProjectRegistryKey(req({ project_id: "42" }))).toBe("42");
   });
 });

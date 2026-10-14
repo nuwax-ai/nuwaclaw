@@ -2442,6 +2442,11 @@ export class AcpEngine extends EventEmitter {
    * 新 /computer/chat 到达时取消上一轮未完成的 prompt 与 pending 权限审批。
    * 活跃 prompt 走完整 abortSession（ACP cancel + 本地 reject + pending 清理）；
    * 仅残留 pending 时单独 cancel，避免旧审批在下一轮仍被 resolve。
+   *
+   * A2 作用域已收敛到「对话级」：session 由 resolveSessionForChat 按 conversationId
+   * (project_id) 独立解析，同一常规项目下不同对话各自持有独立 session，故本方法
+   * 只会 cancel 当前对话自身的旧 turn；跨对话不再互相抢占（历史上按 agent_work_dir
+   * 归并同一 session 才会误伤，见 chatEngineKey.ts / acpSessionSetup.findSessionInMemory）。
    */
   private async abortActiveTurnBeforeNewChat(
     session: AcpSession,

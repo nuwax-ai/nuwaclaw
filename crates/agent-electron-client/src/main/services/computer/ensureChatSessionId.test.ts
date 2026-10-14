@@ -35,13 +35,14 @@ describe("ensureSessionIdFromRegistry", () => {
     expect(req.session_id).toBe("sess_f98efbab");
   });
 
-  it("prefers agent_work_dir over project_id for lookup", () => {
+  it("prefers project_id (conversationId) over agent_work_dir for lookup", () => {
     rememberProjectSession("/work/1553935", "sess-from-workdir");
     rememberProjectSession("1553935", "sess-from-project");
     const req = chatRequest({
       agent_work_dir: "/work/1553935",
     });
-    expect(ensureSessionIdFromRegistry(req)).toBe("sess-from-workdir");
+    // A2：候选 key 以 conversationId(project_id) 为首，同项目不同对话不互相继承 session
+    expect(ensureSessionIdFromRegistry(req)).toBe("sess-from-project");
   });
 
   it("normalProject 会话 reload 后按带前缀 key 恢复（写入侧带前缀，读取侧双形态探测）", () => {

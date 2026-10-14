@@ -94,11 +94,12 @@ export function registerComputerHandlers(): void {
         service_type?: string;
       },
     ) => {
-      // 引擎 key 口径与 chat 侧同源（normalProject 业务带 normalProject: 前缀，
-      // 见 chatEngineKey.ts）：以 agent_work_dir 建键的引擎仅凭 project_id 查不到。
-      // session 反查用原始 id（引擎内 session.projectId 为原始 pid，不带前缀）。
+      // A2：引擎 key 与 session 反查均按 conversationId（project_id）对话级归一
+      // （见 chatEngineKey.ts）。engineKey 带 normalProject: 前缀定位到本对话独立
+      // 引擎；session.projectId 为原始 conversationId（不带前缀），故 rawProjectId
+      // 优先取 project_id，使同项目不同对话各自独立报告 running/idle。
       const engineKey = resolveChatEngineKey(request) ?? "";
-      const rawProjectId = request.agent_work_dir || request.project_id || "";
+      const rawProjectId = request.project_id || request.agent_work_dir || "";
       const projectEngine = agentService.getEngineForProject(
         engineKey || rawProjectId,
       );
@@ -178,9 +179,10 @@ export function registerComputerHandlers(): void {
         service_type?: string;
       },
     ) => {
-      // 引擎 key 与 chat 同源（normalProject 前缀隔离）；session 反查用原始 id
+      // A2：引擎 key 与 session 反查均按 conversationId（project_id）对话级归一；
+      // rawProjectId 为原始 conversationId，精确定位到本对话的引擎/会话。
       const engineKey = resolveChatEngineKey(request) ?? "";
-      const rawProjectId = request.agent_work_dir || request.project_id || "";
+      const rawProjectId = request.project_id || request.agent_work_dir || "";
       const acpEngine =
         agentService.getEngineForProject(engineKey || rawProjectId) ||
         agentService.getAcpEngine();
