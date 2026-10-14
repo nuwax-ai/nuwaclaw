@@ -54,14 +54,14 @@ export function resolveChatEngineKey(
  * 按 ensureEngine 优先级列出候选 key，用于 reload 定位已运行引擎
  * （含历史请求 key 不一致、session_id 定位等场景）。
  * normalProject 业务对每个 id 同时给出前缀形态与原始形态——兼容前缀化改造
- * 之前已按原始 id 建立的存量引擎。
+ * 之前已按原始 id 建立的存量引擎。已有 conversationId 时不再探测共享目录 id，
+ * 否则首次请求可能 reload 同目录的另一对话；session_id 仍可精确定位本会话。
  */
 export function resolveChatEngineKeyCandidates(
   request: ChatProjectKeyInput,
 ): string[] {
   const ids = [
-    request.project_id,
-    request.agent_work_dir,
+    request.project_id || request.agent_work_dir,
     request.session_id,
   ].filter(Boolean) as string[];
   const keys: string[] = [];
@@ -89,11 +89,12 @@ export function resolveChatProjectRegistryKey(
  * （session_id 补全 / 陈旧 SSE 清理）请求的 service_type 携带情况可能与写入时
  * 不同，双形态探测保证 normalProject 会话在 reload 后仍能按 key 恢复。
  * 无 service_type 时前缀形态与原始形态相同，去重后即存量行为。
+ * 已有 conversationId 时不回退共享目录 id，防止补全另一对话的 session 或关闭其 SSE。
  */
 export function projectRegistryKeyCandidates(
   request: ChatProjectKeyInput,
 ): string[] {
-  const ids = [request.project_id, request.agent_work_dir].filter(
+  const ids = [request.project_id || request.agent_work_dir].filter(
     Boolean,
   ) as string[];
   const keys: string[] = [];

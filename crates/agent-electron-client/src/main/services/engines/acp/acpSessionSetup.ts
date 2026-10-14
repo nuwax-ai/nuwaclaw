@@ -138,9 +138,9 @@ export interface SessionSetupResult {
  *   {workspace}/computer-project-workspace/{userId}/normalProject/{pid}（本机
  *   镜像云端 /home/user/normalProject/{pid} 布局）；容器物化形态归一为 pid
  *   （防御绕过 router 校验的调用方）。同一常规项目多会话 agent_work_dir 相同
- *   （devTargetId）→ 共享引擎与工作区，对齐云端 per-project 语义。
+ *   （devTargetId）→ 共享工作区；引擎和会话各按 conversationId 独立。
  * 会话归属 projectId 的回写不在本函数（resolveSessionForChat 用
- * request.agent_work_dir 原值作引擎索引 key，保持全路径）。
+ * request.project_id 作会话归属，agent_work_dir 只决定 cwd）。
  */
 export function buildWorkDirAndProjectDir(
   deps: SessionSetupDeps,

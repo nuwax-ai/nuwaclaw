@@ -48,7 +48,7 @@ describe("ensureSessionIdFromRegistry", () => {
   it("normalProject 会话 reload 后按带前缀 key 恢复（写入侧带前缀，读取侧双形态探测）", () => {
     // 模拟 chat 成功回写 / devcomputer reload capture：写入侧经
     // resolveChatProjectRegistryKey 对 normalProject 业务带 normalProject: 前缀
-    rememberProjectSession("normalProject:42", "sess-np-42");
+    rememberProjectSession("normalProject:1553935", "sess-np-42");
 
     // 读取侧请求带 service_type（Java 全类型下发）：前缀形态命中
     const withType = chatRequest({

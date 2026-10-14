@@ -1209,6 +1209,64 @@ describe("AcpEngine.chat", () => {
     expect(promptAsyncSpy).toHaveBeenCalled();
   });
 
+  it.each(["nuwaxcode", "claude-code"] as const)(
+    "%s：同目录两对话 prompt 并行，取消 B 不打断 A，同对话新 turn 仍替换旧 turn",
+    async (engineType) => {
+      const { engine, newSession } = setupEngineForCreateSession(engineType);
+      newSession
+        .mockResolvedValueOnce({ sessionId: "parallel-a" })
+        .mockResolvedValueOnce({ sessionId: "parallel-b" });
+      const connection = (engine as any).acpConnection;
+      const pendingA = createDeferred<{ stopReason: string }>();
+      const pendingB = createDeferred<{ stopReason: string }>();
+      connection.prompt
+        .mockReturnValueOnce(pendingA.promise)
+        .mockReturnValueOnce(pendingB.promise)
+        .mockResolvedValueOnce({ stopReason: "end_turn" });
+      connection.cancel.mockResolvedValue(undefined);
+      const request = (projectId: string) => ({
+        user_id: "u1",
+        project_id: projectId,
+        agent_work_dir: "272",
+        service_type: "computer-normal-project" as const,
+        prompt: "hello",
+      });
+
+      try {
+        const a = await engine.chat(request("1728392"));
+        const b = await engine.chat(request("1728395"));
+        expect(a.success).toBe(true);
+        expect(b.success).toBe(true);
+        expect(a.data!.session_id).not.toBe(b.data!.session_id);
+        await vi.waitFor(() => expect(engine.getActivePromptCount()).toBe(2));
+        expect(connection.cancel).not.toHaveBeenCalled();
+        expect(newSession.mock.calls[0][0].cwd).toBe(
+          newSession.mock.calls[1][0].cwd,
+        );
+
+        await engine.abortSession(b.data!.session_id);
+        expect(connection.cancel).toHaveBeenCalledWith({
+          sessionId: "parallel-b",
+        });
+        expect(
+          (engine as any).activePromptSessions.has(a.data!.session_id),
+        ).toBe(true);
+        expect(engine.getActivePromptCount()).toBe(1);
+
+        const nextA = await engine.chat(request("1728392"));
+        expect(nextA.data!.session_id).toBe(a.data!.session_id);
+        expect(connection.cancel).toHaveBeenCalledWith({
+          sessionId: "parallel-a",
+        });
+        expect(newSession).toHaveBeenCalledTimes(2);
+      } finally {
+        pendingA.resolve({ stopReason: "end_turn" });
+        pendingB.resolve({ stopReason: "end_turn" });
+        await engine.destroy();
+      }
+    },
+  );
+
   it("chat 前无活跃 turn 时不调用 abortSession", async () => {
     const { engine, sessionId, session } = setupEngine();
     session.projectId = "project-test-001";

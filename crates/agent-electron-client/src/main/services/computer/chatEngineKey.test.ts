@@ -60,7 +60,7 @@ describe("chatEngineKey · 对话级 key（A2）", () => {
           session_id: "sess-c",
         }),
       ),
-    ).toEqual(["proj-b", "work-a", "sess-c"]);
+    ).toEqual(["proj-b", "sess-c"]);
   });
 
   it("resolveChatProjectRegistryKey prefers project_id, ignores session_id", () => {
