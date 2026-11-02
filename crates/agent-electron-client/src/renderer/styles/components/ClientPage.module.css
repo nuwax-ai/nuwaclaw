@@ -1,0 +1,228 @@
+/**
+ * ClientPage 组件样式
+ * 包含页面、区块、服务行、登录表单等样式
+ * 支持亮色/暗色主题
+ */
+
+/* ========== 页面 ========== */
+.page {
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  /* min-height: 0; */
+}
+
+/* ========== 区块 ========== */
+.section {
+  background: var(--color-bg-section);
+  border: 1px solid var(--color-border);
+  border-radius: var(--border-radius-lg);
+  margin-bottom: 20px;
+  overflow: hidden;
+}
+
+.sectionHeader {
+  display: flex;
+  flex-direction: row;
+  gap: 6px;
+  padding: 10px 16px;
+  height: 46px;
+  align-items: center;
+  border-bottom: 1px solid var(--color-border);
+  background: var(--color-bg-section-header);
+}
+
+.sectionTitle {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--color-text);
+}
+
+.sectionDescription {
+  font-size: 11px;
+  color: var(--color-text-tertiary);
+  margin-top: 2px;
+}
+
+.sectionBody {
+  padding: 16px;
+  position: relative;
+}
+
+/* ========== 服务区块头部 ========== */
+.servicesHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--color-border);
+  background: var(--color-bg-section-header);
+}
+
+.servicesHeaderLeft {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.servicesHeaderActions {
+  display: flex;
+  gap: 8px;
+}
+
+/* 停止按钮红色边框 */
+.dangerButton {
+  border-color: var(--color-error) !important;
+  color: var(--color-error) !important;
+}
+
+.dangerButton:hover:not(:disabled) {
+  border-color: #DC2626 !important;
+  color: #DC2626 !important;
+  background: rgba(254, 242, 242, 0.8) !important;
+}
+
+[data-theme="dark"] .dangerButton:hover:not(:disabled) {
+  background: rgba(127, 29, 29, 0.3) !important;
+}
+
+/* ========== 服务行 ========== */
+.serviceRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 0;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.serviceRow:last-child {
+  border-bottom: none;
+}
+
+.serviceInfo {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+}
+
+.serviceLabel {
+  font-size: 13px;
+  color: var(--color-text);
+}
+
+.serviceDescription {
+  font-size: 11px;
+  color: var(--color-text-tertiary);
+  margin-top: 2px;
+  margin-left: 4px;
+}
+
+.servicePid {
+  font-size: 11px;
+  color: var(--color-text-tertiary);
+}
+
+.serviceActions {
+  display: flex;
+  gap: 4px;
+}
+
+/* ========== 登录区块 ========== */
+/* 已登录：左右布局 */
+.loggedInContainer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.userInfo {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.userInfoText {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.username {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--color-text);
+}
+
+.domain {
+  font-size: 11px;
+  color: var(--color-text-secondary);
+}
+
+.actionButtons {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+/* 登录提示 */
+.loginHint {
+  margin-top: 8px;
+  text-align: center;
+}
+
+.loginHintText {
+  font-size: 11px;
+  color: var(--color-text-tertiary);
+}
+
+/* 二维码弹窗 */
+.qrCodeContainer {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 16px 0;
+}
+
+/* ========== Loading 覆盖层 ========== */
+.loadingOverlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(255, 255, 255, 0.9);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  z-index: 10;
+}
+
+[data-theme="dark"] .loadingOverlay {
+  background: rgba(24, 24, 27, 0.9);
+}
+
+.loadingText {
+  font-size: 13px;
+  color: var(--color-text);
+  font-weight: 500;
+}
+
+/* ========== 快捷操作 ========== */
+.quickActions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.dependencyAlert {
+  margin-bottom: 16px;
+}
+
+[data-theme="dark"] .dependencyAlert :global(.ant-alert-content){
+  :global(.ant-alert-message){
+    color: #18181b;
+  }
+}

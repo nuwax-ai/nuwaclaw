@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "Electron Dev",
+      "runtimeExecutable": "make",
+      "runtimeArgs": ["electron-dev"],
+      "port": 60173
+    }
+  ]
+}

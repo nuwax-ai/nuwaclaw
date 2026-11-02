@@ -1,0 +1,32 @@
+# data-server 本地开发配置
+# 信令服务器 (hbbs) 和中继服务器 (hbbr) 的默认配置
+
+[hbbs]
+# 信令服务监听地址
+host = "0.0.0.0"
+# 信令服务端口 (默认 21116)
+port = 21116
+# 中继服务器地址（供客户端连接，留空则使用同一服务器）
+# relay = "your-relay-server:21117"
+# 密钥文件路径（用于加密通信）
+# key_file = "config/key.pem"
+# 认证密钥（"-" 表示自动生成，空字符串表示不使用）
+key = "-"
+
+[hbbr]
+# 中继服务监听地址
+host = "0.0.0.0"
+# 中继服务端口 (默认 21117)
+port = 21117
+# 最大同时连接数
+max_connections = 1000
+# 认证密钥（与 hbbs 保持一致）
+key = "-"
+
+[logging]
+# 日志级别: trace, debug, info, warn, error
+level = "info"
+# 是否输出到文件
+to_file = false
+# 日志文件路径（启用 to_file 后生效）
+# file_path = "logs/data-server.log"

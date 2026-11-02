@@ -2,10 +2,26 @@
 
 English | [简体中文](README.md)
 
-[![CI](https://img.shields.io/github/actions/workflow/status/soddygo/nuwax-agent/ci.yml?branch=main)](https://github.com/soddygo/nuwax-agent/actions)
+[![CI](https://img.shields.io/github/actions/workflow/status/nuwax-ai/nuwaclaw/ci.yml?branch=main)](https://github.com/nuwax-ai/nuwaclaw/actions)
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
 
 Multi-engine AI assistant desktop client based on ACP (Agent Client Protocol), supporting any ACP-compatible Agent engine with cross-platform local AI Agent execution capabilities.
+
+This repository contains the complete NuwaClaw community source, build system, and release workflows. Develop directly from the repository root after cloning; no submodule initialization is required. The webview connects to the configured online nuwax deployment.
+
+### Develop from source
+
+Use Node.js 24 and pnpm 9.15.5 from the repository root:
+
+```bash
+git clone https://github.com/nuwax-ai/nuwaclaw.git
+cd nuwaclaw
+pnpm run build:agent-kit                    # Build before installing the workspace snapshot
+pnpm install --filter @nuwax-ai/nuwaclaw...
+make electron-dev                          # Prepare resources and start development
+```
+
+The `electron-v*` and `prerelease-v*` tags drive stable and beta releases. Build, signing, and OSS/MinIO synchronization run in this repository, using the existing `nuwaclaw-electron` update feed. See the [source migration record](docs/source-import.md).
 
 ## Core Features
 
@@ -49,66 +65,43 @@ NuwaClaw uses [ACP (Agent Client Protocol)](https://agentclientprotocol.com/) to
 ## Project Architecture
 
 ```
-nuwax-agent-client/
+nuwaclaw/
 ├── crates/
-│   ├── agent-electron-client/   # Electron client (primary development)
-│   ├── @nuwax-ai/mcp-proxy-ts/   # MCP protocol aggregation proxy
-│   ├── agent-gpui-client/       # GPUI client (experimental)
-│   ├── agent-server-admin/      # Admin API service
-│   ├── agent-protocol/          # Communication protocol definitions
-│   ├── system-permissions/      # System permission management
-│   └── nuwax-agent-core/        # Core logic (Rust)
-└── vendors/                     # Third-party dependencies
+│   ├── agent-electron-client/   # Electron main, renderer, preload, shared
+│   ├── agent-kit/               # Shared ACP primitives (independently built)
+│   ├── agent-gui-server/        # GUI Agent MCP server
+│   └── windows-sandbox-helper/ # Windows sandbox helper (Rust)
+├── scripts/                    # Resource preparation and build tools
+├── config/                     # Build resource manifests
+├── docs/                       # Project documentation
+├── Makefile                    # Development and packaging entry points
+└── pnpm-workspace.yaml
 ```
 
 ## Quick Start
 
 ### Electron Client
 
+After installing the workspace dependencies above:
+
 ```bash
-# Option 1: Using Makefile (recommended, run from project root)
-make electron-dev     # Development mode
-make electron-build   # Build
-make electron-dist    # Package
+make electron-dev                           # Prepare resources and start development
+pnpm -C crates/agent-electron-client build   # Build main and renderer
+make electron-bundle-unsigned               # Package for the current platform, without publishing
+pnpm -C crates/agent-electron-client prepare:mcp-proxy
+pnpm run test:electron                      # Full test suite
+pnpm run test:electron:scripts              # Build and resource script tests
+```
 
-# Option 2: Using npm commands in the crate directory
-cd crates/agent-electron-client
+The CI suite excludes `tests/sandbox-integration/**`, which requires a real OS sandbox. Run the same suite with:
 
-# Install dependencies
-npm install
-
-# Development mode
-npm run dev
-
-# Build
-npm run build
-
-# Package
-npm run dist:mac      # macOS
-npm run dist:win      # Windows
-npm run dist:linux    # Linux
+```bash
+pnpm -C crates/agent-electron-client exec vitest run --exclude 'tests/sandbox-integration/**' --exclude '**/node_modules/**'
 ```
 
 ### MCP Proxy Service
 
-```bash
-cd crates/@nuwax-ai/mcp-proxy-ts
-
-# Install dependencies
-npm install
-
-# Build
-npm run build
-
-# Run (stdio aggregation mode)
-@nuwax-ai/mcp-proxy-ts --config '{"mcpServers":{...}}'
-
-# Run (protocol conversion mode)
-@nuwax-ai/mcp-proxy-ts convert http://remote-mcp-server/sse
-
-# Run (persistent bridge mode)
-@nuwax-ai/mcp-proxy-ts proxy --port 18099 --config '{"mcpServers":{...}}'
-```
+`@nuwax-ai/mcp-proxy-ts` is installed as a package dependency. Prepare the bundled resource with `pnpm -C crates/agent-electron-client prepare:mcp-proxy`; its source is not a local crate.
 
 ## Platform Support
 

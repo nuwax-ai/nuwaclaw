@@ -2,29 +2,26 @@
 
 [English](README_EN.md) | 简体中文
 
-[![CI](https://img.shields.io/github/actions/workflow/status/soddygo/nuwax-agent/ci.yml?branch=main)](https://github.com/soddygo/nuwax-agent/actions)
+[![CI](https://img.shields.io/github/actions/workflow/status/nuwax-ai/nuwaclaw/ci.yml?branch=main)](https://github.com/nuwax-ai/nuwaclaw/actions)
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
 
 多引擎 AI 助手桌面客户端，基于 ACP (Agent Client Protocol) 协议，支持任何兼容 ACP 的 Agent 引擎，提供跨平台的本地 AI Agent 执行能力。
 
-> **【2026-09-09 仓库转型公告】** 本仓已转型为 **NuwaClaw 社区版产品发布壳**：
-> 全部功能模块与构建系统迁移至基座仓 [nuwax-ai/nuwa-electron-shell](https://github.com/nuwax-ai/nuwa-electron-shell)，
-> 本仓经 submodule pin 引用基座、以社区默认身份构建发布（更新通道 nuwaclaw-electron）。
-> **代码贡献与日常开发请移步基座仓**；下方产品介绍仍然有效。
+本仓直接维护 NuwaClaw 社区版的完整源码、构建系统与发布流程。克隆后即可在仓库根目录开发，无需初始化子模块。Webview 经配置域访问线上部署的 nuwax，无需本地前端。
 
-### 作为产品壳构建
+### 从源码开发
+
+需要 Node.js 24 与 pnpm 9.15.5，在仓库根目录执行：
 
 ```bash
-git clone https://github.com/nuwax-ai/nuwaclaw.git && cd nuwaclaw
-git submodule update --init nuwa-electron-shell          # 基座仓 nuwa-electron-shell community/main 线（公开）
-# 社区线不内嵌 nuwax 前端：webview 经配置域直连线上部署的 nuwax，无需本地前端
-npm run base:install   # 基座内 pnpm install --filter
-npm run base:dev       # 基座内 make electron-dev（社区默认身份，无 env 注入）
-npm run base:test      # 基座内全量 vitest
+git clone https://github.com/nuwax-ai/nuwaclaw.git
+cd nuwaclaw
+pnpm run build:agent-kit                    # 先构建本地共享包，再安装工作区快照
+pnpm install --filter @nuwax-ai/nuwaclaw...
+make electron-dev                          # 准备资源并启动开发
 ```
 
-发布：打 `electron-v*`（stable）/ `prerelease-v*`（beta）tag 触发 CI；基座升级时
-bump submodule pin 即可。
+发布使用 `electron-v*`（stable）/ `prerelease-v*`（beta）tag；构建、签名与 OSS/MinIO 同步均在本仓完成，更新通道保持 `nuwaclaw-electron`。源码迁入记录见 [源码迁移说明](docs/source-import.md)。
 
 ## 核心特性
 
@@ -68,66 +65,43 @@ NuwaClaw 采用 [ACP (Agent Client Protocol)](https://agentclientprotocol.com/) 
 ## 项目架构
 
 ```
-nuwax-agent-client/
+nuwaclaw/
 ├── crates/
-│   ├── agent-electron-client/   # Electron 客户端 (主要开发)
-│   ├── @nuwax-ai/mcp-proxy-ts/   # MCP 协议聚合代理
-│   ├── agent-gpui-client/       # GPUI 客户端 (实验性)
-│   ├── agent-server-admin/      # 管理端 API 服务
-│   ├── agent-protocol/          # 通信协议定义
-│   ├── system-permissions/      # 系统权限管理
-│   └── nuwax-agent-core/        # 核心逻辑 (Rust)
-└── vendors/                     # 第三方依赖
+│   ├── agent-electron-client/   # Electron main, renderer, preload, shared
+│   ├── agent-kit/               # Shared ACP primitives (independently built)
+│   ├── agent-gui-server/        # GUI Agent MCP server
+│   └── windows-sandbox-helper/ # Windows sandbox helper (Rust)
+├── scripts/                    # Resource preparation and build tools
+├── config/                     # Build resource manifests
+├── docs/                       # Project documentation
+├── Makefile                    # Development and packaging entry points
+└── pnpm-workspace.yaml
 ```
 
 ## 快速开始
 
 ### Electron 客户端
 
+完成上面的工作区依赖安装后：
+
 ```bash
-# 方式一：使用 Makefile（推荐，项目根目录执行）
-make electron-dev     # 开发模式
-make electron-build   # 构建
-make electron-dist    # 打包
+make electron-dev                           # 准备资源并启动开发
+pnpm -C crates/agent-electron-client build   # 构建主进程与渲染进程
+make electron-bundle-unsigned               # 当前平台无签名打包，不发布
+pnpm -C crates/agent-electron-client prepare:mcp-proxy
+pnpm run test:electron                      # 全量测试
+pnpm run test:electron:scripts              # 构建与资源脚本测试
+```
 
-# 方式二：进入目录执行 npm 命令
-cd crates/agent-electron-client
+CI 排除需要真实系统沙箱的 `tests/sandbox-integration/**`。运行同一测试集合：
 
-# 安装依赖
-npm install
-
-# 开发模式
-npm run dev
-
-# 构建
-npm run build
-
-# 打包
-npm run dist:mac      # macOS
-npm run dist:win      # Windows
-npm run dist:linux    # Linux
+```bash
+pnpm -C crates/agent-electron-client exec vitest run --exclude 'tests/sandbox-integration/**' --exclude '**/node_modules/**'
 ```
 
 ### MCP 代理服务
 
-```bash
-cd crates/@nuwax-ai/mcp-proxy-ts
-
-# 安装依赖
-npm install
-
-# 构建
-npm run build
-
-# 运行 (stdio 聚合模式)
-@nuwax-ai/mcp-proxy-ts --config '{"mcpServers":{...}}'
-
-# 运行 (协议转换模式)
-@nuwax-ai/mcp-proxy-ts convert http://remote-mcp-server/sse
-
-# 运行 (持久化桥接模式)
-@nuwax-ai/mcp-proxy-ts proxy --port 18099 --config '{"mcpServers":{...}}'
-```
+`@nuwax-ai/mcp-proxy-ts` 通过包依赖安装。执行 `pnpm -C crates/agent-electron-client prepare:mcp-proxy` 准备随包资源，其源码不在本仓本地 crate 中。
 
 ## 平台支持
 

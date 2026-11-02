@@ -1,9 +1,6 @@
-# nuwaclaw 社区版 — beta 预发布（prerelease-v* 触发，Draft Release）
-# 社区产品壳（基座仓 nuwax-ai/nuwa-electron-shell community/main 分支承载业务）：
-# 路径前缀 nuclaw/、checkout 后以 github.token 拉基座 submodule、pnpm 显式版本、
-# 沙箱 helper 断言（community 线基座不内嵌 nuwax 前端，无嵌套子模块）。
-# 通道 nuwaclaw-electron/；不注入 NUWAX_* env（社区默认身份），
-# 与 release-electron.yml 一致。
+# NuwaClaw 社区版 — 从本仓源码构建 beta 预发布
+# pnpm workspace 位于仓库根目录；不注入 NUWAX_* env，保留社区默认身份。
+# 通道 nuwaclaw-electron/；与 release-electron.yml 使用相同源码和构建路径。
 
 # Electron 桌面客户端 — 预发布版本构建
 # 通过 prerelease-v* tag 触发，构建全平台安装包并创建 GitHub Draft Release，
@@ -30,7 +27,7 @@
 #   - Windows：本 workflow 仅构建产物，不在 CI 内签名；签名在本地 Windows（SimplySign）手动完成
 #   - OSS_ACCESS_KEY_ID / OSS_ACCESS_KEY_SECRET：上传到阿里云 OSS
 #
-# 产物目录：nuwa-electron-shell/crates/agent-electron-client/release/${version}/（由 package.json directories.output 决定）
+# 产物目录：crates/agent-electron-client/release/${version}/（由 package.json directories.output 决定）
 
 name: Release Electron App (Prerelease, nuwaclaw)
 
@@ -119,30 +116,13 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      # 显式 submodule init（不依赖 checkout action 内部 sync）：
-      # nuwa-electron-shell submodule → 基座仓 nuwax-ai/nuwa-electron-shell（公开，
-      #   github.token 注入凭据）。community 线基座无嵌套子模块（不内嵌 nuwax 前端）
-      - name: Init submodules (nuwa-electron-shell)
-        shell: bash
-        env:
-          GH_SUBMODULE_TOKEN: ${{ github.token }}
-        run: |
-          # submodule 认证统一走 gh CLI 凭据助手（跨平台一致；Windows Git 的
-          # GCM 会劫持/覆盖 URL 内嵌凭据，insteadOf 亦不生效——均实测失败）
-          export GH_TOKEN="${GH_SUBMODULE_TOKEN}"
-          gh auth setup-git
-          git submodule update --init nuwa-electron-shell
-          git submodule status
-          # 强校验：submodule update 内部重试失败时可能以 0 退出（第三次 CI 实测假绿）
-          test -d nuwa-electron-shell/crates/agent-electron-client || { echo "::error::nuwa-electron-shell submodule not checked out"; exit 1; }
-
       - name: Set version in package.json
         shell: bash
-        working-directory: nuwa-electron-shell/crates/agent-electron-client
+        working-directory: crates/agent-electron-client
         run: |
           VERSION="${{ needs.prepare.outputs.version }}"
           npm pkg set version="$VERSION"
-          # 社区身份：不做任何覆盖——基座默认值即社区版
+          # 社区身份：不做任何覆盖——源码默认值即社区版
           # （appId com.nuwax-ai.nuwaclaw / 默认端口 / 更新通道 nuwaclaw-electron）
           echo "package.json version: $(npm pkg get version), appId: $(npm pkg get build.appId)"
 
@@ -174,68 +154,68 @@ jobs:
       # 打包成快照拷入 node_modules；必须先构建出 dist 再 install，否则快照无入口
       - name: Build agent-kit (before install)
         shell: bash
-        working-directory: nuwa-electron-shell
+        working-directory: .
         run: |
           pnpm -C crates/agent-kit install --ignore-workspace --prefer-offline
           pnpm -C crates/agent-kit run build
 
       # pnpm install 会建立 workspace 链接，nuwax-mcp-stdio-proxy 通过 prepare 脚本自动构建
-      # pnpm workspace 根在基座（nuwa-electron-shell/）内
+      # pnpm workspace 位于仓库根目录
       - name: Install workspace dependencies
-        working-directory: nuwa-electron-shell
+        working-directory: .
         run: pnpm install --filter @nuwax-ai/nuwaclaw...
 
       # 为 Electron 内嵌 Node 重编 better-sqlite3，避免 Linux arm64 等平台运行时 "cannot open shared object file"
       - name: Rebuild native modules for Electron
-        working-directory: nuwa-electron-shell/crates/agent-electron-client
+        working-directory: crates/agent-electron-client
         run: npm run electron-rebuild
 
       # 缓存内置 Node.js（所有平台）、Git（仅 Windows）、uv（所有平台）和 nuwaxcode（所有平台）
       - name: Cache bundled Node.js
         uses: actions/cache@v4
         with:
-          path: nuwa-electron-shell/crates/agent-electron-client/resources/node
-          key: bundled-node-24-${{ matrix.platform }}-${{ matrix.arch }}-${{ hashFiles('nuwa-electron-shell/crates/agent-electron-client/package.json') }}
+          path: crates/agent-electron-client/resources/node
+          key: bundled-node-24-${{ matrix.platform }}-${{ matrix.arch }}-${{ hashFiles('crates/agent-electron-client/package.json') }}
 
       - name: Cache bundled Git (Windows only)
         if: matrix.platform == 'windows-latest'
         uses: actions/cache@v4
         with:
-          path: nuwa-electron-shell/crates/agent-electron-client/resources/git
-          key: bundled-git-2.47.1-windows-${{ hashFiles('nuwa-electron-shell/crates/agent-electron-client/package.json') }}
+          path: crates/agent-electron-client/resources/git
+          key: bundled-git-2.47.1-windows-${{ hashFiles('crates/agent-electron-client/package.json') }}
 
       - name: Cache uv
         uses: actions/cache@v4
         with:
-          path: nuwa-electron-shell/crates/agent-electron-client/resources/uv
-          key: bundled-uv-v2-${{ matrix.platform }}-${{ matrix.arch }}-${{ hashFiles('nuwa-electron-shell/crates/agent-electron-client/scripts/prepare/prepare-uv.js') }}
+          path: crates/agent-electron-client/resources/uv
+          key: bundled-uv-v2-${{ matrix.platform }}-${{ matrix.arch }}-${{ hashFiles('crates/agent-electron-client/scripts/prepare/prepare-uv.js') }}
 
       - name: Cache nuwaxcode
         uses: actions/cache@v4
         with:
-          path: nuwa-electron-shell/crates/agent-electron-client/resources/nuwaxcode
+          path: crates/agent-electron-client/resources/nuwaxcode
           # 前缀含 1.2.1：避免命中旧版 1.1.x 缓存；hashFiles 随 prepare-nuwaxcode.js 变更失效
-          key: bundled-nuwaxcode-1.2.1-${{ matrix.platform }}-${{ matrix.arch }}-${{ hashFiles('nuwa-electron-shell/crates/agent-electron-client/scripts/prepare/prepare-nuwaxcode.js') }}
+          key: bundled-nuwaxcode-1.2.1-${{ matrix.platform }}-${{ matrix.arch }}-${{ hashFiles('crates/agent-electron-client/scripts/prepare/prepare-nuwaxcode.js') }}
 
       - name: Cache ripgrep
         uses: actions/cache@v4
         with:
-          path: nuwa-electron-shell/crates/agent-electron-client/resources/ripgrep
-          key: bundled-ripgrep-v1-${{ matrix.platform }}-${{ matrix.arch }}-${{ hashFiles('nuwa-electron-shell/crates/agent-electron-client/scripts/prepare/prepare-ripgrep.js') }}
+          path: crates/agent-electron-client/resources/ripgrep
+          key: bundled-ripgrep-v1-${{ matrix.platform }}-${{ matrix.arch }}-${{ hashFiles('crates/agent-electron-client/scripts/prepare/prepare-ripgrep.js') }}
 
       - name: Prepare bundled resources (uv, node, git, nuwaxcode, ripgrep)
-        working-directory: nuwa-electron-shell/crates/agent-electron-client
+        working-directory: crates/agent-electron-client
         env:
           TARGET_ARCH: ${{ matrix.arch }}
           GH_TOKEN: ${{ github.token }}
         run: npm run prepare:all
         timeout-minutes: 15
 
-      # 基座脚本在 rustc 缺失时只告警不失败——这里兜底断言，防止静默产出无沙箱 helper 的包
+      # 准备脚本在 rustc 缺失时只告警不失败——这里兜底断言，防止静默产出无沙箱 helper 的包
       - name: Assert sandbox helper built (Windows)
         if: runner.os == 'Windows'
         shell: bash
-        working-directory: nuwa-electron-shell/crates/agent-electron-client
+        working-directory: crates/agent-electron-client
         run: |
           if [ ! -f resources/sandbox-helper/nuwax-sandbox-helper.exe ]; then
             echo "::error::sandbox helper missing (resources/sandbox-helper/nuwax-sandbox-helper.exe) — runner rust toolchain broken?"
@@ -292,18 +272,18 @@ jobs:
       # Windows 签名已废弃，改为本地手签方案
       - name: Clean previous build artifacts
         shell: bash
-        working-directory: nuwa-electron-shell/crates/agent-electron-client
+        working-directory: crates/agent-electron-client
         run: |
           rm -rf release node_modules/.cache
           echo "Cleaned release and cache directories"
 
       - name: Build Electron app
         shell: bash
-        working-directory: nuwa-electron-shell/crates/agent-electron-client
+        working-directory: crates/agent-electron-client
         env:
           TARGET_ARCH: ${{ matrix.arch }}
           SKIP_PREPARE: "1"
-          # 社区版：不注入 NUWAX_* env——基座默认值即社区身份
+          # 社区版：不注入 NUWAX_* env——源码默认值即社区身份
           # （默认端口 18099/60002~60009/60173，更新通道 nuwaclaw-electron）
         run: |
           echo "Building Electron app for ${{ runner.os }} (${{ matrix.arch }})"
@@ -327,7 +307,7 @@ jobs:
         run: |
           TAG="${{ github.ref_name }}"
           VERSION="${{ needs.prepare.outputs.version }}"
-          OUT_DIR="nuwa-electron-shell/crates/agent-electron-client/release/${VERSION}"
+          OUT_DIR="crates/agent-electron-client/release/${VERSION}"
           if [ ! -d "$OUT_DIR" ]; then
             echo "::error::Output directory not found: $OUT_DIR"
             exit 1

@@ -1,0 +1,43 @@
+{
+  "name": "agent-gui-server",
+  "version": "0.1.0",
+  "description": "GUI Agent MCP Server — desktop automation via screenshot recognition + keyboard/mouse simulation",
+  "type": "module",
+  "bin": {
+    "agent-gui-server": "dist/index.js"
+  },
+  "main": "./dist/lib.js",
+  "types": "./dist/lib.d.ts",
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "prepare": "npm run build",
+    "build": "tsc && node scripts/build.mjs",
+    "build:tsc": "tsc",
+    "test": "npm run build:tsc && vitest",
+    "test:run": "npm run build:tsc && vitest run",
+    "test:coverage": "npm run build:tsc && vitest run --coverage",
+    "prepublishOnly": "npm run build"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.27.1",
+    "@mariozechner/pi-ai": "*",
+    "@mariozechner/pi-agent-core": "*",
+    "@sinclair/typebox": "^0.34.0",
+    "@nut-tree-fork/nut-js": "^4.2.6",
+    "sharp": "^0.33.0",
+    "clipboardy": "^4.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "@vitest/coverage-v8": "^2.1.9",
+    "esbuild": "^0.27.3",
+    "typescript": "^5.7.0",
+    "vitest": "^2.1.8"
+  },
+  "engines": {
+    "node": ">=22.0.0"
+  },
+  "license": "MIT"
+}

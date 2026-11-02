@@ -1,0 +1,1786 @@
+{
+  "schemaVersion": "1.0.0",
+  "operations": [
+    "fs.write.workspace",
+    "fs.write.outside_workspace",
+    "fs.delete.system_path",
+    "network.external",
+    "network.loopback",
+    "exec.startup_chain_extra",
+    "command.dangerous.system",
+    "fallback.backend_unavailable",
+    "permission.command.safe",
+    "permission.command.dangerous",
+    "permission.path.sensitive",
+    "permission.type.deny"
+  ],
+  "permissionLists": {
+    "commandAllowlist": [
+      "bun",
+      "cargo",
+      "cat",
+      "cmake",
+      "cp",
+      "date",
+      "echo",
+      "env",
+      "find",
+      "git",
+      "grep",
+      "head",
+      "ls",
+      "make",
+      "mkdir",
+      "mv",
+      "node",
+      "npm",
+      "npx",
+      "pip",
+      "pip3",
+      "pnpm",
+      "pwd",
+      "python",
+      "python3",
+      "rustc",
+      "rustup",
+      "tail",
+      "touch",
+      "uv",
+      "which",
+      "yarn"
+    ],
+    "commandDenylist": [
+      "apt install",
+      "apt-get install",
+      "brew install",
+      "chmod 777",
+      "chown",
+      "dnf install",
+      "masscan",
+      "nc -l",
+      "netcat",
+      "nmap",
+      "pacman -S",
+      "snap install",
+      "su",
+      "sudo",
+      "yum install"
+    ],
+    "permissionTypeAutoApprove": [
+      "file:read"
+    ],
+    "permissionTypeDeny": [
+      "package:install:system"
+    ]
+  },
+  "rules": [
+    {
+      "layer": "sandbox",
+      "platform": "darwin",
+      "backend": "macos-seatbelt",
+      "mode": "strict",
+      "windowsMode": "n/a",
+      "operationId": "fs.write.workspace",
+      "verdict": "allow",
+      "reason": "workspace path is explicitly writable",
+      "evidence": [
+        "src/main/services/sandbox/SandboxInvoker.ts",
+        "src/main/services/sandbox/policy.ts"
+      ]
+    },
+    {
+      "layer": "sandbox",
+      "platform": "darwin",
+      "backend": "macos-seatbelt",
+      "mode": "strict",
+      "windowsMode": "n/a",
+      "operationId": "fs.write.outside_workspace",
+      "verdict": "block",
+      "reason": "seatbelt non-permissive mode only allows writablePaths",
+      "evidence": [
+        "src/main/services/sandbox/SandboxInvoker.ts",
+        "src/main/services/sandbox/policy.ts"
+      ]
+    },
+    {
+      "layer": "sandbox",
+      "platform": "darwin",
+      "backend": "macos-seatbelt",
+      "mode": "strict",
+      "windowsMode": "n/a",
+      "operationId": "fs.delete.system_path",
+      "verdict": "block",
+      "reason": "seatbelt non-permissive mode only allows writablePaths",
+      "evidence": [
+        "src/main/services/sandbox/SandboxInvoker.ts",
+        "src/main/services/sandbox/policy.ts"
+      ]
+    },
+    {
+      "layer": "sandbox",
+      "platform": "darwin",
+      "backend": "macos-seatbelt",
+      "mode": "strict",
+      "windowsMode": "n/a",
+      "operationId": "network.external",
+      "verdict": "conditional",
+      "reason": "depends on networkEnabled -> (allow network*)",
+      "evidence": [
+        "src/main/services/sandbox/SandboxInvoker.ts",
+        "src/main/services/sandbox/policy.ts"
+      ]
+    },
+    {
+      "layer": "sandbox",
+      "platform": "darwin",
+      "backend": "macos-seatbelt",
+      "mode": "strict",
+      "windowsMode": "n/a",
+      "operationId": "network.loopback",
+      "verdict": "conditional",
+      "reason": "depends on networkEnabled -> (allow network*)",
+      "evidence": [
+        "src/main/services/sandbox/SandboxInvoker.ts",
+        "src/main/services/sandbox/policy.ts"
+      ]
+    },
+    {
+      "layer": "sandbox",
+      "platform": "darwin",
+      "backend": "macos-seatbelt",
+      "mode": "strict",
+      "windowsMode": "n/a",
+      "operationId": "exec.startup_chain_extra",
+      "verdict": "block",
+      "reason": "strict mode does not include startupExecAllowlist",
+      "evidence": [
+        "src/main/services/sandbox/SandboxInvoker.ts",
+        "src/main/services/sandbox/policy.ts"
+      ]
+    },
+    {
+      "layer": "sandbox",
+      "platform": "darwin",
+      "backend": "macos-seatbelt",
+      "mode": "strict",
+      "windowsMode": "n/a",
+      "operationId": "command.dangerous.system",
+      "verdict": "conditional",
+      "reason": "blocked primarily by PermissionManager; sandbox outcome may vary by command path",
+      "evidence": [
+        "src/main/services/sandbox/SandboxInvoker.ts",
+        "src/main/services/sandbox/policy.ts"
+      ]
+    },
+    {
+      "layer": "sandbox",
+      "platform": "darwin",
+      "backend": "macos-seatbelt",
+      "mode": "strict",
+      "windowsMode": "n/a",
+      "operationId": "fallback.backend_unavailable",
+      "verdict": "conditional",
+      "reason": "manual fails closed; startup-only/session degrade to none",
+      "evidence": [
+        "src/main/services/sandbox/SandboxInvoker.ts",
+        "src/main/services/sandbox/policy.ts"
+      ]
+    },
+    {
+      "layer": "sandbox",
+      "platform": "darwin",
+      "backend": "macos-seatbelt",
+      "mode": "compat",
+      "windowsMode": "n/a",
+      "operationId": "fs.write.workspace",
+      "verdict": "allow",
+      "reason": "workspace path is explicitly writable",
+      "evidence": [
+        "src/main/services/sandbox/SandboxInvoker.ts",
+        "src/main/services/sandbox/policy.ts"
+      ]
+    },
+    {
+      "layer": "sandbox",
+      "platform": "darwin",
+      "backend": "macos-seatbelt",
+      "mode": "compat",
+      "windowsMode": "n/a",
+      "operationId": "fs.write.outside_workspace",
+      "verdict": "block",
+      "reason": "seatbelt non-permissive mode only allows writablePaths",
+      "evidence": [
+        "src/main/services/sandbox/SandboxInvoker.ts",
+        "src/main/services/sandbox/policy.ts"
+      ]
+    },
+    {
+      "layer": "sandbox",
+      "platform": "darwin",
+      "backend": "macos-seatbelt",
+      "mode": "compat",
+      "windowsMode": "n/a",
+      "operationId": "fs.delete.system_path",
+      "verdict": "block",
+      "reason": "seatbelt non-permissive mode only allows writablePaths",
+      "evidence": [
+        "src/main/services/sandbox/SandboxInvoker.ts",
+        "src/main/services/sandbox/policy.ts"
+      ]
+    },
+    {
+      "layer": "sandbox",
+      "platform": "darwin",
+      "backend": "macos-seatbelt",
+      "mode": "compat",
+      "windowsMode": "n/a",
+      "operationId": "network.external",
+      "verdict": "conditional",
+      "reason": "depends on networkEnabled -> (allow network*)",
+      "evidence": [
+        "src/main/services/sandbox/SandboxInvoker.ts",
+        "src/main/services/sandbox/policy.ts"
+      ]
+    },
+    {
+      "layer": "sandbox",
+      "platform": "darwin",
+      "backend": "macos-seatbelt",
+      "mode": "compat",
+      "windowsMode": "n/a",
+      "operationId": "network.loopback",
+      "verdict": "conditional",
+      "reason": "depends on networkEnabled -> (allow network*)",
+      "evidence": [
+        "src/main/services/sandbox/SandboxInvoker.ts",
+        "src/main/services/sandbox/policy.ts"
+      ]
+    },
+    {
+      "layer": "sandbox",
+      "platform": "darwin",
+      "backend": "macos-seatbelt",
+      "mode": "compat",
+      "windowsMode": "n/a",
+      "operationId": "exec.startup_chain_extra",
+      "verdict": "conditional",
+      "reason": "compat supports startupExecAllowlist but depends on caller input",
+      "evidence": [
+        "src/main/services/sandbox/SandboxInvoker.ts",
+        "src/main/services/sandbox/policy.ts"
+      ]
+    },
+    {
+      "layer": "sandbox",
+      "platform": "darwin",
+      "backend": "macos-seatbelt",
+      "mode": "compat",
+      "windowsMode": "n/a",
+      "operationId": "command.dangerous.system",
+      "verdict": "conditional",
+      "reason": "blocked primarily by PermissionManager; sandbox outcome may vary by command path",
+      "evidence": [
+        "src/main/services/sandbox/SandboxInvoker.ts",
+        "src/main/services/sandbox/policy.ts"
+      ]
+    },
+    {
+      "layer": "sandbox",
+      "platform": "darwin",
+      "backend": "macos-seatbelt",
+      "mode": "compat",
+      "windowsMode": "n/a",
+      "operationId": "fallback.backend_unavailable",
+      "verdict": "conditional",
+      "reason": "manual fails closed; startup-only/session degrade to none",
+      "evidence": [
+        "src/main/services/sandbox/SandboxInvoker.ts",
+        "src/main/services/sandbox/policy.ts"
+      ]
+    },
+    {
+      "layer": "sandbox",
+      "platform": "darwin",
+      "backend": "macos-seatbelt",
+      "mode": "permissive",
+      "windowsMode": "n/a",
+      "operationId": "fs.write.workspace",
+      "verdict": "allow",
+      "reason": "workspace path is explicitly writable",
+      "evidence": [
+        "src/main/services/sandbox/SandboxInvoker.ts",
+        "src/main/services/sandbox/policy.ts"
+      ]
+    },
+    {
+      "layer": "sandbox",
+      "platform": "darwin",
+      "backend": "macos-seatbelt",
+      "mode": "permissive",
+      "windowsMode": "n/a",
+      "operationId": "fs.write.outside_workspace",
+      "verdict": "allow",
+      "reason": "permissive mode enables file-write* globally",
+      "evidence": [
+        "src/main/services/sandbox/SandboxInvoker.ts",
+        "src/main/services/sandbox/policy.ts"
+      ]
+    },
+    {
+      "layer": "sandbox",
+      "platform": "darwin",
+      "backend": "macos-seatbelt",
+      "mode": "permissive",
+      "windowsMode": "n/a",
+      "operationId": "fs.delete.system_path",
+      "verdict": "allow",
+      "reason": "permissive mode enables file-write* globally",
+      "evidence": [
+        "src/main/services/sandbox/SandboxInvoker.ts",
+        "src/main/services/sandbox/policy.ts"
+      ]
+    },
+    {
+      "layer": "sandbox",
+      "platform": "darwin",
+      "backend": "macos-seatbelt",
+      "mode": "permissive",
+      "windowsMode": "n/a",
+      "operationId": "network.external",
+      "verdict": "conditional",
+      "reason": "depends on networkEnabled -> (allow network*)",
+      "evidence": [
+        "src/main/services/sandbox/SandboxInvoker.ts",
+        "src/main/services/sandbox/policy.ts"
+      ]
+    },
+    {
+      "layer": "sandbox",
+      "platform": "darwin",
+      "backend": "macos-seatbelt",
+      "mode": "permissive",
+      "windowsMode": "n/a",
+      "operationId": "network.loopback",
+      "verdict": "conditional",
+      "reason": "depends on networkEnabled -> (allow network*)",
+      "evidence": [
+        "src/main/services/sandbox/SandboxInvoker.ts",
+        "src/main/services/sandbox/policy.ts"
+      ]
+    },
+    {
+      "layer": "sandbox",
+      "platform": "darwin",
+      "backend": "macos-seatbelt",
+      "mode": "permissive",
+      "windowsMode": "n/a",
+      "operationId": "exec.startup_chain_extra",
+      "verdict": "allow",
+      "reason": "permissive mode allows process-exec globally",
+      "evidence": [
+        "src/main/services/sandbox/SandboxInvoker.ts",
+        "src/main/services/sandbox/policy.ts"
+      ]
+    },
+    {
+      "layer": "sandbox",
+      "platform": "darwin",
+      "backend": "macos-seatbelt",
+      "mode": "permissive",
+      "windowsMode": "n/a",
+      "operationId": "command.dangerous.system",
+      "verdict": "conditional",
+      "reason": "blocked primarily by PermissionManager; sandbox outcome may vary by command path",
+      "evidence": [
+        "src/main/services/sandbox/SandboxInvoker.ts",
+        "src/main/services/sandbox/policy.ts"
+      ]
+    },
+    {
+      "layer": "sandbox",
+      "platform": "darwin",
+      "backend": "macos-seatbelt",
+      "mode": "permissive",
+      "windowsMode": "n/a",
+      "operationId": "fallback.backend_unavailable",
+      "verdict": "conditional",
+      "reason": "manual fails closed; startup-only/session degrade to none",
+      "evidence": [
+        "src/main/services/sandbox/SandboxInvoker.ts",
+        "src/main/services/sandbox/policy.ts"
+      ]
+    },
+    {
+      "layer": "sandbox",
+      "platform": "linux",
+      "backend": "linux-bwrap",
+      "mode": "strict",
+      "windowsMode": "n/a",
+      "operationId": "fs.write.workspace",
+      "verdict": "allow",
+      "reason": "workspace path is bind-mounted writable",
+      "evidence": [
+        "src/main/services/sandbox/SandboxInvoker.ts",
+        "src/main/services/sandbox/policy.ts"
+      ]
+    },
+    {
+      "layer": "sandbox",
+      "platform": "linux",
+      "backend": "linux-bwrap",
+      "mode": "strict",
+      "windowsMode": "n/a",
+      "operationId": "fs.write.outside_workspace",
+      "verdict": "block",
+      "reason": "strict/compat keep host root read-only outside writablePaths",
+      "evidence": [
+        "src/main/services/sandbox/SandboxInvoker.ts",
+        "src/main/services/sandbox/policy.ts"
+      ]
+    },
+    {
+      "layer": "sandbox",
+      "platform": "linux",
+      "backend": "linux-bwrap",
+      "mode": "strict",
+      "windowsMode": "n/a",
+      "operationId": "fs.delete.system_path",
+      "verdict": "block",
+      "reason": "strict/compat keep host root read-only outside writablePaths",
+      "evidence": [
+        "src/main/services/sandbox/SandboxInvoker.ts",
+        "src/main/services/sandbox/policy.ts"
+      ]
+    },
+    {
+      "layer": "sandbox",
+      "platform": "linux",
+      "backend": "linux-bwrap",
+      "mode": "strict",
+      "windowsMode": "n/a",
+      "operationId": "network.external",
+      "verdict": "conditional",
+      "reason": "depends on networkEnabled -> --unshare-net",
+      "evidence": [
+        "src/main/services/sandbox/SandboxInvoker.ts",
+        "src/main/services/sandbox/policy.ts"
+      ]
+    },
+    {
+      "layer": "sandbox",
+      "platform": "linux",
+      "backend": "linux-bwrap",
+      "mode": "strict",
+      "windowsMode": "n/a",
+      "operationId": "network.loopback",
+      "verdict": "conditional",
+      "reason": "loopback behavior depends on namespace/runtime tooling",
+      "evidence": [
+        "src/main/services/sandbox/SandboxInvoker.ts",
+        "src/main/services/sandbox/policy.ts"
+      ]
+    },
+    {
+      "layer": "sandbox",
+      "platform": "linux",
+      "backend": "linux-bwrap",
+      "mode": "strict",
+      "windowsMode": "n/a",
+      "operationId": "exec.startup_chain_extra",
+      "verdict": "conditional",
+      "reason": "strict only ro-binds minimal paths + command related dirs",
+      "evidence": [
+        "src/main/services/sandbox/SandboxInvoker.ts",
+        "src/main/services/sandbox/policy.ts"
+      ]
+    },
+    {
+      "layer": "sandbox",
+      "platform": "linux",
+      "backend": "linux-bwrap",
+      "mode": "strict",
+      "windowsMode": "n/a",
+      "operationId": "command.dangerous.system",
+      "verdict": "conditional",
+      "reason": "blocked by PermissionManager first; sandbox-level outcome varies by command/capability",
+      "evidence": [
+        "src/main/services/sandbox/SandboxInvoker.ts",
+        "src/main/services/sandbox/policy.ts"
+      ]
+    },
+    {
+      "layer": "sandbox",
+      "platform": "linux",
+      "backend": "linux-bwrap",
+      "mode": "strict",
+      "windowsMode": "n/a",
+      "operationId": "fallback.backend_unavailable",
+      "verdict": "conditional",
+      "reason": "manual fails closed; startup-only/session degrade to none",
+      "evidence": [
+        "src/main/services/sandbox/SandboxInvoker.ts",
+        "src/main/services/sandbox/policy.ts"
+      ]
+    },
+    {
+      "layer": "sandbox",
+      "platform": "linux",
+      "backend": "linux-bwrap",
+      "mode": "compat",
+      "windowsMode": "n/a",
+      "operationId": "fs.write.workspace",
+      "verdict": "allow",
+      "reason": "workspace path is bind-mounted writable",
+      "evidence": [
+        "src/main/services/sandbox/SandboxInvoker.ts",
+        "src/main/services/sandbox/policy.ts"
+      ]
+    },
+    {
+      "layer": "sandbox",
+      "platform": "linux",
+      "backend": "linux-bwrap",
+      "mode": "compat",
+      "windowsMode": "n/a",
+      "operationId": "fs.write.outside_workspace",
+      "verdict": "block",
+      "reason": "strict/compat keep host root read-only outside writablePaths",
+      "evidence": [
+        "src/main/services/sandbox/SandboxInvoker.ts",
+        "src/main/services/sandbox/policy.ts"
+      ]
+    },
+    {
+      "layer": "sandbox",
+      "platform": "linux",
+      "backend": "linux-bwrap",
+      "mode": "compat",
+      "windowsMode": "n/a",
+      "operationId": "fs.delete.system_path",
+      "verdict": "block",
+      "reason": "strict/compat keep host root read-only outside writablePaths",
+      "evidence": [
+        "src/main/services/sandbox/SandboxInvoker.ts",
+        "src/main/services/sandbox/policy.ts"
+      ]
+    },
+    {
+      "layer": "sandbox",
+      "platform": "linux",
+      "backend": "linux-bwrap",
+      "mode": "compat",
+      "windowsMode": "n/a",
+      "operationId": "network.external",
+      "verdict": "conditional",
+      "reason": "depends on networkEnabled -> --unshare-net",
+      "evidence": [
+        "src/main/services/sandbox/SandboxInvoker.ts",
+        "src/main/services/sandbox/policy.ts"
+      ]
+    },
+    {
+      "layer": "sandbox",
+      "platform": "linux",
+      "backend": "linux-bwrap",
+      "mode": "compat",
+      "windowsMode": "n/a",
+      "operationId": "network.loopback",
+      "verdict": "conditional",
+      "reason": "loopback behavior depends on namespace/runtime tooling",
+      "evidence": [
+        "src/main/services/sandbox/SandboxInvoker.ts",
+        "src/main/services/sandbox/policy.ts"
+      ]
+    },
+    {
+      "layer": "sandbox",
+      "platform": "linux",
+      "backend": "linux-bwrap",
+      "mode": "compat",
+      "windowsMode": "n/a",
+      "operationId": "exec.startup_chain_extra",
+      "verdict": "allow",
+      "reason": "compat/permissive keep full root visibility for exec",
+      "evidence": [
+        "src/main/services/sandbox/SandboxInvoker.ts",
+        "src/main/services/sandbox/policy.ts"
+      ]
+    },
+    {
+      "layer": "sandbox",
+      "platform": "linux",
+      "backend": "linux-bwrap",
+      "mode": "compat",
+      "windowsMode": "n/a",
+      "operationId": "command.dangerous.system",
+      "verdict": "conditional",
+      "reason": "blocked by PermissionManager first; sandbox-level outcome varies by command/capability",
+      "evidence": [
+        "src/main/services/sandbox/SandboxInvoker.ts",
+        "src/main/services/sandbox/policy.ts"
+      ]
+    },
+    {
+      "layer": "sandbox",
+      "platform": "linux",
+      "backend": "linux-bwrap",
+      "mode": "compat",
+      "windowsMode": "n/a",
+      "operationId": "fallback.backend_unavailable",
+      "verdict": "conditional",
+      "reason": "manual fails closed; startup-only/session degrade to none",
+      "evidence": [
+        "src/main/services/sandbox/SandboxInvoker.ts",
+        "src/main/services/sandbox/policy.ts"
+      ]
+    },
+    {
+      "layer": "sandbox",
+      "platform": "linux",
+      "backend": "linux-bwrap",
+      "mode": "permissive",
+      "windowsMode": "n/a",
+      "operationId": "fs.write.workspace",
+      "verdict": "allow",
+      "reason": "workspace path is bind-mounted writable",
+      "evidence": [
+        "src/main/services/sandbox/SandboxInvoker.ts",
+        "src/main/services/sandbox/policy.ts"
+      ]
+    },
+    {
+      "layer": "sandbox",
+      "platform": "linux",
+      "backend": "linux-bwrap",
+      "mode": "permissive",
+      "windowsMode": "n/a",
+      "operationId": "fs.write.outside_workspace",
+      "verdict": "allow",
+      "reason": "permissive mode bind-mounts root writable",
+      "evidence": [
+        "src/main/services/sandbox/SandboxInvoker.ts",
+        "src/main/services/sandbox/policy.ts"
+      ]
+    },
+    {
+      "layer": "sandbox",
+      "platform": "linux",
+      "backend": "linux-bwrap",
+      "mode": "permissive",
+      "windowsMode": "n/a",
+      "operationId": "fs.delete.system_path",
+      "verdict": "allow",
+      "reason": "permissive mode bind-mounts root writable",
+      "evidence": [
+        "src/main/services/sandbox/SandboxInvoker.ts",
+        "src/main/services/sandbox/policy.ts"
+      ]
+    },
+    {
+      "layer": "sandbox",
+      "platform": "linux",
+      "backend": "linux-bwrap",
+      "mode": "permissive",
+      "windowsMode": "n/a",
+      "operationId": "network.external",
+      "verdict": "allow",
+      "reason": "permissive mode skips network namespace isolation",
+      "evidence": [
+        "src/main/services/sandbox/SandboxInvoker.ts",
+        "src/main/services/sandbox/policy.ts"
+      ]
+    },
+    {
+      "layer": "sandbox",
+      "platform": "linux",
+      "backend": "linux-bwrap",
+      "mode": "permissive",
+      "windowsMode": "n/a",
+      "operationId": "network.loopback",
+      "verdict": "allow",
+      "reason": "no net namespace isolation in permissive mode",
+      "evidence": [
+        "src/main/services/sandbox/SandboxInvoker.ts",
+        "src/main/services/sandbox/policy.ts"
+      ]
+    },
+    {
+      "layer": "sandbox",
+      "platform": "linux",
+      "backend": "linux-bwrap",
+      "mode": "permissive",
+      "windowsMode": "n/a",
+      "operationId": "exec.startup_chain_extra",
+      "verdict": "allow",
+      "reason": "compat/permissive keep full root visibility for exec",
+      "evidence": [
+        "src/main/services/sandbox/SandboxInvoker.ts",
+        "src/main/services/sandbox/policy.ts"
+      ]
+    },
+    {
+      "layer": "sandbox",
+      "platform": "linux",
+      "backend": "linux-bwrap",
+      "mode": "permissive",
+      "windowsMode": "n/a",
+      "operationId": "command.dangerous.system",
+      "verdict": "conditional",
+      "reason": "blocked by PermissionManager first; sandbox-level outcome varies by command/capability",
+      "evidence": [
+        "src/main/services/sandbox/SandboxInvoker.ts",
+        "src/main/services/sandbox/policy.ts"
+      ]
+    },
+    {
+      "layer": "sandbox",
+      "platform": "linux",
+      "backend": "linux-bwrap",
+      "mode": "permissive",
+      "windowsMode": "n/a",
+      "operationId": "fallback.backend_unavailable",
+      "verdict": "conditional",
+      "reason": "manual fails closed; startup-only/session degrade to none",
+      "evidence": [
+        "src/main/services/sandbox/SandboxInvoker.ts",
+        "src/main/services/sandbox/policy.ts"
+      ]
+    },
+    {
+      "layer": "sandbox",
+      "platform": "win32",
+      "backend": "windows-sandbox",
+      "mode": "strict",
+      "windowsMode": "read-only",
+      "operationId": "fs.write.workspace",
+      "verdict": "block",
+      "reason": "read-only mode blocks workspace write",
+      "evidence": [
+        "src/main/services/sandbox/SandboxInvoker.ts",
+        "src/main/services/sandbox/policy.ts"
+      ]
+    },
+    {
+      "layer": "sandbox",
+      "platform": "win32",
+      "backend": "windows-sandbox",
+      "mode": "strict",
+      "windowsMode": "read-only",
+      "operationId": "fs.write.outside_workspace",
+      "verdict": "block",
+      "reason": "read-only mode blocks writes",
+      "evidence": [
+        "src/main/services/sandbox/SandboxInvoker.ts",
+        "src/main/services/sandbox/policy.ts"
+      ]
+    },
+    {
+      "layer": "sandbox",
+      "platform": "win32",
+      "backend": "windows-sandbox",
+      "mode": "strict",
+      "windowsMode": "read-only",
+      "operationId": "fs.delete.system_path",
+      "verdict": "conditional",
+      "reason": "depends on helper ACL application and writable root boundary",
+      "evidence": [
+        "src/main/services/sandbox/SandboxInvoker.ts",
+        "src/main/services/sandbox/policy.ts"
+      ]
+    },
+    {
+      "layer": "sandbox",
+      "platform": "win32",
+      "backend": "windows-sandbox",
+      "mode": "strict",
+      "windowsMode": "read-only",
+      "operationId": "network.external",
+      "verdict": "conditional",
+      "reason": "read-only policy enforces no full network but relies on helper best-effort controls",
+      "evidence": [
+        "src/main/services/sandbox/SandboxInvoker.ts",
+        "src/main/services/sandbox/policy.ts"
+      ]
+    },
+    {
+      "layer": "sandbox",
+      "platform": "win32",
+      "backend": "windows-sandbox",
+      "mode": "strict",
+      "windowsMode": "read-only",
+      "operationId": "network.loopback",
+      "verdict": "conditional",
+      "reason": "read-only policy enforces no full network but relies on helper best-effort controls",
+      "evidence": [
+        "src/main/services/sandbox/SandboxInvoker.ts",
+        "src/main/services/sandbox/policy.ts"
+      ]
+    },
+    {
+      "layer": "sandbox",
+      "platform": "win32",
+      "backend": "windows-sandbox",
+      "mode": "strict",
+      "windowsMode": "read-only",
+      "operationId": "exec.startup_chain_extra",
+      "verdict": "allow",
+      "reason": "helper executes command chain; restriction is policy/ACL not exec allowlist",
+      "evidence": [
+        "src/main/services/sandbox/SandboxInvoker.ts",
+        "src/main/services/sandbox/policy.ts"
+      ]
+    },
+    {
+      "layer": "sandbox",
+      "platform": "win32",
+      "backend": "windows-sandbox",
+      "mode": "strict",
+      "windowsMode": "read-only",
+      "operationId": "command.dangerous.system",
+      "verdict": "conditional",
+      "reason": "blocked mainly by PermissionManager and ACL boundaries",
+      "evidence": [
+        "src/main/services/sandbox/SandboxInvoker.ts",
+        "src/main/services/sandbox/policy.ts"
+      ]
+    },
+    {
+      "layer": "sandbox",
+      "platform": "win32",
+      "backend": "windows-sandbox",
+      "mode": "strict",
+      "windowsMode": "read-only",
+      "operationId": "fallback.backend_unavailable",
+      "verdict": "conditional",
+      "reason": "manual fails closed; startup-only/session degrade to none",
+      "evidence": [
+        "src/main/services/sandbox/SandboxInvoker.ts",
+        "src/main/services/sandbox/policy.ts"
+      ]
+    },
+    {
+      "layer": "sandbox",
+      "platform": "win32",
+      "backend": "windows-sandbox",
+      "mode": "strict",
+      "windowsMode": "workspace-write",
+      "operationId": "fs.write.workspace",
+      "verdict": "allow",
+      "reason": "workspace-write allows workspace root writes",
+      "evidence": [
+        "src/main/services/sandbox/SandboxInvoker.ts",
+        "src/main/services/sandbox/policy.ts"
+      ]
+    },
+    {
+      "layer": "sandbox",
+      "platform": "win32",
+      "backend": "windows-sandbox",
+      "mode": "strict",
+      "windowsMode": "workspace-write",
+      "operationId": "fs.write.outside_workspace",
+      "verdict": "conditional",
+      "reason": "strict limits writable_roots but helper still allows cwd/temp paths",
+      "evidence": [
+        "src/main/services/sandbox/SandboxInvoker.ts",
+        "src/main/services/sandbox/policy.ts"
+      ]
+    },
+    {
+      "layer": "sandbox",
+      "platform": "win32",
+      "backend": "windows-sandbox",
+      "mode": "strict",
+      "windowsMode": "workspace-write",
+      "operationId": "fs.delete.system_path",
+      "verdict": "conditional",
+      "reason": "depends on helper ACL application and writable root boundary",
+      "evidence": [
+        "src/main/services/sandbox/SandboxInvoker.ts",
+        "src/main/services/sandbox/policy.ts"
+      ]
+    },
+    {
+      "layer": "sandbox",
+      "platform": "win32",
+      "backend": "windows-sandbox",
+      "mode": "strict",
+      "windowsMode": "workspace-write",
+      "operationId": "network.external",
+      "verdict": "conditional",
+      "reason": "network_access is helper best-effort, not kernel-level isolation",
+      "evidence": [
+        "src/main/services/sandbox/SandboxInvoker.ts",
+        "src/main/services/sandbox/policy.ts"
+      ]
+    },
+    {
+      "layer": "sandbox",
+      "platform": "win32",
+      "backend": "windows-sandbox",
+      "mode": "strict",
+      "windowsMode": "workspace-write",
+      "operationId": "network.loopback",
+      "verdict": "conditional",
+      "reason": "network_access is helper best-effort, not kernel-level isolation",
+      "evidence": [
+        "src/main/services/sandbox/SandboxInvoker.ts",
+        "src/main/services/sandbox/policy.ts"
+      ]
+    },
+    {
+      "layer": "sandbox",
+      "platform": "win32",
+      "backend": "windows-sandbox",
+      "mode": "strict",
+      "windowsMode": "workspace-write",
+      "operationId": "exec.startup_chain_extra",
+      "verdict": "allow",
+      "reason": "helper executes command chain; restriction is policy/ACL not exec allowlist",
+      "evidence": [
+        "src/main/services/sandbox/SandboxInvoker.ts",
+        "src/main/services/sandbox/policy.ts"
+      ]
+    },
+    {
+      "layer": "sandbox",
+      "platform": "win32",
+      "backend": "windows-sandbox",
+      "mode": "strict",
+      "windowsMode": "workspace-write",
+      "operationId": "command.dangerous.system",
+      "verdict": "conditional",
+      "reason": "blocked mainly by PermissionManager and ACL boundaries",
+      "evidence": [
+        "src/main/services/sandbox/SandboxInvoker.ts",
+        "src/main/services/sandbox/policy.ts"
+      ]
+    },
+    {
+      "layer": "sandbox",
+      "platform": "win32",
+      "backend": "windows-sandbox",
+      "mode": "strict",
+      "windowsMode": "workspace-write",
+      "operationId": "fallback.backend_unavailable",
+      "verdict": "conditional",
+      "reason": "manual fails closed; startup-only/session degrade to none",
+      "evidence": [
+        "src/main/services/sandbox/SandboxInvoker.ts",
+        "src/main/services/sandbox/policy.ts"
+      ]
+    },
+    {
+      "layer": "sandbox",
+      "platform": "win32",
+      "backend": "windows-sandbox",
+      "mode": "compat",
+      "windowsMode": "read-only",
+      "operationId": "fs.write.workspace",
+      "verdict": "block",
+      "reason": "read-only mode blocks workspace write",
+      "evidence": [
+        "src/main/services/sandbox/SandboxInvoker.ts",
+        "src/main/services/sandbox/policy.ts"
+      ]
+    },
+    {
+      "layer": "sandbox",
+      "platform": "win32",
+      "backend": "windows-sandbox",
+      "mode": "compat",
+      "windowsMode": "read-only",
+      "operationId": "fs.write.outside_workspace",
+      "verdict": "block",
+      "reason": "read-only mode blocks writes",
+      "evidence": [
+        "src/main/services/sandbox/SandboxInvoker.ts",
+        "src/main/services/sandbox/policy.ts"
+      ]
+    },
+    {
+      "layer": "sandbox",
+      "platform": "win32",
+      "backend": "windows-sandbox",
+      "mode": "compat",
+      "windowsMode": "read-only",
+      "operationId": "fs.delete.system_path",
+      "verdict": "conditional",
+      "reason": "depends on helper ACL application and writable root boundary",
+      "evidence": [
+        "src/main/services/sandbox/SandboxInvoker.ts",
+        "src/main/services/sandbox/policy.ts"
+      ]
+    },
+    {
+      "layer": "sandbox",
+      "platform": "win32",
+      "backend": "windows-sandbox",
+      "mode": "compat",
+      "windowsMode": "read-only",
+      "operationId": "network.external",
+      "verdict": "conditional",
+      "reason": "read-only policy enforces no full network but relies on helper best-effort controls",
+      "evidence": [
+        "src/main/services/sandbox/SandboxInvoker.ts",
+        "src/main/services/sandbox/policy.ts"
+      ]
+    },
+    {
+      "layer": "sandbox",
+      "platform": "win32",
+      "backend": "windows-sandbox",
+      "mode": "compat",
+      "windowsMode": "read-only",
+      "operationId": "network.loopback",
+      "verdict": "conditional",
+      "reason": "read-only policy enforces no full network but relies on helper best-effort controls",
+      "evidence": [
+        "src/main/services/sandbox/SandboxInvoker.ts",
+        "src/main/services/sandbox/policy.ts"
+      ]
+    },
+    {
+      "layer": "sandbox",
+      "platform": "win32",
+      "backend": "windows-sandbox",
+      "mode": "compat",
+      "windowsMode": "read-only",
+      "operationId": "exec.startup_chain_extra",
+      "verdict": "allow",
+      "reason": "helper executes command chain; restriction is policy/ACL not exec allowlist",
+      "evidence": [
+        "src/main/services/sandbox/SandboxInvoker.ts",
+        "src/main/services/sandbox/policy.ts"
+      ]
+    },
+    {
+      "layer": "sandbox",
+      "platform": "win32",
+      "backend": "windows-sandbox",
+      "mode": "compat",
+      "windowsMode": "read-only",
+      "operationId": "command.dangerous.system",
+      "verdict": "conditional",
+      "reason": "blocked mainly by PermissionManager and ACL boundaries",
+      "evidence": [
+        "src/main/services/sandbox/SandboxInvoker.ts",
+        "src/main/services/sandbox/policy.ts"
+      ]
+    },
+    {
+      "layer": "sandbox",
+      "platform": "win32",
+      "backend": "windows-sandbox",
+      "mode": "compat",
+      "windowsMode": "read-only",
+      "operationId": "fallback.backend_unavailable",
+      "verdict": "conditional",
+      "reason": "manual fails closed; startup-only/session degrade to none",
+      "evidence": [
+        "src/main/services/sandbox/SandboxInvoker.ts",
+        "src/main/services/sandbox/policy.ts"
+      ]
+    },
+    {
+      "layer": "sandbox",
+      "platform": "win32",
+      "backend": "windows-sandbox",
+      "mode": "compat",
+      "windowsMode": "workspace-write",
+      "operationId": "fs.write.workspace",
+      "verdict": "allow",
+      "reason": "workspace-write allows workspace root writes",
+      "evidence": [
+        "src/main/services/sandbox/SandboxInvoker.ts",
+        "src/main/services/sandbox/policy.ts"
+      ]
+    },
+    {
+      "layer": "sandbox",
+      "platform": "win32",
+      "backend": "windows-sandbox",
+      "mode": "compat",
+      "windowsMode": "workspace-write",
+      "operationId": "fs.write.outside_workspace",
+      "verdict": "conditional",
+      "reason": "compat/permissive include wider writable roots and cwd-dependent allowances",
+      "evidence": [
+        "src/main/services/sandbox/SandboxInvoker.ts",
+        "src/main/services/sandbox/policy.ts"
+      ]
+    },
+    {
+      "layer": "sandbox",
+      "platform": "win32",
+      "backend": "windows-sandbox",
+      "mode": "compat",
+      "windowsMode": "workspace-write",
+      "operationId": "fs.delete.system_path",
+      "verdict": "conditional",
+      "reason": "depends on helper ACL application and writable root boundary",
+      "evidence": [
+        "src/main/services/sandbox/SandboxInvoker.ts",
+        "src/main/services/sandbox/policy.ts"
+      ]
+    },
+    {
+      "layer": "sandbox",
+      "platform": "win32",
+      "backend": "windows-sandbox",
+      "mode": "compat",
+      "windowsMode": "workspace-write",
+      "operationId": "network.external",
+      "verdict": "conditional",
+      "reason": "network_access is helper best-effort, not kernel-level isolation",
+      "evidence": [
+        "src/main/services/sandbox/SandboxInvoker.ts",
+        "src/main/services/sandbox/policy.ts"
+      ]
+    },
+    {
+      "layer": "sandbox",
+      "platform": "win32",
+      "backend": "windows-sandbox",
+      "mode": "compat",
+      "windowsMode": "workspace-write",
+      "operationId": "network.loopback",
+      "verdict": "conditional",
+      "reason": "network_access is helper best-effort, not kernel-level isolation",
+      "evidence": [
+        "src/main/services/sandbox/SandboxInvoker.ts",
+        "src/main/services/sandbox/policy.ts"
+      ]
+    },
+    {
+      "layer": "sandbox",
+      "platform": "win32",
+      "backend": "windows-sandbox",
+      "mode": "compat",
+      "windowsMode": "workspace-write",
+      "operationId": "exec.startup_chain_extra",
+      "verdict": "allow",
+      "reason": "helper executes command chain; restriction is policy/ACL not exec allowlist",
+      "evidence": [
+        "src/main/services/sandbox/SandboxInvoker.ts",
+        "src/main/services/sandbox/policy.ts"
+      ]
+    },
+    {
+      "layer": "sandbox",
+      "platform": "win32",
+      "backend": "windows-sandbox",
+      "mode": "compat",
+      "windowsMode": "workspace-write",
+      "operationId": "command.dangerous.system",
+      "verdict": "conditional",
+      "reason": "blocked mainly by PermissionManager and ACL boundaries",
+      "evidence": [
+        "src/main/services/sandbox/SandboxInvoker.ts",
+        "src/main/services/sandbox/policy.ts"
+      ]
+    },
+    {
+      "layer": "sandbox",
+      "platform": "win32",
+      "backend": "windows-sandbox",
+      "mode": "compat",
+      "windowsMode": "workspace-write",
+      "operationId": "fallback.backend_unavailable",
+      "verdict": "conditional",
+      "reason": "manual fails closed; startup-only/session degrade to none",
+      "evidence": [
+        "src/main/services/sandbox/SandboxInvoker.ts",
+        "src/main/services/sandbox/policy.ts"
+      ]
+    },
+    {
+      "layer": "sandbox",
+      "platform": "win32",
+      "backend": "windows-sandbox",
+      "mode": "permissive",
+      "windowsMode": "read-only",
+      "operationId": "fs.write.workspace",
+      "verdict": "block",
+      "reason": "read-only mode blocks workspace write",
+      "evidence": [
+        "src/main/services/sandbox/SandboxInvoker.ts",
+        "src/main/services/sandbox/policy.ts"
+      ]
+    },
+    {
+      "layer": "sandbox",
+      "platform": "win32",
+      "backend": "windows-sandbox",
+      "mode": "permissive",
+      "windowsMode": "read-only",
+      "operationId": "fs.write.outside_workspace",
+      "verdict": "block",
+      "reason": "read-only mode blocks writes",
+      "evidence": [
+        "src/main/services/sandbox/SandboxInvoker.ts",
+        "src/main/services/sandbox/policy.ts"
+      ]
+    },
+    {
+      "layer": "sandbox",
+      "platform": "win32",
+      "backend": "windows-sandbox",
+      "mode": "permissive",
+      "windowsMode": "read-only",
+      "operationId": "fs.delete.system_path",
+      "verdict": "conditional",
+      "reason": "depends on helper ACL application and writable root boundary",
+      "evidence": [
+        "src/main/services/sandbox/SandboxInvoker.ts",
+        "src/main/services/sandbox/policy.ts"
+      ]
+    },
+    {
+      "layer": "sandbox",
+      "platform": "win32",
+      "backend": "windows-sandbox",
+      "mode": "permissive",
+      "windowsMode": "read-only",
+      "operationId": "network.external",
+      "verdict": "conditional",
+      "reason": "read-only policy enforces no full network but relies on helper best-effort controls",
+      "evidence": [
+        "src/main/services/sandbox/SandboxInvoker.ts",
+        "src/main/services/sandbox/policy.ts"
+      ]
+    },
+    {
+      "layer": "sandbox",
+      "platform": "win32",
+      "backend": "windows-sandbox",
+      "mode": "permissive",
+      "windowsMode": "read-only",
+      "operationId": "network.loopback",
+      "verdict": "conditional",
+      "reason": "read-only policy enforces no full network but relies on helper best-effort controls",
+      "evidence": [
+        "src/main/services/sandbox/SandboxInvoker.ts",
+        "src/main/services/sandbox/policy.ts"
+      ]
+    },
+    {
+      "layer": "sandbox",
+      "platform": "win32",
+      "backend": "windows-sandbox",
+      "mode": "permissive",
+      "windowsMode": "read-only",
+      "operationId": "exec.startup_chain_extra",
+      "verdict": "allow",
+      "reason": "helper executes command chain; restriction is policy/ACL not exec allowlist",
+      "evidence": [
+        "src/main/services/sandbox/SandboxInvoker.ts",
+        "src/main/services/sandbox/policy.ts"
+      ]
+    },
+    {
+      "layer": "sandbox",
+      "platform": "win32",
+      "backend": "windows-sandbox",
+      "mode": "permissive",
+      "windowsMode": "read-only",
+      "operationId": "command.dangerous.system",
+      "verdict": "conditional",
+      "reason": "blocked mainly by PermissionManager and ACL boundaries",
+      "evidence": [
+        "src/main/services/sandbox/SandboxInvoker.ts",
+        "src/main/services/sandbox/policy.ts"
+      ]
+    },
+    {
+      "layer": "sandbox",
+      "platform": "win32",
+      "backend": "windows-sandbox",
+      "mode": "permissive",
+      "windowsMode": "read-only",
+      "operationId": "fallback.backend_unavailable",
+      "verdict": "conditional",
+      "reason": "manual fails closed; startup-only/session degrade to none",
+      "evidence": [
+        "src/main/services/sandbox/SandboxInvoker.ts",
+        "src/main/services/sandbox/policy.ts"
+      ]
+    },
+    {
+      "layer": "sandbox",
+      "platform": "win32",
+      "backend": "windows-sandbox",
+      "mode": "permissive",
+      "windowsMode": "workspace-write",
+      "operationId": "fs.write.workspace",
+      "verdict": "allow",
+      "reason": "workspace-write allows workspace root writes",
+      "evidence": [
+        "src/main/services/sandbox/SandboxInvoker.ts",
+        "src/main/services/sandbox/policy.ts"
+      ]
+    },
+    {
+      "layer": "sandbox",
+      "platform": "win32",
+      "backend": "windows-sandbox",
+      "mode": "permissive",
+      "windowsMode": "workspace-write",
+      "operationId": "fs.write.outside_workspace",
+      "verdict": "conditional",
+      "reason": "compat/permissive include wider writable roots and cwd-dependent allowances",
+      "evidence": [
+        "src/main/services/sandbox/SandboxInvoker.ts",
+        "src/main/services/sandbox/policy.ts"
+      ]
+    },
+    {
+      "layer": "sandbox",
+      "platform": "win32",
+      "backend": "windows-sandbox",
+      "mode": "permissive",
+      "windowsMode": "workspace-write",
+      "operationId": "fs.delete.system_path",
+      "verdict": "conditional",
+      "reason": "depends on helper ACL application and writable root boundary",
+      "evidence": [
+        "src/main/services/sandbox/SandboxInvoker.ts",
+        "src/main/services/sandbox/policy.ts"
+      ]
+    },
+    {
+      "layer": "sandbox",
+      "platform": "win32",
+      "backend": "windows-sandbox",
+      "mode": "permissive",
+      "windowsMode": "workspace-write",
+      "operationId": "network.external",
+      "verdict": "conditional",
+      "reason": "network_access is helper best-effort, not kernel-level isolation",
+      "evidence": [
+        "src/main/services/sandbox/SandboxInvoker.ts",
+        "src/main/services/sandbox/policy.ts"
+      ]
+    },
+    {
+      "layer": "sandbox",
+      "platform": "win32",
+      "backend": "windows-sandbox",
+      "mode": "permissive",
+      "windowsMode": "workspace-write",
+      "operationId": "network.loopback",
+      "verdict": "conditional",
+      "reason": "network_access is helper best-effort, not kernel-level isolation",
+      "evidence": [
+        "src/main/services/sandbox/SandboxInvoker.ts",
+        "src/main/services/sandbox/policy.ts"
+      ]
+    },
+    {
+      "layer": "sandbox",
+      "platform": "win32",
+      "backend": "windows-sandbox",
+      "mode": "permissive",
+      "windowsMode": "workspace-write",
+      "operationId": "exec.startup_chain_extra",
+      "verdict": "allow",
+      "reason": "helper executes command chain; restriction is policy/ACL not exec allowlist",
+      "evidence": [
+        "src/main/services/sandbox/SandboxInvoker.ts",
+        "src/main/services/sandbox/policy.ts"
+      ]
+    },
+    {
+      "layer": "sandbox",
+      "platform": "win32",
+      "backend": "windows-sandbox",
+      "mode": "permissive",
+      "windowsMode": "workspace-write",
+      "operationId": "command.dangerous.system",
+      "verdict": "conditional",
+      "reason": "blocked mainly by PermissionManager and ACL boundaries",
+      "evidence": [
+        "src/main/services/sandbox/SandboxInvoker.ts",
+        "src/main/services/sandbox/policy.ts"
+      ]
+    },
+    {
+      "layer": "sandbox",
+      "platform": "win32",
+      "backend": "windows-sandbox",
+      "mode": "permissive",
+      "windowsMode": "workspace-write",
+      "operationId": "fallback.backend_unavailable",
+      "verdict": "conditional",
+      "reason": "manual fails closed; startup-only/session degrade to none",
+      "evidence": [
+        "src/main/services/sandbox/SandboxInvoker.ts",
+        "src/main/services/sandbox/policy.ts"
+      ]
+    },
+    {
+      "layer": "sandbox",
+      "platform": "all",
+      "backend": "docker",
+      "mode": "strict",
+      "windowsMode": "n/a",
+      "operationId": "fs.write.workspace",
+      "verdict": "unsupported",
+      "reason": "docker process-level sandbox is not implemented",
+      "evidence": [
+        "src/main/services/sandbox/SandboxInvoker.ts"
+      ]
+    },
+    {
+      "layer": "sandbox",
+      "platform": "all",
+      "backend": "docker",
+      "mode": "strict",
+      "windowsMode": "n/a",
+      "operationId": "fs.write.outside_workspace",
+      "verdict": "unsupported",
+      "reason": "docker process-level sandbox is not implemented",
+      "evidence": [
+        "src/main/services/sandbox/SandboxInvoker.ts"
+      ]
+    },
+    {
+      "layer": "sandbox",
+      "platform": "all",
+      "backend": "docker",
+      "mode": "strict",
+      "windowsMode": "n/a",
+      "operationId": "fs.delete.system_path",
+      "verdict": "unsupported",
+      "reason": "docker process-level sandbox is not implemented",
+      "evidence": [
+        "src/main/services/sandbox/SandboxInvoker.ts"
+      ]
+    },
+    {
+      "layer": "sandbox",
+      "platform": "all",
+      "backend": "docker",
+      "mode": "strict",
+      "windowsMode": "n/a",
+      "operationId": "network.external",
+      "verdict": "unsupported",
+      "reason": "docker process-level sandbox is not implemented",
+      "evidence": [
+        "src/main/services/sandbox/SandboxInvoker.ts"
+      ]
+    },
+    {
+      "layer": "sandbox",
+      "platform": "all",
+      "backend": "docker",
+      "mode": "strict",
+      "windowsMode": "n/a",
+      "operationId": "network.loopback",
+      "verdict": "unsupported",
+      "reason": "docker process-level sandbox is not implemented",
+      "evidence": [
+        "src/main/services/sandbox/SandboxInvoker.ts"
+      ]
+    },
+    {
+      "layer": "sandbox",
+      "platform": "all",
+      "backend": "docker",
+      "mode": "strict",
+      "windowsMode": "n/a",
+      "operationId": "exec.startup_chain_extra",
+      "verdict": "unsupported",
+      "reason": "docker process-level sandbox is not implemented",
+      "evidence": [
+        "src/main/services/sandbox/SandboxInvoker.ts"
+      ]
+    },
+    {
+      "layer": "sandbox",
+      "platform": "all",
+      "backend": "docker",
+      "mode": "strict",
+      "windowsMode": "n/a",
+      "operationId": "command.dangerous.system",
+      "verdict": "unsupported",
+      "reason": "docker process-level sandbox is not implemented",
+      "evidence": [
+        "src/main/services/sandbox/SandboxInvoker.ts"
+      ]
+    },
+    {
+      "layer": "sandbox",
+      "platform": "all",
+      "backend": "docker",
+      "mode": "strict",
+      "windowsMode": "n/a",
+      "operationId": "fallback.backend_unavailable",
+      "verdict": "unsupported",
+      "reason": "docker process-level sandbox is not implemented",
+      "evidence": [
+        "src/main/services/sandbox/SandboxInvoker.ts"
+      ]
+    },
+    {
+      "layer": "sandbox",
+      "platform": "all",
+      "backend": "docker",
+      "mode": "compat",
+      "windowsMode": "n/a",
+      "operationId": "fs.write.workspace",
+      "verdict": "unsupported",
+      "reason": "docker process-level sandbox is not implemented",
+      "evidence": [
+        "src/main/services/sandbox/SandboxInvoker.ts"
+      ]
+    },
+    {
+      "layer": "sandbox",
+      "platform": "all",
+      "backend": "docker",
+      "mode": "compat",
+      "windowsMode": "n/a",
+      "operationId": "fs.write.outside_workspace",
+      "verdict": "unsupported",
+      "reason": "docker process-level sandbox is not implemented",
+      "evidence": [
+        "src/main/services/sandbox/SandboxInvoker.ts"
+      ]
+    },
+    {
+      "layer": "sandbox",
+      "platform": "all",
+      "backend": "docker",
+      "mode": "compat",
+      "windowsMode": "n/a",
+      "operationId": "fs.delete.system_path",
+      "verdict": "unsupported",
+      "reason": "docker process-level sandbox is not implemented",
+      "evidence": [
+        "src/main/services/sandbox/SandboxInvoker.ts"
+      ]
+    },
+    {
+      "layer": "sandbox",
+      "platform": "all",
+      "backend": "docker",
+      "mode": "compat",
+      "windowsMode": "n/a",
+      "operationId": "network.external",
+      "verdict": "unsupported",
+      "reason": "docker process-level sandbox is not implemented",
+      "evidence": [
+        "src/main/services/sandbox/SandboxInvoker.ts"
+      ]
+    },
+    {
+      "layer": "sandbox",
+      "platform": "all",
+      "backend": "docker",
+      "mode": "compat",
+      "windowsMode": "n/a",
+      "operationId": "network.loopback",
+      "verdict": "unsupported",
+      "reason": "docker process-level sandbox is not implemented",
+      "evidence": [
+        "src/main/services/sandbox/SandboxInvoker.ts"
+      ]
+    },
+    {
+      "layer": "sandbox",
+      "platform": "all",
+      "backend": "docker",
+      "mode": "compat",
+      "windowsMode": "n/a",
+      "operationId": "exec.startup_chain_extra",
+      "verdict": "unsupported",
+      "reason": "docker process-level sandbox is not implemented",
+      "evidence": [
+        "src/main/services/sandbox/SandboxInvoker.ts"
+      ]
+    },
+    {
+      "layer": "sandbox",
+      "platform": "all",
+      "backend": "docker",
+      "mode": "compat",
+      "windowsMode": "n/a",
+      "operationId": "command.dangerous.system",
+      "verdict": "unsupported",
+      "reason": "docker process-level sandbox is not implemented",
+      "evidence": [
+        "src/main/services/sandbox/SandboxInvoker.ts"
+      ]
+    },
+    {
+      "layer": "sandbox",
+      "platform": "all",
+      "backend": "docker",
+      "mode": "compat",
+      "windowsMode": "n/a",
+      "operationId": "fallback.backend_unavailable",
+      "verdict": "unsupported",
+      "reason": "docker process-level sandbox is not implemented",
+      "evidence": [
+        "src/main/services/sandbox/SandboxInvoker.ts"
+      ]
+    },
+    {
+      "layer": "sandbox",
+      "platform": "all",
+      "backend": "docker",
+      "mode": "permissive",
+      "windowsMode": "n/a",
+      "operationId": "fs.write.workspace",
+      "verdict": "unsupported",
+      "reason": "docker process-level sandbox is not implemented",
+      "evidence": [
+        "src/main/services/sandbox/SandboxInvoker.ts"
+      ]
+    },
+    {
+      "layer": "sandbox",
+      "platform": "all",
+      "backend": "docker",
+      "mode": "permissive",
+      "windowsMode": "n/a",
+      "operationId": "fs.write.outside_workspace",
+      "verdict": "unsupported",
+      "reason": "docker process-level sandbox is not implemented",
+      "evidence": [
+        "src/main/services/sandbox/SandboxInvoker.ts"
+      ]
+    },
+    {
+      "layer": "sandbox",
+      "platform": "all",
+      "backend": "docker",
+      "mode": "permissive",
+      "windowsMode": "n/a",
+      "operationId": "fs.delete.system_path",
+      "verdict": "unsupported",
+      "reason": "docker process-level sandbox is not implemented",
+      "evidence": [
+        "src/main/services/sandbox/SandboxInvoker.ts"
+      ]
+    },
+    {
+      "layer": "sandbox",
+      "platform": "all",
+      "backend": "docker",
+      "mode": "permissive",
+      "windowsMode": "n/a",
+      "operationId": "network.external",
+      "verdict": "unsupported",
+      "reason": "docker process-level sandbox is not implemented",
+      "evidence": [
+        "src/main/services/sandbox/SandboxInvoker.ts"
+      ]
+    },
+    {
+      "layer": "sandbox",
+      "platform": "all",
+      "backend": "docker",
+      "mode": "permissive",
+      "windowsMode": "n/a",
+      "operationId": "network.loopback",
+      "verdict": "unsupported",
+      "reason": "docker process-level sandbox is not implemented",
+      "evidence": [
+        "src/main/services/sandbox/SandboxInvoker.ts"
+      ]
+    },
+    {
+      "layer": "sandbox",
+      "platform": "all",
+      "backend": "docker",
+      "mode": "permissive",
+      "windowsMode": "n/a",
+      "operationId": "exec.startup_chain_extra",
+      "verdict": "unsupported",
+      "reason": "docker process-level sandbox is not implemented",
+      "evidence": [
+        "src/main/services/sandbox/SandboxInvoker.ts"
+      ]
+    },
+    {
+      "layer": "sandbox",
+      "platform": "all",
+      "backend": "docker",
+      "mode": "permissive",
+      "windowsMode": "n/a",
+      "operationId": "command.dangerous.system",
+      "verdict": "unsupported",
+      "reason": "docker process-level sandbox is not implemented",
+      "evidence": [
+        "src/main/services/sandbox/SandboxInvoker.ts"
+      ]
+    },
+    {
+      "layer": "sandbox",
+      "platform": "all",
+      "backend": "docker",
+      "mode": "permissive",
+      "windowsMode": "n/a",
+      "operationId": "fallback.backend_unavailable",
+      "verdict": "unsupported",
+      "reason": "docker process-level sandbox is not implemented",
+      "evidence": [
+        "src/main/services/sandbox/SandboxInvoker.ts"
+      ]
+    },
+    {
+      "layer": "permission",
+      "platform": "all",
+      "backend": "permission-manager",
+      "mode": "n/a",
+      "windowsMode": "n/a",
+      "operationId": "permission.command.safe",
+      "verdict": "allow",
+      "reason": "safeCommands includes \"node\" and is auto-approved for command:execute",
+      "evidence": [
+        "src/main/services/sandbox/PermissionManager.ts"
+      ]
+    },
+    {
+      "layer": "permission",
+      "platform": "all",
+      "backend": "permission-manager",
+      "mode": "n/a",
+      "windowsMode": "n/a",
+      "operationId": "permission.command.dangerous",
+      "verdict": "block",
+      "reason": "dangerous command pattern (e.g. \"sudo\") is blocked",
+      "evidence": [
+        "src/main/services/sandbox/PermissionManager.ts"
+      ]
+    },
+    {
+      "layer": "permission",
+      "platform": "all",
+      "backend": "permission-manager",
+      "mode": "n/a",
+      "windowsMode": "n/a",
+      "operationId": "permission.path.sensitive",
+      "verdict": "block",
+      "reason": "sensitive paths (.ssh, /etc/passwd, /etc/shadow, /etc/sudoers, /etc/group) are blocked",
+      "evidence": [
+        "src/main/services/sandbox/PermissionManager.ts"
+      ]
+    },
+    {
+      "layer": "permission",
+      "platform": "all",
+      "backend": "permission-manager",
+      "mode": "n/a",
+      "windowsMode": "n/a",
+      "operationId": "permission.type.deny",
+      "verdict": "block",
+      "reason": "denyList permission types are blocked",
+      "evidence": [
+        "src/main/services/sandbox/PermissionManager.ts"
+      ]
+    }
+  ]
+}

@@ -1,0 +1,57 @@
+# 从本仓根目录安装、构建共享包并测试 Electron 客户端。
+name: CI (tests)
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: vitest (electron client)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: lts/*
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9.15.5
+
+      # Python 3.12+ 移除 distutils，node-gyp（better-sqlite3）依赖
+      - name: Install setuptools for node-gyp
+        run: python3 -m pip install setuptools --break-system-packages 2>/dev/null || python3 -m pip install setuptools
+
+      # agent-kit 经根 package.json 的 pnpm.overrides file: 引用——install 会把它
+      # 打包成快照拷入 node_modules；必须先构建出 dist 再 install，否则快照无入口
+      # （vitest/esbuild 解析 @nuwax-ai/agent-kit 失败）
+      - name: Build agent-kit (before install)
+        run: |
+          pnpm -C crates/agent-kit install --ignore-workspace --prefer-offline
+          pnpm -C crates/agent-kit run build
+
+      - name: Install workspace dependencies
+        run: pnpm install --filter @nuwax-ai/nuwaclaw...
+
+      # mcp.test.ts 依赖随包资源（gitignore，fresh clone 必做；见本仓 README）
+      - name: Prepare test resources (mcp-proxy)
+        working-directory: crates/agent-electron-client
+        run: npm run prepare:mcp-proxy
+
+      # sandbox-integration 需真实 bwrap/seatbelt 环境，不适合通用 CI runner
+      - name: Run tests
+        working-directory: crates/agent-electron-client
+        run: npx vitest run --exclude "tests/sandbox-integration/**" --exclude "**/node_modules/**"
+
+      - name: Check import boundaries
+        working-directory: crates/agent-electron-client
+        run: npm run check:boundaries

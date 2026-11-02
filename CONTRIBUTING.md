@@ -1,6 +1,6 @@
 # Contribution guidelines
 
-First off, thank you for considering contributing to nuwax-agent.
+First off, thank you for considering contributing to NuwaClaw.
 
 If your contribution is not straightforward, please first discuss the change you
 wish to make by creating a new issue before making the change.
@@ -8,7 +8,7 @@ wish to make by creating a new issue before making the change.
 ## Reporting issues
 
 Before reporting an issue on the
-[issue tracker](https://github.com/soddygo/nuwax-agent/issues),
+[issue tracker](https://github.com/nuwax-ai/nuwaclaw/issues),
 please check that it has not already been reported by searching for some related
 keywords.
 
@@ -52,11 +52,13 @@ A specification for adding human and machine readable meaning to commit messages
 
 ### Set up
 
+All client code, shared packages, build tools, and release workflows are maintained in this repository. Clone it normally and work from its root; no base checkout or submodule initialization is needed.
+
 ```shell
-git clone https://github.com/soddygo/nuwax-agent
-cd nuwax-agent
-pnpm install
-make electron-prepare
+git clone https://github.com/nuwax-ai/nuwaclaw.git
+cd nuwaclaw
+pnpm run build:agent-kit
+pnpm install --filter @nuwax-ai/nuwaclaw...
 make electron-dev
 ```
 
@@ -77,5 +79,17 @@ make electron-dev
 - Build for distribution:
 
   ```shell
-  make electron-bundle
+  make electron-bundle-unsigned
   ```
+
+- Prepare test resources and run the CI test suite (real OS sandbox tests excluded):
+
+  ```shell
+  pnpm -C crates/agent-electron-client prepare:mcp-proxy
+  pnpm -C crates/agent-electron-client exec vitest run --exclude 'tests/sandbox-integration/**' --exclude '**/node_modules/**'
+  pnpm run test:electron:scripts
+  pnpm -C crates/agent-electron-client check:boundaries
+  ```
+
+- Build the main and renderer processes: `pnpm -C crates/agent-electron-client build`.
+- Keep commits scoped to the change and preserve community product defaults. See [MODULES.md](MODULES.md) for module boundaries and [docs/source-import.md](docs/source-import.md) for the migration source.

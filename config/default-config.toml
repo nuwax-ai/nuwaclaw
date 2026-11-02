@@ -1,0 +1,21 @@
+# Nuwax Agent 默认配置
+# 将此文件放在可执行文件同目录下，首次启动时自动应用
+
+[server]
+hbbs_addr = "localhost:21116"
+hbbr_addr = "localhost:21117"
+# api_addr = ""
+
+[security]
+enable_tls = false
+
+[general]
+auto_launch = false
+minimize_to_tray = true
+language = "zh"
+theme = "system"
+
+[logging]
+level = "info"
+save_to_file = true
+max_files = 7

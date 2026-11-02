@@ -108,6 +108,8 @@ crates/gateway-server/.env
 .kilo/
 tmp/
 .zcode/
-.claude/cache/nuwax/
 .claude/cache/
+crates/agent-kit/pnpm-lock.yaml
+
+# 本地保留的前端工作目录，不属于桌面客户端源码
 nuwax/
