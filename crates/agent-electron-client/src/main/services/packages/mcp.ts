@@ -538,7 +538,14 @@ export const DEFAULT_MCP_PROXY_CONFIG: McpServersConfig = {
   mcpServers: {
     "chrome-devtools": {
       command: "npx",
-      args: ["-y", "chrome-devtools-mcp@latest"],
+      args: [
+        "-y",
+        // 自研 fork（官方包 puppeteer 默认 --enable-automation → navigator.webdriver=true，
+        // Google 登录触发风控）；两个反检测参数与容器内 /etc/mcp/mcp-proxy-config.json 对齐
+        "@nuwax-ai/chrome-devtools-mcp@latest",
+        "--ignore-default-chrome-arg=--enable-automation",
+        "--chrome-arg=--disable-blink-features=AutomationControlled",
+      ],
       persistent: true,
     },
   },

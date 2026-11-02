@@ -10,7 +10,7 @@ import * as path from "node:path";
 export const MCP_WARMUP_SPECS = [
   "nuwax-ask-question-mcp@latest",
   "@nuwax-ai/openui-mcp@latest",
-  "chrome-devtools-mcp@latest",
+  "@nuwax-ai/chrome-devtools-mcp@latest",
 ] as const;
 
 export const MCP_WARMUP_PER_PKG_TIMEOUT_MS = 300_000;

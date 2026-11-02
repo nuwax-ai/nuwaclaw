@@ -64,8 +64,8 @@ describe("mcpCacheWarmup / pkgNameFromSpec", () => {
     expect(pkgNameFromSpec("@nuwax-ai/openui-mcp@latest")).toBe(
       "@nuwax-ai/openui-mcp",
     );
-    expect(pkgNameFromSpec("chrome-devtools-mcp@latest")).toBe(
-      "chrome-devtools-mcp",
+    expect(pkgNameFromSpec("@nuwax-ai/chrome-devtools-mcp@latest")).toBe(
+      "@nuwax-ai/chrome-devtools-mcp",
     );
   });
 });

@@ -34,7 +34,7 @@ import { getNpmCacheDir } from "./npmCacheMaintenance";
 export const MCP_WARMUP_SPECS = [
   "nuwax-ask-question-mcp@latest",
   "@nuwax-ai/openui-mcp@latest",
-  "chrome-devtools-mcp@latest",
+  "@nuwax-ai/chrome-devtools-mcp@latest",
 ] as const;
 
 /** 单包预热超时；chrome-devtools-mcp 体积较大，慢网/Win 首拉常 >60–90s */
