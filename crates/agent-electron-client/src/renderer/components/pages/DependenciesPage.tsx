@@ -4,7 +4,6 @@
  * 从 Tauri 版 DependenciesPage 适配而来:
  * - invoke() → window.electronAPI.dependencies.*
  * - 类型来自 ../types/electron.d.ts
- * - 刷新时由后端查询 npm registry 获取 latestVersion，有新版本时显示"更新到 x.y.z"按钮
  */
 
 import { useState, useEffect, useCallback } from "react";
@@ -146,10 +145,6 @@ export default function DependenciesPage() {
   const [depLoading, setDepLoading] = useState(MOCK_LOADING);
   const [depInstalling, setDepInstalling] = useState(false);
   const [currentInstallingDep, setCurrentInstallingDep] = useState<string>("");
-  /** 当前正在执行的操作类型，用于进度文案 */
-  const [currentInstallAction, setCurrentInstallAction] = useState<
-    "install" | "upgrade" | "update"
-  >("install");
 
   const loadDependencies = useCallback(async () => {
     // Mock 模式：模拟加载延迟后使用 mock 数据
@@ -246,9 +241,7 @@ export default function DependenciesPage() {
       );
 
       // Check all local/installable dependencies
-      const depsResult = await window.electronAPI?.dependencies.checkAll({
-        checkLatest: true,
-      });
+      const depsResult = await window.electronAPI?.dependencies.checkAll();
       if (depsResult?.success && depsResult.results) {
         // Extract ripgrep from checkAll results before filtering
         const rgItem = depsResult.results.find((d) => d.name === "ripgrep");
@@ -316,42 +309,24 @@ export default function DependenciesPage() {
   }, []);
 
   // ==========================================
-  // Install / upgrade / update-to-latest a single dependency
+  // Install a single dependency
   // ==========================================
-  const handleInstallSingleDep = async (
-    dep: LocalDependencyItem,
-    mode: "install" | "upgrade" | "update" = dep.status === "outdated"
-      ? "upgrade"
-      : "install",
-  ) => {
+  const handleInstallSingleDep = async (dep: LocalDependencyItem) => {
     const { name: packageName } = dep;
     const displayName = resolveDepDisplayName(dep);
     setDepInstalling(true);
     setCurrentInstallingDep(displayName);
-    setCurrentInstallAction(mode);
     setLocalDeps((prev) =>
       prev.map((d) =>
         d.name === packageName ? { ...d, status: "installing" as const } : d,
       ),
     );
 
-    // "update" 模式不传 version → @latest；其余走 installVersion
-    const options =
-      mode === "update"
-        ? undefined
-        : dep.installVersion
-          ? { version: dep.installVersion }
-          : undefined;
-    // "update" 失败时回退 installed（不破坏已安装状态）；其余标记 error
-    const failStatus =
-      mode === "update" ? ("installed" as const) : ("error" as const);
+    const options = dep.installVersion
+      ? { version: dep.installVersion }
+      : undefined;
 
-    const actionLabel =
-      mode === "update"
-        ? t(I18N_KEYS.Pages.Dependencies.UPDATE)
-        : mode === "upgrade"
-          ? t(I18N_KEYS.Pages.Dependencies.UPGRADE)
-          : t(I18N_KEYS.Pages.Dependencies.INSTALL);
+    const actionLabel = t(I18N_KEYS.Pages.Dependencies.INSTALL);
 
     try {
       const result = await window.electronAPI?.dependencies.installPackage(
@@ -372,21 +347,19 @@ export default function DependenciesPage() {
               : d,
           ),
         );
-        const versionHint =
-          mode === "update" && result.version ? ` ${result.version}` : "";
         message.success(
           t(
             I18N_KEYS.Pages.Dependencies.MSG_INSTALL_SUCCESS,
             displayName,
             actionLabel,
-          ) + versionHint,
+          ),
         );
         await restartServicesAfterDepChange();
       } else {
         setLocalDeps((prev) =>
           prev.map((d) =>
             d.name === packageName
-              ? { ...d, status: failStatus, errorMessage: result?.error }
+              ? { ...d, status: "error" as const, errorMessage: result?.error }
               : d,
           ),
         );
@@ -398,7 +371,7 @@ export default function DependenciesPage() {
       setLocalDeps((prev) =>
         prev.map((d) =>
           d.name === packageName
-            ? { ...d, status: failStatus, errorMessage: String(error) }
+            ? { ...d, status: "error" as const, errorMessage: String(error) }
             : d,
         ),
       );
@@ -408,19 +381,15 @@ export default function DependenciesPage() {
     } finally {
       setDepInstalling(false);
       setCurrentInstallingDep("");
-      setCurrentInstallAction("install");
     }
   };
 
   // ==========================================
-  // Install/upgrade all missing or outdated dependencies
+  // Install all missing dependencies
   // ==========================================
   const handleInstallAllDeps = async () => {
     const depsToProcess = localDeps.filter(
-      (d) =>
-        d.status === "missing" ||
-        d.status === "error" ||
-        d.status === "outdated",
+      (d) => d.status === "missing" || d.status === "error",
     );
     if (depsToProcess.length === 0) {
       message.info(
@@ -429,19 +398,11 @@ export default function DependenciesPage() {
       return;
     }
 
-    const hadOutdated = depsToProcess.some((d) => d.status === "outdated");
-    const hadMissing = depsToProcess.some(
-      (d) => d.status === "missing" || d.status === "error",
-    );
-
     setDepInstalling(true);
     let anySucceeded = false;
     try {
       for (const dep of depsToProcess) {
         setCurrentInstallingDep(resolveDepDisplayName(dep));
-        setCurrentInstallAction(
-          dep.status === "outdated" ? "upgrade" : "install",
-        );
         setLocalDeps((prev) =>
           prev.map((d) =>
             d.name === dep.name ? { ...d, status: "installing" as const } : d,
@@ -482,24 +443,15 @@ export default function DependenciesPage() {
                 : d,
             ),
           );
-          const action =
-            dep.status === "outdated"
-              ? t(I18N_KEYS.Pages.Dependencies.UPGRADE)
-              : t(I18N_KEYS.Pages.Dependencies.INSTALL);
+          const action = t(I18N_KEYS.Pages.Dependencies.INSTALL);
           message.error(
             t(I18N_KEYS.Pages.Dependencies.MSG_FAILED, dep.displayName, action),
           );
         }
       }
 
-      const doneMsg =
-        hadMissing && hadOutdated
-          ? t(I18N_KEYS.Pages.Dependencies.MSG_INSTALL_ALL_COMPLETE)
-          : hadOutdated
-            ? t(I18N_KEYS.Pages.Dependencies.MSG_UPGRADE_ALL_COMPLETE)
-            : t(I18N_KEYS.Pages.Dependencies.MSG_INSTALL_ALL_SUCCESS);
-      message.success(doneMsg);
-      // 若有任意一项安装/升级成功，关闭并重启服务使新依赖生效
+      message.success(t(I18N_KEYS.Pages.Dependencies.MSG_INSTALL_ALL_SUCCESS));
+      // 若有任意一项安装成功，关闭并重启服务使新依赖生效
       if (anySucceeded) {
         await restartServicesAfterDepChange();
       }
@@ -510,7 +462,6 @@ export default function DependenciesPage() {
     } finally {
       setDepInstalling(false);
       setCurrentInstallingDep("");
-      setCurrentInstallAction("install");
     }
   };
 
@@ -1055,7 +1006,7 @@ export default function DependenciesPage() {
             >
               {t(I18N_KEYS.Common.REFRESH)}
             </Button>
-            {(depSummary.missing > 0 || depSummary.outdated > 0) && (
+            {depSummary.missing > 0 && (
               <Button
                 size="small"
                 type="primary"
@@ -1064,11 +1015,7 @@ export default function DependenciesPage() {
                 loading={depInstalling}
                 disabled={!systemDepsReady}
               >
-                {depSummary.missing > 0 && depSummary.outdated > 0
-                  ? t(I18N_KEYS.Pages.Dependencies.INSTALL_ALL)
-                  : depSummary.outdated > 0
-                    ? t(I18N_KEYS.Pages.Dependencies.UPGRADE_ALL)
-                    : t(I18N_KEYS.Pages.Dependencies.INSTALL_ALL)}
+                {t(I18N_KEYS.Pages.Dependencies.INSTALL_ALL)}
               </Button>
             )}
           </div>
@@ -1091,9 +1038,7 @@ export default function DependenciesPage() {
             localDeps.map((item, i) => {
               const resolvedDisplayName = resolveDepDisplayName(item);
               const canInstall =
-                (item.status === "missing" ||
-                  item.status === "error" ||
-                  item.status === "outdated") &&
+                (item.status === "missing" || item.status === "error") &&
                 systemDepsReady &&
                 !depInstalling;
 
@@ -1160,11 +1105,7 @@ export default function DependenciesPage() {
                         currentInstallingDep === resolvedDisplayName && (
                           <span style={{ marginLeft: 8 }}>
                             <LoadingOutlined style={{ marginRight: 4 }} />
-                            {currentInstallAction === "upgrade"
-                              ? t(I18N_KEYS.Pages.Dependencies.UPGRADING)
-                              : currentInstallAction === "update"
-                                ? t(I18N_KEYS.Pages.Dependencies.UPDATING)
-                                : t(I18N_KEYS.Pages.Dependencies.INSTALLING)}
+                            {t(I18N_KEYS.Pages.Dependencies.INSTALLING)}
                           </span>
                         )}
                     </div>
@@ -1177,52 +1118,23 @@ export default function DependenciesPage() {
                         type="primary"
                         onClick={() => handleInstallSingleDep(item)}
                       >
-                        {item.status === "outdated"
-                          ? t(I18N_KEYS.Pages.Dependencies.UPGRADE)
-                          : t(I18N_KEYS.Pages.Dependencies.INSTALL)}
+                        {t(I18N_KEYS.Pages.Dependencies.INSTALL)}
                       </Button>
                     )}
-                    {item.status === "bundled" && (
+                    {(item.status === "bundled" ||
+                      item.status === "installed") && (
                       <span
                         style={{ fontSize: 12, color: "var(--color-success)" }}
                       >
                         {getStatusText(item.status)}
                       </span>
                     )}
-                    {item.status === "installed" && (
-                      <div
-                        style={{
-                          display: "flex",
-                          alignItems: "center",
-                          gap: 6,
-                        }}
+                    {item.status === "outdated" && (
+                      <span
+                        style={{ fontSize: 12, color: "var(--color-warning)" }}
                       >
-                        <span
-                          style={{
-                            fontSize: 12,
-                            color: "var(--color-success)",
-                          }}
-                        >
-                          {getStatusText(item.status)}
-                        </span>
-                        {item.latestVersion &&
-                          item.latestVersion.replace(/^v/, "") !==
-                            (item.version ?? "").replace(/^v/, "") &&
-                          systemDepsReady &&
-                          !depInstalling && (
-                            <Button
-                              size="small"
-                              onClick={() =>
-                                handleInstallSingleDep(item, "update")
-                              }
-                            >
-                              {t(
-                                I18N_KEYS.Pages.Dependencies.UPDATE_TO,
-                                item.latestVersion || "",
-                              )}
-                            </Button>
-                          )}
-                      </div>
+                        {getStatusText(item.status)}
+                      </span>
                     )}
                   </div>
                 </div>
