@@ -5,7 +5,7 @@
 - 0.15 系列开发分支：`feature/electron-client-0.15`。
 - 首个 beta：客户端版本 `0.15.0`，标签 `prerelease-v0.15.0`。
 - 首个 stable：客户端版本 `0.15.0`，标签 `electron-v0.15.0`。
-- 当前 stable：客户端版本 `0.15.1`，标签 `electron-v0.15.1`。
+- 当前 stable：客户端版本 `0.15.2`，标签 `electron-v0.15.2`。
 - 客户端版本维护在 `crates/agent-electron-client/package.json`；独立共享包继续维护各自版本。
 
 ## 发布约定

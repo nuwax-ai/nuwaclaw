@@ -1,6 +1,6 @@
 {
   "name": "@nuwax-ai/nuwaclaw",
-  "version": "0.15.1",
+  "version": "0.15.2",
   "description": "女娲 Nuwax",
   "main": "dist/main/main.js",
   "author": "Nuwax Team",
