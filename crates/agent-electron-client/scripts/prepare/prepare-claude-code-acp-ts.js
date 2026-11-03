@@ -3,10 +3,11 @@
  * 准备 claude-code-acp-ts 源码并复制到 resources/
  *
  * 逻辑：
- *   1. 若 sources/claude-code-acp-ts 不存在 → git clone + npm install + npm run build
- *   2. 若存在但无 node_modules → npm install + npm run build
- *   3. 否则跳过构建（认为已就绪）
- *   4. 复制到 resources/claude-code-acp-ts/
+ *   1. 按 package.json bundledSources.claude-code-acp-ts.tag 克隆或 fetch 该 tag
+ *   2. 提交变化，或缺少 dist / node_modules 时：npm install + npx tsc
+ *   3. 复制到 resources/claude-code-acp-ts/
+ *
+ * 源码钉在 tag 上，不跟踪分支。换版本只改 package.json 里的 tag。
  *
  * macOS x64 交叉编译（arm64 宿主机 + TARGET_ARCH=x64）时，额外用 npm pack 替换
  * Claude SDK 平台子包；其他平台保持原有 npm install + 整包复制流程，不做特殊处理。
@@ -29,7 +30,12 @@ const electronClientRoot = projectRoot;
 
 // 从 package.json 读取源码地址
 const pkgJson = JSON.parse(fs.readFileSync(path.join(electronClientRoot, 'package.json'), 'utf8'));
-const { url: GIT_REPO, branch: GIT_BRANCH } = pkgJson.bundledSources['claude-code-acp-ts'];
+const { url: GIT_REPO, tag: GIT_TAG } = pkgJson.bundledSources['claude-code-acp-ts'];
+if (!GIT_REPO || !GIT_TAG) {
+  throw new Error(
+    '[prepare-claude-code-acp-ts] package.json bundledSources.claude-code-acp-ts 需要 url 与 tag',
+  );
+}
 
 const SOURCE_DIR = path.join(electronClientRoot, 'sources', 'claude-code-acp-ts');
 const destDir = path.join(electronClientRoot, 'resources', 'claude-code-acp-ts');
@@ -47,6 +53,73 @@ function exec(cmd, opts = {}) {
 
 function execGit(cmd, opts = {}) {
   return exec(`git ${cmd}`, opts);
+}
+
+/**
+ * 读取 git 命令的 stdout。
+ * 用提交号判断工作区是否已经停在目标 tag 上，不能走会把输出打进日志的 exec()。
+ */
+function gitOutput(args, cwd) {
+  return execSync(`git ${args}`, {
+    cwd,
+    encoding: 'utf8',
+    stdio: ['ignore', 'pipe', 'inherit'],
+  }).trim();
+}
+
+/**
+ * 把 sources/claude-code-acp-ts 对齐到配置的 tag。
+ *
+ * tag 不是分支，没有可 fast-forward 的 origin/<tag>，`git pull` 对不上。
+ * 这里显式 fetch 这一个 tag，再 detached checkout 到它指向的提交。
+ * `--force` 覆盖本地同名 tag：发布方若移动了 tag，下一次 prepare 才能跟上新指向。
+ *
+ * @returns {'cloned'|'updated'|'unchanged'|'fetch-failed'}
+ */
+function syncSourceToTag() {
+  if (!fs.existsSync(path.join(SOURCE_DIR, '.git'))) {
+    console.log(`[prepare-claude-code-acp-ts] 克隆 tag ${GIT_TAG}...`);
+    fs.mkdirSync(path.dirname(SOURCE_DIR), { recursive: true });
+    // --branch 对 tag 同样有效；--depth 1 只取该 tag 指向的提交。
+    execGit(`clone --branch "${GIT_TAG}" --depth 1 "${GIT_REPO}" "${SOURCE_DIR}"`);
+    return 'cloned';
+  }
+
+  console.log(`[prepare-claude-code-acp-ts] 拉取 tag ${GIT_TAG}...`);
+  let fetched = false;
+  for (let attempt = 1; attempt <= 3 && !fetched; attempt++) {
+    try {
+      execGit(`fetch --force --depth=1 origin tag "${GIT_TAG}"`, { cwd: SOURCE_DIR });
+      fetched = true;
+    } catch (err) {
+      if (attempt === 3) {
+        console.warn(
+          `[prepare-claude-code-acp-ts] git 更新失败（已重试 ${attempt} 次），继续使用已有源码: ${err.message || err}`,
+        );
+      } else {
+        console.warn(
+          `[prepare-claude-code-acp-ts] git 更新失败（尝试 ${attempt}/3），1s 后重试...`,
+        );
+        execSync('sleep 1', { stdio: 'pipe' });
+      }
+    }
+  }
+  if (!fetched) return 'fetch-failed';
+
+  // ^{commit} 把附注 tag 剥到提交。轻量 tag 同样适用。
+  const head = gitOutput('rev-parse --verify "HEAD^{commit}"', SOURCE_DIR);
+  const tagCommit = gitOutput('rev-parse --verify "FETCH_HEAD^{commit}"', SOURCE_DIR);
+  if (head === tagCommit) {
+    console.log(`[prepare-claude-code-acp-ts] 已在 tag ${GIT_TAG} (${head.slice(0, 8)})`);
+    return 'unchanged';
+  }
+
+  console.log(
+    `[prepare-claude-code-acp-ts] 检出 tag ${GIT_TAG} (${tagCommit.slice(0, 8)})，当前为 ${head.slice(0, 8)}`,
+  );
+  // --force：这个目录只是构建缓存，本地改动不保留，避免脏工作区挡住切 tag。
+  execGit('checkout --detach --force FETCH_HEAD', { cwd: SOURCE_DIR });
+  return 'updated';
 }
 
 /**
@@ -222,10 +295,16 @@ function main() {
     );
   }
 
-  // 0. 版本检查：若源码已存在且目标版本匹配，跳过全部工作
+  // 先对齐 tag，再决定要不要构建。
+  // 旧逻辑在 dist 已存在时跳过 git，本机若还停在旧分支，会一直用旧提交。
+  const syncResult = syncSourceToTag();
+  const sourceChanged = syncResult === 'cloned' || syncResult === 'updated';
+
   const srcPkgPath = path.join(SOURCE_DIR, 'package.json');
   const destPkgPath = path.join(destDir, 'package.json');
-  if (fs.existsSync(srcPkgPath) && fs.existsSync(destPkgPath)) {
+  // 提交没变时，产物版本与源码一致就可以整次跳过。
+  // 提交变了即使 package.json version 字符串相同也要重建：tag 可能被移动过。
+  if (!sourceChanged && fs.existsSync(srcPkgPath) && fs.existsSync(destPkgPath)) {
     try {
       const srcPkg = JSON.parse(fs.readFileSync(srcPkgPath, 'utf8'));
       const destPkg = JSON.parse(fs.readFileSync(destPkgPath, 'utf8'));
@@ -244,40 +323,16 @@ function main() {
   const hasBuild = fs.existsSync(path.join(SOURCE_DIR, 'dist'));
   const hasNodeModules = fs.existsSync(path.join(SOURCE_DIR, 'node_modules'));
 
-  // 1. 克隆或更新源码（已有 dist 时跳过 git pull，避免 CI 二次 prepare 时 pull 失败）
-  if (!fs.existsSync(path.join(SOURCE_DIR, '.git'))) {
-    console.log('[prepare-claude-code-acp-ts] 克隆源码...');
-    execGit(`clone --branch ${GIT_BRANCH} --depth 1 ${GIT_REPO} "${SOURCE_DIR}"`);
-  } else if (!hasBuild || !hasNodeModules) {
-    console.log('[prepare-claude-code-acp-ts] 更新源码...');
-    let updated = false;
-    for (let attempt = 1; attempt <= 3 && !updated; attempt++) {
-      try {
-        execGit(`fetch origin ${GIT_BRANCH} --depth=1`, { cwd: SOURCE_DIR });
-        execGit(`checkout ${GIT_BRANCH}`, { cwd: SOURCE_DIR });
-        execGit(`pull --ff-only origin ${GIT_BRANCH}`, { cwd: SOURCE_DIR });
-        updated = true;
-      } catch (err) {
-        if (attempt === 3) {
-          console.warn(
-            `[prepare-claude-code-acp-ts] git 更新失败（已重试 ${attempt} 次），继续使用已有源码: ${err.message || err}`,
-          );
-        } else {
-          console.warn(
-            `[prepare-claude-code-acp-ts] git 更新失败（尝试 ${attempt}/3），1s 后重试...`,
-          );
-          execSync('sleep 1', { stdio: 'pipe' });
-        }
+  // 安装依赖并构建（所有平台共用）
+  if (sourceChanged || !hasBuild || !hasNodeModules) {
+    if (sourceChanged) {
+      const distDir = path.join(SOURCE_DIR, 'dist');
+      if (fs.existsSync(distDir)) {
+        // tsc 只覆盖它再次发出的文件，提交切换后旧 dist 里多余文件会留下来。
+        console.log('[prepare-claude-code-acp-ts] 源码提交已变，清理旧的 dist...');
+        fs.rmSync(distDir, { recursive: true, force: true });
       }
     }
-  } else {
-    console.log(
-      '[prepare-claude-code-acp-ts] 源码与构建产物已就绪，跳过 git pull',
-    );
-  }
-
-  // 2. 安装依赖并构建（所有平台共用）
-  if (!hasBuild || !hasNodeModules) {
     if (fs.existsSync(path.join(SOURCE_DIR, 'node_modules'))) {
       console.log('[prepare-claude-code-acp-ts] 清理旧的 node_modules...');
       exec(`rm -rf "${path.join(SOURCE_DIR, 'node_modules')}"`);
