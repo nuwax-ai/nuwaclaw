@@ -651,18 +651,20 @@ else
     echo ""
     echo "==> Setting up signtool"
 
-    SIGNTOOL_PATH=""
+    SIGNTOOL_PATH="${SIGNTOOL_PATH:-}"
     for path in \
+        "$SIGNTOOL_PATH" \
+        "$HOME/signtool" \
         "/c/Program Files (x86)/Windows Kits/10/bin/10.0.26100.0/x64" \
         "/c/Program Files (x86)/Windows Kits/10/bin/x64"
     do
-        if [[ -f "$path/signtool.exe" ]]; then
+        if [[ -n "$path" && -f "$path/signtool.exe" ]]; then
             SIGNTOOL_PATH="$path"
             break
         fi
     done
 
-    if [[ -z "$SIGNTOOL_PATH" ]]; then
+    if [[ -z "$SIGNTOOL_PATH" && -d "/c/Program Files (x86)/Windows Kits/10/bin" ]]; then
         # Try to find any version
         SIGNTOOL_PATH=$(find "/c/Program Files (x86)/Windows Kits/10/bin" -name "signtool.exe" 2>/dev/null | head -1 | xargs dirname)
     fi
