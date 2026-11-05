@@ -12,8 +12,12 @@ import React, {
   useCallback,
   useLayoutEffect,
 } from "react";
-import { Button, Select, Switch, Empty, Spin, Tag } from "antd";
-import { ReloadOutlined, VerticalAlignBottomOutlined } from "@ant-design/icons";
+import { Button, Select, Switch, Empty, Spin, Tag, message } from "antd";
+import {
+  DownloadOutlined,
+  ReloadOutlined,
+  VerticalAlignBottomOutlined,
+} from "@ant-design/icons";
 import { t } from "@renderer/services/core/i18n";
 import { I18N_KEYS } from "@shared/constants";
 import styles from "../../styles/components/ClientPage.module.css";
@@ -43,6 +47,7 @@ export default function LogViewer() {
   const [hasMore, setHasMore] = useState(true);
   const [levelFilter, setLevelFilter] = useState<string>("all");
   const [autoScroll, setAutoScroll] = useState(true);
+  const [exporting, setExporting] = useState(false);
   const listRef = useRef<HTMLDivElement>(null);
   /** prepend 后用于恢复滚动位置 */
   const scrollRestoreRef = useRef<{ height: number; top: number } | null>(null);
@@ -140,6 +145,23 @@ export default function LogViewer() {
     await window.electronAPI?.log?.openDir();
   };
 
+  const handleExport = async () => {
+    setExporting(true);
+    try {
+      const result = await window.electronAPI.log.exportZip();
+      if (result.success) {
+        message.success(t(I18N_KEYS.Pages.LogViewer.EXPORT_SUCCESS));
+      } else if (!result.canceled) {
+        message.error(t(I18N_KEYS.Pages.LogViewer.EXPORT_FAILED));
+      }
+    } catch (error) {
+      console.error("[LogViewer] Failed to export logs:", error);
+      message.error(t(I18N_KEYS.Pages.LogViewer.EXPORT_FAILED));
+    } finally {
+      setExporting(false);
+    }
+  };
+
   const filteredLogs =
     levelFilter === "all" ? logs : logs.filter((l) => l.level === levelFilter);
 
@@ -204,6 +226,14 @@ export default function LogViewer() {
             </Button>
             <Button size="small" onClick={handleOpenDir}>
               {t(I18N_KEYS.Pages.LogViewer.OPEN_DIR)}
+            </Button>
+            <Button
+              size="small"
+              icon={<DownloadOutlined />}
+              onClick={handleExport}
+              loading={exporting}
+            >
+              {t(I18N_KEYS.Pages.LogViewer.EXPORT)}
             </Button>
           </div>
         </div>

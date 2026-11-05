@@ -14,6 +14,7 @@ import log from "electron-log";
 import type { HandlerContext } from "@shared/types/ipc";
 import { LATEST_LOG_BASENAME } from "../bootstrap/logConfig";
 import { readLogTail } from "../services/utils/logTail";
+import { registerLogExportHandler } from "./logExportHandler";
 import {
   checkForUpdates,
   downloadUpdate,
@@ -77,6 +78,7 @@ export function registerAppHandlers(ctx: HandlerContext): void {
   });
 
   // Log handlers
+  registerLogExportHandler(ctx);
   ipcMain.handle("log:getDir", () => {
     return log.transports.file.getFile().path
       ? path.dirname(log.transports.file.getFile().path)

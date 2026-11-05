@@ -510,6 +510,7 @@ contextBridge.exposeInMainWorld("electronAPI", {
   log: {
     getDir: () => ipcRenderer.invoke("log:getDir"),
     openDir: () => ipcRenderer.invoke("log:openDir"),
+    exportZip: () => ipcRenderer.invoke("log:exportZip"),
     list: (count?: number, offset?: number) =>
       ipcRenderer.invoke("log:list", count, offset),
     write: (
