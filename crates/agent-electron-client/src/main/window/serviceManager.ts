@@ -75,7 +75,7 @@ export interface ServiceManagerContext {
   ttyd: ManagedProcess;
 }
 
-export interface ServiceResult {
+export type ServiceResult = {
   success: boolean;
   error?: string;
   message?: string;
@@ -83,7 +83,7 @@ export interface ServiceResult {
     healthy: boolean;
     error?: string;
   };
-}
+};
 
 async function waitForTtydGatewayHealth(
   port: number,

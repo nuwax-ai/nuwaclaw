@@ -19,6 +19,10 @@ vi.mock("./system/appPaths", () => ({
   getAppDataDir: () => "/tmp/nuwaclaw-test",
 }));
 
+vi.mock("./system/dependencies", () => ({
+  getNodeBinPathWithFallback: vi.fn(),
+}));
+
 import {
   inspectDownloadedArtifact,
   isNonRetryableDownloadError,
