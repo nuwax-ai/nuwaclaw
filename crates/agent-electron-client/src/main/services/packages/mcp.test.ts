@@ -7,6 +7,13 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import * as path from "path";
 
+// 使用真实适配器执行配置改写，Vite 转换使文件操作受本测试的 fs mock 约束。
+// 打包资源的原生 require 路径由 mcpHostAdapter.test.ts 单独验证。
+vi.mock("./mcpHostAdapter", async () => {
+  const host = await import("@nuwax-ai/mcp-proxy-ts/host");
+  return { loadHostAdapter: () => host };
+});
+
 // Mock electron
 vi.mock("electron", () => ({
   app: {
@@ -131,6 +138,23 @@ vi.mock("./persistentMcpBridge", () => ({
     isServerHealthy: vi.fn(() => false),
   },
 }));
+
+beforeEach(() => {
+  vi.doMock("../utils/spawnNoWindow", () => ({
+    resolveNpmPackageEntry: vi.fn(
+      () => "/mock/home/.nuwaclaw/node_modules/mcp-proxy-ts/dist/index.js",
+    ),
+  }));
+  vi.doMock("./packageLocator", () => ({
+    getAppPaths: vi.fn(() => ({
+      nodeModules: "/mock/home/.nuwaclaw/node_modules",
+    })),
+    getBundledMcpProxyDir: vi.fn(() => "/mock/resources/mcp-proxy-ts"),
+    isInstalledLocally: vi.fn(() => true),
+  }));
+  vi.resetModules();
+  mockExistsSync.mockReset().mockReturnValue(true);
+});
 
 describe("McpProxyManager", () => {
   beforeEach(() => {

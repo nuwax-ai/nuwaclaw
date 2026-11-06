@@ -23,6 +23,7 @@ vi.mock("electron-log", () => ({
     info: vi.fn(),
     warn: vi.fn(),
     error: vi.fn(),
+    debug: vi.fn(),
   },
 }));
 
@@ -36,6 +37,11 @@ vi.mock("fs", () => ({
 
 describe("dependencies", () => {
   const { app } = require("electron");
+  const originalPlatform = Object.getOwnPropertyDescriptor(
+    process,
+    "platform",
+  )!;
+  const originalArch = Object.getOwnPropertyDescriptor(process, "arch")!;
 
   beforeEach(() => {
     vi.clearAllMocks();
@@ -52,22 +58,22 @@ describe("dependencies", () => {
       writable: true,
       configurable: true,
     });
-    process.env.HOME = "/mock/home";
-    process.env.USER = "testuser";
-    process.env.USERNAME = "testuser";
-    process.env.LANG = "en_US.UTF-8";
-    process.env.PATH =
-      "/usr/bin:/bin:/usr/local/bin:/mock/home/.nvm/versions/node/v20.0.0/bin";
-    process.env.NVM_DIR = undefined;
+    vi.stubEnv("HOME", "/mock/home");
+    vi.stubEnv("USER", "testuser");
+    vi.stubEnv("USERNAME", "testuser");
+    vi.stubEnv("LANG", "en_US.UTF-8");
+    vi.stubEnv(
+      "PATH",
+      "/usr/bin:/bin:/usr/local/bin:/mock/home/.nvm/versions/node/v20.0.0/bin",
+    );
+    vi.stubEnv("NVM_DIR", undefined);
+    vi.stubEnv("USERPROFILE", undefined);
   });
 
   afterEach(() => {
-    delete process.env.HOME;
-    delete process.env.USER;
-    delete process.env.USERNAME;
-    delete process.env.LANG;
-    delete process.env.PATH;
-    delete process.env.NVM_DIR;
+    vi.unstubAllEnvs();
+    Object.defineProperty(process, "platform", originalPlatform);
+    Object.defineProperty(process, "arch", originalArch);
   });
 
   describe("Mirror Config", () => {

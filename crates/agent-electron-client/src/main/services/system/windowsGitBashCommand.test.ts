@@ -100,6 +100,33 @@ describe("windowsGitBashCommand", () => {
     expect(wrapped.args).toEqual(["-c", "./scripts/foo.sh"]);
   });
 
+  it.each([
+    ["C:\\Windows\\System32\\bash.exe", "-c"],
+    ["C:/Program Files/Git/bin/sh.exe", "-lc"],
+    ["bash", "-c"],
+    ["sh.exe", "-lc"],
+  ])(
+    "recognizes Windows shell paths on every test host: %s",
+    (command, flag) => {
+      expect(isGitBashInvocation(command, [flag, "pwd"])).toBe(true);
+      expect(
+        wrapWindowsCommandWithGitBash(command, [flag, "pwd"]).args,
+      ).toEqual([flag, "pwd"]);
+    },
+  );
+
+  it("preserves an existing bundled shell despite path case and separator differences", () => {
+    const wrapped = wrapWindowsCommandWithGitBash(
+      "c:/RESOURCES/git/bin/BASH.exe",
+      ["-c", "pwd"],
+    );
+    expect(wrapped.gitBashWrapped).toBe(false);
+    expect(wrapped.args).toEqual(["-c", "pwd"]);
+    expect(
+      isKnownCommandInterpreter("C:\\Program Files\\nodejs\\node.exe"),
+    ).toBe(true);
+  });
+
   it("warns when Git Bash is missing and command is a shell script", () => {
     mockGetBundledGitBash.mockReturnValue("");
     const wrapped = wrapWindowsCommandWithGitBash("./scripts/foo.sh", []);

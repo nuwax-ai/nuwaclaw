@@ -212,9 +212,23 @@ describe("shellProfile", () => {
 
     it("should prepend bundled paths before $PATH", () => {
       const content = buildBundledDevShellProfileContent(sampleAppEnv);
-      expect(content).toContain("/app/resources/node/bin");
-      expect(content).toContain("/app/resources/ripgrep/bin");
-      expect(content).toMatch(/export PATH="[^"]+:\$PATH"/);
+      const expectedNode = isWindows()
+        ? "/c/app/resources/node/bin"
+        : "C:\\app\\resources\\node\\bin";
+      const expectedRipgrep = isWindows()
+        ? "/c/app/resources/ripgrep/bin"
+        : "C:\\app\\resources\\ripgrep\\bin";
+      const pathExport = content
+        .split("\n")
+        .find((line) => line.startsWith("export PATH="))!;
+      expect(pathExport).toContain(expectedNode);
+      expect(pathExport).toContain(expectedRipgrep);
+      expect(pathExport.indexOf(expectedNode)).toBeLessThan(
+        pathExport.indexOf("$PATH"),
+      );
+      expect(pathExport.indexOf(expectedRipgrep)).toBeLessThan(
+        pathExport.indexOf("$PATH"),
+      );
     });
 
     it("should place PATH sanitize before bundled exports on Windows", () => {
