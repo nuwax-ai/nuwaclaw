@@ -2044,3 +2044,84 @@ describe("getAgentMcpConfig — 内容哈希临时文件", () => {
     expect(hash2).toMatch(/^[0-9a-f]{16}$/);
   });
 });
+
+describe("chrome-devtools-mcp 启动参数", () => {
+  const BASE = [
+    "@nuwax-ai/chrome-devtools-mcp@latest",
+    "--ignore-default-chrome-arg=--enable-automation",
+    "--chrome-arg=--disable-blink-features=AutomationControlled",
+    "--maxTabs=10",
+    "--no-usage-statistics",
+  ];
+
+  const CONTAINER = { isWindows: false, isMacOS: false, isRoot: true };
+  const MAC = { isWindows: false, isMacOS: true, isRoot: false };
+  const WIN = { isWindows: true, isMacOS: false, isRoot: false };
+  const LINUX_DESKTOP = { isWindows: false, isMacOS: false, isRoot: false };
+
+  it("所有平台都带反检测与 maxTabs 参数", async () => {
+    const { buildChromeDevtoolsMcpArgs } = await import("./mcp");
+    for (const ctx of [CONTAINER, MAC, WIN, LINUX_DESKTOP]) {
+      const args = buildChromeDevtoolsMcpArgs(ctx);
+      // 反检测：剔除 --enable-automation + 禁 AutomationControlled
+      expect(args).toContain("--ignore-default-chrome-arg=--enable-automation");
+      expect(args).toContain(
+        "--chrome-arg=--disable-blink-features=AutomationControlled",
+      );
+      // 页面上限：不设则无限制，agent 只开不关会跨会话累积
+      expect(args).toContain("--maxTabs=10");
+    }
+  });
+
+  it("容器场景（root + Linux）追加 --no-sandbox 与 --disable-dev-shm-usage", async () => {
+    const { buildChromeDevtoolsMcpArgs } = await import("./mcp");
+    const args = buildChromeDevtoolsMcpArgs(CONTAINER);
+    expect(args).toEqual([
+      ...BASE,
+      "--chrome-arg=--no-sandbox",
+      "--chrome-arg=--disable-dev-shm-usage",
+    ]);
+  });
+
+  it("Mac 不带容器适配参数（保留 Chromium 沙箱）", async () => {
+    const { buildChromeDevtoolsMcpArgs } = await import("./mcp");
+    expect(buildChromeDevtoolsMcpArgs(MAC)).toEqual(BASE);
+    expect(buildChromeDevtoolsMcpArgs(MAC)).not.toContain(
+      "--chrome-arg=--no-sandbox",
+    );
+  });
+
+  it("Windows 不带容器适配参数", async () => {
+    const { buildChromeDevtoolsMcpArgs } = await import("./mcp");
+    expect(buildChromeDevtoolsMcpArgs(WIN)).toEqual(BASE);
+  });
+
+  it("Linux 非 root（桌面场景）也不带 --no-sandbox", async () => {
+    const { buildChromeDevtoolsMcpArgs } = await import("./mcp");
+    expect(buildChromeDevtoolsMcpArgs(LINUX_DESKTOP)).toEqual(BASE);
+  });
+
+  it("root 但非 Linux（理论场景）不带容器适配参数", async () => {
+    const { buildChromeDevtoolsMcpArgs } = await import("./mcp");
+    expect(
+      buildChromeDevtoolsMcpArgs({
+        isWindows: false,
+        isMacOS: true,
+        isRoot: true,
+      }),
+    ).toEqual(BASE);
+  });
+
+  it("DEFAULT_MCP_PROXY_CONFIG 的 chrome-devtools 用 npx -y 拉起且带 maxTabs", async () => {
+    const { DEFAULT_MCP_PROXY_CONFIG } = await import("./mcp");
+    const entry = DEFAULT_MCP_PROXY_CONFIG.mcpServers["chrome-devtools"];
+    expect(entry).toBeDefined();
+    // npx -y 按需下载：宿主机无需预装 chrome-devtools-mcp
+    expect("command" in entry && entry.command).toBe("npx");
+    if (!("args" in entry)) throw new Error("chrome-devtools 应为 stdio 类型");
+    expect(entry.args[0]).toBe("-y");
+    expect(entry.args).toContain("@nuwax-ai/chrome-devtools-mcp@latest");
+    expect(entry.args).toContain("--maxTabs=10");
+    expect(entry.persistent).toBe(true);
+  });
+});

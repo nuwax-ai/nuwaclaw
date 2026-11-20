@@ -35,7 +35,7 @@ import {
 } from "./packageLocator";
 import { resolveNpmPackageEntry } from "../utils/spawnNoWindow";
 import { APP_DATA_DIR_NAME } from "../constants";
-import { isWindows } from "../system/shellEnv";
+import { isWindows, isMacOS } from "../system/shellEnv";
 import { persistentMcpBridge } from "./persistentMcpBridge";
 import { discoverRemoteMcpTools } from "./discoverRemoteMcpTools";
 import { isGuiMcpManagedServerId } from "@shared/guiMcp";
@@ -485,6 +485,70 @@ export function resolveServersConfig(
 // ========== Types ==========
 
 /**
+ * chrome-devtools-mcp 启动参数所需的平台/权限上下文。
+ * 抽成可注入对象是为了让 `buildChromeDevtoolsMcpArgs` 成为纯函数、可单测
+ * （见 mcp.test.ts 中"chrome-devtools-mcp 启动参数"用例组）。
+ */
+export interface ChromeDevtoolsArgContext {
+  isWindows: boolean;
+  isMacOS: boolean;
+  /** 是否以 root 运行（Linux 下 Chromium 以 root 运行会禁用沙箱） */
+  isRoot: boolean;
+}
+
+/** 读取当前进程真实的平台/权限上下文 */
+export function getChromeDevtoolsArgContext(): ChromeDevtoolsArgContext {
+  return {
+    isWindows: isWindows(),
+    isMacOS: isMacOS(),
+    isRoot:
+      typeof process.getuid === "function" ? process.getuid() === 0 : false,
+  };
+}
+
+/**
+ * 构造自研 fork `@nuwax-ai/chrome-devtools-mcp` 的启动参数。
+ *
+ * 三组参数，各自解决一个已发生过的问题：
+ *
+ * 1. **反检测**（fork 的立身之本）：官方包 puppeteer 默认带 `--enable-automation`，
+ *    页面 `navigator.webdriver=true`，登 Google 等账号体系直接触发风控。
+ * 2. **`--maxTabs=10`**：chrome-devtools-mcp 默认**无页数上限**，agent 只开不关时
+ *    页面会跨会话无限累积——实测 9.8 天攒到 33 个页面 / 6.7GB，而 renderer 随页面
+ *    生灭。A/B 实测：24 次 new_page 后 25 页/4.3GB vs 3 页/1.0GB。
+ * 3. **容器适配**（仅 root 下的 Linux，即 agent-client 容器场景）：
+ *    Chromium 以 root 运行必须 `--no-sandbox`；容器 `/dev/shm` 偏小需
+ *    `--disable-dev-shm-usage`，否则渲染进程会因共享内存不足而崩溃。
+ *
+ * 平台分流的原因：`--no-sandbox` 会关掉 Chromium 沙箱，Mac/Windows 宿主机上
+ * 完全没有必要，带了只会削弱安全性。
+ */
+export function buildChromeDevtoolsMcpArgs(
+  ctx: ChromeDevtoolsArgContext = getChromeDevtoolsArgContext(),
+): string[] {
+  const args = [
+    "@nuwax-ai/chrome-devtools-mcp@latest",
+    // 反检测：剔除 puppeteer 默认的 --enable-automation，双保险禁掉 AutomationControlled
+    "--ignore-default-chrome-arg=--enable-automation",
+    "--chrome-arg=--disable-blink-features=AutomationControlled",
+    // 页面上限：不设则无限制
+    "--maxTabs=10",
+    // 关遥测
+    "--no-usage-statistics",
+  ];
+
+  // root 下的 Linux = 容器场景，需要容器适配参数
+  if (ctx.isRoot && !ctx.isWindows && !ctx.isMacOS) {
+    args.push(
+      "--chrome-arg=--no-sandbox",
+      "--chrome-arg=--disable-dev-shm-usage",
+    );
+  }
+
+  return args;
+}
+
+/**
  * 默认 mcpServers 配置（系统级内置服务，始终保留）。
  * - chrome-devtools：persistent，由 PersistentMcpBridge 长连接托管
  *
@@ -495,14 +559,7 @@ export const DEFAULT_MCP_PROXY_CONFIG: McpServersConfig = {
   mcpServers: {
     "chrome-devtools": {
       command: "npx",
-      args: [
-        "-y",
-        // 自研 fork（官方包 puppeteer 默认 --enable-automation → navigator.webdriver=true，
-        // Google 登录触发风控）；两个反检测参数与容器内 /etc/mcp/mcp-proxy-config.json 对齐
-        "@nuwax-ai/chrome-devtools-mcp@latest",
-        "--ignore-default-chrome-arg=--enable-automation",
-        "--chrome-arg=--disable-blink-features=AutomationControlled",
-      ],
+      args: ["-y", ...buildChromeDevtoolsMcpArgs()],
       persistent: true,
     },
   },
