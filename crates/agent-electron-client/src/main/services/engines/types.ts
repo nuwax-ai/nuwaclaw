@@ -5,7 +5,8 @@
  * unifiedAgent.ts 会 re-export 本文件的全部类型，外部调用方 import 路径不变。
  */
 
-export type AgentEngineType = "nuwaxcode" | "claude-code" | "codex-cli";
+import type { AgentEngineType } from "@shared/types/electron";
+export type { AgentEngineType } from "@shared/types/electron";
 
 import type { IsolatedHomeScope } from "./acp/isolatedHomePaths";
 

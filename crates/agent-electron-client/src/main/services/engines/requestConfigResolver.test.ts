@@ -1,5 +1,8 @@
 import { describe, it, expect, vi } from "vitest";
-import { buildEffectiveConfig } from "./requestConfigResolver";
+import {
+  buildEffectiveConfig,
+  resolveRequiredAgentEngine,
+} from "./requestConfigResolver";
 import type { AgentConfig } from "./types";
 import type { ComputerChatRequest } from "@shared/types/computerTypes";
 
@@ -206,5 +209,36 @@ describe("buildEffectiveConfig — OPENCODE_PERMISSION", () => {
 
     expect(cfg.customEngineCommand).toBe("node");
     expect(cfg.env?.OPENCODE_PERMISSION).toBeUndefined();
+  });
+});
+
+describe("buildEffectiveConfig — Harness gateway", () => {
+  it("keeps a locally selected Harness for Anthropic requests without an engine command", () => {
+    expect(
+      resolveRequiredAgentEngine({
+        apiProtocol: "anthropic",
+        fallbackEngine: "nuwax-harness",
+      }),
+    ).toBe("nuwax-harness");
+  });
+
+  it("does not reuse the default key after the request changes the gateway", () => {
+    const cfg = buildEffectiveConfig({
+      base: {
+        ...base,
+        baseUrl: "https://default.example",
+        apiKey: "default-key",
+      },
+      requiredEngine: "nuwax-harness",
+      mp: { provider: "openai", base_url: "https://request.example" },
+      model: "glm-5",
+      resolvedEnv: undefined,
+      freshMcpServers: undefined,
+      request: makeRequest({ user_id: undefined, project_id: undefined }),
+      engineKey: "harness",
+    });
+
+    expect(cfg.baseUrl).toBe("https://request.example");
+    expect(cfg.apiKey).toBeUndefined();
   });
 });

@@ -100,10 +100,12 @@ describe("isSessionIdCompatibleWithEngine", () => {
     expect(
       isSessionIdCompatibleWithEngine(
         "41c20e6b-f7df-4a9f-beea-cd375bc320eb",
-        "codex-cli",
+        "nuwax-harness",
       ),
     ).toBe(true);
-    expect(isSessionIdCompatibleWithEngine("ses_abc", "codex-cli")).toBe(true);
+    expect(isSessionIdCompatibleWithEngine("ses_abc", "nuwax-harness")).toBe(
+      true,
+    );
   });
 });
 

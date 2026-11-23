@@ -25,8 +25,24 @@ vi.mock("./system/dependencies", () => ({
 
 import {
   inspectDownloadedArtifact,
+  installFromUrl,
   isNonRetryableDownloadError,
 } from "./agentInstaller";
+
+describe("installFromUrl", () => {
+  it("rejects a retired Codex executable before any download", async () => {
+    await expect(
+      installFromUrl({
+        agent: {
+          agent_id: "legacy-package",
+          command: "nuwax-codex-acp",
+          version: "1.0.0",
+        },
+        platforms: {},
+      }),
+    ).rejects.toThrow("Use nuwax-harness");
+  });
+});
 
 describe("inspectDownloadedArtifact", () => {
   let tmpDir: string;

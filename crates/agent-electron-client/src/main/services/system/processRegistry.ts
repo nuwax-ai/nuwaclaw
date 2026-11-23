@@ -1,3 +1,4 @@
+import type { AgentEngineType } from "@shared/types/electron";
 /**
  * ProcessRegistry — 进程注册中心 + 孤儿进程清理
  *
@@ -11,7 +12,7 @@ import { killProcessTreeGraceful } from "../utils/processTree";
 export interface RegisteredProcess {
   pid: number;
   engineId: string;
-  engineType: "claude-code" | "nuwaxcode" | "codex" | "codex-cli";
+  engineType: AgentEngineType;
   purpose: "engine";
   registeredAt: number;
 }

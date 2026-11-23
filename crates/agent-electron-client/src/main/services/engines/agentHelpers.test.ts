@@ -44,13 +44,15 @@ describe("agentHelpers", () => {
       expect(mapAgentCommand("claude-code-acp-ts")).toBe("claude-code");
     });
 
-    it('should map "nuwax-codex-acp" to codex-cli engine', () => {
-      expect(mapAgentCommand("nuwax-codex-acp")).toBe("codex-cli");
-    });
+    it.each(["nuwax-harness", "nuwax-harness-acp-ts"])(
+      'maps "%s" to Nuwax Harness',
+      (command) => expect(mapAgentCommand(command)).toBe("nuwax-harness"),
+    );
 
-    it('should map "nuwax-codex-acp-ts" to codex-cli engine', () => {
-      expect(mapAgentCommand("nuwax-codex-acp-ts")).toBe("codex-cli");
-    });
+    it.each(["codex", "codex-cli", "nuwax-codex-acp", "nuwax-codex-acp-ts"])(
+      'does not recognize "%s" as a built-in engine',
+      (command) => expect(mapAgentCommand(command)).toBeNull(),
+    );
 
     it("should return null for unknown commands", () => {
       expect(mapAgentCommand("unknown-engine")).toBeNull();
@@ -190,7 +192,7 @@ describe("agentHelpers", () => {
 
     it("should resolve default model placeholder from model_provider.default_model", () => {
       const env = {
-        CODEX_MODEL: "{MODEL_PROVIDER_DEFAULT_MODEL}",
+        NUWAX_MODEL: "{MODEL_PROVIDER_DEFAULT_MODEL}",
       };
       const modelProvider: ModelProviderConfig = {
         api_key: "sk-key",
@@ -202,7 +204,7 @@ describe("agentHelpers", () => {
       const result = resolveAgentEnv(env, modelProvider);
 
       expect(result).toEqual({
-        CODEX_MODEL: "glm-5",
+        NUWAX_MODEL: "glm-5",
       });
     });
 

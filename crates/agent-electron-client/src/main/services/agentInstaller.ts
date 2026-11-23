@@ -18,6 +18,7 @@ import { promisify } from "util";
 import AdmZip from "adm-zip";
 import log from "electron-log";
 import { getAppDataDir } from "./system/appPaths";
+import { isRetiredAcpEngineCommand } from "./engines/agentHelpers";
 import { getNodeBinPathWithFallback } from "./system/dependencies";
 import type {
   InstallFromUrlRequest,
@@ -57,9 +58,8 @@ const BUILTIN_AGENTS = new Set([
   "claude-code-acp",
   "claude-code",
   "nuwaxcode",
-  "codex-cli",
-  "codex-acp",
-  "nuwax-codex-acp",
+  "nuwax-harness",
+  "nuwax-harness-acp-ts",
 ]);
 
 export function isBuiltinAgent(agentId: string): boolean {
@@ -816,7 +816,6 @@ export async function installFromUrl(
   request: InstallFromUrlRequest,
 ): Promise<InstallAgentResponse> {
   const t0 = Date.now();
-  ensureDirectories();
 
   const { agent, platforms, force } = request;
   const { agent_id, command, args = [], version } = agent;
@@ -828,6 +827,9 @@ export async function installFromUrl(
   if (!command?.trim()) {
     throw new Error("command is required");
   }
+  if (isRetiredAcpEngineCommand(command)) {
+    throw new Error("This engine has been removed. Use nuwax-harness.");
+  }
   if (!version?.trim()) {
     throw new Error("version is required");
   }
@@ -835,6 +837,7 @@ export async function installFromUrl(
     throw new Error("platforms cannot be empty");
   }
 
+  ensureDirectories();
   const normalizedVersion = normalizeVersion(version);
   const registry = readRegistry();
 

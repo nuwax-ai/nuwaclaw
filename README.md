@@ -32,7 +32,7 @@ NuwaClaw 采用 [ACP (Agent Client Protocol)](https://agentclientprotocol.com/) 
 | 引擎 | 说明 |
 |------|------|
 | **Claude Code** | Anthropic 官方 CLI Agent，推荐使用 ⭐ |
-| **Codex CLI** | OpenAI 的代码 Agent |
+| **Nuwax Harness** | 通过 ACP 接入，支持 OpenAI Chat、Responses 和 Anthropic |
 | **Gemini CLI** | Google 的 AI Agent |
 | **GitHub Copilot** | GitHub 的 AI 编程助手 |
 | **Cline** | 开源自主编程 Agent |

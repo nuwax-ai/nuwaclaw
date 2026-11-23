@@ -313,8 +313,8 @@ export class AcpEngine extends EventEmitter {
         err,
       );
       // Agent 未实现 model sync RPC（Method not found）或拒绝其参数（Invalid params，
-      // 如 codex 0.17.4 不再接受 configId=model 的 set_config_option）时继续 prompt
-      // （模型由 spawn env CODEX_MODEL 注入）；勿虚标 acpCurrentModelId。
+      // 如 部分 Harness 版本不接受 configId=model 的 set_config_option）时继续 prompt
+      // （模型由 spawn env NUWAX_MODEL 注入）；勿虚标 acpCurrentModelId。
       const isInvalidParams =
         err &&
         typeof err === "object" &&
@@ -543,44 +543,10 @@ export class AcpEngine extends EventEmitter {
     );
   }
 
-  private resolveCodexAuthMethod(
-    config: AgentConfig,
-    spawnEnv: Record<string, string>,
-  ): "api-key" | null {
-    if (this.engineName !== "codex-cli") return null;
-
-    // adapter (@nuwax-ai/nuwax-codex-acp-ts) 的 authenticate() 第一步就无条件清空
-    // env 自动装配的自定义网关配置（this.gatewayConfig = null），而网关模式本就
-    // 无需登录（authRequired() 在 gatewayConfig 非空时返回 false）。配了自定义
-    // 网关时必须跳过 authenticate，否则 thread/start 不带 model_providers，
-    // codex 回退内置 openai provider（api.openai.com 403）。
-    // 网关判定对齐 acpClient：CODEX_BASE_URL = OPENAI_BASE_URL || config.baseUrl。
-    const hasCustomGateway = !!(
-      spawnEnv.CODEX_BASE_URL?.trim() ||
-      spawnEnv.OPENAI_BASE_URL?.trim() ||
-      config.baseUrl?.trim()
-    );
-    if (hasCustomGateway) return null;
-
-    // 无网关直连 OpenAI 时：authenticate 仅接受 api-key / chat-gpt / gateway
-    // （zod 枚举，其余 -32600 Invalid request 拒绝）；api-key 分支无 _meta 时
-    // 回退读 CODEX_API_KEY / OPENAI_API_KEY 环境变量。
-    const hasApiKey = !!(
-      config.apiKey?.trim() ||
-      spawnEnv.CODEX_API_KEY?.trim() ||
-      spawnEnv.OPENAI_API_KEY?.trim()
-    );
-    return hasApiKey ? "api-key" : null;
-  }
-
-  private async authenticateCodexWithEnv(
+  private async authenticateHarnessWithEnv(
     connection: AcpClientSideConnection,
-    config: AgentConfig,
-    spawnEnv: Record<string, string>,
   ): Promise<void> {
-    const methodId = this.resolveCodexAuthMethod(config, spawnEnv);
-    if (!methodId) return;
-
+    const methodId = "api-key";
     if (typeof connection.authenticate !== "function") {
       log.warn(
         `${this.logTag} ACP connection does not expose authenticate(); env API key may not be activated`,
@@ -588,7 +554,7 @@ export class AcpEngine extends EventEmitter {
       return;
     }
 
-    // 鉴权激活失败不阻断 init：模型 provider 已随 spawn env（CODEX_*）下发，
+    // 鉴权激活失败不阻断 init：模型 provider 已随 spawn env 下发，
     // accountLogin 失败时让引擎继续起，真实错误留到会话层暴露。
     try {
       await connection.authenticate({ methodId });
@@ -633,6 +599,7 @@ export class AcpEngine extends EventEmitter {
         binPath,
         binArgs: resolvedBinArgs,
         isNative,
+        harnessEnginePath,
       } = resolveAcpBinary(resolveEngine);
       // For custom agents, append agent_server.args as spawn arguments
       const binArgs = config.customEngineArgs
@@ -758,11 +725,13 @@ export class AcpEngine extends EventEmitter {
         isolatedHome,
         cleanup,
         sandboxCleanup: acpSandboxCleanup,
+        harnessApiKeyAuth,
       } = await createAcpConnection(
         {
           binPath,
           binArgs,
           isNative,
+          harnessEnginePath,
           workspaceDir: config.workspaceDir,
           apiKey: config.apiKey,
           baseUrl: config.baseUrl,
@@ -826,7 +795,8 @@ export class AcpEngine extends EventEmitter {
           terminal: true, // Enable ACP Terminal API (terminal/create, etc.)
         },
       });
-      await this.authenticateCodexWithEnv(connection, config, spawnEnv);
+      // authenticate 会清空适配器从环境注入的网关配置，仅直连时调用。
+      if (harnessApiKeyAuth) await this.authenticateHarnessWithEnv(connection);
 
       handshakeTimer.end("acp.init.handshake", { engine: this.engineName });
 

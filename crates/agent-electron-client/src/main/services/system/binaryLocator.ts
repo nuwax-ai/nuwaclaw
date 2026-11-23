@@ -1,7 +1,7 @@
 /**
  * Binary Locator — 各打包二进制文件的路径解析
  *
- * 提供 uv / ripgrep / node / lanproxy / ttyd / nuwaxcode / codex-acp
+ * 提供 uv / ripgrep / node / lanproxy / ttyd / nuwaxcode / Nuwax Harness
  * 等预置二进制的路径查找函数，以及 Electron 内置 Node.js 相关辅助。
  */
 
@@ -9,8 +9,17 @@ import * as path from "path";
 import * as fs from "fs";
 import * as os from "os";
 import { execSync } from "child_process";
+import { createRequire } from "node:module";
+import { HARNESS_ACP_PACKAGE, resolveHarnessAcp } from "@nuwax-ai/agent-kit";
+import { app } from "electron";
+import { dependencies as bundledDependencies } from "../../../../package.json";
 import log from "electron-log";
-import { getAppDataDir, getAppBinDir, getResourcesPath } from "./appPaths";
+import {
+  getAppDataDir,
+  getAppBinDir,
+  getAppNodeModules,
+  getResourcesPath,
+} from "./appPaths";
 import { isWindows } from "./shellEnv";
 
 // ==================== Electron 内置 Node.js 路径 ====================
@@ -371,38 +380,6 @@ export function getNuwaxcodeBundledBinPath(): string | null {
   return fs.existsSync(bundledPath) ? bundledPath : null;
 }
 
-// ==================== codex-acp ====================
-
-export function getCodexAcpBundledBinPath(): string | null {
-  const platformMap: Record<string, string> = {
-    darwin: "darwin",
-    linux: "linux",
-    win32: "windows",
-  };
-  const archMap: Record<string, string> = {
-    x64: "x64",
-    arm64: "arm64",
-    arm: "arm",
-  };
-  const platform = platformMap[os.platform()] || os.platform();
-  const arch = archMap[os.arch()] || os.arch();
-  const binary =
-    platform === "windows" ? "nuwax-codex-acp.exe" : "nuwax-codex-acp";
-  const bundledPath = path.join(
-    getResourcesPath(),
-    "codex-acp",
-    `${platform}-${arch}`,
-    "bin",
-    binary,
-  );
-  return fs.existsSync(bundledPath) ? bundledPath : null;
-}
-
-export function getCodexAcpBundledDir(): string | null {
-  const bundledDir = path.join(getResourcesPath(), "codex-acp");
-  return fs.existsSync(path.join(bundledDir, ".version")) ? bundledDir : null;
-}
-
 // ==================== windows-mcp ====================
 
 export function getWindowsMcpBinPath(): string | null {
@@ -432,14 +409,149 @@ export function getClaudeCodeAcpBundledDir(): string | null {
     : null;
 }
 
-/**
- * @nuwax-ai/nuwax-codex-acp-ts（TS adapter）bundled dir。codex 引擎经 adapter
- * （dist/index.js）spawn，adapter 内部 require.resolve("nuwax-codex/package.json")
- * 定位 node_modules/.cache/nuwax-codex/<ver>/ 下的原生二进制。
- */
-export function getCodexAcpTsBundledDir(): string | null {
-  const bundledDir = path.join(getResourcesPath(), "nuwax-codex-acp-ts");
-  return fs.existsSync(path.join(bundledDir, "package.json"))
-    ? bundledDir
-    : null;
+// ==================== Nuwax Harness ====================
+
+export const HARNESS_ACP_VERSION = bundledDependencies[HARNESS_ACP_PACKAGE];
+const HARNESS_ENGINE_PACKAGE = "@nuwax-ai/nuwax-harness";
+const HARNESS_RESOURCE_DIR = "nuwax-harness-acp-ts";
+
+interface HarnessRuntime {
+  entryPath: string;
+  enginePath: string;
+  adapterVersion: string;
+}
+
+function readHarnessRuntime(
+  entryPath: string,
+  getEnginePath: (
+    adapterDir: string,
+    metadata: Record<string, unknown>,
+  ) => string,
+): HarnessRuntime | null {
+  try {
+    const resolvedEntry = fs.realpathSync(entryPath);
+    const adapterDir = path.dirname(path.dirname(resolvedEntry));
+    const metadata = JSON.parse(
+      fs.readFileSync(path.join(adapterDir, "package.json"), "utf-8"),
+    ) as Record<string, unknown>;
+    if (
+      metadata.name !== HARNESS_ACP_PACKAGE ||
+      typeof metadata.version !== "string"
+    ) {
+      return null;
+    }
+    return {
+      entryPath: resolvedEntry,
+      enginePath: getEnginePath(adapterDir, metadata),
+      adapterVersion: metadata.version,
+    };
+  } catch {
+    return null;
+  }
+}
+
+export function resolveBundledHarnessRuntime(): HarnessRuntime | null {
+  const adapterDir = path.join(getResourcesPath(), HARNESS_RESOURCE_DIR);
+  return readHarnessRuntime(
+    path.join(adapterDir, "dist", "index.js"),
+    (dir, metadata) => {
+      const version = metadata.harnessEngineVersion;
+      if (
+        typeof version !== "string" ||
+        !/^\d+\.\d+\.\d+(?:[-+][\w.+-]+)?$/.test(version)
+      ) {
+        throw new Error("Invalid bundled Harness engine version");
+      }
+      const binary = isWindows() ? "nuwax-harness.exe" : "nuwax-harness";
+      const enginePath = path.join(
+        dir,
+        "vendor",
+        "nuwax-harness",
+        version,
+        binary,
+      );
+      fs.accessSync(enginePath, fs.constants.R_OK | fs.constants.X_OK);
+      return enginePath;
+    },
+  );
+}
+
+function getInstalledHarnessEntry(): string {
+  return path.join(
+    getAppNodeModules(),
+    HARNESS_ACP_PACKAGE,
+    "dist",
+    "index.js",
+  );
+}
+
+function loadHarnessEngine(entryPath: string) {
+  // Resolve from the adapter's real path, including pnpm's version-specific store.
+  const adapterRequire = createRequire(fs.realpathSync(entryPath));
+  const manifest = adapterRequire.resolve(
+    `${HARNESS_ENGINE_PACKAGE}/package.json`,
+  );
+  const { version } = adapterRequire(manifest) as { version: string };
+  const runtimePath = path.join(path.dirname(manifest), "bin", "runtime.js");
+  const runtime = adapterRequire(runtimePath) as {
+    getTargetTriple(): string;
+    requiredBundleFiles(): string[];
+    ensureBinary(): Promise<string>;
+  };
+  return { version, runtime };
+}
+
+function resolveInstalledHarnessRuntime(
+  entryPath: string,
+): HarnessRuntime | null {
+  return readHarnessRuntime(entryPath, () => {
+    const { version, runtime } = loadHarnessEngine(entryPath);
+    const cacheDir = path.join(
+      os.homedir(),
+      ".nuwax-harness-cache",
+      version,
+      runtime.getTargetTriple(),
+    );
+    for (const file of runtime.requiredBundleFiles()) {
+      fs.accessSync(
+        path.join(cacheDir, file),
+        fs.constants.R_OK | fs.constants.X_OK,
+      );
+    }
+    return path.join(
+      cacheDir,
+      isWindows() ? "nuwax-harness.exe" : "nuwax-harness",
+    );
+  });
+}
+
+export async function ensureInstalledHarnessRuntime(): Promise<HarnessRuntime> {
+  const entryPath = getInstalledHarnessEntry();
+  const installed = resolveInstalledHarnessRuntime(entryPath);
+  if (installed) return installed;
+
+  // postinstall may succeed even after a failed download; retry during repair.
+  const { runtime } = loadHarnessEngine(entryPath);
+  await runtime.ensureBinary();
+  const repaired = resolveInstalledHarnessRuntime(entryPath);
+  if (!repaired)
+    throw new Error("Installed Nuwax Harness runtime is incomplete");
+  return repaired;
+}
+
+export function resolveHarnessRuntime(): HarnessRuntime | null {
+  const bundled = resolveBundledHarnessRuntime();
+  if (bundled) return bundled;
+
+  const installed = resolveInstalledHarnessRuntime(getInstalledHarnessEntry());
+  if (installed || app.isPackaged) return installed;
+
+  try {
+    const {
+      args: [entryPath],
+    } = resolveHarnessAcp();
+    return resolveInstalledHarnessRuntime(entryPath);
+  } catch {
+    return null;
+  }
 }

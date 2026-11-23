@@ -6,6 +6,7 @@ import * as path from "path";
 import * as fs from "fs";
 import { spawn } from "child_process";
 import log from "electron-log";
+import { HARNESS_ACP_PACKAGE } from "@nuwax-ai/agent-kit";
 import { I18N_KEYS } from "@shared/constants";
 import { isWindows } from "./shellEnv";
 import { getAppNodeModules, getResourcesPath } from "./appPaths";
@@ -13,7 +14,8 @@ import {
   getNodeBinPath,
   getUvBinPath,
   getNuwaxcodeBundledBinPath,
-  getCodexAcpBundledDir,
+  HARNESS_ACP_VERSION,
+  resolveHarnessRuntime,
   getNuwaxFileServerBundledDir,
   getClaudeCodeAcpBundledDir,
   getRipgrepBinPath,
@@ -122,13 +124,13 @@ export function getSetupRequiredDependencies(): LocalDependencyConfig[] {
       binName: "rg",
     },
     {
-      name: "nuwax-codex-acp-ts",
-      displayName: t(I18N_KEYS.Pages.Dependencies.DEP_CODEX_ACP),
+      name: HARNESS_ACP_PACKAGE,
+      displayName: t(I18N_KEYS.Pages.Dependencies.DEP_HARNESS),
       type: "bundled",
-      description: t(I18N_KEYS.Pages.Dependencies.DESC_CODEX_ACP),
+      description: t(I18N_KEYS.Pages.Dependencies.DESC_HARNESS),
       required: true,
-      binName: "nuwax-codex-acp-ts",
-      installVersion: "1.2.4",
+      binName: "nuwax-harness-acp-ts",
+      installVersion: HARNESS_ACP_VERSION,
     },
   ];
 }
@@ -406,31 +408,15 @@ export async function checkClaudeCodeAcpBundled(): Promise<{
   }
 }
 
-import { getCodexAcpTsBundledDir } from "./binaryLocator";
-
-// codex 经 @nuwax-ai/nuwax-codex-acp-ts TS adapter；检测 resources 里的 adapter 包
-// （函数名保留 checkCodexAcpBundled 以兼容现有 IPC handler + UI 调用）
-export async function checkCodexAcpBundled(): Promise<{
+/** 只有 ACP 适配器和配套引擎均可用时才报告成功。 */
+export async function checkHarnessAvailable(): Promise<{
   available: boolean;
   version?: string;
 }> {
-  const bundledDir = getCodexAcpTsBundledDir();
-  if (!bundledDir) {
-    log.info("[checkCodexAcpBundled] TS adapter not found");
-    return { available: false };
-  }
-  try {
-    const pkg = JSON.parse(
-      fs.readFileSync(path.join(bundledDir, "package.json"), "utf-8"),
-    );
-    log.info(
-      `[checkCodexAcpBundled] TS adapter available: ${bundledDir}, version=${pkg.version ?? "unknown"}`,
-    );
-    return { available: true, version: pkg.version };
-  } catch (e) {
-    log.warn("[checkCodexAcpBundled] Failed to read adapter package.json:", e);
-    return { available: true };
-  }
+  const runtime = resolveHarnessRuntime();
+  return runtime
+    ? { available: true, version: runtime.adapterVersion }
+    : { available: false };
 }
 
 // ==================== detectNpmPackage / detectShellCommand ====================

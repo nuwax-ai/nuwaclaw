@@ -16,6 +16,7 @@ import * as fs from "fs";
 import { execFileSync } from "child_process";
 import { app } from "electron";
 import log from "electron-log";
+import { HARNESS_ACP_PACKAGE } from "@nuwax-ai/agent-kit";
 import {
   getSetupRequiredDependencies,
   detectNpmPackage,
@@ -35,7 +36,6 @@ import {
 } from "./appPaths";
 import {
   getNuwaxcodeBundledBinPath,
-  getCodexAcpBundledDir,
   getNuwaxFileServerBundledDir,
   getClaudeCodeAcpBundledDir,
   getRipgrepBinPath,
@@ -43,6 +43,8 @@ import {
   getLanproxyBinPath,
   getBundledGitBashPath,
   resolveGitBashExecutable,
+  resolveBundledHarnessRuntime,
+  resolveHarnessRuntime,
 } from "./binaryLocator";
 import {
   getAppEnv,
@@ -70,7 +72,7 @@ export {
   checkNuwaxcodeBundled,
   checkNuwaxFileServerBundled,
   checkClaudeCodeAcpBundled,
-  checkCodexAcpBundled,
+  checkHarnessAvailable,
   detectNpmPackage,
   detectShellCommand,
 } from "./dependencyChecker";
@@ -95,8 +97,6 @@ export {
   getLanproxyBinPath,
   getTtydBinPath,
   getNuwaxcodeBundledBinPath,
-  getCodexAcpBundledBinPath,
-  getCodexAcpBundledDir,
   getWindowsMcpBinPath,
   getBundledGitBashPath,
   resolveGitBashExecutable,
@@ -240,23 +240,12 @@ export async function checkAllDependencies(options?: {
           }
           break;
         }
-        case "nuwax-codex-acp-ts": {
-          // codex 经 @nuwax-ai/nuwax-codex-acp-ts TS adapter；检测 resources 里的 adapter 包
-          const bundledDir = getCodexAcpTsBundledDir();
-          if (bundledDir) {
-            try {
-              const pkg = JSON.parse(
-                fs.readFileSync(path.join(bundledDir, "package.json"), "utf-8"),
-              );
-              item.status = "bundled";
-              item.version = pkg.version;
-              item.binPath = bundledDir;
-            } catch {
-              item.status = "bundled";
-            }
-          } else {
-            item.status = "missing";
-          }
+        case HARNESS_ACP_PACKAGE: {
+          const bundled = resolveBundledHarnessRuntime();
+          const runtime = bundled ?? resolveHarnessRuntime();
+          item.status = bundled ? "bundled" : runtime ? "installed" : "missing";
+          item.version = runtime?.adapterVersion;
+          item.binPath = runtime?.entryPath;
           break;
         }
         case "ripgrep": {
@@ -340,7 +329,7 @@ export async function installMissingDependencies(): Promise<{
       log.info(`[Dependencies] Installing missing: ${dep.name}`);
     }
 
-    if (dep.type === "npm-local") {
+    if (dep.type === "npm-local" || dep.name === HARNESS_ACP_PACKAGE) {
       const result = await installNpmPackage(
         dep.name,
         dep.installVersion ? { version: dep.installVersion } : undefined,
@@ -450,9 +439,4 @@ export default {
   MIRROR_PRESETS,
   getNuwaxFileServerBundledDir,
   getClaudeCodeAcpBundledDir,
-  getCodexAcpBundledDir,
 };
-
-// codex TS adapter bundled dir（binaryLocator 新增；import 供本地 case 用 + re-export 给 acpClient）
-import { getCodexAcpTsBundledDir } from "./binaryLocator";
-export { getCodexAcpTsBundledDir };

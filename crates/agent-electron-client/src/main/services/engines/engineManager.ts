@@ -12,10 +12,11 @@ import * as os from "os";
 import * as fs from "fs";
 import { spawn } from "child_process";
 import log from "electron-log";
+import { HARNESS_ACP_PACKAGE } from "@nuwax-ai/agent-kit";
 import {
   getAppEnv,
   applySharedPackageManagerCacheEnv,
-  getCodexAcpBundledDir,
+  installNpmPackage,
   getNuwaxcodeBundledBinPath,
 } from "../system/dependencies";
 import { mcpProxyManager } from "../packages/mcp";
@@ -23,10 +24,16 @@ import { spawnJsFile, resolveNpmPackageEntry } from "../utils/spawnNoWindow";
 import { APP_DATA_DIR_NAME } from "../constants";
 import { APP_NAME_IDENTIFIER } from "@shared/constants";
 import { isWindows } from "../system/shellEnv";
+import {
+  HARNESS_ACP_VERSION,
+  resolveHarnessRuntime,
+} from "../system/binaryLocator";
+import { applyHarnessModelEnv, applyHarnessRuntimeEnv } from "./acp/harnessEnv";
+import type { AgentEngineType } from "./types";
 
 // ==================== Types ====================
 
-export type AgentEngine = "claude-code" | "nuwaxcode" | "codex-cli";
+export type AgentEngine = AgentEngineType;
 
 export interface EngineConfig {
   engine: AgentEngine;
@@ -39,6 +46,7 @@ export interface EngineConfig {
   apiKey?: string;
   baseUrl?: string;
   model?: string;
+  apiProtocol?: string;
   // 工作目录
   workspaceDir?: string;
 }
@@ -111,15 +119,8 @@ export function isEngineInstalledLocally(engine: AgentEngine): boolean {
     }
   }
 
-  if (engine === "codex-cli") {
-    const binPaths = [
-      path.join(getAppDataDir(), "node_modules", ".bin", "nuwax-codex-acp"),
-    ];
-    for (const p of binPaths) {
-      if (fs.existsSync(p)) return true;
-      if (fs.existsSync(p + ".exe")) return true;
-      if (fs.existsSync(p + ".cmd")) return true;
-    }
+  if (engine === "nuwax-harness") {
+    return resolveHarnessRuntime() !== null;
   }
 
   return false;
@@ -136,7 +137,7 @@ export async function isEngineInstalledGlobally(
       ? "claude-code"
       : engine === "nuwaxcode"
         ? "nuwaxcode"
-        : "nuwax-codex-acp";
+        : "nuwax-harness-acp-ts";
 
   return new Promise((resolve) => {
     const checkCmd = isWindows() ? "where" : "which";
@@ -159,21 +160,8 @@ export async function isEngineInstalledGlobally(
 export async function getEngineVersion(
   engine: AgentEngine,
 ): Promise<string | null> {
-  if (engine === "codex-cli") {
-    const bundledDir = getCodexAcpBundledDir();
-    if (bundledDir) {
-      try {
-        const version = fs
-          .readFileSync(path.join(bundledDir, ".version"), "utf-8")
-          .trim();
-        if (version) return version;
-      } catch (error) {
-        log.warn(
-          "[Engine] Failed to read bundled nuwax-codex-acp version",
-          error,
-        );
-      }
-    }
+  if (engine === "nuwax-harness") {
+    return resolveHarnessRuntime()?.adapterVersion ?? null;
   }
 
   // 先尝试本地
@@ -186,7 +174,7 @@ export async function getEngineVersion(
         ? "claude-code"
         : engine === "nuwaxcode"
           ? "nuwaxcode"
-          : "nuwax-codex-acp");
+          : "nuwax-harness-acp-ts");
     const args = ["--version"];
 
     const proc = spawn(cmd, args, {
@@ -213,13 +201,7 @@ export async function getEngineVersion(
  */
 function getEnginePackageDir(engine: AgentEngine): string | null {
   const nodeModules = path.join(getAppDataDir(), "node_modules");
-  const packageName =
-    engine === "claude-code"
-      ? "claude-code"
-      : engine === "nuwaxcode"
-        ? "nuwaxcode"
-        : "nuwax-codex-acp";
-  const packageDir = path.join(nodeModules, packageName);
+  const packageDir = path.join(nodeModules, engine);
   return fs.existsSync(packageDir) ? packageDir : null;
 }
 
@@ -229,6 +211,10 @@ function getEnginePackageDir(engine: AgentEngine): string | null {
  * 使用通用工具 resolveNpmPackageEntry 解析入口文件
  */
 export function findEngineBinary(engine: AgentEngine): string | null {
+  if (engine === "nuwax-harness") {
+    return resolveHarnessRuntime()?.entryPath ?? null;
+  }
+
   // nuwaxcode：优先使用应用内打包的二进制
   if (engine === "nuwaxcode") {
     const bundledPath = getNuwaxcodeBundledBinPath();
@@ -241,13 +227,7 @@ export function findEngineBinary(engine: AgentEngine): string | null {
   const packageDir = getEnginePackageDir(engine);
   if (!packageDir) return null;
 
-  const packageName =
-    engine === "claude-code"
-      ? "claude-code"
-      : engine === "nuwaxcode"
-        ? "nuwaxcode"
-        : "nuwax-codex-acp";
-  return resolveNpmPackageEntry(packageDir, packageName);
+  return resolveNpmPackageEntry(packageDir, engine);
 }
 
 // ==================== Engine Installation ====================
@@ -259,6 +239,13 @@ export async function installEngine(
   engine: AgentEngine,
   options?: { registry?: string },
 ): Promise<{ success: boolean; error?: string }> {
+  if (engine === "nuwax-harness") {
+    return installNpmPackage(HARNESS_ACP_PACKAGE, {
+      registry: options?.registry,
+      version: HARNESS_ACP_VERSION,
+    });
+  }
+
   const engineDir = getEngineDir(engine);
 
   // 确保目录存在
@@ -266,12 +253,7 @@ export async function installEngine(
     fs.mkdirSync(engineDir, { recursive: true });
   }
 
-  const packageName =
-    engine === "claude-code"
-      ? "claude-code"
-      : engine === "nuwaxcode"
-        ? "nuwaxcode"
-        : "nuwax-codex-acp";
+  const packageName = engine;
 
   return new Promise((resolve) => {
     const npmCmd = isWindows() ? "npm.cmd" : "npm";
@@ -327,7 +309,10 @@ function generateRunId(): string {
 /**
  * 创建隔离环境
  */
-export function createIsolatedEnvironment(config: EngineConfig): {
+export function createIsolatedEnvironment(
+  config: EngineConfig,
+  harnessEnginePath?: string,
+): {
   env: Record<string, string>;
   runId: string;
   cleanup: () => void;
@@ -398,6 +383,16 @@ export function createIsolatedEnvironment(config: EngineConfig): {
     env.ANTHROPIC_MODEL = config.model;
   }
 
+  if (harnessEnginePath) {
+    applyHarnessModelEnv(config, env);
+    applyHarnessRuntimeEnv(
+      env,
+      harnessEnginePath,
+      isolatedHome,
+      path.join(getAppDataDir(), "logs", "nuwax-harness"),
+    );
+  }
+
   // 清理函数
   const cleanup = () => {
     try {
@@ -431,15 +426,21 @@ const runningEngines: Map<string, RunningEngine> = new Map();
 export async function startEngine(
   config: EngineConfig,
 ): Promise<{ success: boolean; error?: string; engineId?: string }> {
-  // 查找引擎可执行文件
-  const engineBinary = findEngineBinary(config.engine);
+  const isHarness = config.engine === "nuwax-harness";
+  const harness = isHarness ? resolveHarnessRuntime() : null;
+  const engineBinary = isHarness
+    ? harness?.entryPath
+    : findEngineBinary(config.engine);
 
   if (!engineBinary) {
     return { success: false, error: `${config.engine} not installed` };
   }
 
   // 创建隔离环境
-  const { env, runId, cleanup } = createIsolatedEnvironment(config);
+  const { env, runId, cleanup } = createIsolatedEnvironment(
+    config,
+    harness?.enginePath,
+  );
 
   // 构建启动参数
   let args: string[] = [];

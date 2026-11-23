@@ -2,6 +2,7 @@ import { ipcMain } from "electron";
 import log from "electron-log";
 import { z } from "zod";
 import { agentService } from "../services/engines/unifiedAgent";
+import { SUPPORTED_AGENT_ENGINES } from "@shared/constants";
 import type { AgentConfig } from "../services/engines/unifiedAgent";
 import {
   mcpProxyManager,
@@ -10,7 +11,7 @@ import {
 
 const agentConfigSchema = z
   .object({
-    engine: z.enum(["nuwaxcode", "claude-code", "codex", "codex-cli"]),
+    engine: z.enum(SUPPORTED_AGENT_ENGINES),
     workspaceDir: z.string(),
     apiKey: z.string().optional(),
     baseUrl: z.string().optional(),
@@ -59,11 +60,6 @@ export function registerAgentHandlers(): void {
       return invalidArgs("agent:init", parsedConfig.error.issues);
     }
     const typedConfig = parsedConfig.data as AgentConfig;
-
-    // Normalize "codex" → "codex-cli" for backward compat with AgentEngineType
-    if ((parsedConfig.data as { engine: string }).engine === "codex") {
-      typedConfig.engine = "codex-cli";
-    }
 
     log.info("[IPC] Initializing unified agent:", config.engine);
     try {

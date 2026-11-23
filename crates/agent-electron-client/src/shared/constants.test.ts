@@ -101,14 +101,16 @@ describe("Constants", () => {
       expect(SUPPORTED_AGENT_ENGINES).toEqual([
         "claude-code",
         "nuwaxcode",
-        "codex-cli",
+        "nuwax-harness",
       ]);
     });
 
     it("should normalize legacy or invalid AI engine values", () => {
       expect(isAgentEngineType("claude-code")).toBe(true);
       expect(isAgentEngineType("nuwaxcode")).toBe(true);
-      expect(isAgentEngineType("codex-cli")).toBe(true);
+      expect(isAgentEngineType("nuwax-harness")).toBe(true);
+      expect(isAgentEngineType("codex-cli")).toBe(false);
+      expect(isAgentEngineType("codex")).toBe(false);
       expect(normalizeAgentEngine("nuwaxcode")).toBe("nuwaxcode");
       expect(normalizeAgentEngine("unknown-engine")).toBe(DEFAULT_AI_ENGINE);
       expect(normalizeAgentEngine(undefined)).toBe(DEFAULT_AI_ENGINE);

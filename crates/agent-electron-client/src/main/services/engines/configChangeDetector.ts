@@ -81,6 +81,13 @@ export function detectEngineConfigChange(
   const baseUrlChanged =
     mp?.base_url != null && mp.base_url !== (currentConfig?.baseUrl || "");
 
+  // Harness 启动时选定模型请求协议，切换协议需要重新启动适配器。
+  const requestedApiProtocol = mp?.api_protocol?.trim().toLowerCase();
+  const apiProtocolChanged =
+    currentConfig?.engine === "nuwax-harness" &&
+    !!requestedApiProtocol &&
+    requestedApiProtocol !== currentConfig.apiProtocol?.trim().toLowerCase();
+
   // MCP servers 变更检测 — caller (unifiedAgent.ts) 已过滤掉 mcp-proxy bridge 入口，
   // requestMcpServersEarly 为原始格式（command=uvx/npx/...），与上次请求的原始配置做同格式比较。
   const requestMcpServers = requestMcpServersEarly;
@@ -92,6 +99,7 @@ export function detectEngineConfigChange(
     modelChanged ||
     apiKeyChanged ||
     baseUrlChanged ||
+    apiProtocolChanged ||
     mcpChanged;
 
   // 调试日志：输出触发配置变更的具体原因
@@ -135,6 +143,7 @@ export function detectEngineConfigChange(
         modelChanged,
         apiKeyChanged,
         baseUrlChanged,
+        apiProtocolChanged,
         mcpChanged,
         details: {
           currentModel: currentConfig?.model,

@@ -916,8 +916,8 @@ describe("AcpEngine.init", () => {
     await engine.destroy();
   });
 
-  it("codex-cli 使用 env API key 时应在建会话前激活 ACP auth", async () => {
-    const engine = new AcpEngine("codex-cli");
+  it("nuwax-harness 使用 env API key 时应在建会话前激活 ACP auth", async () => {
+    const engine = new AcpEngine("nuwax-harness");
     const authenticate = vi.fn().mockResolvedValue({});
 
     const mockConnection = {
@@ -936,22 +936,24 @@ describe("AcpEngine.init", () => {
     } as any;
 
     vi.spyOn(acpClient, "resolveAcpBinary").mockReturnValue({
-      binPath: "nuwax-codex-acp",
+      binPath: "/bundled/nuwax-harness-acp-ts/dist/index.js",
       binArgs: [],
-      isNative: true,
+      isNative: false,
+      harnessEnginePath: "/bundled/nuwax-harness",
     });
     vi.spyOn(acpClient, "createAcpConnection").mockResolvedValue({
       connection: mockConnection,
       process: mockProcess,
       isolatedHome: null,
       cleanup: vi.fn(),
+      harnessApiKeyAuth: true,
     } as any);
     vi.spyOn(acpClient, "loadAcpSdk").mockResolvedValue({
       PROTOCOL_VERSION: "1.0.0",
     } as any);
 
     const ok = await engine.init({
-      engine: "codex-cli",
+      engine: "nuwax-harness",
       workspaceDir: "/tmp",
       apiKey: "ak-test",
     } as any);
@@ -962,14 +964,14 @@ describe("AcpEngine.init", () => {
     await engine.destroy();
   });
 
-  it("codex-cli 鉴权激活失败不阻断 init（provider 走 env，错误留会话层暴露）", async () => {
+  it("nuwax-harness 鉴权激活失败不阻断 init（provider 走 env，错误留会话层暴露）", async () => {
     const authenticate = vi
       .fn()
       .mockRejectedValue(new Error("auth backend down"));
     const mockConnection = {
       initialize: vi.fn().mockResolvedValue({
         protocolVersion: 1,
-        agentInfo: { name: "codex-acp" },
+        agentInfo: { name: "nuwax-harness-acp-ts" },
         agentCapabilities: {},
       }),
       authenticate,
@@ -982,24 +984,26 @@ describe("AcpEngine.init", () => {
       removeAllListeners: vi.fn(),
       kill: vi.fn(),
     } as any;
-    const engine = new AcpEngine("codex-cli");
+    const engine = new AcpEngine("nuwax-harness");
     vi.spyOn(acpClient, "resolveAcpBinary").mockReturnValue({
-      binPath: "nuwax-codex-acp",
+      binPath: "/bundled/nuwax-harness-acp-ts/dist/index.js",
       binArgs: [],
-      isNative: true,
+      isNative: false,
+      harnessEnginePath: "/bundled/nuwax-harness",
     });
     vi.spyOn(acpClient, "createAcpConnection").mockResolvedValue({
       connection: mockConnection,
       process: mockProcess,
       isolatedHome: null,
       cleanup: vi.fn(),
+      harnessApiKeyAuth: true,
     } as any);
     vi.spyOn(acpClient, "loadAcpSdk").mockResolvedValue({
       PROTOCOL_VERSION: "1.0.0",
     } as any);
 
     const ok = await engine.init({
-      engine: "codex-cli",
+      engine: "nuwax-harness",
       workspaceDir: "/tmp",
       apiKey: "ak-test",
     } as any);
@@ -1010,12 +1014,12 @@ describe("AcpEngine.init", () => {
     await engine.destroy();
   });
 
-  it("codex-cli 配了自定义网关（baseUrl/CODEX_BASE_URL）时跳过 authenticate——adapter 会清空 env 网关配置致模型回退 openai", async () => {
+  it("nuwax-harness 配了自定义网关（baseUrl/NUWAX_BASE_URL）时跳过 authenticate——adapter 会清空 env 网关配置致模型回退 openai", async () => {
     const authenticate = vi.fn();
     const mockConnection = {
       initialize: vi.fn().mockResolvedValue({
         protocolVersion: 1,
-        agentInfo: { name: "codex-acp" },
+        agentInfo: { name: "nuwax-harness-acp-ts" },
         agentCapabilities: {},
       }),
       authenticate,
@@ -1028,24 +1032,26 @@ describe("AcpEngine.init", () => {
       removeAllListeners: vi.fn(),
       kill: vi.fn(),
     } as any;
-    const engine = new AcpEngine("codex-cli");
+    const engine = new AcpEngine("nuwax-harness");
     vi.spyOn(acpClient, "resolveAcpBinary").mockReturnValue({
-      binPath: "nuwax-codex-acp",
+      binPath: "/bundled/nuwax-harness-acp-ts/dist/index.js",
       binArgs: [],
-      isNative: true,
+      isNative: false,
+      harnessEnginePath: "/bundled/nuwax-harness",
     });
     vi.spyOn(acpClient, "createAcpConnection").mockResolvedValue({
       connection: mockConnection,
       process: mockProcess,
       isolatedHome: null,
       cleanup: vi.fn(),
+      harnessApiKeyAuth: false,
     } as any);
     vi.spyOn(acpClient, "loadAcpSdk").mockResolvedValue({
       PROTOCOL_VERSION: "1.0.0",
     } as any);
 
     const ok = await engine.init({
-      engine: "codex-cli",
+      engine: "nuwax-harness",
       workspaceDir: "/tmp",
       apiKey: "ak-test",
       baseUrl: "https://test-llm-proxy.nuwax.com/api/proxy/model",
@@ -1674,16 +1680,16 @@ describe("AcpEngine.chat", () => {
     );
   });
 
-  it("codex-cli: config.workspaceDir 已是项目目录时不重复拼接 cwd", async () => {
-    const engine = new AcpEngine("codex-cli");
+  it("nuwax-harness: config.workspaceDir 已是项目目录时不重复拼接 cwd", async () => {
+    const engine = new AcpEngine("nuwax-harness");
     const projectDir = path.join(
       "/tmp/workspace",
       "computer-project-workspace",
       "user-1",
-      "project-codex",
+      "project-harness",
     );
     (engine as any).config = {
-      engine: "codex-cli",
+      engine: "nuwax-harness",
       workspaceDir: projectDir,
       mcpServers: {},
     };
@@ -1692,16 +1698,16 @@ describe("AcpEngine.chat", () => {
     const createSessionSpy = vi
       .spyOn(engine, "createSession")
       .mockImplementation(async () => {
-        (engine as any).sessions.set("new-session-codex", {
-          id: "new-session-codex",
-          acpSessionId: "new-session-codex",
+        (engine as any).sessions.set("new-session-harness", {
+          id: "new-session-harness",
+          acpSessionId: "new-session-harness",
           createdAt: Date.now(),
           status: "idle",
           mcpServerCount: 0,
         });
         return {
-          id: "new-session-codex",
-          title: "project-codex",
+          id: "new-session-harness",
+          title: "project-harness",
           time: { created: Date.now() },
         } as any;
       });
@@ -1710,9 +1716,9 @@ describe("AcpEngine.chat", () => {
 
     const result = await engine.chat({
       user_id: "user-1",
-      project_id: "project-codex",
-      request_id: "rid-chat-codex-001",
-      prompt: "hello codex",
+      project_id: "project-harness",
+      request_id: "rid-chat-harness-001",
+      prompt: "hello harness",
     } as any);
 
     expect(result.success).toBe(true);

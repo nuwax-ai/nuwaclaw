@@ -22,7 +22,6 @@ import {
   getBundledGitBashPath,
   getElectronNodeBinDir,
   getNuwaxcodeBundledBinPath,
-  getCodexAcpBundledBinPath,
 } from "./binaryLocator";
 import { compareVersions } from "./dependencyUtils";
 
@@ -284,9 +283,6 @@ export function getAppEnv(opts?: GetAppEnvOptions): Record<string, string> {
     ? path.dirname(nuwaxcodeBinPath)
     : "";
 
-  const codexAcpBinPath = getCodexAcpBundledBinPath();
-  const codexAcpBinDir = codexAcpBinPath ? path.dirname(codexAcpBinPath) : "";
-
   const systemPathPaths = includeSystemPath ? getSystemPaths() : [];
 
   const priorityPathParts = [
@@ -297,7 +293,6 @@ export function getAppEnv(opts?: GetAppEnvOptions): Record<string, string> {
     uvBin,
     ripgrepBinDir,
     nuwaxcodeBinDir,
-    codexAcpBinDir,
     uvToolBinDir,
     pnpmHome,
     nodeModulesBin,

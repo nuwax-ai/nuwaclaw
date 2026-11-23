@@ -25,13 +25,14 @@ import {
   getAppEnv,
   applySharedPackageManagerCacheEnv,
   getNuwaxcodeBundledBinPath,
-  getCodexAcpBundledBinPath,
-  getCodexAcpTsBundledDir,
   getNodeBinPathWithFallback,
   getClaudeCodeAcpBundledDir,
 } from "../../system/dependencies";
 import { APP_DATA_DIR_NAME, LOGS_DIR_NAME } from "../../constants";
-import { resolveCodexAcp } from "@nuwax-ai/agent-kit";
+import { resolveHarnessRuntime } from "../../system/binaryLocator";
+import { isRetiredAcpEngineCommand, mapAgentCommand } from "../agentHelpers";
+import type { AgentEngineType } from "../types";
+import { applyHarnessModelEnv, applyHarnessRuntimeEnv } from "./harnessEnv";
 import { getAppDataDir } from "../../system/appPaths";
 import {
   resolveIsolatedHomePath,
@@ -53,10 +54,7 @@ import { firstTokenTrace } from "../perf/firstTokenTrace";
 import { resolveCustomAgentBinary } from "../../agentInstaller";
 import { buildSandboxedSpawnArgs } from "../../sandbox/sandboxProcessWrapper";
 import type { SandboxProcessConfig } from "@shared/types/sandbox";
-import {
-  applyOpenAICompatibleEnv,
-  resolveOpenAICompatModel,
-} from "./openAICompatRouting";
+import { applyOpenAICompatibleEnv } from "./openAICompatRouting";
 
 function extractSessionIdFromLine(line: string): string | undefined {
   try {
@@ -449,6 +447,7 @@ export interface AcpConnectionConfig {
   binPath: string;
   /** Binary arguments (e.g. [] for claude-code-acp-ts, ['acp'] for nuwaxcode) */
   binArgs: string[];
+  harnessEnginePath?: string;
   /** Whether the binary is a native executable (not a JS file) */
   isNative?: boolean;
   workspaceDir: string;
@@ -458,7 +457,7 @@ export interface AcpConnectionConfig {
   apiProtocol?: string;
   env?: Record<string, string>;
   /** Engine type for process registry tracking */
-  engineType?: "claude-code" | "nuwaxcode" | "codex" | "codex-cli";
+  engineType?: AgentEngineType;
   /** Purpose of this process (for process registry) */
   purpose?: "engine";
   /** Sandbox wrapping configuration (omit to disable) */
@@ -480,6 +479,8 @@ export interface AcpConnectionResult {
    * IMPORTANT: Call this before destroying the process to release Windows handles!
    */
   cleanup: () => void;
+  /** Whether the adapter needs an ACP api-key login for the direct route. */
+  harnessApiKeyAuth?: boolean;
   /** Cleanup sandbox resources (temp profiles, etc.) */
   sandboxCleanup?: () => void;
 }
@@ -566,12 +567,11 @@ function getNuwaxcodePersistentLogDir(): string {
  * Returns `isNative: true` when the binary should be spawned directly
  * (not via `node`).
  */
-export function resolveAcpBinary(
-  engine: "claude-code" | "nuwaxcode" | "codex" | "codex-cli" | (string & {}),
-): {
+export function resolveAcpBinary(engine: string): {
   binPath: string;
   binArgs: string[];
   isNative: boolean;
+  harnessEnginePath?: string;
 } {
   if (engine === "claude-code") {
     const packageDir = getAcpPackageDir("claude-code-acp-ts");
@@ -612,49 +612,23 @@ export function resolveAcpBinary(
     };
   }
 
-  // -- codex / codex-cli (backward compat) --
-
-  if (engine === "codex" || engine === "codex-cli") {
-    // env override：直接 spawn 指定的原生二进制（绕过 adapter，调试用）
-    const overridePath = (
-      process.env.NUWACLAW_CODEX_ACP_BIN ||
-      process.env.CODEX_ACP_BIN ||
-      ""
-    ).trim();
-    if (overridePath && fs.existsSync(overridePath)) {
-      log.info(`[AcpClient] codex: using env override binary: ${overridePath}`);
-      return { binPath: overridePath, binArgs: [], isNative: true };
-    }
-
-    // 优先：@nuwax-ai/nuwax-codex-acp-ts TS adapter（codex resolve 共享自 @nuwax-ai/agent-kit：
-    // resources 模式传 entryOverride；否则 agent-kit 用 require.resolve node_modules）
-    const bundledDir = getCodexAcpTsBundledDir();
-    const entryOverride = bundledDir
-      ? path.join(bundledDir, "dist", "index.js")
-      : undefined;
-    try {
-      const resolved = resolveCodexAcp(
-        entryOverride ? { entryOverride } : undefined,
-      );
-      log.info(
-        `[AcpClient] codex: using TS adapter (agent-kit): ${resolved.args[0]}`,
-      );
-      return { binPath: resolved.args[0], binArgs: [], isNative: false };
-    } catch (e) {
-      log.warn(
-        `[AcpClient] codex: TS adapter resolve failed: ${e instanceof Error ? e.message : e}`,
+  if (mapAgentCommand(engine) === "nuwax-harness") {
+    const runtime = resolveHarnessRuntime();
+    if (!runtime) {
+      throw new Error(
+        "Nuwax Harness adapter or engine binary is missing. Reinstall Nuwax Harness.",
       );
     }
+    return {
+      binPath: runtime.entryPath,
+      binArgs: [],
+      isNative: false,
+      harnessEnginePath: runtime.enginePath,
+    };
+  }
 
-    // 回退：bundled 原生二进制（旧 codex-acp）
-    const bundledPath = getCodexAcpBundledBinPath();
-    if (bundledPath) {
-      log.warn(
-        `[AcpClient] codex: TS adapter not found, falling back to bundled native binary: ${bundledPath}`,
-      );
-      return { binPath: bundledPath, binArgs: [], isNative: true };
-    }
-    return { binPath: "nuwax-codex-acp", binArgs: [], isNative: true };
+  if (isRetiredAcpEngineCommand(engine)) {
+    throw new Error("This engine has been removed. Use nuwax-harness.");
   }
 
   // Unknown engine type → try to resolve as custom agent
@@ -900,51 +874,23 @@ export async function createAcpConnection(
     }
   }
 
-  // codex-cli: inject CODEX_* env vars for nuwax-codex-acp binary
-  // nuwax-codex-acp reads these to override config.toml (CODEX_BASE_URL, CODEX_API_KEY, CODEX_MODEL)
-  const codexResolvedModel = resolveOpenAICompatModel({
-    model: config.model,
-    envModel: env.OPENCODE_MODEL || env.ANTHROPIC_MODEL || env.CODEX_MODEL,
-  });
-  applyOpenAICompatibleEnv(config, env);
-
-  if (config.engineType === "codex" || config.engineType === "codex-cli") {
-    if (config.apiKey) {
-      env.CODEX_API_KEY = config.apiKey;
-      env.OPENAI_API_KEY = config.apiKey;
-    } else if (env.OPENAI_API_KEY) {
-      env.CODEX_API_KEY = env.OPENAI_API_KEY;
-    }
-    if (codexResolvedModel?.providerModel) {
-      env.CODEX_MODEL = codexResolvedModel.providerModel;
-    }
-    const finalBaseUrl = env.OPENAI_BASE_URL || config.baseUrl;
-    if (finalBaseUrl) {
-      env.CODEX_BASE_URL = finalBaseUrl;
-    }
-    env.CODEX_PROVIDER_ID = "zhipu-glm-5";
-    // codex-acp uses Responses API by default; domestic providers often only support Chat API.
-    // Setting CODEX_WIRE_API=chat forces codex-acp to translate Chat API → Responses upstream.
-    env.CODEX_WIRE_API = "chat";
-    env.CODEX_MODEL_CONTEXT_WINDOW = "200000";
-    env.CODEX_LOG_DIR = path.join(
-      app.getPath("home"),
-      APP_DATA_DIR_NAME,
-      LOGS_DIR_NAME,
-      "codex",
+  let harnessApiKeyAuth: boolean | undefined;
+  if (config.harnessEnginePath) {
+    harnessApiKeyAuth = applyHarnessModelEnv(config, env);
+    applyHarnessRuntimeEnv(
+      env,
+      config.harnessEnginePath,
+      isolatedHome,
+      path.join(
+        app.getPath("home"),
+        APP_DATA_DIR_NAME,
+        LOGS_DIR_NAME,
+        "nuwax-harness",
+      ),
     );
-    env.RUST_LOG = "debug";
-
-    // Windows 上 codex-rs 经 Known Folder API 解析真实 ~/.codex（不吃 HOME/USERPROFILE
-    // 重定向），用户本机 .codex 状态（损坏 sqlite 库/并发 WAL 锁）会直接杀掉引擎。
-    // CODEX_HOME 整体隔离 + CODEX_SQLITE_HOME 明确 sqlite 库落点，均指
-    // isolatedHome/.codex：mac 与现状等价（HOME 重定向已生效），win 补齐隔离语义。
-    // codex 不会自建这两个目录（CODEX_HOME 校验存在性、sqlite 建库不建父目录），
-    // 必须先 mkdir；backend 显式下发同名 env 时不覆盖。
-    const codexHome = path.join(isolatedHome, ".codex");
-    fs.mkdirSync(codexHome, { recursive: true });
-    if (!env.CODEX_HOME) env.CODEX_HOME = codexHome;
-    if (!env.CODEX_SQLITE_HOME) env.CODEX_SQLITE_HOME = codexHome;
+    env.RUST_LOG ||= "debug";
+  } else {
+    applyOpenAICompatibleEnv(config, env);
   }
 
   if (isNuwaxcodeEngine) {
@@ -1004,21 +950,19 @@ export async function createAcpConnection(
           Math.min(8, Math.floor(env.OPENCODE_OPENAI_API_KEY.length / 2)),
         ) + "..."
       : "(not set)",
-    CODEX_MODEL: env.CODEX_MODEL || "(not set)",
-    CODEX_BASE_URL: env.CODEX_BASE_URL || "(not set)",
-    CODEX_PROVIDER_ID: env.CODEX_PROVIDER_ID || "(not set)",
-    CODEX_WIRE_API: env.CODEX_WIRE_API || "(not set)",
-    CODEX_MODEL_CONTEXT_WINDOW: env.CODEX_MODEL_CONTEXT_WINDOW || "(not set)",
-    CODEX_LOG_DIR: env.CODEX_LOG_DIR || "(not set)",
-    CODEX_HOME: env.CODEX_HOME || "(not set)",
-    CODEX_SQLITE_HOME: env.CODEX_SQLITE_HOME || "(not set)",
+    NUWAX_MODEL: env.NUWAX_MODEL || "(not set)",
+    NUWAX_BASE_URL: env.NUWAX_BASE_URL || "(not set)",
+    NUWAX_PROVIDER_ID: env.NUWAX_PROVIDER_ID || "(not set)",
+    NUWAX_WIRE_API: env.NUWAX_WIRE_API || "(not set)",
+    NUWAX_MODEL_CONTEXT_WINDOW: env.NUWAX_MODEL_CONTEXT_WINDOW || "(not set)",
+    NUWAX_API_PROTOCOL: env.NUWAX_API_PROTOCOL || "(not set)",
+    NUWAX_PATH: env.NUWAX_PATH || "(not set)",
+    NUWAX_LOG_DIR: env.NUWAX_LOG_DIR || "(not set)",
+    NUWAX_HOME: env.NUWAX_HOME || "(not set)",
     RUST_LOG: env.RUST_LOG || "(not set)",
-    CODEX_API_KEY: env.CODEX_API_KEY
-      ? env.CODEX_API_KEY.slice(
-          0,
-          Math.min(8, Math.floor(env.CODEX_API_KEY.length / 2)),
-        ) + "..."
-      : "(not set)",
+    HARNESS_API_KEY_SET: Boolean(
+      env.NUWAX_API_KEY || (harnessApiKeyAuth && env.OPENAI_API_KEY),
+    ),
   });
 
   // 1. Spawn ACP binary
@@ -1352,5 +1296,6 @@ export async function createAcpConnection(
     isolatedHome,
     cleanup,
     sandboxCleanup,
+    harnessApiKeyAuth,
   };
 }

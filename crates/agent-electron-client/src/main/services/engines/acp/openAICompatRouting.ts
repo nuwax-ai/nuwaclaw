@@ -1,11 +1,7 @@
-export type OpenAICompatEngineType =
-  | "claude-code"
-  | "nuwaxcode"
-  | "codex"
-  | "codex-cli";
+import type { AgentEngineType } from "../types";
 
 export interface OpenAICompatInput {
-  engineType?: OpenAICompatEngineType;
+  engineType?: AgentEngineType;
   apiProtocol?: string;
   model?: string;
   apiKey?: string;
@@ -78,7 +74,7 @@ export function applyOpenAICompatibleEnv(
   const apiProtocol = (config.apiProtocol || "").toLowerCase();
   const resolvedModel = resolveOpenAICompatModel({
     model: config.model,
-    envModel: env.OPENCODE_MODEL || env.ANTHROPIC_MODEL || env.CODEX_MODEL,
+    envModel: env.OPENCODE_MODEL || env.ANTHROPIC_MODEL,
   });
   const isOpenAICompatible =
     apiProtocol === "openai" || resolvedModel?.isOpenAICompatibleModel === true;

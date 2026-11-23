@@ -21,6 +21,10 @@ import {
 } from "@ant-design/icons";
 import {
   DEFAULT_ANTHROPIC_API_URL,
+  DEFAULT_AI_ENGINE,
+  I18N_KEYS,
+  isAgentEngineType,
+  normalizeAgentEngine,
   DEFAULT_AI_MODEL,
   normalizeOptionalPort,
 } from "@shared/constants";
@@ -34,9 +38,16 @@ interface AgentSettingsProps {
   onClose: () => void;
 }
 
+const ENGINE_BIN_NAMES: Record<AgentEngineType, string> = {
+  "claude-code": "claude-code",
+  nuwaxcode: "nuwaxcode",
+  "nuwax-harness": "nuwax-harness-acp-ts",
+};
+
 function AgentSettings({ isOpen, onClose }: AgentSettingsProps) {
-  const [agentType, setAgentType] = useState("claude-code");
-  const [binPath, setBinPath] = useState("claude");
+  const [agentType, setAgentType] =
+    useState<AgentEngineType>(DEFAULT_AI_ENGINE);
+  const [binPath, setBinPath] = useState(ENGINE_BIN_NAMES[DEFAULT_AI_ENGINE]);
   const [backendPort, setBackendPort] = useState(60001);
   const [apiKey, setApiKey] = useState("");
   const [apiBaseUrl, setApiBaseUrl] = useState(DEFAULT_ANTHROPIC_API_URL);
@@ -56,8 +67,12 @@ function AgentSettings({ isOpen, onClose }: AgentSettingsProps) {
       const saved = await window.electronAPI?.settings.get("agent_config");
       if (saved) {
         const config = saved as any;
-        setAgentType(config.type || "claude-code");
-        setBinPath(config.binPath || "claude");
+        const engine = normalizeAgentEngine(config.type);
+        setAgentType(engine);
+        setBinPath(
+          (isAgentEngineType(config.type) && config.binPath) ||
+            ENGINE_BIN_NAMES[engine],
+        );
         setBackendPort(config.backendPort || 60001);
         setApiKey(config.apiKey || "");
         setApiBaseUrl(config.apiBaseUrl || DEFAULT_ANTHROPIC_API_URL);
@@ -101,7 +116,7 @@ function AgentSettings({ isOpen, onClose }: AgentSettingsProps) {
           "step1_config",
         )) as { workspaceDir?: string } | null;
         const result = await window.electronAPI?.agent.init({
-          engine: agentType as AgentEngineType,
+          engine: agentType,
           apiKey,
           baseUrl: apiBaseUrl,
           model,
@@ -174,12 +189,7 @@ function AgentSettings({ isOpen, onClose }: AgentSettingsProps) {
               value={agentType}
               onChange={(v) => {
                 setAgentType(v);
-                const defaultBinPaths: Record<string, string> = {
-                  "claude-code": "claude-code",
-                  nuwaxcode: "nuwaxcode",
-                  codex: "nuwax-codex-acp",
-                };
-                setBinPath(defaultBinPaths[v] || v);
+                setBinPath(ENGINE_BIN_NAMES[v]);
               }}
             >
               <Select.Option value="claude-code">
@@ -210,17 +220,11 @@ function AgentSettings({ isOpen, onClose }: AgentSettingsProps) {
                   </Text>
                 </Space>
               </Select.Option>
-              <Select.Option value="codex">
+              <Select.Option value="nuwax-harness">
                 <Space>
-                  <span>Codex CLI (ACP)</span>
-                  <Tag
-                    color="orange"
-                    style={{ fontSize: 11, lineHeight: "18px" }}
-                  >
-                    OpenAI
-                  </Tag>
+                  <span>{t(I18N_KEYS.Pages.Dependencies.DEP_HARNESS)}</span>
                   <Text type="secondary" style={{ fontSize: 12 }}>
-                    OpenAI Codex
+                    {t(I18N_KEYS.Agent.HARNESS_DESC)}
                   </Text>
                 </Space>
               </Select.Option>
@@ -245,9 +249,7 @@ function AgentSettings({ isOpen, onClose }: AgentSettingsProps) {
             <Input
               value={binPath}
               onChange={(e) => setBinPath(e.target.value)}
-              placeholder={
-                agentType === "nuwaxcode" ? "nuwaxcode" : "claude-code-acp-ts"
-              }
+              placeholder={ENGINE_BIN_NAMES[agentType]}
             />
           </Form.Item>
 

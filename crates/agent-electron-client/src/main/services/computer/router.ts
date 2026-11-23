@@ -66,6 +66,10 @@ import {
   resolveComputerProjectWorkspaceDir,
 } from "../workspacePaths";
 import { getAppDataDir } from "../system/appPaths";
+import {
+  isRetiredAcpEngineCommand,
+  mapAgentCommand,
+} from "../engines/agentHelpers";
 import { parseHttpJsonBody } from "./parseHttpJsonBody";
 import {
   shouldAutoReload,
@@ -354,6 +358,18 @@ export async function handleComputerChat(
     return;
   }
 
+  if (isRetiredAcpEngineCommand(body.agent_config?.agent_server?.command)) {
+    sendJson(
+      res,
+      400,
+      httpError(
+        "ERR_AGENT_ENGINE_REMOVED",
+        "This engine has been removed. Use nuwax-harness.",
+      ),
+    );
+    return;
+  }
+
   // 兼容处理：未传 agent_work_dir 时，用 project_id 赋值。
   // 兜底必须在校验之前——project_id 不受调用方格式约束，兜底后统一过双轨校验，
   // 防其携带路径段绕过校验直入下游 path.join（历史缺口，随双轨制一并收口）。
@@ -516,7 +532,10 @@ export async function handleComputerChat(
         await import("../agentInstaller");
       const installUrl = resolvePlatformDownloadUrl(platforms);
       try {
-        if (!isBuiltinAgent(agent_id)) {
+        if (
+          !isBuiltinAgent(agent_id) &&
+          mapAgentCommand(command) !== "nuwax-harness"
+        ) {
           log.info(`[HTTP] Auto-installing agent: ${agent_id}@${version}`);
           await installFromUrl({
             agent: {

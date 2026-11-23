@@ -6,11 +6,13 @@ import * as path from "path";
 import * as fs from "fs";
 import { spawn } from "child_process";
 import log from "electron-log";
+import { HARNESS_ACP_PACKAGE } from "@nuwax-ai/agent-kit";
 import { APP_NAME_IDENTIFIER } from "@shared/constants";
 import { isWindows } from "./shellEnv";
 import { getAppDataDir } from "./appPaths";
 import { getAppEnv } from "./appEnv";
 import { detectNpmPackage } from "./dependencyChecker";
+import { ensureInstalledHarnessRuntime } from "./binaryLocator";
 
 function runNpmInstall(
   packageName: string,
@@ -51,7 +53,25 @@ function runNpmInstall(
       resolve({ success: false, error: error.message });
     });
     proc.on("close", (code) => {
-      if (code === 0) {
+      if (code === 0 && packageName === HARNESS_ACP_PACKAGE) {
+        ensureInstalledHarnessRuntime()
+          .then((runtime) =>
+            resolve({
+              success: true,
+              version: runtime.adapterVersion,
+              binPath: runtime.entryPath,
+            }),
+          )
+          .catch((error) => {
+            const message =
+              error instanceof Error ? error.message : String(error);
+            log.error(
+              "[Dependencies] Failed to prepare Nuwax Harness engine:",
+              message,
+            );
+            resolve({ success: false, error: message });
+          });
+      } else if (code === 0) {
         detectNpmPackage(packageName)
           .then((result) => {
             log.info(`[Dependencies] ${packageName} installed:`, result);

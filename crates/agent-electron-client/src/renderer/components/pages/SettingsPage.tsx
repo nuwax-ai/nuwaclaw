@@ -47,6 +47,7 @@ import {
   STORAGE_KEYS,
   I18N_KEYS,
   DEFAULT_AI_ENGINE,
+  normalizeAgentEngine,
 } from "@shared/constants";
 import type { AgentEngineType } from "@shared/types/electron";
 import { FEATURES } from "@shared/featureFlags";
@@ -162,7 +163,7 @@ export default function SettingsPage() {
         const agentConfig = (await window.electronAPI?.settings.get(
           "agent_config",
         )) as { type?: string } | null;
-        setDevEngineType(agentConfig?.type || DEFAULT_AI_ENGINE);
+        setDevEngineType(normalizeAgentEngine(agentConfig?.type));
       }
     } catch (error) {
       console.error("Failed to load config:", error);
@@ -698,8 +699,8 @@ export default function SettingsPage() {
                           label: "nuwaxcode (ACP) — OpenAI",
                         },
                         {
-                          value: "codex",
-                          label: "Codex CLI (ACP) — OpenAI",
+                          value: "nuwax-harness",
+                          label: t(I18N_KEYS.Pages.Dependencies.DEP_HARNESS),
                         },
                       ]}
                     />

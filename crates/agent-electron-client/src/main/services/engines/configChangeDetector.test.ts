@@ -88,6 +88,27 @@ describe("detectEngineConfigChange", () => {
     ).toBe(true);
   });
 
+  it("restarts Harness when the model provider changes only the protocol", () => {
+    const harness = stored({ engine: "nuwax-harness", apiProtocol: "openai" });
+    const params = {
+      ...noChangeParams,
+      requiredEngine: "nuwax-harness" as const,
+    };
+    expect(
+      detectEngineConfigChange(harness, {
+        ...params,
+        mp: { provider: "openai", api_protocol: "responses" },
+      }),
+    ).toBe(true);
+    expect(
+      detectEngineConfigChange(harness, {
+        ...params,
+        mp: { provider: "openai", api_protocol: " OpenAI " },
+      }),
+    ).toBe(false);
+    expect(detectEngineConfigChange(harness, params)).toBe(false);
+  });
+
   it("env 内容变更返回 true，相同（不同 key 顺序）不触发", () => {
     expect(
       detectEngineConfigChange(stored({ env: { FOO: "1", BAR: "2" } }), {

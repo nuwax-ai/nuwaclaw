@@ -4,7 +4,7 @@
  * - parseContextServers：ACP context_servers → 原始 MCP server 表（mcp-proxy 提取 / uv 解析）
  * - resolveRequestEngineParams：引擎类型 / env 模板 / 模型归一化
  * - resolveMcpServersForEngine：bridge 提取 + proxy bridge 启动 + agent 视角 MCP 配置
- * - buildEffectiveConfig：合成引擎有效配置（env 合并、日志目录本地化、codex cwd 覆盖）
+ * - buildEffectiveConfig：合成引擎有效配置（env 合并、日志目录本地化、Harness cwd 覆盖）
  *
  * ensureEngineForRequest 仅保留编排骨架（快速路径、变更检测、引擎重建）。
  */
@@ -43,6 +43,9 @@ export function resolveRequiredAgentEngine(args: {
     ? mapAgentCommand(args.agentCommand)
     : null;
   if (acpEngine) return acpEngine;
+  if (!args.agentCommand && args.fallbackEngine === "nuwax-harness") {
+    return args.fallbackEngine;
+  }
 
   const apiProtocol = (args.apiProtocol || "").trim().toLowerCase();
   if (apiProtocol === "anthropic") return "claude-code";
@@ -50,13 +53,13 @@ export function resolveRequiredAgentEngine(args: {
   return args.fallbackEngine ?? null;
 }
 
-function shouldNormalizeCodexModelToOpenAICompat(args: {
+function shouldNormalizeHarnessModelToOpenAICompat(args: {
   engine: AgentEngineType | null | undefined;
   apiProtocol?: string | null;
   baseUrl?: string | null;
   model?: string | null;
 }): boolean {
-  if (args.engine !== "codex-cli") return false;
+  if (args.engine !== "nuwax-harness") return false;
   const model = (args.model || "").trim();
   if (!model || model.includes("/")) return false;
   const protocol = (args.apiProtocol || "").trim().toLowerCase();
@@ -132,7 +135,7 @@ export interface ResolvedRequestEngineParams {
   requestedModel: string | undefined;
 }
 
-/** 解析本次请求要求的引擎类型、env 模板与模型（含 codex OpenAI-compat 归一化） */
+/** 解析本次请求要求的引擎类型、env 模板与模型（含 Harness OpenAI-compat 归一化） */
 export function resolveRequestEngineParams(args: {
   request: ComputerChatRequest;
   fallbackEngine: AgentEngineType | null;
@@ -141,9 +144,9 @@ export function resolveRequestEngineParams(args: {
   const { request, fallbackEngine, baseModel } = args;
   const agentServer = request.agent_config?.agent_server;
   const mp = request.model_provider;
-  // 临时调试开关：NUWACLAW_FORCE_ENGINE=codex|claude-code|nuwaxcode 强制引擎（测 codex-acp 用）
+  // 临时调试开关：NUWACLAW_FORCE_ENGINE=nuwax-harness|claude-code|nuwaxcode 强制引擎（引擎调试）
   const requiredEngine =
-    (process.env.NUWACLAW_FORCE_ENGINE as AgentEngineType | undefined) ||
+    mapAgentCommand(process.env.NUWACLAW_FORCE_ENGINE || "") ||
     resolveRequiredAgentEngine({
       agentCommand: agentServer?.command,
       apiProtocol: mp?.api_protocol,
@@ -152,24 +155,26 @@ export function resolveRequestEngineParams(args: {
   const resolvedEnv = agentServer?.env
     ? resolveAgentEnv(agentServer.env, mp)
     : undefined;
+  const compatibilityModel =
+    resolvedEnv?.OPENCODE_MODEL || resolvedEnv?.ANTHROPIC_MODEL;
+  const harnessModel = resolvedEnv?.NUWAX_MODEL;
+  const envModel =
+    requiredEngine === "nuwax-harness"
+      ? harnessModel || compatibilityModel
+      : compatibilityModel;
   const resolvedOpenAICompatModel = resolveOpenAICompatModel({
     model: mp?.model,
     defaultModel: mp?.default_model,
-    envModel:
-      resolvedEnv?.OPENCODE_MODEL ||
-      resolvedEnv?.ANTHROPIC_MODEL ||
-      resolvedEnv?.CODEX_MODEL,
+    envModel,
   });
   let requestedModel =
     resolvedOpenAICompatModel?.rawModel ||
     mp?.model ||
     mp?.default_model ||
-    resolvedEnv?.OPENCODE_MODEL ||
-    resolvedEnv?.ANTHROPIC_MODEL ||
-    resolvedEnv?.CODEX_MODEL ||
+    envModel ||
     baseModel;
   if (
-    shouldNormalizeCodexModelToOpenAICompat({
+    shouldNormalizeHarnessModelToOpenAICompat({
       engine: requiredEngine,
       apiProtocol: mp?.api_protocol,
       baseUrl: mp?.base_url,
@@ -178,7 +183,7 @@ export function resolveRequestEngineParams(args: {
   ) {
     requestedModel = `openai-compatible/${requestedModel}`;
     log.info(
-      `[UnifiedAgent] normalized codex model to OpenAI-compatible variant: ${requestedModel}`,
+      `[UnifiedAgent] normalized Harness model to OpenAI-compatible variant: ${requestedModel}`,
     );
   }
   return { requiredEngine, resolvedEnv, requestedModel };
@@ -268,7 +273,7 @@ export async function resolveMcpServersForEngine(args: {
   return freshMcpServers;
 }
 
-/** 合成引擎有效配置（env 合并、OPENCODE_LOG_DIR 本地化、codex workspaceDir 覆盖） */
+/** 合成引擎有效配置（env 合并、OPENCODE_LOG_DIR 本地化、Harness workspaceDir 覆盖） */
 export function buildEffectiveConfig(args: {
   base: AgentConfig;
   requiredEngine: AgentEngineType | null;
@@ -328,14 +333,21 @@ export function buildEffectiveConfig(args: {
     );
   }
 
+  const engine = requiredEngine || base.engine;
+  const requestBaseUrl = mp?.base_url?.trim();
+  // 换 Harness 网关时，旧网关的 key 不能作为新端点的默认凭据。
+  const changedHarnessGateway =
+    engine === "nuwax-harness" &&
+    requestBaseUrl &&
+    requestBaseUrl !== base.baseUrl?.trim();
   const effectiveConfig: AgentConfig = {
     ...base,
-    engine: requiredEngine || base.engine,
+    engine,
     customEngineCommand: customEngineCommand || base.customEngineCommand,
     customEngineArgs: customEngineArgs || base.customEngineArgs,
     customAgentId:
       request.agent_config?.agent_server?.agent_id || base.customAgentId,
-    apiKey: mp?.api_key || base.apiKey,
+    apiKey: mp?.api_key || (changedHarnessGateway ? undefined : base.apiKey),
     baseUrl: mp?.base_url || base.baseUrl,
     model,
     apiProtocol: mp?.api_protocol || base.apiProtocol,
@@ -343,11 +355,11 @@ export function buildEffectiveConfig(args: {
     mcpServers: freshMcpServers,
   };
 
-  // codex 经 @nuwax-ai/nuwax-codex-acp-ts adapter 时，adapter spawn codex 二进制
+  // Harness 经 @nuwax-ai/nuwax-harness-acp-ts adapter 时，adapter 启动 Harness 引擎
   // 不传 cwd（继承 adapter 进程 cwd），故仍需在 nuwaclaw 侧把 spawn workspaceDir
-  // 定到 project workspace，确保 codex 工作目录正确
+  // 定到 project workspace，确保 Harness 工作目录正确
   const workDirId = request.agent_work_dir || request.project_id;
-  if (requiredEngine === "codex-cli" && workDirId && request.user_id) {
+  if (requiredEngine === "nuwax-harness" && workDirId && request.user_id) {
     if (
       path.isAbsolute(workDirId) &&
       // 容器物化形态（/home/user/normalProject/{pid}）不是本机目录，须经
@@ -356,7 +368,7 @@ export function buildEffectiveConfig(args: {
       extractNormalProjectContainerPid(workDirId) === null
     ) {
       // 绝对路径轨道（web 端工作空间选择）：入口已校验存在/可写并归一化，
-      // 直接作为 codex 工作目录，不走 workspace 拼接、不 mkdir。
+      // 直接作为 Harness 工作目录，不走 workspace 拼接、不 mkdir。
       effectiveConfig.workspaceDir = workDirId;
     } else {
       // 三轨目录推导与 acpSessionSetup 同源（normalProject 业务加 normalProject/
@@ -373,7 +385,7 @@ export function buildEffectiveConfig(args: {
       }
     }
     log.info(
-      `[UnifiedAgent] 🎯 codex-cli workspaceDir overridden to: ${effectiveConfig.workspaceDir}`,
+      `[UnifiedAgent] 🎯 nuwax-harness workspaceDir overridden to: ${effectiveConfig.workspaceDir}`,
     );
   }
 

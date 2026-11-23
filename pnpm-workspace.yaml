@@ -1,6 +1,6 @@
 packages:
   - 'crates/*'
-  # agent-kit 走 npm 发布版独立维护,不再作为 workspace 成员
+  # agent-kit 预构建后以 file: 安装，不作为 workspace 成员
   # (避免 electron-builder asar 拒绝符号链接到外部的 workspace 包)
   - '!crates/agent-kit'
 
@@ -8,6 +8,7 @@ packages:
 confirmModulesPurge: false
 
 allowBuilds:
+  '@nuwax-ai/nuwax-harness': true
   better-sqlite3: true
   electron: true
   esbuild: true

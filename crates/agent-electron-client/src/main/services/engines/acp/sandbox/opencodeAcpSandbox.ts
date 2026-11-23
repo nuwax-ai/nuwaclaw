@@ -1,5 +1,5 @@
 /**
- * OpenCode-family ACP engines (nuwaxcode, codex-cli, …).
+ * OpenCode-family ACP engines (nuwaxcode and opencode).
  *
  * Shared OPENCODE_CONFIG_CONTENT.sandbox contract — not tied to a single binary name.
  * Engine-specific bundled paths are resolved via acpEngineSandbox.ts.

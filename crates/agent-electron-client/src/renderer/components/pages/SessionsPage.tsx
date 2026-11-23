@@ -15,6 +15,7 @@ import {
 } from "@ant-design/icons";
 import { t } from "../../services/core/i18n";
 import type { BrowserTarget } from "./BrowserHomePage";
+import { I18N_KEYS } from "@shared/constants";
 import type { DetailedSession } from "@shared/types/sessions";
 import styles from "../../styles/components/SessionsPage.module.css";
 
@@ -110,8 +111,10 @@ function SessionsPage({ onOpenInBrowser }: SessionsPageProps) {
     if (session.engineType === "claude-code") {
       return <Tag color="blue">{t("Claw.Sessions.engine01")}</Tag>;
     }
-    if (session.engineType === "codex-cli") {
-      return <Tag color="orange">{t("Claw.Sessions.engine03")}</Tag>;
+    if (session.engineType === "nuwax-harness") {
+      return (
+        <Tag color="orange">{t(I18N_KEYS.Pages.Dependencies.DEP_HARNESS)}</Tag>
+      );
     }
     return <Tag color="purple">{t("Claw.Sessions.engine02")}</Tag>;
   };

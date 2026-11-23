@@ -133,7 +133,7 @@ export const DEFAULT_AI_ENGINE: AgentEngineType = "claude-code";
 export const SUPPORTED_AGENT_ENGINES = [
   "claude-code",
   "nuwaxcode",
-  "codex-cli",
+  "nuwax-harness",
 ] as const satisfies readonly AgentEngineType[];
 
 export function isAgentEngineType(value: unknown): value is AgentEngineType {
@@ -299,6 +299,7 @@ export const DEFAULT_MCP_PROXY_HOST = LOCALHOST_IP;
  * 后端 /api/i18n/query 返回的翻译 map 以这些 key 为键
  */
 export const I18N_KEYS = {
+  Agent: { HARNESS_DESC: "Claw.Agent.harnessDesc" },
   // 通用 Common
   Common: {
     LOADING: "Claw.Common.loading",
@@ -476,7 +477,7 @@ export const I18N_KEYS = {
       DEP_FILE_SERVER: "Claw.Pages.Dependencies.dep.fileServer",
       DEP_MCP_PROXY: "Claw.Pages.Dependencies.dep.mcpProxy",
       DEP_NUWAXCODE: "Claw.Pages.Dependencies.dep.nuwaxcode",
-      DEP_CODEX_ACP: "Claw.Pages.Dependencies.dep.codexAcp",
+      DEP_HARNESS: "Claw.Pages.Dependencies.dep.harness",
       DEP_RIPGREP: "Claw.Pages.Dependencies.dep.ripgrep",
 
       // 依赖描述
@@ -487,7 +488,7 @@ export const I18N_KEYS = {
       DESC_FILE_SERVER: "Claw.Pages.Dependencies.desc.fileServer",
       DESC_MCP_PROXY: "Claw.Pages.Dependencies.desc.mcpProxy",
       DESC_NUWAXCODE: "Claw.Pages.Dependencies.desc.nuwaxcode",
-      DESC_CODEX_ACP: "Claw.Pages.Dependencies.desc.codexAcp",
+      DESC_HARNESS: "Claw.Pages.Dependencies.desc.harness",
       DESC_RIPGREP: "Claw.Pages.Dependencies.desc.ripgrep",
 
       // 版本要求

@@ -61,7 +61,7 @@ export function isSessionIdCompatibleWithEngine(
     return !isOpenCodeSes;
   }
 
-  // codex / 自定义等：形态未知，交给 load + 超时兜底
+  // nuwax-harness / 自定义等：形态未知，交给 load + 超时兜底
   return true;
 }
 
@@ -107,7 +107,7 @@ export interface AcpSessionLike {
 export interface SessionSetupDeps {
   logTag: string;
   workspaceDir: string;
-  /** 当前 ACP 引擎名（claude-code / nuwaxcode / codex…），用于跨引擎 sessionId 形态校验 */
+  /** 当前 ACP 引擎名（claude-code / nuwaxcode / nuwax-harness…），用于跨引擎 sessionId 形态校验 */
   engineName: string;
   agentCapabilities: Record<string, unknown> | null;
   getSession(sessionId: string): AcpSessionLike | undefined;
@@ -148,7 +148,7 @@ export function buildWorkDirAndProjectDir(
 ): { workDirId: string; projectDir: string } {
   const rawWorkDirId =
     request.agent_work_dir || request.project_id || `proj-${Date.now()}`;
-  // 三轨目录推导收敛到 resolveAgentProjectDir 单一事实源（与 codex workspaceDir
+  // 三轨目录推导收敛到 resolveAgentProjectDir 单一事实源（与 Harness workspaceDir
   // 覆盖、devcomputer reload 归档同源，防实现漂移）
   const projectDir = resolveAgentProjectDir(
     deps.workspaceDir,

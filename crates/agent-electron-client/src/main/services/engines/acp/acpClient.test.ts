@@ -33,7 +33,6 @@ vi.mock("../../system/dependencies", () => ({
     (env: Record<string, string>) => env,
   ),
   getNuwaxcodeBundledBinPath: vi.fn(() => null),
-  getCodexAcpBundledBinPath: vi.fn(() => null),
   getNodeBinPathWithFallback: () => mockGetNodeBinPathWithFallback(),
   getClaudeCodeAcpBundledDir: vi.fn(() => null),
 }));
@@ -175,4 +174,16 @@ describe("resolveAcpBinary — custom node agent", () => {
     expect(resolved.binPath).toBe("node");
     expect(mockResolveCustomAgentBinary).toHaveBeenCalledWith("node");
   });
+});
+
+describe("removed ACP engine", () => {
+  it.each(["codex", "codex-cli", "nuwax-codex-acp-ts", "C:\\tools\\codex.exe"])(
+    'rejects "%s" before custom executable discovery',
+    async (command) => {
+      mockResolveCustomAgentBinary.mockClear();
+      const { resolveAcpBinary } = await import("./acpClient");
+      expect(() => resolveAcpBinary(command)).toThrow("Use nuwax-harness");
+      expect(mockResolveCustomAgentBinary).not.toHaveBeenCalled();
+    },
+  );
 });

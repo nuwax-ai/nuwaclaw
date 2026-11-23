@@ -80,12 +80,12 @@ export function registerDependencyHandlers(): void {
     }
   });
 
-  /** 检测应用包内集成的 nuwax-codex-acp */
-  ipcMain.handle("dependencies:checkCodexAcpBundled", async () => {
-    const { checkCodexAcpBundled } =
+  /** 检测 Nuwax Harness 适配器及配套引擎 */
+  ipcMain.handle("dependencies:checkHarnessAvailable", async () => {
+    const { checkHarnessAvailable } =
       await import("../services/system/dependencies");
     try {
-      const result = await checkCodexAcpBundled();
+      const result = await checkHarnessAvailable();
       return { success: true, ...result };
     } catch (error) {
       return { success: false, available: false, error: String(error) };

@@ -1,7 +1,7 @@
 // @nuwax-ai/agent-kit — shared agent/ACP logic for nuwa-cli & nuwaclaw.
 //
-// First slice: engine (binary) resolution. The codex ACP adapter is resolved
-// via require.resolve against the @nuwax-ai/nuwax-codex-acp-ts package, so both
+// First slice: engine (binary) resolution. The Nuwax Harness ACP adapter is resolved
+// via require.resolve against the @nuwax-ai/nuwax-harness-acp-ts package, so both
 // hosts converge on one strategy instead of one bundling it and the other
 // npm-resolving it.
 
@@ -22,7 +22,7 @@ const runtimeRequire = createRequire(
 
 /**
  * Resolve an installed package's entry specifier (e.g.
- * "@nuwax-ai/nuwax-codex-acp-ts/dist/index.js") to an absolute path via
+ * "@nuwax-ai/nuwax-harness-acp-ts/dist/index.js") to an absolute path via
  * `require.resolve`. Safe under both ESM (createRequire) and CJS (esbuild
  * rewrites import.meta.url for the cjs build). Throws a friendly error if the
  * dependency is missing — callers should hint `npm install`.
@@ -69,27 +69,27 @@ export function resolveNodePackage(
   return { command: process.execPath, args: [entry] };
 }
 
-export const CODEX_ACP_PACKAGE = "@nuwax-ai/nuwax-codex-acp-ts";
-export const CODEX_ACP_ENTRY = `${CODEX_ACP_PACKAGE}/dist/index.js`;
+export const HARNESS_ACP_PACKAGE = "@nuwax-ai/nuwax-harness-acp-ts";
+export const HARNESS_ACP_ENTRY = `${HARNESS_ACP_PACKAGE}/dist/index.js`;
 export const CLAUDE_ACP_PACKAGE = "claude-code-acp-ts";
 export const CLAUDE_ACP_ENTRY = `${CLAUDE_ACP_PACKAGE}/dist/index.js`;
 
 /**
- * Resolve the codex ACP adapter to a spawn target: `node <entry>`, where entry
- * is require.resolve'd from @nuwax-ai/nuwax-codex-acp-ts. Host-specific env
- * (e.g. nuwa-cli's CODEX_LOG_DIR) is left for the caller to overlay on
+ * Resolve the Nuwax Harness ACP adapter to a spawn target: `node <entry>`, where entry
+ * is require.resolve'd from @nuwax-ai/nuwax-harness-acp-ts. Host-specific env
+ * (e.g. NUWAX_LOG_DIR) is left for the caller to overlay on
  * `envOverlay`.
  *
  * `entryOverride` lets hosts that resolve the adapter by a non-require.resolve
  * mechanism (e.g. nuwaclaw's Electron `resources/` bundling) pass the absolute
  * entry path; defaults to require.resolve for npm-installed hosts (nuwa-cli).
  */
-export function resolveCodexAcp(opts?: {
+export function resolveHarnessAcp(opts?: {
   entryOverride?: string;
 }): EngineResolution {
   return resolveNodePackage({
-    packageName: CODEX_ACP_PACKAGE,
-    entrySpecifier: CODEX_ACP_ENTRY,
+    packageName: HARNESS_ACP_PACKAGE,
+    entrySpecifier: HARNESS_ACP_ENTRY,
     entryOverride: opts?.entryOverride,
   });
 }
@@ -122,7 +122,7 @@ export * from "./proxyBridge.js";
 // MCP npx cache warmup state machine. Hosts inject command/env/state adapters.
 export * from "./mcpCacheWarmup.js";
 
-// Cross-engine MCP ask-question tool update normalization. Codex and Claude
+// Cross-engine MCP ask-question tool update normalization. Nuwax Harness and Claude
 // expose the same MCP result through different ACP payload shapes; hosts use
 // this boundary helper before forwarding updates to Web/Mobile clients.
 export * from "./mcpAskToolUpdate.js";

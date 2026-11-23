@@ -38,7 +38,7 @@
     "prepare:sandboxed-mcp": "node scripts/prepare/prepare-sandboxed-mcp.js",
     "verify:sandboxed-mcp": "node scripts/verify-sandboxed-mcp-bundle.mjs",
     "prepare:nuwaxcode": "node scripts/prepare/prepare-nuwaxcode.js",
-    "prepare:codex-acp-ts": "node scripts/prepare/prepare-codex-acp-ts.js",
+    "prepare:harness": "node scripts/prepare/prepare-harness.js",
     "prepare:sandbox-runtime": "node scripts/prepare/prepare-sandbox-runtime.js",
     "build:sandbox-helper": "node scripts/prepare/build-sandbox-helper.js",
     "prepare:sandbox-helper-win": "node scripts/prepare/prepare-sandbox-helper-windows.js",
@@ -80,7 +80,7 @@
     "@modelcontextprotocol/sdk": "^1.27.1",
     "@nuwax-ai/agent-kit": "0.4.0",
     "@nuwax-ai/mcp-proxy-ts": "1.5.4",
-    "@nuwax-ai/nuwax-codex-acp-ts": "^1.2.8",
+    "@nuwax-ai/nuwax-harness-acp-ts": "1.2.49",
     "@uiw/react-json-view": "2.0.0-alpha.42",
     "@uiw/react-textarea-code-editor": "^3.1.1",
     "adm-zip": "^0.5.16",
@@ -299,8 +299,8 @@
         ]
       },
       {
-        "from": "resources/nuwax-codex-acp-ts",
-        "to": "nuwax-codex-acp-ts",
+        "from": "resources/nuwax-harness-acp-ts",
+        "to": "nuwax-harness-acp-ts",
         "filter": [
           "**/*",
           "!**/node_modules/.bin/**"

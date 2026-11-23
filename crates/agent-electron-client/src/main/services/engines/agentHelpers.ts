@@ -8,15 +8,18 @@ export function mapAgentCommand(command: string): AgentEngineType | null {
   if (command === "nuwaxcode") return "nuwaxcode";
   if (command === "claude-code" || command === "claude-code-acp-ts")
     return "claude-code";
-  if (
-    command === "codex-cli" ||
-    command === "codex-acp" ||
-    command === "nuwax-codex-acp" ||
-    command === "nuwax-codex-acp-ts"
-  ) {
-    return "codex-cli";
-  }
+  if (command === "nuwax-harness" || command === "nuwax-harness-acp-ts")
+    return "nuwax-harness";
   return null;
+}
+
+/** Reject retired executables before custom agent discovery or automatic installation. */
+export function isRetiredAcpEngineCommand(command: unknown): boolean {
+  if (typeof command !== "string") return false;
+  const name = command.trim().split(/[/\\]/).pop() ?? "";
+  return /^(?:nuwax-)?codex(?:-cli|-acp(?:-ts)?)?(?:\.(exe|cmd|bat))?$/i.test(
+    name,
+  );
 }
 
 /**

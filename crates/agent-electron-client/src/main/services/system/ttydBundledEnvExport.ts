@@ -25,7 +25,6 @@ export const BUNDLED_PATH_MARKERS = [
   "/resources/ripgrep",
   "/resources/git",
   "/resources/nuwaxcode",
-  "/resources/codex",
   "/resources/ttyd",
   "/electron/dist/node_modules/bin",
   "electron framework.framework",

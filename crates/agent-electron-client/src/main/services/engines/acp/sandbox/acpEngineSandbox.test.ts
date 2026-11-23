@@ -19,17 +19,23 @@ const windowsSandbox: SandboxProcessConfig = {
 };
 
 describe("acpEngineSandbox", () => {
-  it("nuwaxcode and codex-cli share opencode-acp family", () => {
+  it("uses OpenCode-specific configuration only for the OpenCode family", () => {
     expect(OPENCODE_ACP_ENGINE_IDS.has("nuwaxcode")).toBe(true);
-    expect(OPENCODE_ACP_ENGINE_IDS.has("codex-cli")).toBe(true);
     expect(getAcpEngineSandboxCapabilities("nuwaxcode").family).toBe(
-      "opencode-acp",
-    );
-    expect(getAcpEngineSandboxCapabilities("codex-cli").family).toBe(
       "opencode-acp",
     );
     expect(isOpencodeAcpEngine("nuwaxcode")).toBe(true);
     expect(isOpencodeAcpEngine("claude-code")).toBe(false);
+  });
+
+  it("uses the Harness profile with strict guarding and session MCP", () => {
+    const caps = getAcpEngineSandboxCapabilities("nuwax-harness");
+    expect(caps.family).toBe("harness-acp");
+    expect(caps.usesOpencodeSpawnConfig).toBe(false);
+    expect(caps.supportsStrictSessionGuard).toBe(true);
+    expect(usesSandboxedMcpAtSession("nuwax-harness", windowsSandbox)).toBe(
+      true,
+    );
   });
 
   it("claude-code does not use OPENCODE spawn sandbox config", () => {

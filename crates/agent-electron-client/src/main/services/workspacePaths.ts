@@ -101,7 +101,7 @@ export function findNormalProjectWorkspaceByProjectId(
 }
 
 /**
- * 会话项目目录三轨推导的单一事实源（chat 引擎 cwd / codex workspaceDir 覆盖 /
+ * 会话项目目录三轨推导的单一事实源（chat 引擎 cwd / Harness workspaceDir 覆盖 /
  * devcomputer reload 会话归档共用，防三处实现漂移）。输入 workDirId 为入口
  * （router/IPC）归一化后的 agent_work_dir 或 project_id：
  * - normalProject 业务（service_type 判定；容器物化形态归一为 pid 防御绕过

@@ -1,8 +1,7 @@
 /**
  * Per-engine sandbox capabilities for ACP handlers.
  *
- * Add new engines by extending OPENCODE_ACP_ENGINES or CLAUDE_CODE_ALIASES —
- * avoid scattering `engineName === "nuwaxcode"` in acpEngine.ts.
+ * Engine profiles keep sandbox and permission behavior in one place.
  */
 
 import type { SandboxProcessConfig } from "@shared/types/sandbox";
@@ -24,22 +23,12 @@ const NO_OPENCODE_SPAWN_SANDBOX_RESULT: ApplyOpencodeSandboxConfigResult = {
 export type AcpEngineSandboxFamily =
   | "opencode-acp"
   | "claude-code-acp"
+  | "harness-acp"
   | "unknown";
 
-/** Bundled resources folder name under `resources/` */
-const OPENCODE_ENGINE_RESOURCE_DIRS: Record<string, string> = {
-  nuwaxcode: "nuwaxcode",
-  "codex-cli": "codex-acp",
-  opencode: "opencode",
-};
-
-/**
- * Engines that use OPENCODE_CONFIG_CONTENT + optional NUWAX_AGENT_SANDBOX_CONFIG.
- * Register codex-cli here when wired in agent_config.
- */
+/** Engines that support OpenCode-specific process and sandbox configuration. */
 export const OPENCODE_ACP_ENGINE_IDS = new Set<string>([
   "nuwaxcode",
-  "codex-cli",
   "opencode",
 ]);
 
@@ -65,48 +54,45 @@ export interface AcpEngineSandboxCapabilities {
   ): ApplyOpencodeSandboxConfigResult;
 }
 
-function resolveOpencodeResourceDir(engineId: string): string {
-  return OPENCODE_ENGINE_RESOURCE_DIRS[engineId] ?? engineId;
-}
-
 function createOpencodeCapabilities(
   engineId: string,
 ): AcpEngineSandboxCapabilities {
-  const resourceDir = resolveOpencodeResourceDir(engineId);
   return {
     family: "opencode-acp",
     engineId,
     usesOpencodeSpawnConfig: true,
     usesOpencodePromptBehaviors: true,
     supportsStrictSessionGuard: true,
-    readBundledVersion: () => readBundledOpencodeEngineVersion(resourceDir),
+    readBundledVersion: () => readBundledOpencodeEngineVersion(engineId),
     usesCompatMcpLayer(sandboxConfig?: SandboxProcessConfig) {
       if (!sandboxConfig?.enabled || sandboxConfig.type === "none") {
         return false;
       }
-      const version = readBundledOpencodeEngineVersion(resourceDir);
+      const version = readBundledOpencodeEngineVersion(engineId);
       return !usesNativeOpencodeSandbox(version);
     },
     applyOpencodeSpawnSandbox: (options) =>
       applyOpencodeSandboxToOpenCodeConfig({
         ...options,
         engineVersion:
-          options.engineVersion ??
-          readBundledOpencodeEngineVersion(resourceDir),
+          options.engineVersion ?? readBundledOpencodeEngineVersion(engineId),
       }),
   };
 }
 
 function createNonOpencodeCapabilities(
-  family: "claude-code-acp" | "unknown",
+  family: "claude-code-acp" | "harness-acp" | "unknown",
   engineId: string,
 ): AcpEngineSandboxCapabilities {
   return {
     family,
     engineId,
     usesOpencodeSpawnConfig: false,
-    usesCompatMcpLayer: () => false,
-    supportsStrictSessionGuard: false,
+    usesCompatMcpLayer: (sandboxConfig) =>
+      family === "harness-acp" &&
+      !!sandboxConfig?.enabled &&
+      sandboxConfig.type !== "none",
+    supportsStrictSessionGuard: family === "harness-acp",
     usesOpencodePromptBehaviors: false,
     readBundledVersion: () => undefined,
     applyOpencodeSpawnSandbox: () => ({ ...NO_OPENCODE_SPAWN_SANDBOX_RESULT }),
@@ -118,6 +104,9 @@ const opencodeProfileCache = new Map<string, AcpEngineSandboxCapabilities>();
 export function getAcpEngineSandboxCapabilities(
   engineId: string,
 ): AcpEngineSandboxCapabilities {
+  if (engineId === "nuwax-harness") {
+    return createNonOpencodeCapabilities("harness-acp", engineId);
+  }
   if (CLAUDE_CODE_ENGINE_IDS.has(engineId)) {
     return createNonOpencodeCapabilities("claude-code-acp", engineId);
   }

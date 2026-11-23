@@ -6,7 +6,7 @@
     "prepare": "husky",
     "test:electron": "cd crates/agent-electron-client && npm run test:run",
     "test:electron:scripts": "cd crates/agent-electron-client && npm run test:scripts",
-    "update:codex-acp": "pnpm -C crates/agent-kit update @nuwax-ai/nuwax-codex-acp-ts --ignore-workspace && pnpm -r update @nuwax-ai/nuwax-codex-acp-ts"
+    "update:harness": "pnpm -C crates/agent-kit update @nuwax-ai/nuwax-harness-acp-ts --ignore-workspace && pnpm -r update @nuwax-ai/nuwax-harness-acp-ts"
   },
   "devDependencies": {
     "husky": "^9",
@@ -43,7 +43,7 @@
       "lodash": ">=4.17.31"
     },
     "onlyBuiltDependencies": [
-      "@nuwax-ai/nuwax-codex-acp-ts",
+      "@nuwax-ai/nuwax-harness",
       "electron",
       "better-sqlite3",
       "esbuild",

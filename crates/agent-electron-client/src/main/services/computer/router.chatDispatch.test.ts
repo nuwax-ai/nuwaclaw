@@ -102,6 +102,23 @@ describe("handleComputerChat promptDispatched", () => {
     });
   });
 
+  it("rejects the retired engine before handing the request to the agent service", async () => {
+    const res = mockResponse();
+    await handleComputerChat(
+      {} as IncomingMessage,
+      res,
+      {
+        ...baseChatBody,
+        agent_config: { agent_server: { command: "codex-cli" } },
+      },
+      "computer",
+    );
+
+    expect(res.writeHead).toHaveBeenCalledWith(400, expect.anything());
+    expect(JSON.parse(res.body!).code).toBe("ERR_AGENT_ENGINE_REMOVED");
+    expect(mockEnsureEngine).not.toHaveBeenCalled();
+  });
+
   it("promptDispatched false 时不更新 project session registry", async () => {
     mockChat.mockResolvedValue({
       code: "0000",

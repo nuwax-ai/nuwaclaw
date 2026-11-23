@@ -239,17 +239,17 @@ async function afterSignMac(context) {
     }
   }
 
-  // 5c. 签名 resources/nuwax-codex-acp-ts（原生 codex 二进制；vendor/ 非隐藏路径）
+  // 5c. 签名 resources/nuwax-harness-acp-ts（原生 Harness 二进制；vendor/ 非隐藏路径）
   //     prepare 仅做了 ad-hoc 占位签名，这里用 Developer ID 覆盖，否则带 quarantine 的
   //     ad-hoc 二进制会触发 Gatekeeper「无法验证开发者」弹窗。
-  const codexAcpTsPath = path.join(resourcesPath, 'nuwax-codex-acp-ts', 'vendor', 'nuwax-codex');
-  if (fs.existsSync(codexAcpTsPath)) {
-    const codexFiles = findExecutables(codexAcpTsPath);
-    console.log(`[after-sign] 找到 nuwax-codex-acp-ts 可执行文件: ${codexFiles.length} 个`);
-    for (const file of codexFiles) {
+  const harnessAcpPath = path.join(resourcesPath, 'nuwax-harness-acp-ts', 'vendor', 'nuwax-harness');
+  if (fs.existsSync(harnessAcpPath)) {
+    const harnessFiles = findExecutables(harnessAcpPath);
+    console.log(`[after-sign] 找到 nuwax-harness-acp-ts 可执行文件: ${harnessFiles.length} 个`);
+    for (const file of harnessFiles) {
       if (file.includes('.cache')) continue;
-      const relative = path.relative(codexAcpTsPath, file);
-      console.log(`[after-sign] 签名 nuwax-codex-acp-ts/vendor/nuwax-codex/${relative}`);
+      const relative = path.relative(harnessAcpPath, file);
+      console.log(`[after-sign] 签名 nuwax-harness-acp-ts/vendor/nuwax-harness/${relative}`);
       codesign(file, identity);
     }
   }
@@ -291,12 +291,12 @@ async function afterSignMac(context) {
       console.log('[after-sign] 公证成功！');
 
       // 8b. 给 Resources 内独立签名的二进制嵌公证票据 (staple)
-      //     app 顶层 staple 覆盖不到 Contents/Resources/ 里独立 Mach-O（如 codex）
+      //     app 顶层 staple 覆盖不到 Contents/Resources/ 里独立 Mach-O（如 Nuwax Harness）
       //     的单独评估；首次 spawn 会触发 syspolicyd 在线查公证（系统进度条）。
       //     staple 把票据嵌进签名，本地验证、不再在线查。staple 不改 cdhash，不破坏 seal。
       console.log('[after-sign] 给内部二进制嵌公证票据 (staple)...');
       const stapleDirs = [
-        path.join(resourcesPath, 'nuwax-codex-acp-ts', 'vendor', 'nuwax-codex'),
+        path.join(resourcesPath, 'nuwax-harness-acp-ts', 'vendor', 'nuwax-harness'),
         path.join(resourcesPath, 'node'),
         path.join(resourcesPath, 'uv'),
         path.join(resourcesPath, 'lanproxy'),
@@ -476,12 +476,12 @@ async function afterSignWindows(context) {
     totalFailed += result.failed;
   }
 
-  // 9. 签名 nuwax-codex-acp-ts（原生 codex 二进制 nuwax-codex.exe）
+  // 9. 签名 nuwax-harness-acp-ts（原生 Harness 二进制 nuwax-harness.exe）
   //    signDirectory 按扩展名(.exe/.dll)筛选，dist/index.js 等非可执行文件会被忽略。
-  const codexAcpTsPath = path.join(resourcesPath, 'nuwax-codex-acp-ts');
-  if (fs.existsSync(codexAcpTsPath)) {
-    console.log('[after-sign] Windows: 签名 nuwax-codex-acp-ts...');
-    const result = signWin.signDirectory(codexAcpTsPath);
+  const harnessAcpPath = path.join(resourcesPath, 'nuwax-harness-acp-ts');
+  if (fs.existsSync(harnessAcpPath)) {
+    console.log('[after-sign] Windows: 签名 nuwax-harness-acp-ts...');
+    const result = signWin.signDirectory(harnessAcpPath);
     totalSigned += result.success;
     totalFailed += result.failed;
   }
